@@ -1,0 +1,71 @@
+# Owner Operator Runs D/E fallow refactor
+
+## Contract and classification
+
+Standard size (the intake schema's equivalent of the user's medium), high risk, mixed surface, database-touching. Refactor only: clear the twelve requested findings without a behavior, schema, dependency, flag, model schema, or existing exported contract change. Existing tests and assertions remain unchanged; `tests_to_add` is deliberately empty because the user explicitly requires the existing characterization and concurrency proof and prohibits new Apply assertions. Do not expand scope to informational length findings.
+
+Read the Owner Operator glossary and spec sections 5.2, 6.4 and 6.6; the Runs C/D/E red-team sidecars identify the regression contract. Apply the nearest path rules before each edit. All repository commands and edits use `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor`.
+
+The root handles decisions and artifact review. The user explicitly approved GPT-6 Astra for every writing subagent in place of unavailable Opus. Independent plan and implementation review axes stay read-only and inspect fixed committed SHAs. The adversarial verifier follows `.agents/skills/red-team/SKILL.md`: reversible journaled mutations, no active watchers, scrubbed environment, complete candidate inventory, and root-owned finalization restoring mutations and dotenv before reports. Its brief specifically asks for any behavior delta in `apply.ts`. Workflow intake, plan and review records are support artifacts of the invoked guarded workflow; the production edit surface remains the user's surface.
+
+## Verified deltas and evidence
+
+The requested `de433450` and `4cfaac0b` refs do not resolve after fetching origin. GitHub PR #1278 identifies pre-Run-C base `6b2eb580940480c6a9b304f3e69c0d7a3bb04f29`; PR #1291 identifies pre-Run-D base `a95478037fb662cae6ce2e4cc1eb89671016b492`. Before implementation the root must validate these fallback audits against changed-file scope and raw reported findings, pin the actual implementation merge-base, and retain before outputs. Never present fallback outputs as outputs of the unavailable SHAs or infer missing numeric values from the truncated request.
+
+The reported route clones are GET reads: they perform flag then `requireOwnerWithAccount`. The existing `src/app/api/operator/gate.ts` owns the write gate: its `withSameOrigin` wrapper runs outside the handler, before flag → writable owner → impersonation. Add a shared read helper there if appropriate; preserve each gate's actual semantics and responses exactly. Adding write restrictions to reads would violate the overriding no-behavior-change rule.
+
+The root has verified that the fallback baseline reproduces the eight named complexity findings and two clone groups. Fallow 3.16 also reports estimated-coverage CRAP-only findings (21 total in C scope, 20 in D scope; 14 and 12 introduced respectively). Real-coverage runs may provide separately labeled CI-parity evidence, but never replace the requested raw historical-base static audits. In-scope CRAP findings cannot be waived by category. The two reported runner unused-file findings are absent even before exclusion (`dead_code: 0`): those scripts are already archived as `*.mjs.txt`. Report this archival fact and the requested exclusion separately, never as reproduced failures.
+
+**Acceptance clarification:** the user's T7 says zero complexity and duplication **in operator files**, together with passing historical audits and the PR's fallow job. Earlier plan wording promising globally empty reports was overbroad. Both raw historical audits must exit zero with no introduced findings and no operator complexity or duplication findings, including CRAP. Five inherited unrelated CRAP diagnostics remain outside the authorized work: `computeAfterState`, `applyMutation`, `upsertAfter` and `toApiState` in `src/lib/auto-approval/settings.ts`, plus an arrow function in `OutboxPoller`. Report them faithfully; this is neither an in-scope waiver nor authorization to refactor them. Both historical audits now pass on the uncommitted candidate: exit zero, zero dead-code findings, zero operator complexity, zero introduced findings and zero clone groups. The extracted structured-runner clone's 18 focused tests also pass. The full gate must reverify the committed candidate; independent/adversarial reviews and PR fallow remain pending.
+
+Record fallow's own cyclomatic and cognitive numbers before and after for the eight functions, including extracted helpers so debt is not merely moved. The raw before report owns the two truncated measurements. Record both clone groups and the two evidence runners separately. If a finding cannot safely clear, retain it and explain why in the PR.
+
+### Owner-approved scope amendment
+
+The owner approved clearing the six additional gate findings discovered after the named eight-function refactor: `policy-state.ts` `mapSnapshot` (14/10 cyclomatic/cognitive), `turns.ts` `prepareFencedRestores` (11/8), the Restore route's `postRestore` (12/5), `ProposalCard.tsx` `ProposalState` (13/13), `TurnBody.tsx` `rendered` (11/6), and `tests/llm-eval/structured-runner.ts` `check` (10/8). The approval also covers inherited operator findings `postApply` (15/6) and `applyLoadedView` (11/10), so the operator total can reach zero. The structured runner's exact path is added to both intake copies; the other files are within the original path surface. These are extraction-only changes with existing assertions untouched, including the originally informational `rendered` function now explicitly approved. No suppression or acceptance waiver is introduced.
+
+## Preconditions and invariant proof
+
+Before live-DB tests, use the authorized `pnpm test:db:setup` only after confirming its target is the local designated test database; it resets that local test schema and must bring it through migration 121. This setup operation is deliberately outside intake `verification_commands`, which only contains non-destructive verification. Never run schema setup against staging or production.
+
+Inspect and retain the exact existing red-team-named test paths/titles and concurrency matrix before edits. Existing suites must prove the same statuses, reasons and side effects: account/business locks before the Proposal row; authorization and freshness under transaction locks; typed-scope comparison; current, prepared and client Version tokens; confirmation refusal preserving pending state; replay returning the stored Receipt; mutation and server-written Receipt rolling back together. Preserve policy and voice differences. No conversation becomes an approval token; Context snapshot and model schema stay unchanged; invariants #3, #13/#14 and #15 remain pinned.
+
+## Locked tracer sequence
+
+### T1 — evidence scope and route gate (alone)
+
+Change only the evidence-runner exclusion `docs/runbooks/evidence/**/*runner.mjs` in `.fallowrc.jsonc`, with one line explaining that these scripts are evidence artifacts, not entry points. Do not suppress production findings or change thresholds. Extract the two GET gate clones to the existing operator gate module with identical order, statuses, bodies and error behavior. Keep the existing write gate unchanged. Run the relevant unchanged route tests and both historical-base audits; prove finding 9 clears and findings 11 and 12 remain absent due to their existing archival before dispatching later tracers.
+
+### T2 — stored Proposal mapping
+
+In `proposals.ts`, split `mapStored` at its ordinary/Restore voice/policy card projection seams and fold the repeated block; it has no status switch. Preserve validation order, optional fields, malformed-row behavior, returned discriminants and all existing exports. Run the unchanged mapper/read suites and capture fallow metrics for findings 1 and 10.
+
+### T3 — Restore preparation and inverse derivation
+
+Extract preparation stages in `restore.ts` and one inverse derivation per operation kind in `restore-inputs.ts`. Preserve preparation's business lock when applicable, then account `FOR NO KEY UPDATE`, before locking the source Receipt. Keep these preparation locks separate from Apply helpers. Preserve validated same-account Receipt provenance, current-state preparation, retry reuse and stale handling, absent-row/null distinctions and Governor authority. Preparation writes no settings. Run the unchanged Restore and red-team regression suites; capture findings 2 and 3 metrics.
+
+### T4 — Apply boundary
+
+Extract shared lock/revalidate/execute/Receipt steps only at genuine existing seams and keep per-kind executors explicit. Do not introduce a generalized framework. Preserve the precise transaction extent, query sequence, policy account-before-proposal and voice business-before-proposal locks, typed scope and Version token comparisons, authority revalidation, confirmation, error/status mapping and same-transaction Receipt. Existing exports and call signatures remain stable. Run the existing concurrency matrix and all Apply tests named by Runs C/D/E sidecars unchanged. Review every moved branch against the original; capture findings 4 and 5 metrics and explicitly ask adversarial review for any behavior delta.
+
+### T5 — Proposal-reference hydration
+
+Refactor `hydrateProposalReferences` to a lookup map plus one loop while retaining query scope, reference ordering, duplicate handling, missing-reference behavior and output shape. Preserve DB-client injection. Run unchanged read/hydration suites and capture finding 7 metrics.
+
+### T6 — write hook and screen wiring
+
+Extract `useProposalWrites.write` stages and move `OperatorClient` hook wiring into the custom hooks it already imports. Preserve hook order, dependencies, closures, request construction, in-flight state, scope changes, refresh semantics, error handling and rendered markup. Use existing hook owners before adding any file. Run unchanged UI suites and capture findings 6 and 8 metrics. Computer Use must exercise the operator journey at 390 and 1440 pixels, including loading/error states and Apply/Decline/Restore and timeline behavior using designated data, with sanitized before/after screenshots from an app containing the change. Computer Use tools are not currently exposed: record this as pending/blocked until available and do not substitute automated browser tooling as a claim of Computer Use verification.
+
+### T7 — full gate, historical audits and reviews
+
+Include the owner-approved eight additional functions above in the refactor and unchanged-test evidence before final audits. Gate-owned lint, typecheck, build and CI audits remain mandatory; intake `verification_commands` lists only the extra full live-DB `pnpm test`, the two historical audits and `pnpm test:e2e`, avoiding duplicate runs without weakening verification. The gate's ordinary test lane disables live-DB suites and therefore does not replace the explicit full live-DB run.
+
+Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm ci:tenant-scope`, `pnpm ci:rls-audit`, `pnpm ci:static-policy`, `pnpm ci:directory-map`, `pnpm ci:db-imports` and `pnpm test:e2e`, plus the invoked workflow's required gates. Use the validated historical bases above for both raw static `pnpm ci:fallow` runs. Completion requires both audits to exit zero with no introduced findings, zero operator complexity/duplication findings including CRAP, and the PR's own fallow job to PASS. Clearing only the eight originally named functions is an intermediate milestone. Report inherited unrelated diagnostics separately as described above; no in-scope CRAP finding is waived. Real-coverage runs are separately labeled CI-parity evidence and cannot replace these static audits. Any necessary edits outside the approved surface require a scope request. Confirm evidence-runner findings remain absent. Check that test assertions, existing exported contracts, flags, schema and model schema did not change. Complete independent correctness/maintainability and implicated high-risk review axes, plus the journaled red-team verifier, triage findings against source, fix accepted issues within scope and rerun affected gates. Never claim an unavailable browser or DB prerequisite passed.
+
+### T8 — documentation and PR
+
+Update directory rows for any genuinely necessary new production file and add a factual spec section 15 review-log entry. Rerun documentation gates and any required verified gate invalidated by changes. Commit and push the reviewed changes, create the authorized PR to `main`, and mark it ready for CI when checks and evidence permit. Record the PR's own fallow job result, not merely a local sweep. The user authorized commit/push/PR/ready through the ship lane; merge and deployment remain outside this task's authority.
+
+## Completion evidence and fallback
+
+The final report enumerates all twelve findings as cleared or left-with-reason, includes before/after cyclomatic and cognitive values from fallow's own output, and links the PR and its fallow result. Both raw historical audits must exit zero with no introduced findings and zero operator complexity/duplication findings, including CRAP; the PR's own fallow job must PASS. An uncleared in-scope finding leaves the task incomplete with its exact reason. Report inherited unrelated diagnostics separately; globally empty reports were not the user's requirement. Named-function subtotals, real-coverage CI-parity runs and a zero new-only audit against current main cannot substitute. Include unchanged test outcomes, review results, and browser target/steps/expected versus observed behavior plus sanitized evidence, or the explicit Computer Use blocker. Rollback is a revert PR for the refactor commits; there are no schema, dependency or flag changes to reverse.

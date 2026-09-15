@@ -488,6 +488,17 @@ interface CompletedTurnRow {
 
 type ProposalReplacement = { proposalId: string; operation: string; locationId: string | null };
 
+function assertRestoreRequestMatchesTurn(
+  request: ParsedRestoreRequest, turn: CompletedTurnRow, proposalIds: readonly (string | null)[],
+): void {
+  if (request.scope.accountId !== turn.account_id
+    || (request.scope.locationId !== undefined && request.scope.locationId !== turn.location_id)
+    || !Number.isInteger(request.index) || request.index < 0 || request.index >= proposalIds.length
+    || proposalIds[request.index] !== null) {
+    throw new Error('agents/operator: restore request does not match the winning turn');
+  }
+}
+
 async function prepareFencedRestores(
   tx: postgres.TransactionSql,
   turn: CompletedTurnRow,
@@ -501,12 +512,7 @@ async function prepareFencedRestores(
   // lock before an account-only request can acquire the account lock first.
   const requests = [...plan.restoreRequests].sort((a, b) => Number(a.scope.locationId === undefined) - Number(b.scope.locationId === undefined));
   for (const request of requests) {
-    if (request.scope.accountId !== turn.account_id
-      || (request.scope.locationId !== undefined && request.scope.locationId !== turn.location_id)
-      || !Number.isInteger(request.index) || request.index < 0 || request.index >= proposalIds.length
-      || proposalIds[request.index] !== null) {
-      throw new Error('agents/operator: restore request does not match the winning turn');
-    }
+    assertRestoreRequestMatchesTurn(request, turn, proposalIds);
     const result = await createRestoreProposalInTransaction(tx, {
       accountId: turn.account_id,
       actorUserId: turn.actor_user_id,

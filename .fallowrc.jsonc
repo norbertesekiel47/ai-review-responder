@@ -4,7 +4,11 @@
   // and browser-check scripts (`*.mjs`) are evidence run by hand against a
   // past tree — no entry point imports them, and they are not app code — so
   // they are out of scope for dead-code, duplication and complexity analysis.
-  "ignorePatterns": ["docs/brand-asset-library/collections/**"],
+  "ignorePatterns": [
+    "docs/brand-asset-library/collections/**",
+    // Runbook runners are evidence artifacts, not entry points.
+    "docs/runbooks/evidence/**/*runner.mjs"
+  ],
   "ignoreDependencies": [
     "react-dom",
     "postcss-load-config",

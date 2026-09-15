@@ -3,8 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getDisplayLabel } from '@/lib/locations/display-label';
-import { useLocationScope, type LocationInfo } from '@/contexts/LocationContext';
-import { asLocationId } from '@/lib/shared/ids';
+import type { LocationInfo } from '@/contexts/LocationContext';
 import type { OwnerConversationTurn } from '@/lib/agents/operator/reads';
 import { TURN_STATUS } from '@/lib/agents/operator/schema';
 import { StarterActions } from './StarterActions';
@@ -15,6 +14,8 @@ import { RulesTimeline } from './RulesTimeline';
 import {
   postJson,
   useOperatorConversation,
+  useOperatorScreenState,
+  useOperatorTimelineRefresh,
   type OperatorConversation,
 } from './useOperatorConversation';
 import { useProposalWrites, type ProposalWrites } from './useProposalWrites';
@@ -69,11 +70,6 @@ interface PendingSubmission {
   text: string;
 }
 
-/** `All locations` is not a location: a plan always belongs to exactly one. */
-function scopeToLocationId(currentScope: string): string | null {
-  return currentScope === 'all' ? null : currentScope;
-}
-
 /**
  * Whether the screen is WAITING on a reply. Not merely "a turn exists": a
  * timed-out wait, a dead surface and an unusable location each end it.
@@ -85,12 +81,6 @@ function isPreparing({ turnId, timedOut, disabled, locationUnavailable }: {
   locationUnavailable: boolean;
 }): boolean {
   return turnId !== null && !timedOut && !disabled && !locationUnavailable;
-}
-
-/** How a location is NAMED on screen. The roster is the client's to own. */
-function labelFor(locations: LocationInfo[], id: string): string {
-  const found = locations.find((location) => location.id === id);
-  return found ? getDisplayLabel(found) : 'this location';
 }
 
 /** The screen's own URL, carrying whichever ids exist (spec §3.2 step 6). */
@@ -285,28 +275,11 @@ function useTurnSubmission({ conversation, poll, onDisabled, setNotice }: {
  * something: submit a turn, retry a lost one, apply or decline a card (F2).
  */
 export function OperatorClient() {
-  const { currentScope, locations, setLocationScope } = useLocationScope();
-
-  const [disabled, setDisabled] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [panel, setPanel] = useState<'conversation' | 'timeline'>('conversation');
-  const [timelineRevision, setTimelineRevision] = useState(0);
-
-  const scopedLocationId = scopeToLocationId(currentScope);
-  const composerBlocked = scopedLocationId === null;
-
-  const markDisabled = useCallback(() => { setDisabled(true); }, []);
-
-  const locationLabel = useCallback(
-    (id: string) => labelFor(locations, id),
-    [locations],
-  );
-
-  /** The roster is typed `LocationId`; a stored id off the wire is a string. */
-  const chooseLocation = useCallback(
-    (id: string) => { setLocationScope(asLocationId(id)); },
-    [setLocationScope],
-  );
+  const {
+    currentScope, locations, setLocationScope, disabled, notice, setNotice,
+    panel, setPanel, timelineRevision, setTimelineRevision, scopedLocationId,
+    composerBlocked, markDisabled, locationLabel, chooseLocation,
+  } = useOperatorScreenState();
 
   const url = useOperatorUrl();
 
@@ -320,15 +293,9 @@ export function OperatorClient() {
     onNotice: setNotice,
   });
 
-  const { reloadTranscript, finishTurn } = conversation;
-  const reloadAfterProposal = useCallback(() => {
-    reloadTranscript();
-    setTimelineRevision((value) => value + 1);
-  }, [reloadTranscript]);
-  const finishTurnAndRefreshTimeline = useCallback(() => {
-    finishTurn();
-    setTimelineRevision((value) => value + 1);
-  }, [finishTurn]);
+  const { reloadAfterProposal, finishTurnAndRefreshTimeline } = useOperatorTimelineRefresh(
+    conversation, setTimelineRevision,
+  );
 
   /** All card writes share one in-flight guard and refresh both durable views. */
   const cards = useProposalWrites({
@@ -352,7 +319,7 @@ export function OperatorClient() {
     poll.clearTimedOut();
     submission.clear();
     setNotice(null);
-  }, [conversation, poll, submission]);
+  }, [conversation, poll, submission, setNotice]);
 
   const preparing = isPreparing({
     turnId: conversation.turnId,
@@ -410,16 +377,8 @@ export function OperatorClient() {
             onStartNewConversation={startNewConversation}
           />
 
-          {cards.preparedProposal !== null && !conversation.turns.some((turn) =>
-            turn.proposals.some((row) => row.id === cards.preparedProposal?.id)) && (
-            <ProposalCard proposal={cards.preparedProposal} turnLocationId={cards.preparedProposal.locationId ?? ''}
-              locationLabel={locationLabel} scopeMoved={currentScope !== cards.preparedProposal.locationId}
-              onApply={(row, confirmation) => void cards.write(row, 'apply', confirmation)}
-              onDecline={(row) => void cards.write(row, 'decline')}
-              onRestore={(row) => void cards.write(row, 'restore')}
-              onRefreshPlan={(row) => void cards.write(row, 'restore')}
-              busy={cards.busyId === cards.preparedProposal.id} error={cards.errors[cards.preparedProposal.id] ?? null} />
-          )}
+          <PreparedProposal cards={cards} turns={conversation.turns}
+            locationLabel={locationLabel} currentScope={currentScope} />
 
           <PreparingNotice shown={preparing} />
 
@@ -459,6 +418,27 @@ export function OperatorClient() {
         />
       </div>
     </div>
+  );
+}
+
+/** A prepared Restore stays visible until the transcript carries its card. */
+function PreparedProposal({ cards, turns, locationLabel, currentScope }: {
+  cards: ProposalWrites;
+  turns: OwnerConversationTurn[];
+  locationLabel: (id: string) => string;
+  currentScope: string;
+}) {
+  const proposal = cards.preparedProposal;
+  if (proposal === null) return null;
+  if (turns.some((turn) => turn.proposals.some((row) => row.id === proposal.id))) return null;
+  return (
+    <ProposalCard proposal={proposal} turnLocationId={proposal.locationId ?? ''}
+      locationLabel={locationLabel} scopeMoved={currentScope !== proposal.locationId}
+      onApply={(row, confirmation) => void cards.write(row, 'apply', confirmation)}
+      onDecline={(row) => void cards.write(row, 'decline')}
+      onRestore={(row) => void cards.write(row, 'restore')}
+      onRefreshPlan={(row) => void cards.write(row, 'restore')}
+      busy={cards.busyId === proposal.id} error={cards.errors[proposal.id] ?? null} />
   );
 }
 

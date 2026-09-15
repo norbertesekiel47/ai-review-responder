@@ -38,6 +38,7 @@ import {
   proposableOperation,
   previewPolicyRestore,
   type PolicyProposableOperation,
+  type VoiceProposableOperation,
   type PolicyTarget,
   type PolicyRestoreWriterPatch,
 } from './catalog';
@@ -209,16 +210,11 @@ async function applyVoiceProposal(
   // The row is pending and its contract was current before the transaction,
   // so this is the NARROWING that lets step 5 reach the voice writer without a
   // non-null assertion. A refusal is the right answer if the impossible happens.
-  const operation = proposableOperation(proposal.operation);
-  const prepared = proposal.preparedVersionToken;
-  if (
-    operation === null
-    || operation.domain !== 'voice'
-    || operation.contractVersion !== proposal.contractVersion
-    || !isVoiceVersionToken(prepared)
-  ) {
+  const contract = currentVoiceContract(proposal);
+  if (contract === null) {
     return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
   }
+  const { operation, prepared } = contract;
 
   // 3. Revalidate WITH THE LOCKS HELD.
   const revalidated = await revalidateActor(tx, input);
@@ -233,24 +229,72 @@ async function applyVoiceProposal(
   // 4. No confirmation: no voice operation widens autonomy.
 
   // 5. Execute, through the operation's own fields only (D10).
-  let fields: Partial<VoiceConfig>;
-  if (hasRestoreInput(proposal.input)) {
-    const inverse = await resolveProposalRestoreInput(tx, input.accountId, proposal);
-    if (inverse?.domain !== 'voice') return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
-    fields = inverse.fields;
-  } else {
-    const parsedInput = operation.parseInput(proposal.input);
-    if (!parsedInput.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
-    fields = operation.writerFields(parsedInput.input);
-  }
-  // A THROW here propagates and rolls the whole transaction back (D12).
-  const write = await updateVoiceConfig(tx, {
-    accountId: input.accountId,
-    locationId,
-    fields,
-  });
-  if (!write.ok) return writeRefusedResult(tx, input, write.reason);
+  const write = await writeVoice(tx, input, locationId, proposal, operation);
+  if (!write.ok) return write.result;
 
+  return recordVoiceApplied(tx, input, locationId, proposal, {
+    actorName: revalidated.actorName,
+    prepared,
+    updatedAt: write.updatedAt,
+  });
+}
+
+/** Narrow the operation and stored token together before actor revalidation. */
+function currentVoiceContract(proposal: ProposalView): {
+  operation: VoiceProposableOperation;
+  prepared: VoiceVersionToken;
+} | null {
+  const operation = proposableOperation(proposal.operation);
+  const prepared = proposal.preparedVersionToken;
+  if (
+    operation === null
+    || operation.domain !== 'voice'
+    || operation.contractVersion !== proposal.contractVersion
+    || !isVoiceVersionToken(prepared)
+  ) return null;
+  return { operation, prepared };
+}
+
+/** Resolve the stored fields and run the voice writer; throws still roll back Apply. */
+async function writeVoice(
+  tx: Tx,
+  input: ApplyProposalInput,
+  locationId: string,
+  proposal: ProposalView,
+  operation: VoiceProposableOperation,
+): Promise<{ ok: true; updatedAt: string } | { ok: false; result: ApplyResult }> {
+  const fields = await resolveVoiceWriterFields(tx, input.accountId, proposal, operation);
+  if (fields === null) {
+    return { ok: false, result: await rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED) };
+  }
+  const write = await updateVoiceConfig(tx, { accountId: input.accountId, locationId, fields });
+  if (!write.ok) return { ok: false, result: await writeRefusedResult(tx, input, write.reason) };
+  return { ok: true, updatedAt: write.updatedAt };
+}
+
+/** Resolve the stored operation or Restore input only after actor and token checks. */
+async function resolveVoiceWriterFields(
+  tx: Tx,
+  accountId: string,
+  proposal: ProposalView,
+  operation: VoiceProposableOperation,
+): Promise<Partial<VoiceConfig> | null> {
+  if (hasRestoreInput(proposal.input)) {
+    const inverse = await resolveProposalRestoreInput(tx, accountId, proposal);
+    return inverse?.domain === 'voice' ? inverse.fields : null;
+  }
+  const parsedInput = operation.parseInput(proposal.input);
+  return parsedInput.ok ? operation.writerFields(parsedInput.input) : null;
+}
+
+/** Read back, build the Receipt and invalidate siblings on the writer's transaction. */
+async function recordVoiceApplied(
+  tx: Tx,
+  input: ApplyProposalInput,
+  locationId: string,
+  proposal: ProposalView,
+  facts: { actorName: string | null; prepared: VoiceVersionToken; updatedAt: string },
+): Promise<ApplyResult> {
   // 6. The Receipt. Read the committed-to-be state back from the locked row.
   const committed = await readVoiceConfig(tx, { accountId: input.accountId, locationId });
   if (!committed) {
@@ -265,10 +309,10 @@ async function applyVoiceProposal(
     locationId,
     proposal,
     committed,
-    actorName: revalidated.actorName,
+    actorName: facts.actorName,
     ownerText,
-    prepared,
-    updatedAt: write.updatedAt,
+    prepared: facts.prepared,
+    updatedAt: facts.updatedAt,
     appliedAt,
   });
 
@@ -316,13 +360,8 @@ async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<A
   const settled = settledResult(proposal);
   if (settled !== null) return settled;
 
-  const operation = proposableOperation(proposal.operation);
-  if (
-    operation === null
-    || operation.domain !== 'policy'
-    || operation.contractVersion !== proposal.contractVersion
-    || (operation.scopeRule === 'location' && proposal.locationId === null)
-  ) {
+  const operation = currentPolicyOperation(proposal);
+  if (operation === null) {
     return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
   }
 
@@ -345,21 +384,65 @@ async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<A
   }
 
   // 7. Re-parse the stored input and preview on the SERVER from the locked state.
+  const plan = await preparePolicyPlan(tx, input.accountId, proposal, operation, prewrite);
+  if (plan === null) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+
+  return executePolicyPlan(tx, input, plan, revalidated.actorName);
+}
+
+function currentPolicyOperation(proposal: ProposalView): PolicyProposableOperation | null {
+  const operation = proposableOperation(proposal.operation);
+  if (
+    operation === null
+    || operation.domain !== 'policy'
+    || operation.contractVersion !== proposal.contractVersion
+    || (operation.scopeRule === 'location' && proposal.locationId === null)
+  ) return null;
+  return operation;
+}
+
+/** Preserve archive, readiness and typed-scope refusals before the writer and Receipt. */
+async function executePolicyPlan(
+  tx: Tx,
+  input: ApplyProposalInput,
+  plan: PolicyPlan,
+  actorName: string | null,
+): Promise<ApplyResult> {
+  const refused = await refusePolicyApply(tx, input, plan);
+  if (refused !== null) return refused;
+
+  const write = await writePolicy(tx, input, plan);
+  if (!write.ok) return write.result;
+
+  return recordPolicyApplied(tx, input, plan, {
+    actorName,
+    remainingBlocked: write.remainingBlocked,
+  });
+}
+
+/** Build the writer patch and preview from the state whose token already matched. */
+async function preparePolicyPlan(
+  tx: Tx,
+  accountId: string,
+  proposal: ProposalView,
+  operation: PolicyProposableOperation,
+  prewrite: PolicySnapshot,
+): Promise<PolicyPlan | null> {
   const target = policyTargetOf(proposal.locationId);
   let patch: PolicyRestoreWriterPatch;
   let preview;
   if (hasRestoreInput(proposal.input)) {
-    const inverse = await resolveProposalRestoreInput(tx, input.accountId, proposal);
-    if (inverse?.domain !== 'policy') return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    const inverse = await resolveProposalRestoreInput(tx, accountId, proposal);
+    if (inverse?.domain !== 'policy') return null;
     patch = inverse.patch;
     preview = previewPolicyRestore(prewrite.state, target, patch);
   } else {
     const parsed = operation.parseInput(proposal.input);
-    if (!parsed.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    if (!parsed.ok) return null;
     patch = operation.writerPatch(parsed.input, target);
     preview = operation.preview(prewrite.state, target, parsed.input);
   }
-  const plan: PolicyPlan = {
+  return {
     proposal,
     operation,
     target,
@@ -368,17 +451,6 @@ async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<A
     expansion: operation.exposure(preview, target) === 'expansion',
     storedAfter: parsePolicyState(proposal.after, 'agent_proposals.after'),
   };
-
-  const refused = await refusePolicyApply(tx, input, plan);
-  if (refused !== null) return refused;
-
-  const write = await writePolicy(tx, input, plan);
-  if (!write.ok) return write.result;
-
-  return recordPolicyApplied(tx, input, plan, {
-    actorName: revalidated.actorName,
-    remainingBlocked: write.remainingBlocked,
-  });
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
-import { postJson } from './useOperatorConversation';
+import { postJson, type Fetched } from './useOperatorConversation';
 import { routeErrorSentence } from './wording';
 
 /**
@@ -25,6 +25,34 @@ function writtenProposal(body: unknown): ProposalView | null {
   if (typeof body !== 'object' || body === null) return null;
   const row = (body as ProposalWriteBody).proposal;
   return row ?? null;
+}
+
+type ProposalAction = 'apply' | 'decline' | 'restore';
+
+function proposalWriteRequest(proposal: ProposalView, action: ProposalAction, confirmationLevel?: string) {
+  const targetId = action === 'restore' && proposal.status !== 'applied'
+    ? proposal.restoreSourceProposalId ?? proposal.id : proposal.id;
+  const body = action === 'apply' ? {
+    expectedVersionToken: proposal.preparedVersionToken,
+    ...(confirmationLevel === undefined ? {} : { confirmationLevel }),
+  } : action === 'restore' ? {} : undefined;
+  return { path: `/api/operator/proposals/${targetId}/${action}`, body };
+}
+
+/** Refusals still repaint the server's row; only success reloads sibling cards. */
+function handleProposalWrite(result: Fetched<ProposalWriteBody>, handlers: {
+  onDisabled: () => void;
+  onError: (code: string | null) => void;
+  onProposal: (row: ProposalView) => void;
+  reloadTranscript: () => void;
+}): void {
+  if (result.kind === 'disabled') { handlers.onDisabled(); return; }
+  if (result.kind === 'aborted') return;
+  if (result.kind === 'unreachable') { handlers.onError(null); return; }
+  const row = result.kind === 'ok' ? result.value.proposal ?? null : writtenProposal(result.body);
+  if (row !== null) handlers.onProposal(row);
+  if (result.kind === 'error') handlers.onError(result.code);
+  else handlers.reloadTranscript();
 }
 
 export interface ProposalWrites {
@@ -73,39 +101,21 @@ export function useProposalWrites({
         return next;
       });
       try {
-        const targetId = action === 'restore' && proposal.status !== 'applied'
-          ? proposal.restoreSourceProposalId ?? proposal.id : proposal.id;
-        const result = await postJson<ProposalWriteBody>(
-          `/api/operator/proposals/${targetId}/${action}`,
-          action === 'apply' ? {
-            expectedVersionToken: proposal.preparedVersionToken,
-            ...(confirmationLevel === undefined ? {} : { confirmationLevel }),
-          } : action === 'restore' ? {} : undefined,
-        );
-        if (result.kind === 'disabled') { onDisabled(); return; }
-        if (result.kind === 'aborted') return;
-        if (result.kind === 'unreachable') {
-          setErrors((current) => ({ ...current, [proposal.id]: routeErrorSentence(null) }));
-          return;
-        }
-        const row = result.kind === 'ok'
-          ? result.value.proposal ?? null
-          : writtenProposal(result.body);
-        if (row !== null) {
-          patchProposal(row);
-          setUpdatedProposals((current) => ({ ...current, [row.id]: row }));
-          setPreparedProposal((current) => action === 'restore' || current?.id === row.id ? row : current);
-        }
-        if (result.kind === 'error') {
-          setErrors((current) => ({
-            ...current,
-            [proposal.id]: routeErrorSentence(result.code),
-          }));
-        } else {
-          // An Apply moved `businesses.updated_at`, so every SIBLING card on
-          // this location is now stale in the database (D11).
-          reloadTranscript();
-        }
+        const request = proposalWriteRequest(proposal, action, confirmationLevel);
+        const result = await postJson<ProposalWriteBody>(request.path, request.body);
+        handleProposalWrite(result, {
+          onDisabled,
+          onError: (code) => setErrors((current) => ({
+            ...current, [proposal.id]: routeErrorSentence(code),
+          })),
+          onProposal: (row) => {
+            patchProposal(row);
+            setUpdatedProposals((current) => ({ ...current, [row.id]: row }));
+            setPreparedProposal((current) => action === 'restore' || current?.id === row.id ? row : current);
+          },
+          // An Apply moved businesses.updated_at, staling every sibling (D11).
+          reloadTranscript,
+        });
       } finally {
         writing.current = false;
         setBusyId(null);

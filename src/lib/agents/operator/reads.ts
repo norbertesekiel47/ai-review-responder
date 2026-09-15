@@ -64,25 +64,20 @@ async function hydrateProposalReferences(
   accountId: string,
   turns: { segments: RenderedSegment[]; proposals: ProposalView[] }[],
 ): Promise<void> {
-  const byId = new Map<string, ProposalView>();
-  for (const turn of turns) {
-    for (const proposal of turn.proposals) byId.set(proposal.id, proposal);
-  }
-  const missing = new Set<string>();
-  for (const turn of turns) {
-    for (const segment of turn.segments) {
-      if (segment.type === 'proposal' && !byId.has(segment.proposalId)) missing.add(segment.proposalId);
-    }
-  }
+  const byId = new Map(turns.flatMap((turn) => turn.proposals.map((proposal) => [proposal.id, proposal] as const)));
+  const references = turns.map((turn) => ({
+    turn,
+    ids: turn.segments.flatMap((segment) => segment.type === 'proposal' ? [segment.proposalId] : []),
+  }));
+  const missing = new Set(references.flatMap(({ ids }) => ids).filter((id) => !byId.has(id)));
   if (missing.size > 0) {
     const referenced = await listProposalsByIds(sql, { accountId, proposalIds: [...missing] });
     for (const proposal of referenced) byId.set(proposal.id, proposal);
   }
-  for (const turn of turns) {
+  for (const { turn, ids } of references) {
     const proposals = new Map(turn.proposals.map((proposal) => [proposal.id, proposal]));
-    for (const segment of turn.segments) {
-      if (segment.type !== 'proposal') continue;
-      const proposal = byId.get(segment.proposalId);
+    for (const id of ids) {
+      const proposal = byId.get(id);
       if (proposal) proposals.set(proposal.id, proposal);
     }
     turn.proposals = [...proposals.values()];

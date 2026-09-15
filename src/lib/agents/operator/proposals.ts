@@ -381,6 +381,24 @@ function withoutFriction(describe: string): CardFacts {
   };
 }
 
+function policyCardFacts(
+  operation: PolicyProposableOperation,
+  preview: { before: PolicyState; after: PolicyState },
+  target: PolicyTarget,
+  storedAfter: ReturnType<typeof parseStoredPolicyState>,
+  expansion: boolean,
+  describe: string,
+): CardFacts {
+  return {
+    describe,
+    requiresConfirmation: expansion,
+    confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
+    readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
+    consequence: storedAfter.consequence ?? null,
+    affectedLocationCount: storedAfter.affectedLocationCount ?? null,
+  };
+}
+
 /**
  * The card's words and friction for a row whose operation parsed. A policy
  * card is classified from its STORED before/after, pure: the metadata is
@@ -400,14 +418,39 @@ function cardFacts(
     after: parsePolicyState(storedAfter, 'agent_proposals.after'),
   };
   const expansion = operation.exposure(preview, target) === 'expansion';
-  return {
-    describe: operation.describeChange(input, preview, target),
-    requiresConfirmation: expansion,
-    confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
-    readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
-    consequence: storedAfter.consequence ?? null,
-    affectedLocationCount: storedAfter.affectedLocationCount ?? null,
-  };
+  return policyCardFacts(operation, preview, target, storedAfter, expansion,
+    operation.describeChange(input, preview, target));
+}
+
+function voiceRestoreDescription(
+  operation: Extract<ProposableOperation, { domain: 'voice' }>,
+  restore: Extract<DerivedRestoreInput, { domain: 'voice' }>,
+): string {
+  return operation.id === 'set_tone' && restore.input.tone === null
+    ? 'Let RepWorth choose the reply tone.'
+    : operation.describe(restore.input);
+}
+
+function restoreCardFacts(
+  operation: ProposableOperation | null,
+  restore: DerivedRestoreInput | null,
+  stored: { locationId: string | null; before: Record<string, unknown>; after: Record<string, unknown> },
+): CardFacts {
+  if (operation && restore?.domain === 'voice' && operation.domain === 'voice') {
+    return withoutFriction(`Restore: ${voiceRestoreDescription(operation, restore)}`);
+  }
+  if (operation?.domain === 'policy' && restore?.domain === 'policy') {
+    const target = policyTargetOf(stored.locationId);
+    const storedAfter = parseStoredPolicyState(stored.after, 'agent_proposals.after');
+    const preview = {
+      before: parsePolicyState(stored.before, 'agent_proposals.before'),
+      after: parsePolicyState(stored.after, 'agent_proposals.after'),
+    };
+    const expansion = operation.exposure(preview, target) === 'expansion';
+    return policyCardFacts(operation, preview, target, storedAfter, expansion,
+      describePolicyRestore(preview, target));
+  }
+  return withoutFriction('Restore: The source receipt is no longer available.');
 }
 
 function mapStored(row: StoredRow, restore: DerivedRestoreInput | null = null): ProposalView {
@@ -425,25 +468,7 @@ function mapStored(row: StoredRow, restore: DerivedRestoreInput | null = null): 
     ? cardFacts(operation, parsed.input, { locationId: row.location_id, before, after })
     : withoutFriction(row.rationale);
   if (hasRestoreInput(input)) {
-    card = withoutFriction('Restore: The source receipt is no longer available.');
-    if (operation && restore?.domain === 'voice' && operation.domain === 'voice') {
-      const description = operation.id === 'set_tone' && restore.input.tone === null
-        ? 'Let RepWorth choose the reply tone.'
-        : operation.describe(restore.input);
-      card = withoutFriction(`Restore: ${description}`);
-    } else if (operation?.domain === 'policy' && restore?.domain === 'policy') {
-      const target = policyTargetOf(row.location_id);
-      const storedAfter = parseStoredPolicyState(after, 'agent_proposals.after');
-      const preview = { before: parsePolicyState(before, 'agent_proposals.before'), after: parsePolicyState(after, 'agent_proposals.after') };
-      const expansion = operation.exposure(preview, target) === 'expansion';
-      card = {
-        describe: describePolicyRestore(preview, target), requiresConfirmation: expansion,
-        confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
-        readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
-        consequence: storedAfter.consequence ?? null,
-        affectedLocationCount: storedAfter.affectedLocationCount ?? null,
-      };
-    }
+    card = restoreCardFacts(operation, restore, { locationId: row.location_id, before, after });
   }
   return {
     id: row.id,

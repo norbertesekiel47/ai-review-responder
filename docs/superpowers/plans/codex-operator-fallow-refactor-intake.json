@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Apply is the authorization and execution boundary; extraction can alter transaction revalidation, parent-before-proposal lock order, typed scope comparison, or atomic Receipt persistence.",
+    "Restore preparation and owner read gates carry tenant and authority boundaries; UI hook extraction can alter pending writes, refresh behavior, or scope changes."
+  ],
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Clear the twelve specified Runs D and E fallow findings while preserving Owner Operator behavior and every existing exported contract.",
+  "non_goals": ["Behavior changes", "Schema or migration changes", "New dependencies", "Flag changes", "Model schema changes", "Production fallow suppressions", "Unrelated informational length findings", "Changing existing test assertions or adding Apply assertions", "Merge or deployment"],
+  "user_visible_behavior": ["Owner Operator renders and behaves identically; the operational change is that the targeted complexity and duplication findings clear and the PR fallow job passes."],
+  "invariants": [
+    "Project invariant #3: no unapproved posting; a conversation is never an approval token.",
+    "Project invariants #13/#14: flags and auto-approval policy access remain server-authoritative.",
+    "Project invariant #15: domain modules receive sql/tx explicitly; singleton imports stay at existing composition roots.",
+    "Apply revalidates authority and freshness inside the same transaction; policy locks account before proposal and voice locks business before proposal; typed scope and current/prepared/client Version token comparisons remain unchanged.",
+    "Receipt and settings mutation remain in the same transaction; repeat Apply returns the stored Receipt without another mutation.",
+    "Read gates retain flag then requireOwnerWithAccount; write gates retain the outer withSameOrigin wrapper before the handler's flag, writable owner, and impersonation checks.",
+    "Restore remains preparation of a normal Proposal from a validated same-account Receipt, never a settings mutation.",
+    "Context snapshot contains no review text; model schema and all existing exported route/worker/test contracts remain unchanged.",
+    "Every existing test passes with assertions unchanged; no production suppression or threshold change is permitted."
+  ],
+  "edge_cases": [
+    "Flag-off and unauthorized GET responses retain their existing status and body; no same-origin or impersonation restriction is added to GET reads.",
+    "Applied, stale, rejected, failed, superseded, malformed stored rows and absent optional fields retain their current mapping behavior.",
+    "Concurrent Apply, stale Version tokens, typed-scope mismatch, confirmation mismatch, revoked authority, absent policy rows, restore retries and rollback retain existing outcomes.",
+    "Hydration preserves duplicate/reference order, missing-reference handling and account isolation.",
+    "Scope changes and in-flight browser writes preserve loading, errors, disabled controls, refresh and timeline behavior.",
+    "The supplied historical short SHAs do not resolve even after fetch; validated PR base SHAs are used only after confirming the audit includes the requested files and findings."
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/api/operator/gate.ts: existing write gate; colocate shared read gate while preserving distinct semantics",
+    "src/lib/agents/operator/proposals.ts: ordinary/Restore voice/policy card projection seams",
+    "src/lib/agents/operator/restore.ts and restore-inputs.ts: existing preparation and operation derivation seams",
+    "src/lib/agents/operator/apply.ts: lock, revalidate, execute and Receipt seams with per-kind behavior",
+    "src/lib/agents/operator/reads.ts: hydrateProposalReferences",
+    "src/app/(authenticated)/dashboard/operator/: existing custom hooks",
+    "docs/roadmap/2026-09-11-owner-operator/README.md sections 5.2, 6.4 and 6.6"
+  ],
+  "test_seams": ["Existing operator route suites", "Existing Proposal mapper, Restore and reads suites", "Existing Apply concurrency matrix and Runs C/D/E red-team-named regression suites", "Existing operator UI suites and end-to-end journeys", "Fallow audit raw complexity and duplication output"],
+  "allowed_edit_surface": [
+    "src/lib/agents/operator/**",
+    "src/app/(authenticated)/dashboard/operator/**",
+    "src/app/api/operator/**",
+    "tests/llm-eval/structured-runner.ts",
+    ".fallowrc.jsonc",
+    "docs/directory/**",
+    "docs/roadmap/2026-09-11-owner-operator/README.md"
+  ],
+  "tests_to_add": [],
+  "verification_commands": [
+    "pnpm test",
+    "FALLOW_BASE=6b2eb580940480c6a9b304f3e69c0d7a3bb04f29 pnpm ci:fallow",
+    "FALLOW_BASE=a95478037fb662cae6ce2e4cc1eb89671016b492 pnpm ci:fallow",
+    "pnpm test:e2e"
+  ],
+  "estimated_prod_lines": 550,
+  "estimated_test_lines": 0,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the refactor commits through a new PR if a behavior delta is found. No schema, dependency, deployment, or flag rollback is required by this change. Preserve the original test assertions and raw before/after audit evidence to identify the regression.",
+  "observability": ["Both raw historical-base static fallow audits exit zero with no introduced findings and zero complexity or duplication findings in operator files, including in-scope CRAP findings. Inherited unrelated diagnostics are reported separately; the user's T7 requirement does not demand a globally empty report.", "Existing characterization and concurrency tests remain green unchanged.", "Computer Use at widths 390 and 1440 confirms unchanged operator rendering and journeys when available.", "The PR's own fallow job passes; real-coverage CI-parity evidence is labeled separately and does not replace the requested raw static audits."],
+  "required_approvals": ["commit", "push"],
+  "open_questions": []
+}

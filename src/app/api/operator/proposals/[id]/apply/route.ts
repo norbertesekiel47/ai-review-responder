@@ -12,7 +12,7 @@
 //     → one module call
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { applyProposal } from '@/lib/agents/operator/apply';
+import { applyProposal, type ApplyResult } from '@/lib/agents/operator/apply';
 import { VersionTokenSchema } from '@/lib/agents/operator/version-token';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
@@ -66,47 +66,51 @@ async function postApply(
       confirmationLevel: parsed.data.confirmationLevel,
     });
 
-    // Every non-404 body carries `proposal`, so the card re-renders from the
-    // row the server actually stored rather than from the browser's reading of
-    // a status code.
-    switch (result.kind) {
-      case 'applied':
-        return jsonResponse({ proposal: result.proposal });
-      case 'stale':
-        return jsonResponse({ error: 'proposal_stale', proposal: result.proposal }, 409);
-      case 'rejected':
-        return jsonResponse({ error: result.reason, proposal: result.proposal }, 409);
-      case 'confirmation_mismatch':
-        // Nothing was written and the proposal is still pending: the owner
-        // corrects the typed scope and tries again.
-        return jsonResponse({ error: 'confirmation_mismatch', proposal: result.proposal }, 400);
-      case 'blocked':
-        return jsonResponse(
-          { error: 'expansion_blocked', blockReasons: result.blockReasons, proposal: result.proposal },
-          409,
-        );
-      case 'not_pending':
-        return jsonResponse({ error: 'proposal_not_pending', proposal: result.proposal }, 409);
-      case 'failed':
-        // The executor refused DETERMINISTICALLY and the refusal committed
-        // (D12). 500 rather than 409: nothing the owner can change makes this
-        // succeed, and the stored row says `write_failed`.
-        return jsonResponse({ error: 'apply_failed', proposal: result.proposal }, 500);
-      case 'not_found':
-        return errorResponse('proposal_not_found', 404);
-      default: {
-        // Exhaustiveness guard: a new ApplyResult kind fails typecheck here
-        // instead of falling out of the switch with no return.
-        const _never: never = result;
-        return errorResponse('apply_failed', 500);
-      }
-    }
+    return applyResultResponse(result);
   } catch (error) {
     // Ids only — never the Receipt, the owner text or the proposal body
     // (invariant 11). A THROWN executor lands here: the transaction already
     // rolled back and the proposal is still pending (D12).
     reportCaughtError('api/operator/proposals/[id]/apply POST', error, { proposalId: id });
     return errorResponse('apply_failed', 500);
+  }
+}
+
+function applyResultResponse(result: ApplyResult): NextResponse {
+  // Every non-404 body carries `proposal`, so the card re-renders from the
+  // row the server actually stored rather than from the browser's reading of
+  // a status code.
+  switch (result.kind) {
+    case 'applied':
+      return jsonResponse({ proposal: result.proposal });
+    case 'stale':
+      return jsonResponse({ error: 'proposal_stale', proposal: result.proposal }, 409);
+    case 'rejected':
+      return jsonResponse({ error: result.reason, proposal: result.proposal }, 409);
+    case 'confirmation_mismatch':
+      // Nothing was written and the proposal is still pending: the owner
+      // corrects the typed scope and tries again.
+      return jsonResponse({ error: 'confirmation_mismatch', proposal: result.proposal }, 400);
+    case 'blocked':
+      return jsonResponse(
+        { error: 'expansion_blocked', blockReasons: result.blockReasons, proposal: result.proposal },
+        409,
+      );
+    case 'not_pending':
+      return jsonResponse({ error: 'proposal_not_pending', proposal: result.proposal }, 409);
+    case 'failed':
+      // The executor refused DETERMINISTICALLY and the refusal committed
+      // (D12). 500 rather than 409: nothing the owner can change makes this
+      // succeed, and the stored row says `write_failed`.
+      return jsonResponse({ error: 'apply_failed', proposal: result.proposal }, 500);
+    case 'not_found':
+      return errorResponse('proposal_not_found', 404);
+    default: {
+      // Exhaustiveness guard: a new ApplyResult kind fails typecheck here
+      // instead of falling out of the switch with no return.
+      const _never: never = result;
+      return errorResponse('apply_failed', 500);
+    }
   }
 }
 
