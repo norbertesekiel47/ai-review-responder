@@ -40,7 +40,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   runCFourthAuthorization, validRunCFourthReport,
-  runEThirdRoundForbidden, validateRunEAdmission,
+  runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
 } from '../../red-team/scripts/mutation-runner.mjs';
 
 const RUN_E_BRANCH = 'codex/owner-operator-run-e';
@@ -533,13 +533,31 @@ function validRunEReport(root, sidecar, sidecarPath, journal) {
     || journal.supervisors.some((entry) => !isPlainObject(entry) || entry.active !== false)) return false;
   const pin = journal.budgetAuthorization;
   if (!isPlainObject(pin) || pin.id !== RUN_E_GRANT || pin.maxRuns !== 1600
-    || pin.firstRun !== 1 || pin.headSha !== sidecar.head_sha) return false;
-  const proof = validateRunEAdmission(root, pin.headSha);
-  if (!proof || ['id', 'maxRuns', 'sha256', 'headSha'].some((key) => pin[key] !== proof.grant[key])) return false;
+    || pin.firstRun !== 1) return false;
+  const continuing = requiresRunEContinuation(root, journal, sidecar.head_sha);
+  const proof = continuing
+    ? validateRunEContinuation(root, journal, sidecar.head_sha)
+    : validateRunEAdmission(root, pin.headSha);
+  if (!proof || (!continuing && (pin.headSha !== sidecar.head_sha
+    || ['id', 'maxRuns', 'sha256', 'headSha'].some((key) => pin[key] !== proof.grant[key])))) return false;
   let scopeCorrections;
   try {
-    scopeCorrections = runEScopeCorrections(root, pin.headSha);
+    scopeCorrections = runEScopeCorrections(root, proof.grant.headSha);
     if (!scopeCorrections) return false;
+    if (continuing) {
+      for (const group of proof.scopeCorrections.groups) {
+        if (!isPlainObject(group) || !nonEmptyString(group.reason) || !Array.isArray(group.ids)) return false;
+        for (const id of group.ids) {
+          if (!nonEmptyString(id) || scopeCorrections.has(id)) return false;
+          scopeCorrections.set(id, group.reason);
+        }
+      }
+      const inventoryById = new Map(sidecar.inventory.map((row) => [row.id, row]));
+      for (const [id, reason] of scopeCorrections) {
+        const row = inventoryById.get(id);
+        if (!row || (row.outcome === 'excluded' && row.reason !== reason)) return false;
+      }
+    }
     if (JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
       !== JSON.stringify(proof.intake)) return false;
     const markdown = readFileSync(join(root, sidecarPath.replace(/\.json$/, '.md')));

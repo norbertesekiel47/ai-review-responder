@@ -244,6 +244,20 @@ const RUN_E_EXTENSION_PATHS = new Set([
   'docs/reviews/codex-owner-operator-run-e/second-pass-authorization.md',
   'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md',
 ]);
+const RUN_E_ORIGINAL_ADMISSION = 'b6ee3973b3e0ad9f6749f02c5428e6b4980cf837';
+const RUN_E_CHECKPOINT_SHA256 = '1fd1ce99a5a70d8ba0feacb6ca0b30a2f0623207295f32e184258a104122df72';
+// Complete root-reviewed census; the earlier 162 corrections remain separate.
+const RUN_E_CONTINUATION_SCOPE_SHA256 = 'e0cde5e28d709850630f5c1470e150d9d94269c7c04b0dd5c8e26020bfc271b3';
+const RUN_E_REVIEW_DOCUMENT = 'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md';
+const RUN_E_CONTINUATION_PATHS = new Set([
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/feature/scripts/red-team-status.mjs',
+  '.agents/skills/red-team/SKILL.md', '.claude/skills/red-team/SKILL.md',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  'scripts/ci/__tests__/red-team-status.test.ts',
+  RUN_E_REVIEW_DOCUMENT,
+  'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md',
+]);
 
 /** Denial text must never satisfy the generic third-round prose matcher. */
 export function runEThirdRoundForbidden(branch, grantId, round) {
@@ -308,6 +322,79 @@ export function validateRunEAdmission(root, headSha) {
   }
 }
 
+function committedRunESection(document, name) {
+  const start = `<!-- RUN_E_${name}_START -->`;
+  const end = `<!-- RUN_E_${name}_END -->`;
+  if (document.split(start).length !== 2 || document.split(end).length !== 2
+    || document.indexOf(start) >= document.indexOf(end)) return null;
+  const payload = document.slice(document.indexOf(start) + start.length, document.indexOf(end))
+    .match(/^\s*```json\s*\n([\s\S]*?)\n```\s*$/);
+  return payload ? JSON.parse(payload[1]) : null;
+}
+
+/** One reviewed correction may continue the closed checkpoint, never replace it. */
+export function validateRunEContinuation(root, journal, headSha, allowUnpinned = false) {
+  try {
+    if (headSha === RUN_E_ORIGINAL_ADMISSION
+      || git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || git(root, ['merge-base', RUN_E_ORIGINAL_ADMISSION, headSha]) !== RUN_E_ORIGINAL_ADMISSION) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_ORIGINAL_ADMISSION, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_E_CONTINUATION_PATHS.has(path))) return null;
+    const original = validateRunEAdmission(root, RUN_E_ORIGINAL_ADMISSION);
+    const proof = validateRunEAdmission(root, headSha);
+    if (!original || !proof) return null;
+    const readDocument = (revision) => execFileSync('git', ['show', `${revision}:${RUN_E_REVIEW_DOCUMENT}`], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    const originalDocument = readDocument(RUN_E_ORIGINAL_ADMISSION);
+    const document = readDocument(headSha);
+    if (!document.startsWith(originalDocument)) return null;
+    const checkpoint = committedRunESection(document, 'CHECKPOINT_124');
+    const scopeCorrections = committedRunESection(document, 'CONTINUATION_SCOPE_CORRECTIONS');
+    if (!checkpoint || sha256(JSON.stringify(checkpoint)) !== RUN_E_CHECKPOINT_SHA256
+      || Object.keys(checkpoint).sort().join(',') !== 'budgetAuthorization,dotenv,mutations,round,runs,supervisors,version'
+      || checkpoint.version !== 1 || checkpoint.round !== 2 || checkpoint.runs !== 124
+      || checkpoint.mutations?.length !== 62 || checkpoint.supervisors?.length !== 124
+      || checkpoint.mutations.some((entry) => entry.state !== 'restored')
+      || checkpoint.supervisors.some((entry) => entry.active !== false)
+      || JSON.stringify(checkpoint.dotenv) !== JSON.stringify({ open: false, files: [] })
+      || JSON.stringify(checkpoint.budgetAuthorization) !== JSON.stringify({ ...original.grant, firstRun: 1 })
+      || !scopeCorrections || sha256(JSON.stringify(scopeCorrections)) !== RUN_E_CONTINUATION_SCOPE_SHA256
+      || scopeCorrections.schema !== 1 || scopeCorrections.sourceHead !== RUN_E_ORIGINAL_ADMISSION
+      || !Array.isArray(scopeCorrections.groups)) return null;
+    if (journal.version !== checkpoint.version || journal.round !== 2
+      || !Number.isInteger(journal.runs) || journal.runs < 124 || journal.runs > 1600
+      || journal.supervisors?.length !== journal.runs
+      || !unchangedPrefix(checkpoint.supervisors, journal.supervisors)
+      || !unchangedPrefix(checkpoint.mutations, journal.mutations)
+      || JSON.stringify(journal.budgetAuthorization) !== JSON.stringify(checkpoint.budgetAuthorization)) return null;
+    const continuationAdmission = { headSha, checkpointSha256: RUN_E_CHECKPOINT_SHA256, firstRun: 125 };
+    if (journal.continuationAdmission === undefined) {
+      if (!allowUnpinned || journal.runs !== 124 || journal.mutations.length !== 62
+        || git(root, ['diff', '--name-only', 'HEAD'])) return null;
+    } else if (journal.runs < 125
+      || JSON.stringify(journal.continuationAdmission) !== JSON.stringify(continuationAdmission)) return null;
+    return { ...proof, continuationAdmission, scopeCorrections };
+  } catch {
+    return null;
+  }
+}
+
+function afterRunEOriginalAdmission(root, headSha) {
+  if (headSha === RUN_E_ORIGINAL_ADMISSION) return false;
+  try {
+    return git(root, ['merge-base', RUN_E_ORIGINAL_ADMISSION, headSha]) === RUN_E_ORIGINAL_ADMISSION;
+  } catch {
+    return false;
+  }
+}
+
+export function requiresRunEContinuation(root, journal, headSha) {
+  return journal.continuationAdmission !== undefined
+    || afterRunEOriginalAdmission(root, headSha)
+    || Boolean(journal.budgetAuthorization && journal.budgetAuthorization.headSha !== headSha);
+}
+
 function authorizedRunEBudget(root, journal) {
   if (journal.round !== 2 || !Number.isInteger(journal.runs) || journal.runs < 0) return null;
   try {
@@ -315,13 +402,17 @@ function authorizedRunEBudget(root, journal) {
       || !onlyJournaledChanges(root, journal)
       || (journal.runs === 0 && git(root, ['diff', '--name-only', 'HEAD']))
       || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
-    const proof = validateRunEAdmission(root, git(root, ['rev-parse', 'HEAD']));
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    const continuing = requiresRunEContinuation(root, journal, headSha);
+    const proof = continuing
+      ? validateRunEContinuation(root, journal, headSha, true)
+      : validateRunEAdmission(root, headSha);
     if (!proof || JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
       !== JSON.stringify(JSON.parse(git(root, ['show', `${proof.grant.headSha}:${RUN_E_INTAKE}`])))) return null;
-    if ((journal.runs > 0 && !journal.budgetAuthorization)
+    if (!continuing && ((journal.runs > 0 && !journal.budgetAuthorization)
       || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, proof.grant)
-        || journal.budgetAuthorization.firstRun !== 1))) return null;
-    return proof.grant;
+        || journal.budgetAuthorization.firstRun !== 1)))) return null;
+    return continuing ? { ...proof.grant, continuationAdmission: proof.continuationAdmission } : proof.grant;
   } catch {
     return null;
   }
@@ -859,6 +950,10 @@ function hasThirdRoundAuthorization(root) {
 function cmdRoundStart(root) {
   const journal = readJournal(root);
   const branch = git(root, ['branch', '--show-current']);
+  if (afterRunEOriginalAdmission(root, git(root, ['rev-parse', 'HEAD']))) {
+    console.error('round-start: REFUSED — Run E continuation retains its existing round and spent launches');
+    return 1;
+  }
   if (branch === RUN_E_BRANCH || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION) {
     // Opening a round discards its counter: an already pinned E grant cannot
     // re-enter admission even if its round number has been changed backwards.
@@ -1019,7 +1114,9 @@ async function cmdRun(root, parsed) {
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
   const runEBranch = git(root, ['branch', '--show-current']) === RUN_E_BRANCH;
-  if (((runEBranch && journal.round !== 1) || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION)
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  const runEAdmittedHead = headSha === RUN_E_ORIGINAL_ADMISSION || afterRunEOriginalAdmission(root, headSha);
+  if (((runEBranch && journal.round !== 1) || runEAdmittedHead || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION)
     && (!authorization || journal.round !== 2 || authorization.id !== RUN_E_AUTHORIZATION)) {
     console.error('run: Run E second-pass authorization, evidence or pinned HEAD invalid; refusing launch');
     return 1;
@@ -1076,6 +1173,9 @@ async function cmdRun(root, parsed) {
   journal.runs += 1;
   if (authorization && !journal.budgetAuthorization) {
     journal.budgetAuthorization = { ...authorization, firstRun: journal.runs };
+  }
+  if (authorization?.continuationAdmission && journal.continuationAdmission === undefined) {
+    journal.continuationAdmission = authorization.continuationAdmission;
   }
   journal.supervisors.push({
     pid,

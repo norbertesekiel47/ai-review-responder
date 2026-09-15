@@ -387,7 +387,7 @@ describe('the committed Run E second-pass proof', () => {
     'rejects Run E third and higher reports before generic authorization prose',
   ];
 
-  function prepareE(scopeProof: string | null = scopeDocument): { final: Sidecar; journal: Record<string, unknown>; historyCommit: string } {
+  function prepareE(scopeProof: string | null = scopeDocument, publishFinal = true): { final: Sidecar; journal: Record<string, unknown>; historyCommit: string; admissionMarkdown: string } {
     checker = CHECKER;
     const { sidecar } = seedRepo({ intake: { risk: 'high' } });
     git('branch', '-m', branch);
@@ -457,23 +457,263 @@ describe('the committed Run E second-pass proof', () => {
     }
     git('commit', '-qm', 'commit exact execution admission');
     const admissionHead = git('rev-parse', 'HEAD');
+    const originalAdmissionAnchor = /const RUN_E_ORIGINAL_ADMISSION = '[^']*';/g;
+    expect(runner.match(originalAdmissionAnchor)).toHaveLength(1);
+    write('fixture-e-runner.mjs', runner.replace(originalAdmissionAnchor, `const RUN_E_ORIGINAL_ADMISSION = '${admissionHead}';`));
     Object.assign(sidecar, { round: 2, head_sha: admissionHead, intake_sha256: sha256(intake), status: 'CLEAR', authorizations: [] });
     sidecar.inventory[0] = { ...sidecar.inventory[0], outcome: 'killed', reason: 'New individual baseline and mutant measured green/red; selector original case 0.' };
     sidecar.inventory[3] = { ...sidecar.inventory[3], outcome: 'killed', reason: 'New individual baseline and mutant measured green/red; selector original case 3.' };
     sidecar.inventory.push({ ...KILLED_ROW, id: 'E-APPENDED' });
     sidecar.findings[0] = { ...sidecar.findings[0], disposition: 'fixed', reason: 'Root verified correction and its new measurement.' };
     sidecar.counts = countsFor(sidecar);
-    write(report, JSON.stringify(sidecar));
-    write(markdown, `${admissionMarkdown}\n# Final E result\nNew evidence appended after exact admission.\n`);
-    git('add', report, markdown);
-    git('commit', '-qm', 'final results after admitted measurement');
+    if (publishFinal) {
+      write(report, JSON.stringify(sidecar));
+      write(markdown, `${admissionMarkdown}\n# Final E result\nNew evidence appended after exact admission.\n`);
+      git('add', report, markdown);
+      git('commit', '-qm', 'final results after admitted measurement');
+    }
     const journal = {
       round: 2, runs: 4, mutations: [], supervisors: [], dotenv: { open: false, files: [] },
       budgetAuthorization: { id: approval.id, headSha: admissionHead, maxRuns: 1600, firstRun: 1, sha256: sha256(JSON.stringify(approval)) },
     };
     write(journalPath, JSON.stringify(journal));
-    return { final: sidecar, journal, historyCommit };
+    return { final: sidecar, journal, historyCommit, admissionMarkdown };
   }
+
+  describe('same-round continuation certification', () => {
+    interface ContinuationJournal {
+      version: number;
+      round: number;
+      runs: number;
+      mutations: Array<{ path: string; state: string }>;
+      supervisors: Array<{ pgid: number; active: boolean }>;
+      dotenv: { open: boolean; files: string[] };
+      budgetAuthorization: { id: string; maxRuns: number; sha256: string; headSha: string; firstRun: number };
+      continuationAdmission?: { headSha: string; checkpointSha256: string; firstRun: number };
+    }
+
+    const correctionReason = 'Root-reviewed source correction: original case 3 stops at its unchanged mock boundary; no changed runtime behavior is reached.';
+    const section = (name: string, value: unknown) =>
+      `<!-- RUN_E_${name}_START -->\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n<!-- RUN_E_${name}_END -->\n`;
+
+    function prepareContinuation(options: {
+      changeDocument?: (document: string) => string;
+      extraChange?: { path: string; contents: string };
+    } = {}) {
+      const fixture = prepareE(scopeDocument, false);
+      const originalHead = fixture.final.head_sha;
+      const checkpoint: ContinuationJournal = {
+        version: 1, round: 2, runs: 124,
+        mutations: Array.from({ length: 62 }, (_, index) => ({ path: `src/checkpoint-${index}.ts`, state: 'restored' })),
+        // These inert values cannot name a process group on the host.
+        supervisors: Array.from({ length: 124 }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - index, active: false })),
+        dotenv: { open: false, files: [] },
+        budgetAuthorization: { id: approval.id, maxRuns: 1600, sha256: sha256(JSON.stringify(approval)), headSha: originalHead, firstRun: 1 },
+      };
+      const corrections = { schema: 1, sourceHead: originalHead, groups: [
+        { id: 'continuation-mock-boundary', reason: correctionReason, ids: ['E3', 'E-DISCOVERY-DELTA'] },
+      ] };
+      const checkpointDigest = sha256(JSON.stringify(checkpoint));
+      let runner = readFileSync(join(repo, 'fixture-e-runner.mjs'), 'utf8');
+      for (const [name, value] of Object.entries({
+        RUN_E_ORIGINAL_ADMISSION: originalHead,
+        RUN_E_CHECKPOINT_SHA256: checkpointDigest,
+        RUN_E_CONTINUATION_SCOPE_SHA256: sha256(JSON.stringify(corrections)),
+      })) {
+        const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+        expect(runner.match(anchor)).toHaveLength(1);
+        runner = runner.replace(anchor, `const ${name} = '${value}';`);
+      }
+      write('fixture-e-runner.mjs', runner);
+      const document = `${scopeDocument}${section('CHECKPOINT_124', checkpoint)}${section('CONTINUATION_SCOPE_CORRECTIONS', corrections)}`;
+      write(scopePath, options.changeDocument?.(document) ?? document);
+      const supportPath = 'scripts/ci/__tests__/red-team-status.test.ts';
+      write(supportPath, '// Synthetic continuation support change.\n');
+      git('add', scopePath, supportPath);
+      if (options.extraChange) {
+        write(options.extraChange.path, options.extraChange.contents);
+        git('add', options.extraChange.path);
+      }
+      git('commit', '-qm', 'commit reviewed same-round successor');
+      const successorHead = git('rev-parse', 'HEAD');
+      const journal: ContinuationJournal = {
+        ...structuredClone(checkpoint), runs: 125,
+        supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 124, active: false }],
+        continuationAdmission: { headSha: successorHead, checkpointSha256: checkpointDigest, firstRun: 125 },
+      };
+      fixture.final.head_sha = successorHead;
+      fixture.final.inventory[0] = { ...fixture.final.inventory[0], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason };
+      fixture.final.inventory[3] = { ...fixture.final.inventory[3], outcome: 'excluded', reason: correctionReason };
+      fixture.final.inventory.push({ ...KILLED_ROW, id: 'E-DISCOVERY-DELTA', outcome: 'excluded', reason: correctionReason });
+      fixture.final.counts = countsFor(fixture.final);
+      write(report, JSON.stringify(fixture.final));
+      write(markdown, `${fixture.admissionMarkdown}\n# Continuation result\nMeasured continuation and exact source corrections.\n`);
+      git('add', report, markdown);
+      git('commit', '-qm', 'publish continuation results separately');
+      write(journalPath, JSON.stringify(journal));
+      return { ...fixture, journal, originalHead, successorHead, document };
+    }
+
+    function expectContinuationRejected(label: string): void {
+      const result = check();
+      expect(result.status, label).toBe(1);
+      expect(result.stderr, label).toContain('Run E round 2 requires');
+    }
+
+    function recreateFixture(): void {
+      rmSync(repo, { recursive: true, force: true });
+      mkdirSync(repo, { recursive: true });
+    }
+
+    it('certifies a closed Run E continuation with both exact correction manifests and a separate final report', () => {
+      const fixture = prepareContinuation();
+      expect(git('rev-parse', 'HEAD')).not.toBe(fixture.successorHead);
+      expect(git('rev-parse', 'HEAD^')).toBe(fixture.successorHead);
+      expect(fixture.journal.budgetAuthorization.headSha).toBe(fixture.originalHead);
+      expect(check()).toMatchObject({ status: 0, stderr: '' });
+      const capped = structuredClone(fixture.journal);
+      capped.runs = 1600;
+      capped.supervisors.push(...Array.from({ length: 1475 }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - 125 - index, active: false })));
+      write(journalPath, JSON.stringify(capped));
+      expect(check()).toMatchObject({ status: 0, stderr: '' });
+    });
+
+    it('rejects continuation exclusions with altered reasons, unapproved IDs, or previously measured outcomes', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      for (const [index, reason] of [
+        [3, `${correctionReason} Additional waiver.`],
+        [0, correctionReason],
+        [1, correctionReason],
+        [2, correctionReason],
+      ] as const) {
+        const final = structuredClone(fixture.final);
+        final.inventory[index] = { ...final.inventory[index], outcome: 'excluded', reason };
+        final.counts = countsFor(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected(`correction for E${index}: ${reason}`);
+      }
+      for (const change of ['missing appended ID', 'altered appended reason']) {
+        const final = structuredClone(fixture.final);
+        const index = final.inventory.findIndex((row) => row.id === 'E-DISCOVERY-DELTA');
+        expect(index).toBeGreaterThan(2112);
+        if (change === 'missing appended ID') final.inventory.splice(index, 1);
+        else final.inventory[index]!.reason = `${correctionReason} Additional waiver.`;
+        final.counts = countsFor(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected(change);
+      }
+    });
+
+    it('requires the exact committed continuation checkpoint even when the live document is repaired', () => {
+      for (const changeDocument of [
+        (document: string) => document.replace(/<!-- RUN_E_CHECKPOINT_124_START -->[\s\S]*?<!-- RUN_E_CHECKPOINT_124_END -->\n/, ''),
+        (document: string) => document.replace('"runs":124', '"runs":123'),
+      ]) {
+        recreateFixture();
+        const fixture = prepareContinuation({ changeDocument });
+        write(scopePath, fixture.document);
+        expectContinuationRejected('missing or altered committed checkpoint');
+      }
+    }, 15_000);
+
+    it('rejects continuation journal prefix edits, missing pins, and a second successor pin', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      const changes: Array<[string, (journal: ContinuationJournal) => void]> = [
+        ['mutation prefix', (journal) => { journal.mutations[0]!.path = 'src/replacement.ts'; }],
+        ['supervisor prefix', (journal) => { journal.supervisors[0]!.pgid -= 1; }],
+        ['truncated mutations', (journal) => { journal.mutations.shift(); }],
+        ['open appended mutation', (journal) => { journal.mutations.push({ path: 'src/unrestored.ts', state: 'applied' }); }],
+        ['active appended supervisor', (journal) => { journal.supervisors[124]!.active = true; }],
+        ['open dotenv scrub', (journal) => { journal.dotenv.open = true; }],
+        ['missing continuation pin', (journal) => { delete journal.continuationAdmission; }],
+        ['missing original authorization pin', (journal) => { Reflect.deleteProperty(journal, 'budgetAuthorization'); }],
+        ['checkpoint pin', (journal) => { journal.continuationAdmission!.checkpointSha256 = '0'.repeat(64); }],
+        ['retroactive first run', (journal) => { journal.continuationAdmission!.firstRun = 124; }],
+        ['second successor pin', (journal) => { journal.continuationAdmission!.headSha = git('rev-parse', 'HEAD'); }],
+        ['original authorization pin', (journal) => { journal.budgetAuthorization.headSha = fixture.successorHead; }],
+      ];
+      for (const [label, change] of changes) {
+        const journal = structuredClone(fixture.journal);
+        change(journal);
+        write(journalPath, JSON.stringify(journal));
+        expectContinuationRejected(label);
+      }
+      write(journalPath, JSON.stringify(fixture.journal));
+      write(report, JSON.stringify({ ...fixture.final, head_sha: fixture.originalHead }));
+      expectContinuationRejected('fallback to original admission after continuation pin');
+    });
+
+    it('keeps continuation in round two without a counter reset or a fresh 1600 launch allowance', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      for (const runs of [0, 124, 1601]) {
+        const journal = structuredClone(fixture.journal);
+        journal.runs = runs;
+        journal.supervisors = Array.from({ length: runs }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - index, active: false }));
+        write(journalPath, JSON.stringify(journal));
+        expectContinuationRejected(`counter ${runs}`);
+      }
+      write(journalPath, JSON.stringify({ ...fixture.journal, runs: 126 }));
+      expectContinuationRejected('counter without its supervisor');
+      for (const round of [1, 3]) {
+        write(journalPath, JSON.stringify({ ...fixture.journal, round }));
+        write(report, JSON.stringify({ ...fixture.final, round }));
+        expect(check().status, `round ${round}`).toBe(1);
+      }
+    });
+
+    it('requires the committed continuation scope digest and preserves the original review prefix', () => {
+      for (const changeDocument of [
+        (document: string) => document.replace(correctionReason, 'Unreviewed exclusion reason.'),
+        (document: string) => document.replace('RUN_E_CONTINUATION_SCOPE_CORRECTIONS_START', 'MISSING_SCOPE_START'),
+        (document: string) => `Rewritten original prefix\n${document}`,
+      ]) {
+        recreateFixture();
+        const fixture = prepareContinuation({ changeDocument });
+        write(scopePath, fixture.document);
+        expectContinuationRejected('committed scope or original review prefix');
+      }
+    }, 20_000);
+
+    it('preserves historical identities, findings, and admission markdown through continuation', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      const changes: Array<(final: Sidecar) => void> = [
+        (final) => { final.inventory[0]!.test = 'Replacement identity'; },
+        (final) => { final.findings[0]!.title = 'Replacement finding'; },
+        (final) => { final.inventory[2]!.reason = 'Rewritten original exclusion'; },
+      ];
+      for (const change of changes) {
+        const final = structuredClone(fixture.final);
+        change(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected('rewritten original evidence');
+      }
+      write(report, JSON.stringify(fixture.final));
+      const finalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+      for (const text of [
+        finalMarkdown.replace('Exact historical duties.', 'Replacement duties.'),
+        finalMarkdown.replace(approval.text, 'Replacement execution authority.'),
+      ]) {
+        write(markdown, text);
+        expectContinuationRejected('rewritten admission markdown');
+      }
+    });
+
+    it('rejects continuation commits that change product code, canonical intake, or a ninth support path', () => {
+      for (const extraChange of [
+        { path: 'src/thing.ts', contents: 'export const thing = 3;\n' },
+        { path: intakePath, contents: '{"risk":"normal"}\n' },
+        { path: 'docs/runbooks/beta-launch-alerting.md', contents: 'Outside the eight continuation paths.\n' },
+      ]) {
+        recreateFixture();
+        prepareContinuation({ extraChange });
+        expectContinuationRejected(extraChange.path);
+      }
+    }, 20_000);
+  });
 
   it('certifies Run E round 2 only with intact admission history and a closed capped launch journal', () => {
     const fixture = prepareE();

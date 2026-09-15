@@ -572,6 +572,330 @@ describe('the owner-approved Run E second pass', () => {
     expectRefused(1);
   });
 
+  describe('Run E same-round continuation', () => {
+    const reviewDocument = 'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md';
+    const checkpointMarker = '<!-- RUN_E_CHECKPOINT_124_START -->';
+    const originalDocument = '# Original admission review\n\nThe original discovery proof remains unchanged.\n';
+    type ContinuationPin = { headSha: string; checkpointSha256: string; firstRun: number };
+    type ContinuationJournal = Journal & {
+      version: number;
+      round: number;
+      budgetAuthorization: { id: string; maxRuns: number; sha256: string; headSha: string; firstRun: number };
+      continuationAdmission?: ContinuationPin;
+    };
+
+    const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const section = (name: string, value: unknown) => [
+      `<!-- RUN_E_${name}_START -->`, '```json', JSON.stringify(value), '```',
+      `<!-- RUN_E_${name}_END -->`, '',
+    ].join('\n');
+    // These identities are inert historical records, not fake live processes.
+    // An out-of-range pgid makes the shared teardown's process.kill throw
+    // before the OS can receive a signal for an unrelated process.
+    const inactiveSupervisor = (index: number) => ({
+      pid: Number.MAX_SAFE_INTEGER - index, pgid: Number.MAX_SAFE_INTEGER - index,
+      startedAt: 'historical-fixture', active: false,
+    });
+
+    function continuationJournal(): ContinuationJournal {
+      return JSON.parse(read('.feature/red-team-journal.json')) as ContinuationJournal;
+    }
+
+    function replaceContinuationAnchor(name: string, value: string): void {
+      const source = readFileSync(runner, 'utf8');
+      const declaration = new RegExp(`const ${name} = '[^']+';`, 'g');
+      expect(source.match(declaration), name).toHaveLength(1);
+      writeFileSync(runner, source.replace(declaration, `const ${name} = '${value}';`));
+    }
+
+    function prepareContinuation() {
+      prepare();
+      write(reviewDocument, originalDocument);
+      git('add', reviewDocument);
+      git('commit', '-qm', 'original E admission with immutable discovery proof');
+      const originalHead = git('rev-parse', 'HEAD');
+      const originalOid = git('rev-parse', 'HEAD:src/gate.ts');
+      const checkpoint: ContinuationJournal = {
+        ...continuationJournal(),
+        runs: 124,
+        mutations: Array.from({ length: 62 }, (_, index) => ({
+          path: `src/prior-${index}.ts`, originalOid, mutantOid: originalOid, state: 'restored',
+        })),
+        supervisors: Array.from({ length: 124 }, (_, index) => inactiveSupervisor(index)),
+        budgetAuthorization: {
+          id: approval.id, maxRuns: 1600, sha256: digest(approval), headSha: originalHead, firstRun: 1,
+        },
+      };
+      const scope = { schema: 1, sourceHead: originalHead, groups: [{
+        id: 'unchanged-behind-mock', ids: ['original-160'],
+        reason: 'Reviewed source correction: the unchanged mock cuts the changed runtime edge.',
+      }] };
+      const checkpointSha256 = digest(checkpoint);
+      const document = originalDocument + section('CHECKPOINT_124', checkpoint)
+        + section('CONTINUATION_SCOPE_CORRECTIONS', scope);
+      write(reviewDocument, document);
+      git('add', reviewDocument);
+      git('commit', '-qm', 'single finite E continuation admission');
+      // Only trust anchors are rebound, after the real disposable histories
+      // exist. The public runner executes its actual proof and launch protocol.
+      replaceContinuationAnchor('RUN_E_ORIGINAL_ADMISSION', originalHead);
+      replaceContinuationAnchor('RUN_E_CHECKPOINT_SHA256', checkpointSha256);
+      replaceContinuationAnchor('RUN_E_CONTINUATION_SCOPE_SHA256', digest(scope));
+      writeJournal(checkpoint);
+      return {
+        checkpoint, checkpointSha256, document, originalHead,
+        successorHead: git('rev-parse', 'HEAD'),
+      };
+    }
+
+    function expectContinuationRefused(): void {
+      const before = read('.feature/red-team-journal.json');
+      const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+        'require("node:fs").writeFileSync(".feature/child-launched","yes")');
+      expect(result.status).toBe(1);
+      expect(read('.feature/red-team-journal.json')).toBe(before);
+      expect(existsSync(join(repo, '.feature/child-launched'))).toBe(false);
+    }
+
+    function launch125(): void {
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      expect(journal().runs).toBe(125);
+    }
+
+    it('pins Run E continuation before launch 125 while preserving the original budget and checkpoint', () => {
+      const fixture = prepareContinuation();
+      const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+        'const fs=require("node:fs");const j=JSON.parse(fs.readFileSync(".feature/red-team-journal.json","utf8"));fs.writeFileSync(".feature/continuation-observed.json",JSON.stringify(j))');
+      expect(result.status).toBe(0);
+      const observed = JSON.parse(read('.feature/continuation-observed.json')) as ContinuationJournal;
+      expect(observed.runs).toBe(125);
+      expect(observed.budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+      expect(observed.continuationAdmission).toEqual({
+        headSha: fixture.successorHead, checkpointSha256: fixture.checkpointSha256, firstRun: 125,
+      });
+      expect(observed.mutations).toEqual(fixture.checkpoint.mutations);
+      expect(observed.supervisors.slice(0, 124)).toEqual(fixture.checkpoint.supervisors);
+      expect(observed.supervisors[124]?.active).toBe(true);
+      expect(continuationJournal().supervisors[124]?.active).toBe(false);
+    });
+
+    it('allows a journaled mutant after the first Run E continuation baseline without replacing either pin', () => {
+      const fixture = prepareContinuation();
+      launch125();
+      const pin = continuationJournal().continuationAdmission;
+      write('.feature/mutant.ts', 'export const allow = () => true;\n');
+      expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(0);
+      expect(run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+        'process.exit(require("node:fs").readFileSync("src/gate.ts","utf8").includes("() => true")?0:7)').status).toBe(0);
+      expect(journal().runs).toBe(126);
+      expect(continuationJournal().budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+      expect(continuationJournal().continuationAdmission).toEqual(pin);
+      expect(journal().mutations.slice(0, 62)).toEqual(fixture.checkpoint.mutations);
+      expect(run('finalize').status).toBe(0);
+      expect(read('src/gate.ts')).toBe('export const allow = (n: number) => n > 0;\n');
+    });
+
+    it('refuses missing or altered committed Run E continuation checkpoint evidence', () => {
+      const fixture = prepareContinuation();
+      for (const document of [
+        originalDocument,
+        fixture.document.replace('"runs":124', '"runs":123'),
+        fixture.document.replace(checkpointMarker, `${checkpointMarker}\n${checkpointMarker}`),
+      ]) {
+        write(reviewDocument, document);
+        git('add', reviewDocument);
+        git('commit', '-qm', 'invalid committed checkpoint evidence');
+        expectContinuationRefused();
+      }
+    });
+
+    it('refuses Run E continuation when either immutable proof digest does not match', () => {
+      const fixture = prepareContinuation();
+      const originalRunner = readFileSync(runner, 'utf8');
+      for (const anchor of ['RUN_E_CHECKPOINT_SHA256', 'RUN_E_CONTINUATION_SCOPE_SHA256']) {
+        writeFileSync(runner, originalRunner);
+        replaceContinuationAnchor(anchor, '0'.repeat(64));
+        expectContinuationRefused();
+      }
+      expect(continuationJournal().budgetAuthorization.headSha).toBe(fixture.originalHead);
+    });
+
+    it('refuses changed or removed Run E checkpoint mutation and supervisor prefixes', () => {
+      const { checkpoint } = prepareContinuation();
+      const changedMutation = structuredClone(checkpoint);
+      changedMutation.mutations[0]!.originalOid = '0'.repeat(40);
+      const removedMutation = structuredClone(checkpoint);
+      removedMutation.mutations.shift();
+      const changedSupervisor = structuredClone(checkpoint);
+      changedSupervisor.supervisors[0]!.startedAt = 'rewritten history';
+      const removedSupervisor = structuredClone(checkpoint);
+      removedSupervisor.supervisors.shift();
+      for (const value of [changedMutation, removedMutation, changedSupervisor, removedSupervisor]) {
+        writeJournal(value);
+        expectContinuationRefused();
+      }
+    });
+
+    it('refuses Run E continuation counter rollback and invented launches without supervisors', () => {
+      const { checkpoint } = prepareContinuation();
+      for (const runs of [123, 125, 124.5, '124', null]) {
+        write('.feature/red-team-journal.json', JSON.stringify({ ...checkpoint, runs }));
+        expectContinuationRefused();
+      }
+      writeJournal(checkpoint);
+      launch125();
+      const pinned = continuationJournal();
+      writeJournal({ ...pinned, runs: 124, supervisors: pinned.supervisors.slice(0, 124) });
+      expectContinuationRefused();
+    });
+
+    it('refuses rewriting the original Run E budget pin when admitting continuation', () => {
+      const { checkpoint } = prepareContinuation();
+      for (const change of [
+        { headSha: git('rev-parse', 'HEAD') }, { firstRun: 125 },
+        { sha256: '0'.repeat(64) }, { maxRuns: 1601 }, { id: 'replacement-grant' },
+      ]) {
+        writeJournal({ ...checkpoint, budgetAuthorization: { ...checkpoint.budgetAuthorization, ...change } });
+        expectContinuationRefused();
+      }
+      write('.feature/red-team-journal.json', JSON.stringify({ ...checkpoint, budgetAuthorization: undefined }));
+      expectContinuationRefused();
+    });
+
+    it('refuses a missing or altered Run E continuation pin after launch 125', () => {
+      const fixture = prepareContinuation();
+      launch125();
+      const pinned = continuationJournal();
+      for (const pin of [
+        undefined,
+        { ...pinned.continuationAdmission!, headSha: fixture.originalHead },
+        { ...pinned.continuationAdmission!, checkpointSha256: '0'.repeat(64) },
+        { ...pinned.continuationAdmission!, firstRun: 126 },
+      ]) {
+        writeJournal({ ...pinned, continuationAdmission: pin });
+        expectContinuationRefused();
+      }
+    });
+
+    it('requires a clean first Run E continuation baseline even for a journaled mutant', () => {
+      prepareContinuation();
+      write('.feature/mutant.ts', 'export const allow = () => true;\n');
+      expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(0);
+      expectContinuationRefused();
+      expect(continuationJournal().continuationAdmission).toBeUndefined();
+      expect(run('finalize').status).toBe(0);
+      // Restoration closes the new record; it must not erase it to make an
+      // unpinned checkpoint look exact again.
+      expectContinuationRefused();
+      expect(journal().runs).toBe(124);
+    });
+
+    it('refuses committed product intake history and unrelated support drift in Run E continuation', () => {
+      prepareContinuation();
+      for (const path of [
+        'src/gate.ts', intakePath, report, markdown, 'docs/runbooks/beta-launch-alerting.md',
+      ]) {
+        const present = existsSync(join(repo, path));
+        const original = present ? read(path) : '';
+        write(path, `${original}\nUnapproved continuation change\n`);
+        git('add', path);
+        git('commit', '-qm', 'change outside finite continuation support');
+        expectContinuationRefused();
+        if (present) write(path, original);
+        else rmSync(join(repo, path));
+        git('add', path);
+        git('commit', '-qm', 'restore disposable fixture boundary');
+      }
+      write('src/untracked.ts', 'foreign file');
+      expectContinuationRefused();
+    });
+
+    it('refuses rewriting the original discovery document while appending Run E continuation proof', () => {
+      const fixture = prepareContinuation();
+      write(reviewDocument, fixture.document.replace('original discovery proof remains unchanged', 'original discovery proof was replaced'));
+      git('add', reviewDocument);
+      git('commit', '-qm', 'overwrite original discovery evidence');
+      expectContinuationRefused();
+    });
+
+    it('refuses a second Run E continuation successor without resetting its spent budget', () => {
+      prepareContinuation();
+      launch125();
+      const pinned = continuationJournal();
+      write(reviewDocument, `${read(reviewDocument)}\nA second supporting correction.\n`);
+      git('add', reviewDocument);
+      git('commit', '-qm', 'unadmitted second successor');
+      expectContinuationRefused();
+      expect(continuationJournal()).toEqual(pinned);
+    });
+
+    it('keeps Run E continuation branch and third-round boundaries closed', () => {
+      prepareContinuation();
+      launch125();
+      const pinned = continuationJournal();
+      expect(run('round-start').status).toBe(1);
+      expect(continuationJournal()).toEqual(pinned);
+      writeJournal({ ...pinned, round: 3 });
+      expectContinuationRefused();
+      writeJournal(pinned);
+      git('branch', '-m', 'codex/foreign-continuation');
+      expectContinuationRefused();
+      // Removing every mutable hint of E must not recover the generic round-1
+      // allowance or let round-start replace the spent continuation journal.
+      // The committed successor ancestry still identifies this execution.
+      for (const branch of ['codex/owner-operator-run-e', 'codex/renamed-stripped-continuation']) {
+        git('branch', '-m', branch);
+        const stripped = {
+          version: 1, round: 1, runs: 0, mutations: [], supervisors: [],
+          dotenv: { open: false, files: [] },
+        };
+        write('.feature/red-team-journal.json', JSON.stringify(stripped));
+        expectContinuationRefused();
+        const beforeRoundStart = read('.feature/red-team-journal.json');
+        expect(run('round-start').status, branch).toBe(1);
+        expect(read('.feature/red-team-journal.json'), branch).toBe(beforeRoundStart);
+        expect(existsSync(join(repo, '.feature/child-launched'))).toBe(false);
+      }
+    });
+
+    it('allows Run E continuation launch 1600 and refuses 1601 under the original cap', () => {
+      const fixture = prepareContinuation();
+      launch125();
+      const pinned = continuationJournal();
+      writeJournal({ ...pinned, runs: 1599, supervisors: [
+        ...pinned.supervisors,
+        ...Array.from({ length: 1599 - pinned.supervisors.length }, (_, index) => inactiveSupervisor(1000 + index)),
+      ] });
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      expect(journal().runs).toBe(1600);
+      expectContinuationRefused();
+      expect(continuationJournal().budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+      expect(continuationJournal().continuationAdmission).toEqual(pinned.continuationAdmission);
+    });
+
+    it('refuses structurally invalid Run E continuation checkpoints even with matching fixture digests', () => {
+      const fixture = prepareContinuation();
+      const originalRunner = readFileSync(runner, 'utf8');
+      const invalid = [
+        { ...fixture.checkpoint, unexpectedAuthority: true },
+        { ...fixture.checkpoint, mutations: fixture.checkpoint.mutations.slice(1) },
+        { ...fixture.checkpoint, supervisors: fixture.checkpoint.supervisors.map((entry, index) =>
+          index === 0 ? { ...entry, active: true } : entry) },
+        { ...fixture.checkpoint, dotenv: { open: true, files: [] } },
+      ];
+      for (const checkpoint of invalid) {
+        const document = fixture.document.replace(JSON.stringify(fixture.checkpoint), JSON.stringify(checkpoint));
+        write(reviewDocument, document);
+        git('add', reviewDocument);
+        git('commit', '-qm', 'malformed checkpoint with independently rebound fixture digest');
+        writeFileSync(runner, originalRunner);
+        replaceContinuationAnchor('RUN_E_CHECKPOINT_SHA256', digest(checkpoint));
+        writeJournal(checkpoint);
+        expectContinuationRefused();
+      }
+    });
+  });
+
   it('refuses E third-round opening for both positive and negated prose and a renamed pinned branch', () => {
     prepare();
     expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);

@@ -291,6 +291,24 @@ grants no production Operator enablement, external provider calls, external
 Claude/Opus delegation, other-branch budget changes, or relaxation of isolation,
 timeouts, per-test mutation limits, restoration or incomplete-status rules.
 
+**Run E same-round discovery correction.** The approved proposal expressly
+permits root adjudication of a required correction after admission within the
+same round and cap. One continuation preserves the closed 124-launch checkpoint
+from `b6ee3973b3e0ad9f6749f02c5428e6b4980cf837`, all original attempts and the
+unchanged `budgetAuthorization` pin. Before launch 125, the runner records one
+successor HEAD and checkpoint digest; subsequent launches require that same pin
+and the exact historical journal prefixes. No counter reset, second successor,
+third round, product change or intake/history rewrite is admitted. The finite
+source-correction manifest and checkpoint live in the existing budget-extension
+review document. Original discovery evidence remains intact. Only independently
+reviewed cases outside the changed behavioral contract may be reclassified;
+unresolved cases remain incomplete. A case's two-mutation limit spans both
+pins, and changed verifier cases need fresh successor measurements. Migration
+121's executable regression is in scope because that test reads and executes
+the SQL during its body; its existing finally restores the five constraints,
+and readback must confirm restoration. This does not change the general
+exclusion for migrations provisioned before a test.
+
 ## Duty 2 — fragile assertions
 
 Scan the changed tests for assertions on incidental structure. Each is **P1**,
