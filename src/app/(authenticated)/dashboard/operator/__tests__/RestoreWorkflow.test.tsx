@@ -104,7 +104,8 @@ describe('Operator Restore workflow', () => {
     const user = userEvent.setup();
     const first = render(<OperatorClient />);
     await user.click(await screen.findByRole('button', { name: 'Restore' }));
-    expect(await screen.findByRole('heading', { name: 'Restore: previous reply tone' })).toBeInTheDocument();
+    // The successful POST also reloads the transcript, replacing its DOM nodes.
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Restore: previous reply tone' })).toBeInTheDocument());
     expect(posts(fetcher)).toHaveLength(1);
     expect(JSON.parse(posts(fetcher)[0]?.[1].body)).toEqual({});
     expect(applied).toBe(false);

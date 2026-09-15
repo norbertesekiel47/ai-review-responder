@@ -63,6 +63,7 @@ async function restoreActorWritable(tx: Tx, input: RestoreActor): Promise<boolea
   const [actor] = await tx<{ subscription_tier: string }[]>`
     SELECT a.subscription_tier FROM users u JOIN accounts a ON a.id = u.account_id
     WHERE u.id = ${input.actorUserId}::uuid AND u.account_id = ${input.accountId}::uuid
+      AND a.id = ${input.accountId}::uuid
       AND u.role = 'owner'
   `;
   return actor !== undefined && isSubscriptionTier(actor.subscription_tier)
