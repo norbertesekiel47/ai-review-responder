@@ -4,6 +4,8 @@ import {
   CATALOG,
   modelVisibleOperations,
   proposableOperation,
+  previewPolicyRestore,
+  describePolicyRestore,
   type PolicyProposableOperation,
   type PolicyScopeState,
   type PolicyTarget,
@@ -25,6 +27,7 @@ const SAMPLE_INPUT: Record<ProposableOperationId, Record<string, unknown>> = {
   set_auto_reply_scope: { threshold: 4 },
   set_veto_window: { minutes: 30 },
   set_daily_cap: { cap: 5 },
+  clear_location_override: {},
 };
 
 /**
@@ -83,17 +86,99 @@ function parsedInput(op: PolicyProposableOperation, value: unknown): Record<stri
 }
 
 describe('operator catalog', () => {
+  it('restore preview recreates custom dials and returns to inherited absence without clearing a suspension', () => {
+    const accountDefault = state(4, 15, null, 10, true);
+    const cleared = { ...accountDefault, rowExists: false };
+    const restored = previewPolicyRestore({ accountDefault, location: cleared, targetRowSuspended: false }, LOCATION_TARGET, {
+      operation: 'restore_reply_policy', locationId: LOCATION,
+      state: { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+    });
+    expect(restored).toEqual({ before: cleared, after: state(5, 30, 2, 2, true) });
+    const patch = { operation: 'delete_location_override', locationId: LOCATION } as const;
+    const scope = { accountDefault, location: restored.after, targetRowSuspended: false };
+    const undone = previewPolicyRestore(scope, LOCATION_TARGET, patch);
+    expect(undone.after).toEqual(cleared);
+    expect(policyOp('clear_location_override').exposure(undone, LOCATION_TARGET)).toBe('expansion');
+    expect(describePolicyRestore(undone, LOCATION_TARGET)).toContain('Restore:');
+    expect(describePolicyRestore(undone, LOCATION_TARGET)).toContain('uses the account default');
+    expect(previewPolicyRestore({ ...scope, targetRowSuspended: true }, LOCATION_TARGET, patch).after)
+      .toEqual(state(null, 30, 2, 2, true));
+  });
+
+  it('restore preview changes only its historical dial and resets absent account defaults to platform values', () => {
+    const accountDefault = state(5, 30, 7, 7, true);
+    const scope = { accountDefault, location: null, targetRowSuspended: false };
+    expect(previewPolicyRestore(scope, ACCOUNT_TARGET, { operation: 'set_account_veto_window', minutes: 15 }).after)
+      .toEqual(state(5, 15, 7, 7, true));
+    expect(previewPolicyRestore(scope, ACCOUNT_TARGET, { operation: 'clear_account_default' }).after)
+      .toEqual(state(null, 15, null, 10, false));
+    expect(previewPolicyRestore({ ...scope, targetRowSuspended: true }, ACCOUNT_TARGET, { operation: 'clear_account_default' }).after)
+      .toEqual(state(null, 30, 7, 7, true));
+  });
+
+  it('restore inputs reverse each voice field, including nullable tone, without reverting other fields', () => {
+    const original = { ...VOICE, tone: null };
+    for (const op of voiceOps()) {
+      const changed = op.preview(original, SAMPLE_INPUT[op.id]).after;
+      const current = { ...changed, sampleResponses: ['A newer unrelated sample'] };
+      const restored = op.preview(current, op.restoreInputFromState(original)).after;
+      expect(restored).toEqual({ ...original, sampleResponses: current.sampleResponses });
+    }
+    expect(proposableOperation('set_tone')!.parseInput({ tone: null }).ok).toBe(false);
+  });
+
+  it('policy restore inputs preserve row absence and restore every dial after a deleted override', () => {
+    const target = { scope: 'location', locationId: '019f43d0-0000-7000-8000-000000000011' } as const;
+    const before = state(5, 30, 2, 2, true);
+    const after = state(4, 15, null, 10, true);
+    expect(policyOp('set_auto_reply_scope').restoreInputFromState(before, after, target))
+      .toEqual({ operation: 'set_location_override', threshold: 5, locationId: target.locationId });
+    expect(policyOp('set_veto_window').restoreInputFromState(before, after, target))
+      .toEqual({ operation: 'set_location_veto_window', minutes: 30, locationId: target.locationId });
+    expect(policyOp('set_daily_cap').restoreInputFromState(before, after, target))
+      .toEqual({ operation: 'set_location_daily_cap', cap: 2, locationId: target.locationId });
+    for (const op of ['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap', 'clear_location_override']) {
+      expect(policyOp(op).restoreInputFromState({ ...before, rowExists: false }, after, target))
+        .toEqual({ operation: 'delete_location_override', locationId: target.locationId });
+      expect(policyOp(op).restoreInputFromState(before, { ...after, rowExists: false }, target))
+        .toEqual({ operation: 'restore_reply_policy', locationId: target.locationId,
+          state: { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 } });
+    }
+    expect(policyOp('set_daily_cap').restoreInputFromState({ ...before, rowExists: false }, after, { scope: 'account' }))
+      .toEqual({ operation: 'clear_account_default' });
+  });
+
+  it('clear location override inherits the account policy without erasing suspension', () => {
+    const clear = policyOp('clear_location_override');
+    const accountDefault = state(4, 15, 20, 20, true);
+    const location = state(5, 30, 2, 2, true);
+    const target = { scope: 'location', locationId: '019f43d0-0000-7000-8000-000000000011' } as const;
+    const input = parsedInput(clear, {});
+    const preview = clear.preview({ accountDefault, location, targetRowSuspended: false }, target, input);
+    expect(preview).toEqual({ before: location, after: { ...accountDefault, rowExists: false } });
+    expect(clear.writerPatch(input, target)).toEqual({ operation: 'delete_location_override', locationId: target.locationId });
+    expect(clear.exposure(preview, target)).toBe('expansion');
+    expect(clear.confirmationPhrase(preview.after, target)).toBe('4 and 5 star');
+    expect(clear.scopeRule).toBe('location');
+    expect(clear.parseInput({ threshold: 5 }).ok).toBe(false);
+    expect(() => clear.writerPatch(input, { scope: 'account' })).toThrow();
+    const suspended = clear.preview({ accountDefault, location, targetRowSuspended: true }, target, input);
+    expect(suspended.after).toEqual({ ...location, threshold: null });
+    expect(clear.exposure(suspended, target)).toBe('contraction');
+    expect(clear.describeChange(input, suspended, target)).toContain('suspension');
+  });
+
   it('catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt', () => {
     // Three kinds, and the discriminant is what separates them: only a
     // `proposable` carries the write-shaped members, so a read or a capture
     // cannot be registered as immediately executable.
     expect(new Set(Object.values(CATALOG).map((op) => op.kind)))
-      .toEqual(new Set(['read', 'proposable', 'capture']));
+      .toEqual(new Set(['read', 'proposable', 'capture', 'prepare']));
     for (const op of Object.values(CATALOG)) {
       if (op.kind === 'proposable') {
         expect(typeof op.parseInput).toBe('function');
         expect(typeof op.preview).toBe('function');
-        expect(op.scopeRule).toBe(op.domain === 'voice' ? 'location' : 'account_or_location');
+        expect(op.scopeRule).toBe(op.domain === 'voice' || op.id === 'clear_location_override' ? 'location' : 'account_or_location');
       } else {
         // Narrowing proves the absence: a read/capture has no such members.
         expect('parseInput' in op).toBe(false);
@@ -107,15 +192,18 @@ describe('operator catalog', () => {
     expect(proposableOperation('set_daily_cap')?.domain).toBe('policy');
     expect(proposableOperation('read_pending_work')).toBeNull();
     expect(proposableOperation('record_unsupported_request')).toBeNull();
+    expect(proposableOperation('restore_last')).toBeNull();
     expect(proposableOperation('apply_proposal')).toBeNull();
-    expect(proposableOperation('clear_location_override')).toBeNull();
+    expect(proposableOperation('clear_location_override')?.domain).toBe('policy');
 
     const blocked = modelVisibleOperations({ blockReasons: ['autopilot_unavailable'] });
     expect(blocked.map((op) => op.id).sort()).toEqual([
+      'clear_location_override',
       'read_operating_rules',
       'read_pending_work',
       'read_recent_completed',
       'record_unsupported_request',
+      'restore_last',
       'set_auto_reply_scope',
       'set_avoid_facts',
       'set_daily_cap',
@@ -132,6 +220,11 @@ describe('operator catalog', () => {
     for (const op of blocked) {
       // Every visible entry carries the input-free `summary` the prompt reads.
       expect(op.describe.length).toBeGreaterThan(0);
+      if (op.kind === 'prepare') {
+        expect(op).toMatchObject({ id: 'restore_last', input: '{}', scopeRule: 'account_or_location' });
+        expect(op).not.toHaveProperty('expansionBlockedBy');
+        continue;
+      }
       if (op.kind !== 'proposable') {
         expect(op.input).toBeUndefined();
         expect(op).not.toHaveProperty('scopeRule');
@@ -164,7 +257,7 @@ describe('operator catalog', () => {
 
   it('invariants: every catalog operation declares a contract version, a label, an effect and a describer', () => {
     const proposables = Object.values(CATALOG).filter((op) => op.kind === 'proposable');
-    expect(proposables.length).toBe(7);
+    expect(proposables.length).toBe(8);
     for (const op of proposables) {
       expect(op.contractVersion).toBe(1);
       expect(op.labelKind).toBe(op.domain === 'voice' ? 'fact' : 'rule');
@@ -209,7 +302,7 @@ describe('operator catalog', () => {
 
   it('a dial change on a location with no row previews the CREATED manual override, seeded from the account default', () => {
     const inheriting: PolicyScopeState = {
-      accountDefault: state(4, 30, 20, 20, true),
+      targetRowSuspended: false, accountDefault: state(4, 30, 20, 20, true),
       location: state(4, 30, 20, 20, false),
     };
 
@@ -236,7 +329,7 @@ describe('operator catalog', () => {
 
     // Under a manual account default the created row changes no exposure.
     const manualAccount: PolicyScopeState = {
-      accountDefault: state(null, 30, 20, 20, true),
+      targetRowSuspended: false, accountDefault: state(null, 30, 20, 20, true),
       location: state(null, 30, 20, 20, false),
     };
     expect(cap.exposure(cap.preview(manualAccount, LOCATION_TARGET, capInput), LOCATION_TARGET)).toBe('no_change');
@@ -244,7 +337,7 @@ describe('operator catalog', () => {
 
   it('a scope change on a location with no row keeps the account dials and classifies by the new threshold', () => {
     const fiveStarAccount: PolicyScopeState = {
-      accountDefault: state(5, 30, 20, 20, true),
+      targetRowSuspended: false, accountDefault: state(5, 30, 20, 20, true),
       location: state(5, 30, 20, 20, false),
     };
     const scope = policyOp('set_auto_reply_scope');
@@ -270,7 +363,7 @@ describe('operator catalog', () => {
 
   it('an existing location row changes only the named dial, and any widening dimension wins', () => {
     const own: PolicyScopeState = {
-      accountDefault: state(4, 15, 40, 40, true),
+      targetRowSuspended: false, accountDefault: state(4, 15, 40, 40, true),
       location: state(5, 30, 10, 10, true),
     };
     const veto = policyOp('set_veto_window');
@@ -311,7 +404,7 @@ describe('operator catalog', () => {
     const veto = policyOp('set_veto_window');
     const cap = policyOp('set_daily_cap');
 
-    const accountRow: PolicyScopeState = { accountDefault: state(5, 30, 10, 10, true), location: null };
+    const accountRow: PolicyScopeState = { targetRowSuspended: false, accountDefault: state(5, 30, 10, 10, true), location: null };
     const widen = parsedInput(scope, { threshold: 4 });
     const widened = scope.preview(accountRow, ACCOUNT_TARGET, widen);
     expect(widened.after).toEqual(state(4, 30, 10, 10, true));
@@ -326,7 +419,7 @@ describe('operator catalog', () => {
     expect(scope.writerPatch(off, ACCOUNT_TARGET)).toEqual({ operation: 'set_account_manual' });
 
     // No account row: the created row takes the schema defaults, not a parent.
-    const noRow: PolicyScopeState = { accountDefault: state(null, 15, null, 10, false), location: null };
+    const noRow: PolicyScopeState = { targetRowSuspended: false, accountDefault: state(null, 15, null, 10, false), location: null };
     const longer = parsedInput(veto, { minutes: 30 });
     const longerPreview = veto.preview(noRow, ACCOUNT_TARGET, longer);
     expect(longerPreview.after).toEqual(state(null, 30, null, 10, true));
@@ -345,7 +438,7 @@ describe('operator catalog', () => {
 
   it('policy describeChange renders the full before and after, and explains a created row with its inherited values', () => {
     const inheriting: PolicyScopeState = {
-      accountDefault: state(4, 30, 20, 20, true),
+      targetRowSuspended: false, accountDefault: state(4, 30, 20, 20, true),
       location: state(4, 30, 20, 20, false),
     };
     const veto = policyOp('set_veto_window');
@@ -369,7 +462,7 @@ describe('operator catalog', () => {
     expect(capText).toContain('After Apply: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 5.');
     expect(capText).not.toContain('its own settings');
 
-    const noRow: PolicyScopeState = { accountDefault: state(null, 15, null, 10, false), location: null };
+    const noRow: PolicyScopeState = { targetRowSuspended: false, accountDefault: state(null, 15, null, 10, false), location: null };
     const accountText = veto.describeChange(vetoInput, veto.preview(noRow, ACCOUNT_TARGET, vetoInput), ACCOUNT_TARGET);
     expect(accountText).toContain('Account default now:');
     expect(accountText).toContain('This creates the account default. Auto-posting starts off.');

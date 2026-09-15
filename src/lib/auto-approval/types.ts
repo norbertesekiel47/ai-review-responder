@@ -267,6 +267,18 @@ export const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
 
 export type AutoApprovalPatchRequest = z.infer<typeof AutoApprovalPatchSchema>;
 
+/** Server-derived inverse of a Reply policy clear; never accepted by the settings form. */
+export interface RestoreReplyPolicyRequest {
+  operation: 'restore_reply_policy';
+  locationId: string | null;
+  state: {
+    threshold: AutoApprovalThreshold | null;
+    vetoWindowMinutes: VetoWindowMinutes;
+    dailyAutoPostCap: number | null;
+  };
+  confirmationLevel?: AutoApprovalConfirmationLevel;
+}
+
 export function isAutoApprovalThreshold(value: unknown): value is AutoApprovalThreshold {
   return AutoApprovalThresholdSchema.safeParse(value).success;
 }

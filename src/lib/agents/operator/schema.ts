@@ -11,6 +11,7 @@ import {
   type ProposableOperationId,
 } from './operation-inputs';
 import { AutoApprovalVersionTokenSchema, VoiceVersionTokenSchema } from './version-token';
+import { OPERATOR_REFUSAL_REASONS } from './refusals';
 
 export const TURN_STATUS = {
   ACCEPTED: 'accepted',
@@ -167,12 +168,18 @@ const ScopeCheckSegmentSchema = z.object({
   locationId: z.uuid(),
 }).strict();
 
+const RefusalRefSegmentSchema = z.strictObject({
+  type: z.literal('refusal_ref'),
+  reason: z.enum(OPERATOR_REFUSAL_REASONS),
+});
+
 const SegmentSchema = z.discriminatedUnion('type', [
   TextSegmentSchema,
   StatusRefSegmentSchema,
   ProposalRefSegmentSchema,
   QuestionSegmentSchema,
   ScopeCheckSegmentSchema,
+  RefusalRefSegmentSchema,
 ]);
 export type Segment = z.infer<typeof SegmentSchema>;
 
@@ -185,13 +192,16 @@ export type Segment = z.infer<typeof SegmentSchema>;
  * `notice` is a closed token, not a sentence: the wording lives in render.ts, so
  * a copy edit ships without rewriting stored rows.
  */
-export const SERVER_NOTICE = { PASTED_REVIEW_REMOVED: 'pasted_review_removed' } as const;
+export const SERVER_NOTICE = {
+  PASTED_REVIEW_REMOVED: 'pasted_review_removed',
+  RESTORE_UNAVAILABLE: 'restore_unavailable',
+} as const;
 export type ServerNotice = (typeof SERVER_NOTICE)[keyof typeof SERVER_NOTICE];
 
-const ServerNoticeSegmentSchema = z.object({
+const ServerNoticeSegmentSchema = z.strictObject({
   type: z.literal('server_notice'),
-  notice: z.enum([SERVER_NOTICE.PASTED_REVIEW_REMOVED]),
-}).strict();
+  notice: z.enum(SERVER_NOTICE),
+});
 
 /**
  * A MATERIALIZED status: the value the server read, frozen at completion with
@@ -235,13 +245,22 @@ const ProposalSegmentSchema = z.object({
   proposalId: z.uuid(),
 }).strict();
 
+// The durable subject is minted by the server during fenced completion.
+// Neither scope nor wording is stored: the closed rule map owns both.
+const RefusalSegmentSchema = z.strictObject({
+  type: z.literal('refusal'),
+  reason: z.enum(OPERATOR_REFUSAL_REASONS),
+  subjectId: z.uuid(),
+});
+
 /**
  * What `agent_turns.reply` may hold. NOT simply "the model union plus extras":
  * `status_ref` is REPLACED by the materialized `status` on the way in, and
  * `proposal_ref` by the materialized `proposal`, so a stored reply carries a
  * value and an id and never a promise to look either one up.
- * `OperatorModelOutputSchema` below keeps the five model members and accepts
- * none of `server_notice`, `status` or `proposal`, so a model cannot forge a
+ * `refusal_ref` becomes `refusal` with its server-minted durable subject.
+ * `OperatorModelOutputSchema` accepts none of `server_notice`, `status`,
+ * `proposal` or `refusal`, so a model cannot forge a
  * server statement, a count, or a reference to a proposal it did not return.
  */
 const StoredSegmentSchema = z.discriminatedUnion('type', [
@@ -251,6 +270,7 @@ const StoredSegmentSchema = z.discriminatedUnion('type', [
   ScopeCheckSegmentSchema,
   ServerNoticeSegmentSchema,
   StatusSegmentSchema,
+  RefusalSegmentSchema,
 ]);
 export type StoredSegment = z.infer<typeof StoredSegmentSchema>;
 
@@ -286,7 +306,8 @@ function proposalSchemaFor<Operation extends ProposableOperationId>(operation: O
   }).strict();
 }
 
-// Exhaustive over `OPERATION_INPUT_SCHEMAS`; schema.test.ts pins the member set.
+// Eight ordinary inputs plus the server-prepared Restore request. The latter
+// has no model-authored prior state or source ID; schema tests pin both doors.
 const ProposedOperationSchema = z.union([
   proposalSchemaFor('set_tone'),
   proposalSchemaFor('set_products_services'),
@@ -295,6 +316,13 @@ const ProposedOperationSchema = z.union([
   proposalSchemaFor('set_auto_reply_scope'),
   proposalSchemaFor('set_veto_window'),
   proposalSchemaFor('set_daily_cap'),
+  proposalSchemaFor('clear_location_override'),
+  z.strictObject({
+    operation: z.literal('restore_last'),
+    scope: ProposalScopeSchema,
+    input: z.strictObject({}),
+    rationale: z.string().trim().min(1).max(500),
+  }),
 ]);
 
 const UnsupportedRequestSchema = z.object({

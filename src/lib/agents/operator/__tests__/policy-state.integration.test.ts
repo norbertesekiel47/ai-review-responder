@@ -419,7 +419,7 @@ describeWithDb(
         policySuspended: false,
         source: 'reviews_received_30d',
       });
-      expect(snapshot.state).toEqual({ accountDefault: policyState(4, 30, 2, true), location: null });
+      expect(snapshot.state).toEqual({ targetRowSuspended: false, accountDefault: policyState(4, 30, 2, true), location: null });
       const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : 1);
       // `manual` keeps ITS row whole: veto 15 and the platform cap, not the parent's 30 and 2.
       expect([...snapshot.locations].sort(byId)).toEqual([
@@ -471,7 +471,7 @@ describeWithDb(
 
       const manual = snapshotOrThrow(await readPolicySnapshot(db, { accountId, locationId: f.manual }));
       expect(manual.target).toEqual({ scope: 'location', locationId: f.manual });
-      expect(manual.state).toEqual({ accountDefault: policyState(4, 30, 2, true), location: policyState(null, 15, null, true) });
+      expect(manual.state).toEqual({ targetRowSuspended: false, accountDefault: policyState(4, 30, 2, true), location: policyState(null, 15, null, true) });
       expect(manual.locations).toEqual([{ id: f.manual, state: policyState(null, 15, null, true) }]);
       expect(manual.reviews.map((review) => review.reviewId)).toEqual([f.review.r12]);
       expect(manual).toMatchObject({ excludedImported: 0, excludedUnknown: 0, targetArchived: false });
@@ -509,7 +509,7 @@ describeWithDb(
 
       const absentAccount = snapshotOrThrow(await readPolicySnapshot(db, { accountId, locationId: null }));
       expect(absentAccount.versionToken).toEqual({ accountDefaultRow: { id: 'absent' } });
-      expect(absentAccount.state).toEqual({ accountDefault: policyState(null, 15, null, false), location: null });
+      expect(absentAccount.state).toEqual({ targetRowSuspended: false, accountDefault: policyState(null, 15, null, false), location: null });
       const absentLocation = snapshotOrThrow(await readPolicySnapshot(db, { accountId, locationId: location }));
       expect(absentLocation.versionToken).toEqual({ locationRow: { id: 'absent' }, accountDefaultRow: { id: 'absent' } });
       expect(absentLocation.state.location).toEqual(policyState(null, 15, null, false));
@@ -532,7 +532,7 @@ describeWithDb(
         locationRow: { id: overrideId, updatedAt: await storedUpdatedAt(overrideId, accountId) },
         accountDefaultRow: { id: accountPolicyId, updatedAt: await storedUpdatedAt(accountPolicyId, accountId) },
       });
-      expect(snapshot.state).toEqual({ accountDefault: policyState(5, 30, 7, true), location: policyState(4, 15, null, true) });
+      expect(snapshot.state).toEqual({ targetRowSuspended: false, accountDefault: policyState(5, 30, 7, true), location: policyState(4, 15, null, true) });
       // The account default is suspended; the unsuspended winning row cannot mask it.
       expect(snapshot.policySuspended).toBe(true);
 

@@ -2079,6 +2079,43 @@ describe('transaction-aware settings writer seam (Run C T1)', () => {
   });
 });
 
+describe('internal Reply policy restore validation', () => {
+  const state = { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlCalls.length = 0;
+  });
+
+  it('the public settings schema rejects an internal restore and full-row state on ordinary operations', async () => {
+    const { AutoApprovalPatchSchema } = await import('../types');
+    expect(AutoApprovalPatchSchema.safeParse({
+      operation: 'restore_reply_policy', locationId: LOCATION_1, state,
+    }).success).toBe(false);
+    expect(AutoApprovalPatchSchema.safeParse({
+      operation: 'set_location_override', locationId: LOCATION_1, threshold: 5, state,
+    }).success).toBe(false);
+  });
+
+  it.each([
+    { ...state, threshold: 3 },
+    { ...state, vetoWindowMinutes: 60 },
+    { ...state, dailyAutoPostCap: 0 },
+    { ...state, dailyAutoPostCap: 51 },
+    { ...state, dailyAutoPostCap: 1.5 },
+    { ...state, suspendedAt: null },
+    { ...state, suspendedReason: 'historical suspension' },
+  ])('rejects invalid or historical suspension fields before any database statement: %j', async (invalidState) => {
+    const { patchAutoApprovalSettingsInTransaction } = await import('../settings');
+    await expect(patchAutoApprovalSettingsInTransaction(mockSql, {
+      ...SEAM_BASE, operation: 'restore_reply_policy', locationId: LOCATION_1,
+      state: invalidState as unknown as import('../types').RestoreReplyPolicyRequest['state'],
+    })).rejects.toMatchObject({ code: 'invalid_policy_restore' });
+    expect(sqlCalls).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+});
+
 // #631 Task 8 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
 // the D20 Solicitation persona opt-in surface. Titles verbatim from intake
 // rev 2. The lane's PATCH operations share the account lock + offboarding

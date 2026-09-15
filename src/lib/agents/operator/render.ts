@@ -1,8 +1,9 @@
 // Deterministic rendering and validation for Owner Operator replies. Pure: no
 // database, no clock of its own, no network. `validateModelOutput` is the
 // gate the model cannot talk its way past (spec §5.5).
-import { proposableOperation, type ProposableOperation } from './catalog';
+import { CATALOG, proposableOperation, type PrepareOperation, type ProposableOperation } from './catalog';
 import type { Snapshot, SnapshotMetrics } from './context';
+import { OPERATOR_REFUSAL_RULES, type OperatorRefusalReason } from './refusals';
 import {
   SERVER_NOTICE,
   STATUS_METRICS,
@@ -123,8 +124,14 @@ export interface ParsedProposal {
   rationale: string;
 }
 
+export interface ParsedRestoreRequest {
+  /** Index in the original model proposals array, including ordinary proposals. */
+  index: number;
+  scope: ProposalScope;
+}
+
 export type ValidationResult =
-  | { ok: true; output: ModelOutput; proposals: ParsedProposal[] }
+  | { ok: true; output: ModelOutput; proposals: ParsedProposal[]; restoreRequests: ParsedRestoreRequest[] }
   | { ok: false; reasons: string[] };
 
 /** One proposal exactly as the model returned it, before the catalog sees it. */
@@ -167,7 +174,12 @@ function validateTextSegments(segments: readonly Segment[]): string[] {
  */
 function validateRefSegments(output: ModelOutput): string[] {
   const reasons: string[] = [];
+  const refusalReasons = new Set<OperatorRefusalReason>();
   for (const segment of output.segments) {
+    if (segment.type === 'refusal_ref') {
+      if (refusalReasons.has(segment.reason)) reasons.push('duplicate refusal_ref reason');
+      refusalReasons.add(segment.reason);
+    }
     if (segment.type === 'status_ref' && !STATUS_METRIC_SET.has(segment.metric)) {
       reasons.push(`status_ref names a metric outside the snapshot: ${segment.metric}`);
     }
@@ -212,7 +224,7 @@ function validateScopeCheck(
 /** One proposal's scope: the right account, and the stored location or the account default. */
 function validateProposalScope(
   proposal: NormalizedProposal,
-  operation: ProposableOperation,
+  operation: ProposableOperation | PrepareOperation,
   snapshot: Snapshot,
 ): string[] {
   const reasons: string[] = [];
@@ -242,10 +254,20 @@ function validateProposalScope(
 function validateProposals(
   proposals: readonly NormalizedProposal[],
   snapshot: Snapshot,
-): { reasons: string[]; proposals: ParsedProposal[] } {
+): { reasons: string[]; proposals: ParsedProposal[]; restoreRequests: ParsedRestoreRequest[] } {
   const reasons: string[] = [];
   const parsedProposals: ParsedProposal[] = [];
-  for (const proposal of proposals) {
+  const restoreRequests: ParsedRestoreRequest[] = [];
+  for (const [index, proposal] of proposals.entries()) {
+    if (proposal.operation === 'restore_last') {
+      if (!snapshot.allowedOperations.some((op) => op.id === 'restore_last' && op.kind === 'prepare')) {
+        reasons.push('restore_last is not available for this account');
+      }
+      reasons.push(...validateProposalScope(proposal, CATALOG.restore_last as PrepareOperation, snapshot));
+      if (Object.keys(proposal.input).length !== 0) reasons.push('restore_last input must be empty');
+      restoreRequests.push({ index, scope: proposal.scope });
+      continue;
+    }
     const operation = proposableOperation(proposal.operation);
     if (!operation) {
       reasons.push(`proposal names an operation outside the catalog: ${proposal.operation}`);
@@ -269,7 +291,7 @@ function validateProposals(
       rationale: proposal.rationale,
     });
   }
-  return { reasons, proposals: parsedProposals };
+  return { reasons, proposals: parsedProposals, restoreRequests };
 }
 
 /**
@@ -297,7 +319,7 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
   ];
 
   return reasons.length === 0
-    ? { ok: true, output, proposals: proposalCheck.proposals }
+    ? { ok: true, output, proposals: proposalCheck.proposals, restoreRequests: proposalCheck.restoreRequests }
     : { ok: false, reasons };
 }
 
@@ -332,13 +354,17 @@ export interface MaterializeReplyInput {
   /** The snapshot's metrics, read once before the model call. */
   metrics: SnapshotMetrics;
   /** Stored **Proposal** ids, in the order the model returned the proposals. */
-  proposalIds: readonly string[];
+  proposalIds: readonly (string | null)[];
+  /** The server could not prepare at least one requested Restore. */
+  restoreUnavailable?: boolean;
+  /** Server-minted refusal subjects, keyed by the validated distinct reason. */
+  refusalIds?: Readonly<Partial<Record<OperatorRefusalReason, string>>>;
   /** Whether the **Pasted-review scrub** changed the owner's message. */
   scrubbed: boolean;
 }
 
 /**
- * The model's segments → what `agent_turns.reply` stores. Three transforms,
+ * The model's segments → what `agent_turns.reply` stores. Four transforms,
  * all of which exist so the stored row is the whole truth and the read path
  * never re-derives anything:
  *
@@ -352,10 +378,14 @@ export interface MaterializeReplyInput {
  *     re-derivation is a tie-only sort with no defined order.
  *  3. a scrubbed message prepends the fixed notice, which the read path could
  *     not re-derive: it never sees the owner's raw message.
+ *  4. every refusal binds its server-minted subject, matching the ledger row
+ *     written in the same winning completion transaction.
  *
  * A `status_ref` whose metric is unreachable-unknown, or a `proposal_ref`
  * whose index has no id, is DROPPED rather than thrown: the turn's budget is
  * already spent, and one missing sentence beats a retry that cannot converge.
+ * A missing refusal subject THROWS: the durable refusal and its ledger row
+ * must commit together, never silently lose a recorded decision.
  */
 export function materializeReply(input: MaterializeReplyInput): StoredSegment[] {
   const stored: StoredSegment[] = [];
@@ -379,10 +409,19 @@ export function materializeReply(input: MaterializeReplyInput): StoredSegment[] 
         if (proposalId) stored.push({ type: 'proposal', proposalId });
         break;
       }
+      case 'refusal_ref': {
+        const subjectId = input.refusalIds?.[segment.reason];
+        if (!subjectId) throw new Error('agents/operator: refusal_ref has no server-minted subject ID');
+        stored.push({ type: 'refusal', reason: segment.reason, subjectId });
+        break;
+      }
       default:
         stored.push(segment);
         break;
     }
+  }
+  if (input.restoreUnavailable) {
+    stored.push({ type: 'server_notice', notice: SERVER_NOTICE.RESTORE_UNAVAILABLE });
   }
   return stored;
 }
@@ -397,6 +436,7 @@ export interface RenderContext {
 /** Closed token → the sentence the owner reads. Owned here, not in the row. */
 const SERVER_NOTICE_TEXT: Record<ServerNotice, string> = {
   [SERVER_NOTICE.PASTED_REVIEW_REMOVED]: PASTED_REVIEW_SEGMENT,
+  [SERVER_NOTICE.RESTORE_UNAVAILABLE]: 'I could not prepare a Restore from the applied history for that scope. Nothing changed.',
 };
 
 export type RenderedSegment =
@@ -404,6 +444,7 @@ export type RenderedSegment =
   | { type: 'question'; text: string }
   | { type: 'status'; metric: StatusMetric; value: number; reportingPeriodDays: number; asOf: string }
   | { type: 'proposal'; proposalId: string }
+  | { type: 'refusal'; reason: OperatorRefusalReason; subjectId: string; text: string }
   | { type: 'scope_check'; locationId: string; locationName: string }
   | { type: 'notice'; text: string };
 
@@ -447,6 +488,12 @@ export function renderSegments(
       // Passthrough: the id was bound at completion.
       case 'proposal':
         rendered.push({ type: 'proposal', proposalId: segment.proposalId });
+        break;
+      case 'refusal':
+        rendered.push({
+          type: 'refusal', reason: segment.reason, subjectId: segment.subjectId,
+          text: OPERATOR_REFUSAL_RULES[segment.reason].rule,
+        });
         break;
       case 'scope_check': {
         const location = context.locations.find((l) => l.id === segment.locationId);

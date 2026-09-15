@@ -213,6 +213,56 @@ describeWithDb('Operator policy Apply (live DB)', { enabled: Boolean(databaseUrl
     expect(await footprint()).toEqual({ ...before, audits: before.audits + 1 });
   });
 
+  it('clear override requires expansion confirmation, deletes only its row, and records the inherited receipt once', async () => {
+    await seedPolicy(null, 4);
+    await seedPolicy(locationId, 5);
+    const row = await prepare('clear_location_override', {}, locationId);
+    const before = await footprint();
+    expect(await apply(row, '5 star only')).toMatchObject({ kind: 'confirmation_mismatch' });
+    expect(await footprint()).toEqual(before);
+    const result = await apply(row, '4 and 5 star');
+    expect(result).toMatchObject({ kind: 'applied', proposal: { receipt: {
+      before: { threshold: 5, rowExists: true, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      after: { threshold: 4, rowExists: false, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      differsFromPreview: false,
+    } } });
+    expect(await footprint()).toEqual({ ...before, policies: before.policies - 1, audits: before.audits + 1 });
+    expect(await apply(row)).toMatchObject({ kind: 'applied', repeated: true });
+    expect(await footprint()).toEqual({ ...before, policies: before.policies - 1, audits: before.audits + 1 });
+  });
+
+  it('clear override retains a suspended row and its exact dials while switching to manual', async () => {
+    await seedPolicy(null, 4);
+    await seedPolicy(locationId, 5);
+    await db`UPDATE auto_approval_policies SET suspended_at = NOW(),
+      suspended_reason = 'governor_negative_feedback'
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid`;
+    const row = await prepare('clear_location_override', {}, locationId);
+    const before = await footprint();
+    const result = await apply(row);
+    expect(result).toMatchObject({ kind: 'applied', proposal: { receipt: {
+      after: { threshold: null, rowExists: true, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      differsFromPreview: false,
+    } } });
+    const [stored] = await db`SELECT auto_approve_min_star, veto_window_minutes,
+      daily_auto_post_cap, suspended_at IS NOT NULL AS suspended, suspended_reason
+      FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid
+        AND location_id = ${locationId}::uuid`;
+    expect(stored).toEqual({ auto_approve_min_star: null, veto_window_minutes: 30,
+      daily_auto_post_cap: 2, suspended: true, suspended_reason: 'governor_negative_feedback' });
+    expect(await footprint()).toEqual({ ...before, audits: before.audits + 1 });
+  });
+
+  it('clear override rejects a changed parent policy before deleting anything', async () => {
+    await seedPolicy(null, 4);
+    await seedPolicy(locationId, 5);
+    const row = await prepare('clear_location_override', {}, locationId);
+    await patchAutoApprovalSettings(db, { ...actor(), operation: 'set_account_veto_window', minutes: 15, confirmationLevel: 'standard' });
+    const before = await footprint();
+    expect(await apply(row, '4 and 5 star')).toMatchObject({ kind: 'stale' });
+    expect(await footprint()).toEqual(before);
+  });
+
   it('first dial-only override is manual, inherits the other dial, and preserves voice and other-location proposals', async () => {
     await seedPolicy(null);
     const voice = await prepare('set_tone', { tone: 'warm' }, locationId);

@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { z } from 'zod';
 import {
   getOffboardingState,
   isBillingMutationBlocked,
@@ -42,6 +43,7 @@ import type {
   EffectiveAutoApprovalPolicy,
   PolicyRowState,
   PolicyExposureClassification,
+  RestoreReplyPolicyRequest,
   VetoWindowMinutes,
 } from './types';
 import {
@@ -58,14 +60,27 @@ interface GetAutoApprovalSettingsInput {
   impersonated: boolean;
 }
 
-export type PatchAutoApprovalSettingsInput = AutoApprovalPatchRequest & {
+interface SettingsMutationActor {
   accountId: string;
   actorUserId: string | null;
   impersonated: boolean;
   ip?: string | null;
   userAgent?: string | null;
   requestId?: string | null;
-};
+}
+
+export type PatchAutoApprovalSettingsInput = AutoApprovalPatchRequest & SettingsMutationActor;
+
+// Only callers already inside a server transaction may submit historical state.
+// The public settings request and form schema retain their ordinary operations.
+export type PatchAutoApprovalSettingsInTransactionInput =
+  (AutoApprovalPatchRequest | RestoreReplyPolicyRequest) & SettingsMutationActor;
+
+const RestoreReplyPolicyStateSchema = z.strictObject({
+  threshold: z.custom<AutoApprovalThreshold>(isAutoApprovalThreshold).nullable(),
+  vetoWindowMinutes: z.custom<VetoWindowMinutes>(isVetoWindowMinutes),
+  dailyAutoPostCap: z.number().int().min(1).max(50).nullable(),
+});
 
 type SolicitationPatchOperation =
   | 'set_solicitation_account_default'
@@ -80,7 +95,7 @@ export type SolicitationPatchInput = Extract<
   { operation: SolicitationPatchOperation }
 >;
 type ReplyLanePatchInput = Exclude<
-  PatchAutoApprovalSettingsInput,
+  PatchAutoApprovalSettingsInTransactionInput,
   { operation: SolicitationPatchOperation }
 >;
 
@@ -213,10 +228,20 @@ export async function patchAutoApprovalSettings(
 // because a caller can reach it without the wrapper above.
 export async function patchAutoApprovalSettingsInTransaction(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: PatchAutoApprovalSettingsInTransactionInput,
 ): Promise<AutoApprovalSettingsResponse> {
   if (input.impersonated) {
     throw new AutoApprovalExpansionBlockedError(['impersonation_not_allowed']);
+  }
+
+  if (input.operation === 'restore_reply_policy') {
+    const validLocation = z.uuid().nullable().safeParse(input.locationId).success;
+    const validState = RestoreReplyPolicyStateSchema.safeParse(input.state).success;
+    const validConfirmation = input.confirmationLevel === undefined
+      || input.confirmationLevel === 'standard' || input.confirmationLevel === 'all_ratings';
+    if (!validLocation || !validState || !validConfirmation) {
+      throw new AutoApprovalSettingsError('invalid_policy_restore', 400);
+    }
   }
 
   const lockedAccount = await updatePolicyInTransaction(tx, input);
@@ -228,7 +253,7 @@ export async function patchAutoApprovalSettingsInTransaction(
 
 async function updatePolicyInTransaction(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: PatchAutoApprovalSettingsInTransactionInput,
 ): Promise<SettingsAccountEntitlementRow> {
   const lockedAccount = await lockAccount(tx, input.accountId);
   const offboardingState = await getOffboardingState(input.accountId, tx);
@@ -281,7 +306,9 @@ function assertArchivedPolicyAllowed(
   expansion: boolean,
 ): void {
   if (before.scope !== 'location_override' || !before.locationArchived) return;
-  if (input.operation === 'set_location_override' || expansion) {
+  const restoresEnabledOverride = input.operation === 'restore_reply_policy'
+    && input.state.threshold !== null;
+  if (input.operation === 'set_location_override' || restoresEnabledOverride || expansion) {
     throw new AutoApprovalSettingsError('location_inactive', 409);
   }
 }
@@ -411,7 +438,7 @@ async function readBeforeState(
 ): Promise<PolicyMutationBeforeState> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
 
-  if (!('locationId' in input)) {
+  if (!('locationId' in input) || input.locationId === null) {
     return {
       snapshot: {
         row: toApiState(accountDefault),
@@ -450,13 +477,13 @@ async function readBeforeState(
   };
 }
 
-// The single column a mutation writes; every other column carries over from
-// the targeted row (or the column default on a fresh insert). Mirrors the
-// per-operation upserts in applyMutation exactly.
+// Ordinary patches write one column; the internal clear inverse restores all
+// owner-controlled columns together. Suspension never enters this patch.
 type PolicyRowPatch =
   | { threshold: AutoApprovalThreshold | null }
   | { vetoWindowMinutes: VetoWindowMinutes }
-  | { dailyAutoPostCap: number | null };
+  | { dailyAutoPostCap: number | null }
+  | RestoreReplyPolicyRequest['state'];
 
 // PURE: the after-state is fully determined by (before, operation, newPolicyId).
 // policyId mirrors the ON CONFLICT upsert: an update keeps the existing row id, a
@@ -472,6 +499,8 @@ function computeAfterState(
     : newPolicyId;
 
   switch (input.operation) {
+    case 'restore_reply_policy':
+      return upsertAfter(before, input.accountId, upsertPolicyId, input.state);
     case 'set_account_default':
     case 'set_location_override':
       return upsertAfter(before, input.accountId, upsertPolicyId, { threshold: input.threshold });
@@ -504,16 +533,17 @@ function computeAfterState(
   }
 }
 
-const LOCATION_DIAL_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+const LOCATION_DIAL_OPERATIONS = new Set<ReplyLanePatchInput['operation']>([
   'set_location_veto_window',
   'set_location_daily_cap',
 ]);
 
-const COMPLETE_DISABLE_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+const COMPLETE_DISABLE_OPERATIONS = new Set<ReplyLanePatchInput['operation']>([
   'set_account_manual',
   'clear_account_default',
   'set_location_manual',
   'delete_location_override',
+  'restore_reply_policy',
 ]);
 
 function createsManualLocationOverride(
@@ -522,7 +552,8 @@ function createsManualLocationOverride(
 ): boolean {
   return before.scope === 'location_override'
     && before.targetRow === null
-    && LOCATION_DIAL_OPERATIONS.has(input.operation);
+    && (LOCATION_DIAL_OPERATIONS.has(input.operation)
+      || (input.operation === 'restore_reply_policy' && input.state.threshold === null));
 }
 
 function transitionsEnabledPolicyToManual(
@@ -666,6 +697,9 @@ async function applyMutation(
   before: PolicyMutationBeforeState,
 ): Promise<void> {
   switch (input.operation) {
+    case 'restore_reply_policy':
+      await upsertRestoredReplyPolicy(db, newPolicyId, input);
+      return;
     case 'set_account_default':
       await upsertAccountDefault(db, newPolicyId, input.accountId, freshRowSeed(before, { threshold: input.threshold }));
       return;
@@ -733,6 +767,35 @@ async function applyMutation(
       `;
       return;
   }
+}
+
+// The inverse of clear needs one final-state write. Both conflict predicates
+// match migration 074; DO UPDATE deliberately omits governor-owned columns.
+async function upsertRestoredReplyPolicy(
+  db: TransactionSql,
+  policyId: string,
+  input: RestoreReplyPolicyRequest & SettingsMutationActor,
+): Promise<void> {
+  const conflictTarget = input.locationId === null
+    ? db`(account_id, persona, action_class) WHERE location_id IS NULL`
+    : db`(account_id, location_id, persona, action_class) WHERE location_id IS NOT NULL`;
+  await db`
+    INSERT INTO auto_approval_policies (
+      id, account_id, location_id, persona, action_class,
+      auto_approve_min_star, veto_window_minutes, daily_auto_post_cap, updated_at
+    ) VALUES (
+      ${policyId}::uuid, ${input.accountId}::uuid, ${input.locationId}::uuid,
+      ${POLICY_PERSONA_REPLY}, ${POLICY_ACTION_POSTING},
+      ${input.state.threshold}, ${input.state.vetoWindowMinutes},
+      ${input.state.dailyAutoPostCap}, NOW()
+    )
+    ON CONFLICT ${conflictTarget}
+    DO UPDATE SET
+      auto_approve_min_star = EXCLUDED.auto_approve_min_star,
+      veto_window_minutes = EXCLUDED.veto_window_minutes,
+      daily_auto_post_cap = EXCLUDED.daily_auto_post_cap,
+      updated_at = NOW()
+  `;
 }
 
 // Every upsert's ON CONFLICT target matches its migration-074 partial unique

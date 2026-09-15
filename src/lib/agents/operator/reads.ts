@@ -22,6 +22,7 @@ import {
 } from './context';
 import {
   listPendingProposals,
+  listProposalsByIds,
   listProposalsForTurn,
   listProposalsForTurns,
   listUnsupportedForTurn,
@@ -51,6 +52,43 @@ type Sql = postgres.Sql;
  */
 export const TRANSCRIPT_TURN_LIMIT = 50;
 
+export type OwnerRefusalView = Extract<RenderedSegment, { type: 'refusal' }>;
+
+/**
+ * Restore can reuse a proposal owned by an earlier turn, including one outside
+ * this transcript. Fetch only missing referenced IDs, once and account-scoped.
+ * Attach the original row without changing its turnId or duplicating its card.
+ */
+async function hydrateProposalReferences(
+  sql: Sql,
+  accountId: string,
+  turns: { segments: RenderedSegment[]; proposals: ProposalView[] }[],
+): Promise<void> {
+  const byId = new Map<string, ProposalView>();
+  for (const turn of turns) {
+    for (const proposal of turn.proposals) byId.set(proposal.id, proposal);
+  }
+  const missing = new Set<string>();
+  for (const turn of turns) {
+    for (const segment of turn.segments) {
+      if (segment.type === 'proposal' && !byId.has(segment.proposalId)) missing.add(segment.proposalId);
+    }
+  }
+  if (missing.size > 0) {
+    const referenced = await listProposalsByIds(sql, { accountId, proposalIds: [...missing] });
+    for (const proposal of referenced) byId.set(proposal.id, proposal);
+  }
+  for (const turn of turns) {
+    const proposals = new Map(turn.proposals.map((proposal) => [proposal.id, proposal]));
+    for (const segment of turn.segments) {
+      if (segment.type !== 'proposal') continue;
+      const proposal = byId.get(segment.proposalId);
+      if (proposal) proposals.set(proposal.id, proposal);
+    }
+    turn.proposals = [...proposals.values()];
+  }
+}
+
 export interface OwnerTurnView {
   id: string;
   status: TurnStatus;
@@ -59,6 +97,7 @@ export interface OwnerTurnView {
   segments: RenderedSegment[];
   proposals: ProposalView[];
   unsupported: UnsupportedView[];
+  refused: OwnerRefusalView[];
 }
 
 /**
@@ -95,18 +134,22 @@ export async function getTurnForOwner(
   const proposals = await listProposalsForTurn(sql, input);
   const unsupported = await listUnsupportedForTurn(sql, input);
   const locations = await getLocationsForAccount(sql, input.accountId);
+  const segments = renderSegments(parseReplySegments(row.reply), {
+    locations: locations.map((l) => ({ id: l.id, name: l.name })),
+  });
 
-  return {
+  const turn: OwnerTurnView = {
     id: row.id,
     status: asTurnStatus(row.status),
     failureReason: row.failure_reason,
     locationId: row.location_id,
-    segments: renderSegments(parseReplySegments(row.reply), {
-      locations: locations.map((l) => ({ id: l.id, name: l.name })),
-    }),
+    segments,
     proposals,
     unsupported,
+    refused: segments.filter((segment) => segment.type === 'refusal'),
   };
+  await hydrateProposalReferences(sql, input.accountId, [turn]);
+  return turn;
 }
 
 export interface OwnerConversationTurn {
@@ -127,6 +170,8 @@ export interface OwnerConversationTurn {
    * still in the table (RB-07). Read in ONE batched `listUnsupportedForTurns`.
    */
   unsupported: UnsupportedView[];
+  /** Stored decisions with server-owned wording, distinct from unsupported requests. */
+  refused: OwnerRefusalView[];
   /** The owner's message, stored VERBATIM — the scrub is a read-path transform. */
   ownerText: string;
   segments: RenderedSegment[];
@@ -307,25 +352,27 @@ export async function getConversationForOwner(
     accountId: input.accountId,
   });
 
-  const turns: OwnerConversationTurn[] = turnRows.map((turn) => ({
-    id: turn.id,
-    sequence: turn.sequence,
-    status: asTurnStatus(turn.status),
-    failureReason: turn.failure_reason,
-    locationId: turn.location_id,
-    ownerText: turn.owner_text,
-    // A pure mapping: no metrics and no index resolution, because every stored
-    // `status` segment already carries its value and every stored `proposal`
-    // segment already carries its id.
-    segments: renderSegments(parseReplySegments(turn.reply), {
+  const turns: OwnerConversationTurn[] = turnRows.map((turn) => {
+    // Render once so the ordered transcript and refusal list share the same
+    // stored subjects and server-owned wording, with no extra ledger read.
+    const segments = renderSegments(parseReplySegments(turn.reply), {
       locations: locations.map((l) => ({ id: l.id, name: l.name })),
-    }),
-    proposals: proposalsByTurn.get(turn.id) ?? [],
-    // RB-07: DURABLE, like the proposals beside them. The client maps this
-    // unconditionally, so every `OwnerConversationTurn` this function builds
-    // must carry it — a turn with none carries `[]`, never `undefined`.
-    unsupported: unsupportedByTurn.get(turn.id) ?? [],
-  }));
+    });
+    return {
+      id: turn.id,
+      sequence: turn.sequence,
+      status: asTurnStatus(turn.status),
+      failureReason: turn.failure_reason,
+      locationId: turn.location_id,
+      ownerText: turn.owner_text,
+      segments,
+      refused: segments.filter((segment) => segment.type === 'refusal'),
+      proposals: proposalsByTurn.get(turn.id) ?? [],
+      // RB-07: Durable, like proposals. The client always receives an array.
+      unsupported: unsupportedByTurn.get(turn.id) ?? [],
+    };
+  });
+  await hydrateProposalReferences(sql, input.accountId, turns);
 
   // The turn's location is trusted (it was validated at POST). A CALLER-SUPPLIED
   // one is not, so it is checked for active membership before anything is

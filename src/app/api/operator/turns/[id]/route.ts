@@ -41,10 +41,10 @@ export async function GET(
       status: turn.status,
       failureReason: turn.failureReason,
       segments: turn.segments,
-      // Two kinds, two keys: a renderer can never grow Apply onto an
-      // unsupported row by iterating one list.
+      // Separate kinds keep non-actionable requests out of the proposal list.
       proposals: turn.proposals,
       unsupported: turn.unsupported,
+      refused: turn.refused,
     });
   } catch (error) {
     // Ids only — never owner text or a rendered segment (invariant 11).

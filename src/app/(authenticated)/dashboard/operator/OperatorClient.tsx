@@ -10,6 +10,8 @@ import { TURN_STATUS } from '@/lib/agents/operator/schema';
 import { StarterActions } from './StarterActions';
 import { SummaryPanel } from './SummaryPanel';
 import { TurnBody, type TurnBodyProps } from './TurnBody';
+import { ProposalCard } from './ProposalCard';
+import { RulesTimeline } from './RulesTimeline';
 import {
   postJson,
   useOperatorConversation,
@@ -287,6 +289,8 @@ export function OperatorClient() {
 
   const [disabled, setDisabled] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [panel, setPanel] = useState<'conversation' | 'timeline'>('conversation');
+  const [timelineRevision, setTimelineRevision] = useState(0);
 
   const scopedLocationId = scopeToLocationId(currentScope);
   const composerBlocked = scopedLocationId === null;
@@ -316,18 +320,28 @@ export function OperatorClient() {
     onNotice: setNotice,
   });
 
-  /** Apply / Not now, and the busy-and-refusal state only those two own. */
+  const { reloadTranscript, finishTurn } = conversation;
+  const reloadAfterProposal = useCallback(() => {
+    reloadTranscript();
+    setTimelineRevision((value) => value + 1);
+  }, [reloadTranscript]);
+  const finishTurnAndRefreshTimeline = useCallback(() => {
+    finishTurn();
+    setTimelineRevision((value) => value + 1);
+  }, [finishTurn]);
+
+  /** All card writes share one in-flight guard and refresh both durable views. */
   const cards = useProposalWrites({
     onDisabled: markDisabled,
     patchProposal: conversation.patchProposal,
-    reloadTranscript: conversation.reloadTranscript,
+    reloadTranscript: reloadAfterProposal,
   });
 
   const poll = useTurnPoll(conversation.turnId, {
     // A location the account cannot use has no turn worth waiting for (S7).
     halted: disabled || conversation.locationUnavailable,
     onDisabled: markDisabled,
-    onTerminal: conversation.finishTurn,
+    onTerminal: finishTurnAndRefreshTimeline,
   });
 
   /** The composer, the submission, its retry and **Refresh plan**. */
@@ -365,8 +379,16 @@ export function OperatorClient() {
         <p className="page-sub">{OPERATOR_SUBTITLE}</p>
       </header>
 
+      <nav className="op-actions" aria-label="Operator views">
+        <button type="button" className={`btn op-action ${panel === 'conversation' ? 'btn-primary' : 'btn-secondary'}`}
+          aria-pressed={panel === 'conversation'} onClick={() => setPanel('conversation')}>Conversation</button>
+        <button type="button" className={`btn op-action ${panel === 'timeline' ? 'btn-primary' : 'btn-secondary'}`}
+          aria-pressed={panel === 'timeline'} onClick={() => setPanel('timeline')}>Rules timeline</button>
+      </nav>
+
       <div className="op-layout">
-        <section className="op-conversation" aria-label="Conversation">
+        {panel === 'timeline' ? <RulesTimeline locationId={scopedLocationId} locationLabel={locationLabel}
+          revision={timelineRevision} onDisabled={markDisabled} cards={cards} /> : <section className="op-conversation" aria-label="Conversation">
           <EmptyPrompt
             shown={conversation.turns.length === 0}
             blocked={composerBlocked}
@@ -387,6 +409,17 @@ export function OperatorClient() {
             onRefreshPlan={submission.refreshPlan}
             onStartNewConversation={startNewConversation}
           />
+
+          {cards.preparedProposal !== null && !conversation.turns.some((turn) =>
+            turn.proposals.some((row) => row.id === cards.preparedProposal?.id)) && (
+            <ProposalCard proposal={cards.preparedProposal} turnLocationId={cards.preparedProposal.locationId ?? ''}
+              locationLabel={locationLabel} scopeMoved={currentScope !== cards.preparedProposal.locationId}
+              onApply={(row, confirmation) => void cards.write(row, 'apply', confirmation)}
+              onDecline={(row) => void cards.write(row, 'decline')}
+              onRestore={(row) => void cards.write(row, 'restore')}
+              onRefreshPlan={(row) => void cards.write(row, 'restore')}
+              busy={cards.busyId === cards.preparedProposal.id} error={cards.errors[cards.preparedProposal.id] ?? null} />
+          )}
 
           <PreparingNotice shown={preparing} />
 
@@ -417,7 +450,7 @@ export function OperatorClient() {
             locations={locations}
             onChoose={setLocationScope}
           />
-        </section>
+        </section>}
 
         <SummaryPanel
           summary={conversation.summary}
@@ -481,7 +514,9 @@ function Transcript({
           onChooseLocation={onChooseLocation}
           onApply={(row, confirmationLevel) => void cards.write(row, 'apply', confirmationLevel)}
           onDecline={(row) => void cards.write(row, 'decline')}
-          onRefreshPlan={() => onRefreshPlan(turn)}
+          onRefreshPlan={(row) => row.restoreSourceProposalId
+            ? void cards.write(row, 'restore') : onRefreshPlan(turn)}
+          onRestore={(row) => void cards.write(row, 'restore')}
           cardBusyId={cards.busyId}
           cardErrors={cards.errors}
           onStartNewConversation={onStartNewConversation}

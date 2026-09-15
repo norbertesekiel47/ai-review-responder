@@ -59,8 +59,12 @@ import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 import type { AccountOffboardingPurgeRow } from '../../../../../worker/jobs/account-offboarding/purge-stages';
 import { handleAgentTurn } from '../../../../../worker/jobs/agent-turn/AgentTurnWorker';
 import { handleAgentTurnFailed } from '../../../../../worker/jobs/agent-turn/failed-hook';
+import * as refusalWriter from '@/lib/refusals/write';
 import { AGENT_TURN_LEASE_SECONDS } from '../../../../../worker/jobs/agent-turn/constants';
 import { REVIEW_TEXT_REMOVED_MARKER } from '../render';
+import { applyProposal } from '../apply';
+import { listProposalsForTurn } from '../proposals';
+import { getConversationForOwner, getTurnForOwner } from '../reads';
 import {
   PROPOSAL_STATUS,
   SERVER_NOTICE,
@@ -69,7 +73,7 @@ import {
   TURN_FAILURE_REASON,
   TURN_STATUS,
 } from '../schema';
-import { claimTurn, createTurn, releaseTurnClaim, type CreateTurnResult } from '../turns';
+import { claimTurn, completeTurnFenced, createTurn, releaseTurnClaim, type CreateTurnResult, type TurnReplyPlan } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 let db: postgres.Sql;
@@ -268,6 +272,33 @@ async function seedWaitingTurn(attempt = 1) {
   return { first, second, payload, job: jobFor(payload) };
 }
 
+async function seedAppliedTone() {
+  runLlmTask.mockResolvedValue(modelReply({ proposals: [toneProposal()], segments: [{ type: 'proposal_ref', index: 0 }] }));
+  const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+  const payload = await payloadFor(created);
+  await markDispatched(db, payload.outbox_id, 1);
+  await handleAgentTurn(db, jobFor(payload));
+  const [proposal] = await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId });
+  if (!proposal) throw new Error('source tone proposal missing');
+  const result = await applyProposal(db, {
+    accountId: tenant.accountId, actorUserId: tenant.userId, proposalId: proposal.id,
+    expectedVersionToken: proposal.preparedVersionToken,
+  });
+  if (result.kind !== 'applied') throw new Error(`source Apply failed: ${result.kind}`);
+  return { ...created, proposal: result.proposal };
+}
+
+function restoreReplyPlan(): TurnReplyPlan {
+  const band = { locationId, total: 0, byStar: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 } };
+  return {
+    segments: [{ type: 'proposal_ref', index: 0 }, { type: 'refusal_ref', reason: 'invented_business_fact' }],
+    proposalIds: [null], restoreRequests: [{ index: 0, scope: { accountId: tenant.accountId, locationId } }],
+    scrubbed: false,
+    metrics: { pendingCount: 0, draftsWaiting: 0, posted7d: 0, starBands: band,
+      accountStarBands: { ...band, locationId: null }, reportingPeriodDays: 7, asOf: new Date().toISOString() },
+  };
+}
+
 describeWithDb(
   'AgentTurnWorker (live DB)',
   { enabled: Boolean(testDatabaseUrl), timeout: 180_000 },
@@ -308,6 +339,7 @@ describeWithDb(
         WHERE account_id = ${tenant.accountId}::uuid
       `;
       await db`DELETE FROM agent_unsupported_requests WHERE account_id = ${tenant.accountId}::uuid`;
+      await db`DELETE FROM refusal_events WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_proposals WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_turns WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_conversations WHERE account_id = ${tenant.accountId}::uuid`;
@@ -330,6 +362,212 @@ describeWithDb(
         }
       }
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
+
+    it('distinct same-lane Operator refusals retain distinct durable subjects with mixed ordinary and Restore indices', async () => {
+      const source = await seedAppliedTone();
+      const created = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId: source.conversationId })));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      runLlmTask.mockResolvedValue(modelReply({
+        proposals: [
+          { operation: 'restore_last', scope: { accountId: tenant.accountId, locationId }, input: {}, rationale: 'Restore the last change' },
+          { ...toneProposal(), operation: 'set_avoid_facts', input: { avoidFacts: ['prices'] } },
+        ],
+        segments: [{ type: 'proposal_ref', index: 0 }, { type: 'refusal_ref', reason: 'invented_business_fact' },
+          { type: 'proposal_ref', index: 1 }, { type: 'refusal_ref', reason: 'customer_data_exposure' }],
+      }));
+      await handleAgentTurn(db, jobFor(payload));
+      const turn = await readTurn(created.turnId);
+      expect(turn.status).toBe(TURN_STATUS.COMPLETED);
+      const proposals = await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId });
+      const restored = proposals.find((proposal) => proposal.operation === 'set_tone');
+      const ordinary = proposals.find((proposal) => proposal.operation === 'set_avoid_facts');
+      expect(restored?.status).toBe(PROPOSAL_STATUS.PENDING);
+      expect(restored?.input).toEqual({ restore: { sourceProposalId: source.proposal.id } });
+      expect(ordinary?.status).toBe(PROPOSAL_STATUS.PENDING);
+      const segments = parseReplySegments(turn.reply);
+      expect(segments[0]).toEqual({ type: 'proposal', proposalId: restored?.id });
+      expect(segments[2]).toEqual({ type: 'proposal', proposalId: ordinary?.id });
+      const ledger = await db<{ subject_id: string; business_id: string; decision_matches: boolean }[]>`
+        SELECT r.subject_id, r.business_id, r.occurred_at = t.completed_at AS decision_matches
+        FROM refusal_events r JOIN agent_turns t ON t.id = ${created.turnId}::uuid AND t.account_id = r.account_id
+        WHERE r.account_id = ${tenant.accountId}::uuid ORDER BY r.subject_id
+      `;
+      expect(ledger).toHaveLength(2);
+      const subjects = segments.flatMap((segment) => segment.type === 'refusal' ? [segment.subjectId] : []).sort();
+      expect(ledger.map((row) => row.subject_id)).toEqual(subjects);
+      expect(new Set(subjects).size).toBe(2);
+      expect(ledger.every((row) => row.business_id === locationId && row.decision_matches)).toBe(true);
+      const polled = await getTurnForOwner(db, { turnId: created.turnId, accountId: tenant.accountId });
+      expect(polled?.refused.map((refusal) => refusal.subjectId).sort()).toEqual(subjects);
+      expect(polled?.refused.map((refusal) => refusal.reason)).toEqual(['invented_business_fact', 'customer_data_exposure']);
+      const reloaded = await getConversationForOwner(db, {
+        accountId: tenant.accountId, actorUserId: tenant.userId, conversationId: created.conversationId,
+      });
+      if (reloaded.kind !== 'view') throw new Error('completed conversation unavailable');
+      const reloadedTurn = reloaded.view.turns.find((entry) => entry.id === created.turnId);
+      expect(reloadedTurn?.refused).toEqual(polled?.refused);
+      expect(reloadedTurn?.segments).toEqual(polled?.segments);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+      expect((await readVoiceColumns(locationId)).tone).toBe('warm and brief');
+    });
+
+    it('say we are licensed returns refused without unsupported or Apply', async () => {
+      // Classification is mocked; this proves the real worker/persistence/GET
+      // pipeline. Staging must separately exercise the actual model classifier.
+      const created = createdOrThrow(await createTurn(db, baseTurnInput({ text: 'say we are licensed' })));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      const voiceBefore = await readVoiceColumns(locationId);
+      const policiesBefore = await db`SELECT * FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`;
+      runLlmTask.mockResolvedValue(modelReply({
+        segments: [{ type: 'refusal_ref', reason: 'invented_business_fact' }], proposals: [], unsupported: [],
+      }));
+      await handleAgentTurn(db, jobFor(payload));
+      expect(runLlmTask).toHaveBeenCalledOnce();
+      expect(JSON.parse(runLlmTask.mock.calls[0]![1].user)).toMatchObject({ ownerMessage: 'say we are licensed' });
+      const polled = await getTurnForOwner(db, { turnId: created.turnId, accountId: tenant.accountId });
+      expect(polled).toMatchObject({ status: TURN_STATUS.COMPLETED, proposals: [], unsupported: [] });
+      expect(polled?.refused).toEqual([{
+        type: 'refusal', reason: 'invented_business_fact', subjectId: expect.any(String),
+        text: 'RepWorth rules prohibit inventing or claiming unverified business facts, including licenses and credentials.',
+      }]);
+      expect(polled?.segments).toEqual(polled?.refused);
+      const ledger = await db<{ subject_id: string; refusal_source: string; business_id: string }[]>`
+        SELECT subject_id, refusal_source, business_id FROM refusal_events WHERE account_id = ${tenant.accountId}::uuid
+      `;
+      expect(ledger).toEqual([{
+        subject_id: polled!.refused[0]!.subjectId, refusal_source: 'operator_content_refused', business_id: locationId,
+      }]);
+      const reloaded = await getConversationForOwner(db, {
+        accountId: tenant.accountId, actorUserId: tenant.userId, conversationId: created.conversationId,
+      });
+      if (reloaded.kind !== 'view') throw new Error('completed conversation unavailable');
+      expect(reloaded.view.turns[0]).toMatchObject({ refused: polled?.refused, proposals: [], unsupported: [] });
+      expect(await readVoiceColumns(locationId)).toEqual(voiceBefore);
+      expect(await db`SELECT * FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`).toEqual(policiesBefore);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+    });
+
+    it('a lost completion fence writes no restore proposals or refusals', async () => {
+      await seedAppliedTone();
+      const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      const claimed = await claimTurn(db, { turnId: created.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
+      if (!claimed) throw new Error('turn claim missing');
+      const result = await completeTurnFenced(db, {
+        ...created, accountId: tenant.accountId, attemptToken: randomUUID(),
+        segments: [], proposals: [], unsupported: [], replyPlan: restoreReplyPlan(),
+        outboxId: payload.outbox_id, outboxAttempt: 1,
+      });
+      expect(result).toEqual({ fenced: false });
+      expect(await readTurn(created.turnId)).toMatchObject({ status: TURN_STATUS.RUNNING, reply: null, attempt_token: claimed.attemptToken });
+      expect(await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId })).toHaveLength(0);
+      expect(await db`SELECT id FROM refusal_events WHERE account_id = ${tenant.accountId}::uuid`).toHaveLength(0);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('dispatched');
+    });
+
+    it('a refusal ledger failure rolls back the completed turn and its already prepared Restore', async () => {
+      await seedAppliedTone();
+      const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      const claimed = await claimTurn(db, { turnId: created.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
+      if (!claimed) throw new Error('turn claim missing');
+      const fault = vi.spyOn(refusalWriter, 'writeRefusalEvent').mockImplementationOnce(async (tx) => {
+        const prepared = await tx`SELECT id FROM agent_proposals WHERE account_id = ${tenant.accountId}::uuid AND turn_id = ${created.turnId}::uuid`;
+        expect(prepared).toHaveLength(1);
+        await tx`SELECT 1 / 0`;
+      });
+      try {
+        await expect(completeTurnFenced(db, {
+          ...created, accountId: tenant.accountId, attemptToken: claimed.attemptToken,
+          segments: [], proposals: [], unsupported: [], replyPlan: restoreReplyPlan(),
+          outboxId: payload.outbox_id, outboxAttempt: 1,
+        })).rejects.toMatchObject({ code: '22012' });
+      } finally {
+        fault.mockRestore();
+      }
+      expect(await readTurn(created.turnId)).toMatchObject({ status: TURN_STATUS.RUNNING, reply: null, attempt_token: claimed.attemptToken });
+      expect(await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId })).toHaveLength(0);
+      expect(await db`SELECT id FROM refusal_events WHERE account_id = ${tenant.accountId}::uuid`).toHaveLength(0);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('dispatched');
+    });
+
+    it('missing restore history produces a fixed server explanation and no proposal', async () => {
+      const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      runLlmTask.mockResolvedValue(modelReply({ proposals: [
+        { operation: 'restore_last', scope: { accountId: tenant.accountId, locationId }, input: {}, rationale: 'Restore' },
+      ], segments: [{ type: 'proposal_ref', index: 0 }] }));
+      await handleAgentTurn(db, jobFor(payload));
+      expect(parseReplySegments((await readTurn(created.turnId)).reply)).toEqual([
+        { type: 'server_notice', notice: SERVER_NOTICE.RESTORE_UNAVAILABLE },
+      ]);
+      expect(await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId })).toHaveLength(0);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+    });
+
+    it('restore completion and concurrent turn submission finish without a parent conversation deadlock', async () => {
+      const source = await seedAppliedTone();
+      const created = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId: source.conversationId })));
+      const payload = await payloadFor(created);
+      await markDispatched(db, payload.outbox_id, 1);
+      const claimed = await claimTurn(db, { turnId: created.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
+      if (!claimed) throw new Error('turn claim missing');
+      let signalConversation!: () => void;
+      const conversationLocked = new Promise<void>((resolve) => { signalConversation = resolve; });
+      let signalParents!: () => void;
+      const parentsLocked = new Promise<void>((resolve) => { signalParents = resolve; });
+      // Keep the real createTurn transaction and SQL. Pre-acquire its own
+      // conversation lock to force the formerly cyclic interleaving.
+      const submitting = new Proxy(db, {
+        get(target, property) {
+          if (property !== 'begin') return Reflect.get(target, property);
+          return (callback: (tx: postgres.TransactionSql) => Promise<unknown>) => target.begin(async (tx) => {
+            await tx`SET LOCAL statement_timeout = '5s'`;
+            await tx`SELECT id FROM agent_conversations WHERE id = ${created.conversationId}::uuid AND account_id = ${tenant.accountId}::uuid FOR UPDATE`;
+            signalConversation();
+            await parentsLocked;
+            return callback(tx);
+          });
+        },
+      });
+      // Insertion follows authoritative scope locks and source validation.
+      // It must wait for submission's conversation lock while submission's
+      // account/business FK KEY SHARE checks can pass those scope locks.
+      const completing = new Proxy(db, {
+        get(target, property) {
+          if (property !== 'begin') return Reflect.get(target, property);
+          return (callback: (tx: postgres.TransactionSql) => Promise<unknown>) => target.begin(async (tx) => {
+            await tx`SET LOCAL statement_timeout = '5s'`;
+            return callback(new Proxy(tx, {
+              apply(transaction, thisArg, args: unknown[]) {
+                const query = (args[0] as TemplateStringsArray).join(' ');
+                if (/INSERT\s+INTO\s+agent_proposals/i.test(query)) signalParents();
+                return Reflect.apply(transaction, thisArg, args);
+              },
+            }));
+          });
+        },
+      });
+      const nextTurn = createTurn(submitting, baseTurnInput({ conversationId: created.conversationId, text: 'Keep my next request.' }));
+      await conversationLocked;
+      const completion = completeTurnFenced(completing, {
+        ...created, accountId: tenant.accountId, attemptToken: claimed.attemptToken,
+        segments: [], proposals: [], unsupported: [], replyPlan: restoreReplyPlan(),
+        outboxId: payload.outbox_id, outboxAttempt: 1,
+      }).finally(signalParents);
+      const results = await Promise.allSettled([nextTurn, completion]);
+      expect(results[0]).toMatchObject({ status: 'fulfilled', value: { kind: 'created' } });
+      expect(results[1]).toEqual({ status: 'fulfilled', value: { fenced: true } });
+      expect((await readTurn(created.turnId)).status).toBe(TURN_STATUS.COMPLETED);
+      expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+      expect(await listProposalsForTurn(db, { turnId: created.turnId, accountId: tenant.accountId })).toHaveLength(1);
+      expect((await readVoiceColumns(locationId)).tone).toBe('warm and brief');
+    });
 
     it('worker claim race: two dispatches of one turn produce one completed turn and one proposal set', async () => {
       // DISTINCT counts, so each materialized value can only match the metric

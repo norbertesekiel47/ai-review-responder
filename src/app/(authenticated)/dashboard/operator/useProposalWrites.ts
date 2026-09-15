@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { postJson } from './useOperatorConversation';
 import { routeErrorSentence } from './wording';
 
 /**
- * THE TWO CARD WRITES — Apply and Not now — and the state only they own: which
+ * THE CARD WRITES — Apply, Not now and Restore preparation — and their state: which
  * card is busy, and the last refusal per card.
  *
  * Split out of `OperatorClient`, which carried the turn submission and these
@@ -32,7 +32,9 @@ export interface ProposalWrites {
   busyId: string | null;
   /** The last refusal sentence per proposal id. */
   errors: Record<string, string>;
-  write: (proposal: ProposalView, action: 'apply' | 'decline', confirmationLevel?: string) => Promise<void>;
+  /** Retained until a durable read places this new card, even outside the transcript window. */
+  preparedProposal: ProposalView | null;
+  write: (proposal: ProposalView, action: 'apply' | 'decline' | 'restore', confirmationLevel?: string) => Promise<void>;
 }
 
 export function useProposalWrites({
@@ -49,6 +51,8 @@ export function useProposalWrites({
   /** The proposal id whose write is in flight, and the last refusal per card. */
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [preparedProposal, setPreparedProposal] = useState<ProposalView | null>(null);
+  const writing = useRef(false);
 
   /**
    * One POST, one re-render from the ROW the server returned. Every non-404
@@ -56,8 +60,9 @@ export function useProposalWrites({
    * state instead of leaving the browser to guess what a 409 meant.
    */
   const write = useCallback(
-    async (proposal: ProposalView, action: 'apply' | 'decline', confirmationLevel?: string) => {
-      if (busyId !== null) return;
+    async (proposal: ProposalView, action: 'apply' | 'decline' | 'restore', confirmationLevel?: string) => {
+      if (writing.current) return;
+      writing.current = true;
       setBusyId(proposal.id);
       setErrors((current) => {
         const next = { ...current };
@@ -65,12 +70,14 @@ export function useProposalWrites({
         return next;
       });
       try {
+        const targetId = action === 'restore' && proposal.status !== 'applied'
+          ? proposal.restoreSourceProposalId ?? proposal.id : proposal.id;
         const result = await postJson<ProposalWriteBody>(
-          `/api/operator/proposals/${proposal.id}/${action}`,
+          `/api/operator/proposals/${targetId}/${action}`,
           action === 'apply' ? {
             expectedVersionToken: proposal.preparedVersionToken,
             ...(confirmationLevel === undefined ? {} : { confirmationLevel }),
-          } : undefined,
+          } : action === 'restore' ? {} : undefined,
         );
         if (result.kind === 'disabled') { onDisabled(); return; }
         if (result.kind === 'aborted') return;
@@ -81,7 +88,10 @@ export function useProposalWrites({
         const row = result.kind === 'ok'
           ? result.value.proposal ?? null
           : writtenProposal(result.body);
-        if (row !== null) patchProposal(row);
+        if (row !== null) {
+          patchProposal(row);
+          setPreparedProposal((current) => action === 'restore' || current?.id === row.id ? row : current);
+        }
         if (result.kind === 'error') {
           setErrors((current) => ({
             ...current,
@@ -93,11 +103,12 @@ export function useProposalWrites({
           reloadTranscript();
         }
       } finally {
+        writing.current = false;
         setBusyId(null);
       }
     },
-    [busyId, onDisabled, patchProposal, reloadTranscript],
+    [onDisabled, patchProposal, reloadTranscript],
   );
 
-  return useMemo(() => ({ busyId, errors, write }), [busyId, errors, write]);
+  return useMemo(() => ({ busyId, errors, preparedProposal, write }), [busyId, errors, preparedProposal, write]);
 }

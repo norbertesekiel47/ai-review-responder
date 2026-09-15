@@ -32,6 +32,7 @@ import { LLMStructuredOutputError } from '@/lib/llm/run-task';
 import { generateOperatorReply } from '../model-call';
 import { OWNER_OPERATOR_PROMPT_VERSION, operatorSystemPromptHash } from '../prompt';
 import type { Snapshot } from '../context';
+import { modelVisibleOperations } from '../catalog';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -96,6 +97,28 @@ function validReply() {
 }
 
 describe('operator model call', () => {
+  it('returns indexed restore requests separately from ordinary proposals after one billed validation', async () => {
+    const reply = validReply();
+    runLlmTask.mockResolvedValueOnce({ ...reply, structured: {
+      segments: [{ type: 'proposal_ref', index: 0 }, { type: 'proposal_ref', index: 1 }],
+      proposals: [
+        { operation: 'restore_last', scope: { accountId: ACCOUNT, locationId: LOCATION }, input: {}, rationale: 'Restore the last change' },
+        { operation: 'set_tone', scope: { accountId: ACCOUNT, locationId: LOCATION }, input: { tone: 'warm' }, rationale: 'Use a warm tone' },
+      ], unsupported: [],
+    } });
+    const result = await generateOperatorReply(sql, {
+      accountId: ACCOUNT, locationId: LOCATION, subscriptionTier: 'copilot', turnId: TURN,
+      ownerText: 'Restore the last change, then use a warm tone',
+      snapshot: { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.restoreRequests).toEqual([{ index: 0, scope: { accountId: ACCOUNT, locationId: LOCATION } }]);
+    expect(result.proposals.map((proposal) => proposal.operation.id)).toEqual(['set_tone']);
+    expect(result.attempts).toBe(1);
+    expect(runLlmTask).toHaveBeenCalledOnce();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     capturedCents.length = 0;

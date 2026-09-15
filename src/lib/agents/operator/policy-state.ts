@@ -376,7 +376,7 @@ function mapSnapshot(input: PolicyScopeInput, bundle: SnapshotBundle): PolicySna
       ...common,
       locationId: null,
       target: { scope: 'account' },
-      state: { accountDefault, location: null },
+      state: { accountDefault, location: null, targetRowSuspended: accountSuspended },
       versionToken: computeAutoApprovalVersionToken({ accountDefaultRow: rowVersion(accountDefaultRow) }),
       targetArchived: false,
       policySuspended: accountSuspended,
@@ -388,7 +388,7 @@ function mapSnapshot(input: PolicyScopeInput, bundle: SnapshotBundle): PolicySna
     ...common,
     locationId: input.locationId,
     target: { scope: 'location', locationId: input.locationId },
-    state: { accountDefault, location: effectiveFor(input.locationId) },
+    state: { accountDefault, location: effectiveFor(input.locationId), targetRowSuspended: override?.suspended ?? false },
     // BOTH rows, always: a location proposal goes stale when the parent moves.
     versionToken: computeAutoApprovalVersionToken({
       locationRow: rowVersion(override),

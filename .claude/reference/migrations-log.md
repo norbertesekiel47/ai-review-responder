@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **120** — next migration is **121**
+Current head: **121** — next migration is **122**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2842,6 +2842,20 @@ Revisit triggers:
   creates no object for `SchemaRequirement` to name, which is migration 097's
   situation exactly, and `schema-ready.ts` records that 097 gets no requirement
   and inspects the migration SQL text instead.
+
+- **121** — Owner Operator Run E refusal vocabulary. **LOCAL-ONLY**; remote
+  application waits until Run D and its separate documentation closeout finish.
+  Replaces five CHECKs on `refusal_events`: sources gain `operator_content_refused`
+  and `operator_policy_refused`, category gains `request_not_allowed`, subject
+  type gains `operator_refusal`, C1 maps both new sources to that subject, and
+  C3 admits NULL business only for suspension and Operator policy refusal.
+  Existing C2/C4/C5, indexes, columns, grants and RLS stay intact. One transaction
+  with a 10-second lock timeout. No new tenant table or retention policy.
+  Verify rendered CHECK definitions on both projects, never migration history.
+  The executable 121 suite restores pre-121 constraints, proves rejection,
+  applies the file verbatim, tests both lane scopes and compares the public
+  catalogue and access posture. No new `SchemaRequirement`: all object names
+  already exist, so presence would falsely report an unupgraded database ready.
 
 - **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,
   `agent_proposals`, `agent_unsupported_requests`). **Applied to staging

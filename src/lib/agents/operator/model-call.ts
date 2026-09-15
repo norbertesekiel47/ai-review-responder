@@ -11,7 +11,7 @@ import type { LLMCallResult } from '@/lib/llm/types';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import type { Snapshot } from './context';
 import { buildOperatorPrompt, operatorSystemPromptHash, OWNER_OPERATOR_PROMPT_VERSION } from './prompt';
-import { validateModelOutput, type ParsedProposal } from './render';
+import { validateModelOutput, type ParsedProposal, type ParsedRestoreRequest } from './render';
 import { OperatorModelOutputSchema, type ModelOutput } from './schema';
 
 type Sql = postgres.Sql;
@@ -36,7 +36,7 @@ export type GenerateOperatorReplyResult =
    * entry and the narrowed input, in the model's order — so the row builder
    * does not repeat the lookup and the parse the gate already did.
    */
-  | { ok: true; output: ModelOutput; proposals: ParsedProposal[]; attempts: number }
+  | { ok: true; output: ModelOutput; proposals: ParsedProposal[]; restoreRequests: ParsedRestoreRequest[]; attempts: number }
   | { ok: false; reason: 'model_output_invalid'; attempts: number };
 
 /** The audit needs provider, model and usage — not the whole call result. */
@@ -171,6 +171,7 @@ export async function generateOperatorReply(
         ok: true,
         output: validated.output,
         proposals: validated.proposals,
+        restoreRequests: validated.restoreRequests,
         attempts: attempt,
       };
     }

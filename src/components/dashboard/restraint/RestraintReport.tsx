@@ -70,6 +70,7 @@ const CATEGORY_COPY: Record<RefusalCategory, string> = {
   autonomy_paused: 'We stopped acting on your behalf.',
   missing_information: 'We stopped because we did not have what we needed.',
   owner_review_required: 'We sent a reply to you for review instead of posting it.',
+  request_not_allowed: 'We did not carry out a request that conflicts with our operating rules.',
 };
 
 /** The short heading above each group's rows. */
@@ -82,6 +83,7 @@ const CATEGORY_HEADING: Record<RefusalCategory, string> = {
   autonomy_paused: 'Acting on your behalf paused',
   missing_information: 'Missing information',
   owner_review_required: 'Sent to you for review',
+  request_not_allowed: 'Request not allowed',
 };
 
 /**
@@ -225,8 +227,8 @@ function archivedPeriodLine(period: ArchivedPeriod): string {
 /**
  * WHICH NUMBER THIS IS.
  *
- * An account-wide suspension carries `business_id IS NULL` (migration 116, C3),
- * and the per-location scope admits it, so ONE suspension appears under every
+ * An account-wide decision carries `business_id IS NULL` (migration 121, C3),
+ * and the per-location scope admits it, so ONE decision appears under every
  * location once each AND once in the account total. A per-location sum therefore
  * LEGITIMATELY exceeds the account total. `docs/context/refusal-ledger.md` requires the tab to say
  * which number it shows; #1014's body claimed the two always reconcile, which is
@@ -234,10 +236,10 @@ function archivedPeriodLine(period: ArchivedPeriod): string {
  */
 function scopeLine(kind: 'account' | 'location'): string {
   return kind === 'account'
-    ? 'This is your whole account. Pauses that affect every location are counted once here.'
+    ? 'This is your whole account. Decisions that affect every location are counted once here.'
     // NOT "at each of your other locations" — a single-location account has
     // none, and the tab would be describing a fleet the owner does not have.
-    : 'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.';
+    : 'This is one location. A decision that affects the whole account is counted here, and again under every other location you have.';
 }
 
 // ── Grouping ────────────────────────────────────────────────────────────────

@@ -11,6 +11,10 @@ import { z } from 'zod';
 import { enqueueAgentTurn } from '@/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import type { SnapshotMetrics } from './context';
+import { completeOperatorRefusals } from './refusal-completion';
+import { materializeReply, type ParsedRestoreRequest } from './render';
+import { createRestoreProposalInTransaction } from './restore';
 import {
   insertProposals,
   insertUnsupported,
@@ -25,6 +29,7 @@ import {
   TURN_FAILURE_REASON,
   asTurnStatus,
   type StoredSegment,
+  type Segment,
   type TurnFailureReason,
   type TurnStatus,
 } from './schema';
@@ -450,6 +455,15 @@ export async function readTerminalTurn(
   return row ? { status: asTurnStatus(row.status) } : null;
 }
 
+export interface TurnReplyPlan {
+  segments: readonly Segment[];
+  metrics: SnapshotMetrics;
+  scrubbed: boolean;
+  /** Original model indices; null slots are filled by fenced Restore preparation. */
+  proposalIds: readonly (string | null)[];
+  restoreRequests: readonly ParsedRestoreRequest[];
+}
+
 export interface CompleteTurnInput {
   turnId: string;
   accountId: string;
@@ -457,10 +471,85 @@ export interface CompleteTurnInput {
   attemptToken: string;
   /** The STORED union: the model's segments plus any server notice. */
   segments: readonly StoredSegment[];
+  replyPlan?: TurnReplyPlan;
   proposals: readonly ProposalRow[];
   unsupported: readonly UnsupportedRow[];
   outboxId: string;
   outboxAttempt: number | undefined;
+}
+
+interface CompletedTurnRow {
+  account_id: string;
+  actor_user_id: string;
+  location_id: string;
+  conversation_id: string;
+  completed_at: Date;
+}
+
+type ProposalReplacement = { proposalId: string; operation: string; locationId: string | null };
+
+async function prepareFencedRestores(
+  tx: postgres.TransactionSql,
+  turn: CompletedTurnRow,
+  turnId: string,
+  plan: TurnReplyPlan,
+): Promise<{ proposalIds: (string | null)[]; replacements: ProposalReplacement[]; restoreUnavailable: boolean }> {
+  const proposalIds = [...plan.proposalIds];
+  const replacements: ProposalReplacement[] = [];
+  let restoreUnavailable = false;
+  // All allowed location requests target this one stored business. Acquire its
+  // lock before an account-only request can acquire the account lock first.
+  const requests = [...plan.restoreRequests].sort((a, b) => Number(a.scope.locationId === undefined) - Number(b.scope.locationId === undefined));
+  for (const request of requests) {
+    if (request.scope.accountId !== turn.account_id
+      || (request.scope.locationId !== undefined && request.scope.locationId !== turn.location_id)
+      || !Number.isInteger(request.index) || request.index < 0 || request.index >= proposalIds.length
+      || proposalIds[request.index] !== null) {
+      throw new Error('agents/operator: restore request does not match the winning turn');
+    }
+    const result = await createRestoreProposalInTransaction(tx, {
+      accountId: turn.account_id,
+      actorUserId: turn.actor_user_id,
+      locationId: request.scope.locationId ?? null,
+      owner: { conversationId: turn.conversation_id, turnId },
+    });
+    if (result.kind !== 'prepared') {
+      restoreUnavailable = true;
+      continue;
+    }
+    proposalIds[request.index] = result.proposal.id;
+    replacements.push({ proposalId: result.proposal.id, operation: result.proposal.operation, locationId: result.proposal.locationId });
+  }
+  return { proposalIds, replacements, restoreUnavailable };
+}
+
+async function materializeFencedReply(
+  tx: postgres.TransactionSql,
+  input: CompleteTurnInput,
+  turn: CompletedTurnRow,
+): Promise<ProposalReplacement[]> {
+  if (!input.replyPlan) {
+    if (input.segments.some((segment) => segment.type === 'refusal')) {
+      throw new Error('agents/operator: refusal subjects require fenced ledger materialization');
+    }
+    return [];
+  }
+  const plan = input.replyPlan;
+  const restored = await prepareFencedRestores(tx, turn, input.turnId, plan);
+  const refusalIds = await completeOperatorRefusals(tx, {
+    turn: { accountId: turn.account_id, locationId: turn.location_id },
+    // The fence stores NOW() on this same transaction. Passing its returned
+    // JS Date back would silently discard PostgreSQL's microseconds.
+    decidedAt: 'transaction_time',
+    references: plan.segments.filter((segment) => segment.type === 'refusal_ref'),
+  });
+  const reply = materializeReply({ ...plan, ...restored, refusalIds });
+  await tx`
+    UPDATE agent_turns SET reply = ${tx.json(reply as never)}
+    WHERE id = ${input.turnId}::uuid AND account_id = ${turn.account_id}::uuid
+      AND attempt_token = ${input.attemptToken}::uuid AND status = ${TURN_STATUS.COMPLETED}
+  `;
+  return restored.replacements;
 }
 
 /**
@@ -485,7 +574,7 @@ export async function completeTurnFenced(
   input: CompleteTurnInput,
 ): Promise<{ fenced: boolean }> {
   return sql.begin(async (tx) => {
-    const fenced = await tx`
+    const [completed] = await tx<CompletedTurnRow[]>`
       UPDATE agent_turns
       SET status = ${TURN_STATUS.COMPLETED},
           reply = ${tx.json(input.segments as never)},
@@ -495,28 +584,30 @@ export async function completeTurnFenced(
         AND account_id = ${input.accountId}::uuid
         AND attempt_token = ${input.attemptToken}::uuid
         AND status = ${TURN_STATUS.RUNNING}
+      RETURNING account_id, actor_user_id, location_id, conversation_id, completed_at
     `;
-    if (fenced.count === 0) return { fenced: false };
+    if (!completed) return { fenced: false };
 
+    const restored = await materializeFencedReply(tx, input, completed);
     await insertProposals(tx, input.proposals);
     await supersedePendingProposals(tx, {
-      conversationId: input.conversationId,
+      conversationId: completed.conversation_id,
       accountId: input.accountId,
       // Every proposal of THIS turn is exempt: two same-scope proposals in one
       // reply are siblings, not a correction of one another.
       turnId: input.turnId,
-      replacements: input.proposals.map((p) => ({
+      replacements: [...input.proposals.map((p) => ({
         proposalId: p.id,
         operation: p.operation,
         locationId: p.locationId,
-      })),
+      })), ...restored],
     });
     await insertUnsupported(tx, input.unsupported);
 
     await tx`
       UPDATE agent_conversations
       SET last_turn_at = NOW()
-      WHERE id = ${input.conversationId}::uuid
+      WHERE id = ${completed.conversation_id}::uuid
         AND account_id = ${input.accountId}::uuid
     `;
 
