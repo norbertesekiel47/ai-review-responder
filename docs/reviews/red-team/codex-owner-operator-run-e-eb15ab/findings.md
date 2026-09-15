@@ -2178,3 +2178,2970 @@ Execution grant `owner-run-e-second-pass-1600`; no finding or coverage waiver. O
 
 Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.
 Owner: Yes, approve the scoped E second pass
+
+
+# Final Run E verification — same second round, finalized 2026-09-15
+
+**Final local red-team status: CLEAR.** This appended account supersedes the earlier pending/current-state conclusions without editing the immutable original report or verbatim execution grant above. Canonical publication/checker execution remain root-owned; these bytes are staged for review.
+
+Measured final candidate: `263fe7e3def2ebd1cae4f76de146c7822b278d9a`. Full required gate GREEN, fingerprint `82a6bee75911fbb5766bad19a1cfe5b7e00eb1ecef4f844c09d4ec0402f8b5c4`; root finalizer completed at 2026-09-15T08:03:51.538213+00:00.
+
+Final inventory: **2,426 rows; 349 killed, 2,077 excluded; zero unresolved survivors, inconclusive rows or budget skips. All 12 findings are fixed, with their original causes and evidence retained. No accepted-risk findings or risk-waiver authorizations.**
+
+Round two consumed **776 supervised launches / 388 baseline–mutant pairs**, covering335 distinct identities. There were374 credited kill attempts and14 unsuccessful historical attempts; repeated successful guard measurements are not extra inventory identities. Round one retains15 pairs/30 launches; one case overlaps the fixed-oracle recheck, yielding349 distinct required cases across both rounds. Combined historical execution is806 launches/403 pairs. No third round or counter reset occurred; maximum per-identity attempts within round two is two.
+
+## Scope and complete census
+
+The original2,113 identities remain in exact order, including all1,391 original excluded row objects unchanged. The broad discovery chronology (including the premature1,818 intermediate census) remains verbatim above; no original identity was removed or renamed.313 appended identities comprise309 guard/direct-fixture candidates and four product discovery/UI delta cases. Root reviewed the exact162 original and292 continuation discovery corrections. These distinguish actual branch/mock cuts from incidental changed work outside a case’s asserted contract; they do not claim general assertion strength or waive required coverage. Their454 exact reasons are copied from the committed manifests.232 additional guard/direct-fixture exclusions retain independently verified input/history/helper cuts. This gives2077 exclusions and349 measured required identities.
+
+The final corrective delta comprises13 existing expanded fixture identities in seven callbacks across five files, plus eight new guard cases. Existing helper bodies and other case bodies were checked for unchanged bytes. The90-case corrective plan comprises69 deferred guards, eight new guards and13 corrected fixture cases. It completed91 pairs:90 latest kills plus the preserved record331 target-selection miss. No case was sampled away to fit the cap.
+
+Migration121 is accounted at the individual executable test181: record105 ran its SQL during the case and killed a NOT VALID mutation (launch209 PASS/210 FAIL), with all five constraint validation flags read back identically before/after/final restoration. The original excluded-production migration summary is retained byte-for-byte because it is historical; it is not a claim that this executable integration remained unmeasured.
+
+## Admissions, immutable evidence and restoration
+
+Original admission b6ee3973 retained the exact owner-run-e-second-pass-1600 grant and firstRun1. Continuation9f20 retained the closed124 checkpoint and pinned before launch125. Corrective263fe7 retained the closed594 checkpoint and both prior pins, then pinned before launch595. ac487 was an unmeasured corrective preparation candidate: its plan/driver/batches remain immutable history. The263fe7 rebind changed only452 current-candidate metadata pointers and three driver constants after verifying every source/test/selector/mutation byte unchanged; the two skills were word-identical reflows and two documents append-only.
+
+The root-frozen controller remained separate from the checked-in mutation subject. Final controller SHA cdb9c814317c5adb33fc1dc78397f752771f528886f1537cef934ad684b2c13b; final plan SHA b6d95f928368a162826673dc7abbca61b8dfd52958ef15389391de202a78f5ed. All children used the supervisor, exact-one JSON selection, identical baseline/mutant allowlisted environments and120-second supervisor limits. Database cases used only validated localhost/127.0.0.1:5499/test_ws5 derived from the dedicated TEST_DATABASE_POOL_URL; ordinary DATABASE_POOL_URL was never used. No provider/delegate or remote write was part of mutation execution.
+
+Root-finalized journal SHA 2fbbd78bdbce8237f3149d14def155f47b6f5fdf64f2f748cf2463501c4adff3; frozen full-state SHA 8c957a54b2b33f744cc04928eeb20fe2dc9ed30bffc749265e3823efd76f1383. The594 raw checkpoint remains6f0c9b37b57aa42c8c3a7ec177f20cf81de83931fd95e300407dce420146ff38 and its canonical prefix1d38d0cc1f21f86833c42f1e5ebc568c8fa42d9546c2bdfefe70829830853b4b. All776 process groups were empty, all388 mutation entries restored, no dotenv files/backups or active stop, tracked tree clean. Frozen closure: /private/tmp/run-e-finalized-776/root-finalization.json and root-finalizer.log.
+
+The final JSON authorizations array is deliberately empty: the execution approval remains verbatim in immutable admission history and this Markdown prefix. It authorizes bounded verification work, not acceptance of risk. There are no finding waivers. Reporting adds no round, budget or remote authority.
+
+## Findings and closure
+
+| ID | Severity / duty | Disposition | Finding |
+|---|---|---|---|
+| E-RT-P1-1 | P1 / 2 | fixed | Distinct-subject test also requires undocumented map insertion order |
+| E-RT-P1-2 | P1 / 3 | fixed | Plan source citations no longer identify the stated completion and Apply seams |
+| E-RT-P1-3 | P1 / 5 | fixed | New Restore preparation invariant has a Sentry emitter without an alert rule |
+| E-RT-UUID-P0 | P0 / 1 | fixed | Public state-rejection oracle is masked by an invalid location UUID |
+| E-RT-CONCURRENCY-P1 | P1 / 1 | fixed | Concurrent-write oracle hangs before observing the second request |
+| E-RT-RECEIPT-P1 | P1 / 1 | fixed | Missing receipt write throws before the receipt assertion |
+| E-RT-PROPOSAL-VIEW-P1 | P1 / 1 | fixed | Missing proposal view throws before the view assertion |
+| E-RT-PARSED-PROPOSAL-P1 | P1 / 1 | fixed | Empty parsed proposal array throws before scope assertions |
+| E-RT-COPILOT-P0 | P0 / 1 | fixed | Narrowing availability oracle misses a lost submitted proposal |
+| E-RT-INTERNAL-UUID-P0 | P0 / 1 | fixed | Internal Restore validation oracle is masked by an invalid UUID |
+| E-CONT-1 | P1 / 4 | fixed | Stripped successor journal can fall back to the generic allowance |
+| E-CONT-2 | P1 / 4 | fixed | Appended discovery identities escape exact report corroboration |
+
+### E-RT-P1-1
+
+Original finding: The new test compares Object.keys(refusalIds) with an ordered array. The locked contract requires distinct durable subject IDs and correct reason-to-subject/ledger mapping, not object-key iteration order. A valid implementation that accumulates the same two identities in another order fails this assertion. Replace the ordered comparison with set membership or sorted membership; retain the distinct UUID and exact ledger identity assertions below it. Closure: The incidental object-key ordering assertion was corrected at54cb1a. Round2 record3 remeasured original identity refusal-completion.test.ts:28: baseline5 PASS, duplicate-subject mutant6 assertion FAIL. Distinct durable subject/ledger identity remains asserted. Original location and finding metadata are preserved.
+
+### E-RT-P1-2
+
+Original finding: The plan cites turns.ts:483 as fenced completion, but at pinned HEAD that line is an interface field; completeTurnFenced starts at src/lib/agents/operator/turns.ts:572. The neighboring Apply citations (292,412,476) now identify PolicyPlan, confirmation checking and writerRefusalResult rather than the collectively stated lock/writer/receipt seams. Refresh these current precedent citations with fully qualified paths and current symbols/lines. The underlying described behavior exists; this is stale navigation, not a false implementation claim. Closure: The committed plan now identifies src/lib/agents/operator/apply.ts applyProposal and src/lib/agents/operator/turns.ts completeTurnFenced by fully qualified symbols. Static navigation readback confirms the actual seams; historical earlier line references are retained only in immutable history.
+
+### E-RT-P1-3
+
+Original finding: The new post-insert invariant throws "agents/operator: prepared Restore vanished in its transaction". The button route catches it at src/app/api/operator/proposals/[id]/restore/route.ts:38-40, emits reportCaughtError with endpoint api/operator/proposals/[id]/restore POST, and returns restore_failed 500. beta-launch-alerting.md contains no rule for this endpoint/invariant: its Operator Next.js rule at line422 explicitly filters the apply POST endpoint and retained-veto text; rule11 filters worker_job/agent_turn, which cannot match the button request. Add a matching operator-actionable invariant rule with identity, filter, error level, exception grouping, every-event cadence/throttle and destination action. This static finding does not claim a staging delivery drill occurred. Closure: Matching rule13 is documented in docs/runbooks/beta-launch-alerting.md:382–390,439–447 with emitted endpoint/message, level, grouping, cadence/throttle and destination. Root accepted closure only for this static six-facet definition. docs/superpowers/plans/codex-owner-operator-run-e-deviations.md:37 explicitly retains staging installation/readback as T7; no saved Sentry rule, installed alert or delivery drill is claimed here.
+
+### E-RT-UUID-P0
+
+Original root-accepted finding at record63: The shared LOCATION_1 UUID has version0/variant0, so location validation independently rejects the input after the strict-object boundary is weakened. The test claimed unknown historical-state rejection but did not detect its removal. Round2 record63, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch125 PASS and mutant launch126 PASSED, exactly one selected case in each; adjudication survived-confirmed-P0. Target src/lib/auto-approval/types.ts: "  z.strictObject({\n    operation: z.literal('set_location_override')," → "  z.object({\n    operation: z.literal('set_location_override'),". E explicitly requires public settings to reject internal historical state on ordinary operations. Weakening this existing schema boundary accepts-and-strips the forbidden full-row state instead of rejecting the payload. The added public full-row-state rejection test uses LOCATION_1 with UUID version0 and variant0. z.uuid rejects the location independently. The measured strictObject→object mutation removes the injected-state rejection but the negative assertion still passes. This is not equivalent behavior for the explicitly claimed public-state boundary. Failure evidence: none (mutant passed). JSON/log evidence /private/tmp/run-e-round2-measure/63.baseline.json, /private/tmp/run-e-round2-measure/63.mutant.json, /private/tmp/run-e-round2-measure/63.baseline.log, /private/tmp/run-e-round2-measure/63.mutant.log. Correction: Use a callback-local RFC-valid UUID and assert a valid ordinary positive control before both forbidden-payload checks. Actual corrected closure: Round2 record298, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch595 PASS and mutant launch596 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/auto-approval/types.ts: "  z.strictObject({\n    operation: z.literal('set_location_override')," → "  z.object({\n    operation: z.literal('set_location_override'),". E explicitly requires public settings to reject internal historical state on ordinary operations. Weakening this existing schema boundary accepts-and-strips the forbidden full-row state instead of rejecting the payload.  Failure evidence: AssertionError: expected true to be false // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/auto-approval/__tests__/settings.test.ts:2098:84 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/n. JSON/log evidence /private/tmp/run-e-round2-measure/298.baseline.json, /private/tmp/run-e-round2-measure/298.mutant.json, /private/tmp/run-e-round2-measure/298.baseline.log, /private/tmp/run-e-round2-measure/298.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+Root accepted non-equivalence for the case's explicitly claimed contract: The shared LOCATION_1 UUID has version0/variant0, so location validation independently rejects the input after the strict-object boundary is weakened. The test claimed unknown historical-state rejection but did not detect its removal. The actual baseline and mutant both passed before correction. The fixed fixture now fails the same contract regression at record298; the original P0 and PASS/PASS evidence remain preserved.
+
+### E-RT-CONCURRENCY-P1
+
+Original root-accepted finding at record147: The test awaits the second unresolved request before its fetch-count assertion and overwrites a single release callback. Removing the in-flight guard causes a test timeout before the oracle. Round2 record147, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch293 PASS and mutant launch294 FAILED, exactly one selected case in each; adjudication inconclusive-oracle. Target src/app/(authenticated)/dashboard/operator/useProposalWrites.ts: "if (writing.current) return;" → "if (false) return;". Disables the E-added ref guard, allowing a second write while first request remains in flight. Disabling the newly added writing.current guard admits a second request. The fixture awaits that unresolved request before its fetch-count assertion and overwrites the single release callback, so neither assertion nor cleanup is reached. Measured failure is a5006ms Vitest STACK_TRACE_ERROR test timeout, not an assertion kill. Baseline passed. Test171-195 must use a bounded observable second-request attempt and settle all requests in finally. Failure evidence: Error: STACK_TRACE_ERROR at task (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27) at Object.<anonymous> (file:///Users/norbertesekiel/Developer/startups/R. JSON/log evidence /private/tmp/run-e-round2-measure/147.baseline.json, /private/tmp/run-e-round2-measure/147.mutant.json, /private/tmp/run-e-round2-measure/147.baseline.log, /private/tmp/run-e-round2-measure/147.mutant.log. Correction: Capture all callbacks, start the second request without awaiting it, assert the count, and settle both requests in finally. Actual corrected closure: Round2 record299, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch597 PASS and mutant launch598 FAILED, exactly one selected case in each; adjudication killed. Target src/app/(authenticated)/dashboard/operator/useProposalWrites.ts: "if (writing.current) return;" → "if (false) return;". Disables the E-added ref guard, allowing a second write while first request remains in flight.  Failure evidence: AssertionError: expected "vi.fn()" to be called 1 times, but got 2 times at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:189:25 at file:///Users/norbertesekiel/Developer/startups. JSON/log evidence /private/tmp/run-e-round2-measure/299.baseline.json, /private/tmp/run-e-round2-measure/299.mutant.json, /private/tmp/run-e-round2-measure/299.baseline.log, /private/tmp/run-e-round2-measure/299.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+### E-RT-RECEIPT-P1
+
+Original root-accepted finding at record187: The mapper omission prevents a write, then writes()[0]!.text throws before the intended receipt assertion. Round2 record187, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch373 PASS and mutant launch374 FAILED, exactly one selected case in each; adjudication inconclusive-oracle. Target src/lib/agents/operator/proposals.ts: "  return rows.map((row) => {" → "  return rows.slice(1).map((row) => {". The new Restore-aware batch mapper must preserve every found ordinary proposal. Omitting its first row breaks this exact found-row caller contract; it is not an uncalled Restore-branch mutation. The new Restore-aware mapper omission removes the found proposal, preventing the receipt write. Case233 awaits Apply without asserting success, then dereferences writes()[0]!.text at242 before any write-presence assertion. Actual TypeError preempts the intended receipt assertion. Explicit write-count guards are required at both non-null accesses in this same case; no alternative target is used to manufacture an assertion kill. Failure evidence: TypeError: Cannot read properties of undefined (reading 'text') at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/apply.test.ts:242:25 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/nor. JSON/log evidence /private/tmp/run-e-round2-measure/187.baseline.json, /private/tmp/run-e-round2-measure/187.mutant.json, /private/tmp/run-e-round2-measure/187.baseline.log, /private/tmp/run-e-round2-measure/187.mutant.log. Correction: Assert writes()[0] is defined before both original receipt accesses. The earlier proposed length1 was corrected because the healthy helper sees two UPDATEs. Actual corrected closure: Round2 record300, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch599 PASS and mutant launch600 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/agents/operator/proposals.ts: "  return rows.map((row) => {" → "  return rows.slice(1).map((row) => {". The new Restore-aware batch mapper must preserve every found ordinary proposal. Omitting its first row breaks this exact found-row caller contract; it is not an uncalled Restore-branch mutation.  Failure evidence: AssertionError: expected undefined to be defined at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/apply.test.ts:241:25 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/norbertesekiel/Dev. JSON/log evidence /private/tmp/run-e-round2-measure/300.baseline.json, /private/tmp/run-e-round2-measure/300.mutant.json, /private/tmp/run-e-round2-measure/300.baseline.log, /private/tmp/run-e-round2-measure/300.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+### E-RT-PROPOSAL-VIEW-P1
+
+Original root-accepted finding at record239: The mapper omission leaves view undefined and view!.turnId throws before expect receives the value. Round2 record239, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch477 PASS and mutant launch478 FAILED, exactly one selected case in each; adjudication inconclusive-oracle. Target src/lib/agents/operator/proposals.ts: "  return rows.map((row) => {" → "  return rows.slice(1).map((row) => {". The new Restore-aware batch mapper must preserve every found ordinary proposal. Omitting its first row breaks this exact found-row caller contract; it is not an uncalled Restore-branch mutation. The new Restore-aware batch mapper omission returns no view. The test destructures [view] at291 then evaluates view!.turnId at296 before expect receives its argument, so a user-code TypeError preempts the intended field assertion. Add an explicit view-presence assertion before dereferencing; no unrelated target is substituted to manufacture a kill. Failure evidence: TypeError: Cannot read properties of undefined (reading 'turnId') at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/proposals.test.ts:296:18 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Use. JSON/log evidence /private/tmp/run-e-round2-measure/239.baseline.json, /private/tmp/run-e-round2-measure/239.mutant.json, /private/tmp/run-e-round2-measure/239.baseline.log, /private/tmp/run-e-round2-measure/239.mutant.log. Correction: Assert the view is defined before the first property access. Actual corrected closure: Round2 record301, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch601 PASS and mutant launch602 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/agents/operator/proposals.ts: "  return rows.map((row) => {" → "  return rows.slice(1).map((row) => {". The new Restore-aware batch mapper must preserve every found ordinary proposal. Omitting its first row breaks this exact found-row caller contract; it is not an uncalled Restore-branch mutation.  Failure evidence: AssertionError: expected undefined to be defined at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/proposals.test.ts:296:18 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/norbertesekiel. JSON/log evidence /private/tmp/run-e-round2-measure/301.baseline.json, /private/tmp/run-e-round2-measure/301.mutant.json, /private/tmp/run-e-round2-measure/301.baseline.log, /private/tmp/run-e-round2-measure/301.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+### E-RT-PARSED-PROPOSAL-P1
+
+Original root-accepted finding at record260: The traversal omission preserves ok:true but empties parsed proposals; the first scope access throws before a matcher. Round2 record260, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch519 PASS and mutant launch520 FAILED, exactly one selected case in each; adjudication inconclusive-oracle. Target src/lib/agents/operator/render.ts: "for (const [index, proposal] of proposals.entries()) {" → "for (const [index, proposal] of proposals.slice(1).entries()) {". Restore-aware validation must retain a parsed ordinary account-default proposal. Skipping the first proposal in the changed indexed validator yields ok:true and an empty parsed array. The success assertion passes; result.proposals[0]!.scope at413 throws before the scope matcher runs. Explicit array-length assertions are required before the result, absent and located dereferences in this same case; later scope/domain checks remain intact. Failure evidence: TypeError: Cannot read properties of undefined (reading 'scope') at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/render.test.ts:413:33 at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operato. JSON/log evidence /private/tmp/run-e-round2-measure/260.baseline.json, /private/tmp/run-e-round2-measure/260.mutant.json, /private/tmp/run-e-round2-measure/260.baseline.log, /private/tmp/run-e-round2-measure/260.mutant.log. Correction: Assert one parsed proposal before result, absent and located dereferences, preserving all original scope/domain assertions. Actual corrected closure: Round2 record302, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch603 PASS and mutant launch604 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/agents/operator/render.ts: "for (const [index, proposal] of proposals.entries()) {" → "for (const [index, proposal] of proposals.slice(1).entries()) {". Restore-aware validation must retain a parsed ordinary account-default proposal.  Failure evidence: AssertionError: expected [] to have a length of 1 but got +0 at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1389:20) at Proxy.<anonymous> (file:///Us. JSON/log evidence /private/tmp/run-e-round2-measure/302.baseline.json, /private/tmp/run-e-round2-measure/302.mutant.json, /private/tmp/run-e-round2-measure/302.baseline.log, /private/tmp/run-e-round2-measure/302.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+### E-RT-COPILOT-P0
+
+Original root-accepted finding at record263: The traversal omission drops the submitted ordinary off proposal while the test asserts only catalog membership and ok:true. The proposal cannot remain available downstream despite the claimed availability contract. Round2 record263, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch525 PASS and mutant launch526 PASSED, exactly one selected case in each; adjudication survived-confirmed-P0. Target src/lib/agents/operator/render.ts: "for (const [index, proposal] of proposals.entries()) {" → "for (const [index, proposal] of proposals.slice(1).entries()) {". Indexed traversal must preserve the parsed off proposal needed downstream, even on Copilot. The case supplies one narrowing set_auto_reply_scope threshold:null proposal and claims availability on Copilot. Skipping it in the changed indexed validator yields ok:true but no parsed proposal for downstream Apply. Catalog membership and off.ok assertions still pass. This loses the exact submitted operation required by this case contract; explicit parsed proposal count/operation/scope/input assertions are needed. Failure evidence: none (mutant passed). JSON/log evidence /private/tmp/run-e-round2-measure/263.baseline.json, /private/tmp/run-e-round2-measure/263.mutant.json, /private/tmp/run-e-round2-measure/263.baseline.log, /private/tmp/run-e-round2-measure/263.mutant.log. Correction: Keep the ok check and assert one parsed proposal with the exact operation, scope and threshold-null input. Actual corrected closure: Round2 record303, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch605 PASS and mutant launch606 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/agents/operator/render.ts: "for (const [index, proposal] of proposals.entries()) {" → "for (const [index, proposal] of proposals.slice(1).entries()) {". Indexed traversal must preserve the parsed off proposal needed downstream, even on Copilot.  Failure evidence: AssertionError: expected [] to have a length of 1 but got +0 at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1389:20) at Proxy.<anonymous> (file:///Us. JSON/log evidence /private/tmp/run-e-round2-measure/303.baseline.json, /private/tmp/run-e-round2-measure/303.mutant.json, /private/tmp/run-e-round2-measure/303.baseline.log, /private/tmp/run-e-round2-measure/303.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+Root accepted non-equivalence for the case's explicitly claimed contract: The traversal omission drops the submitted ordinary off proposal while the test asserts only catalog membership and ok:true. The proposal cannot remain available downstream despite the claimed availability contract. The actual baseline and mutant both passed before correction. The fixed fixture now fails the same contract regression at record303; the original P0 and PASS/PASS evidence remain preserved.
+
+### E-RT-INTERNAL-UUID-P0
+
+Original root-accepted finding at record290: The shared invalid UUID rejects the request before SQL even after the threshold-state validator is removed; the intended invalid-state predicate is not what caused the negative result. Round2 record290, HEAD 9f20dbecd2ce302494088a49cc3147bca96a3f27, baseline launch579 PASS and mutant launch580 PASSED, exactly one selected case in each; adjudication survived-confirmed-P0. Target src/lib/auto-approval/settings.ts: "threshold: z.custom<AutoApprovalThreshold>(isAutoApprovalThreshold).nullable()," → "threshold: z.custom<AutoApprovalThreshold>(() => true).nullable(),". Accept invalid threshold 3 in internal Restore schema. Removing the threshold3 state rejection still passes because invalid LOCATION_1 version0/variant0 independently fails z.uuid at settings238. The common invalid-policy-restore OR at242–243 rejects before database statements, masking the intended state assertion. The same callback/input location is used by seven invalid-state variants. Only the first variant has measured survivor evidence; sibling outcomes remain explicitly unmeasured. Failure evidence: none (mutant passed). JSON/log evidence /private/tmp/run-e-round2-measure/290.baseline.json, /private/tmp/run-e-round2-measure/290.mutant.json, /private/tmp/run-e-round2-measure/290.baseline.log, /private/tmp/run-e-round2-measure/290.mutant.log. Correction: Replace only the shared callback location with an RFC-valid local UUID. Preserve all seven invalidState inputs and no-SQL/no-audit assertions. Siblings2100:2–7 had no prior measurement and now receive their first attempts305–310. Actual corrected closure: Round2 record304, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch607 PASS and mutant launch608 FAILED, exactly one selected case in each; adjudication killed. Target src/lib/auto-approval/settings.ts: "threshold: z.custom<AutoApprovalThreshold>(isAutoApprovalThreshold).nullable()," → "threshold: z.custom<AutoApprovalThreshold>(() => true).nullable(),". Accept invalid threshold 3 in internal Restore schema.  Failure evidence: Error: expected AutoApprovalSettingsError: location_not_f… { …(2) } to match object { code: 'invalid_policy_restore' } (2 matching properties omitted from actual) at _Assertion.__VITEST_REJECTS__ (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modu. JSON/log evidence /private/tmp/run-e-round2-measure/304.baseline.json, /private/tmp/run-e-round2-measure/304.mutant.json, /private/tmp/run-e-round2-measure/304.baseline.log, /private/tmp/run-e-round2-measure/304.mutant.log. Original unsuccessful attempt is not relabeled; only the subsequent valid assertion failure resolves the current row.
+
+Root accepted non-equivalence for the case's explicitly claimed contract: The shared invalid UUID rejects the request before SQL even after the threshold-state validator is removed; the intended invalid-state predicate is not what caused the negative result. The actual baseline and mutant both passed before correction. The fixed fixture now fails the same contract regression at record304; the original P0 and PASS/PASS evidence remain preserved.
+
+### E-CONT-1
+
+Source-discovered admission/sibling omission, initially REVISE and accepted by root; no prior confirmed fake-test survivor or P0 classification. A successor with stripped pins and a reset round-one journal could select generic budget logic. Root fixed ancestry-derived admission and round-start refusal, including renamed branches. Original review: /private/tmp/run-e-continuation-implementation-review.md; durable triage: budget-extension-review.md:2460. Actual corrective regression: Round2 record339, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch677 PASS and mutant launch678 FAILED, exactly one selected case in each; adjudication killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: "const runEAdmittedHead = headSha === RUN_E_ORIGINAL_ADMISSION || afterRunEOriginalAdmission(root, headSha);" → "const runEAdmittedHead = false;". E-CONT-1 regression: strip ancestry-based fail-closed admission. Initial valid fixture still passes, but stripped round1/runs0 can recover generic allowance; explicit no-child assertion must kill.  Failure evidence: AssertionError: expected +0 to be 1 // Object.is equality at expectContinuationRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:655:29) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/. JSON/log evidence /private/tmp/run-e-round2-measure/339.baseline.json, /private/tmp/run-e-round2-measure/339.mutant.json, /private/tmp/run-e-round2-measure/339.baseline.log, /private/tmp/run-e-round2-measure/339.mutant.log. Root explicitly accepted P1 Duty4. The initial finding and source correction remain in history.
+
+### E-CONT-2
+
+Source-discovered admission/sibling omission, initially REVISE and accepted by root; no prior confirmed fake-test survivor or P0 classification. The historical-row loop omitted appended discovery identities. Root fixed presence checks and exact excluded-reason checks for every approved manifest ID. Original review: /private/tmp/run-e-continuation-implementation-review.md; durable triage: budget-extension-review.md:2460. Actual corrective regression: Round2 record343, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch685 PASS and mutant launch686 FAILED, exactly one selected case in each; adjudication killed. Target .agents/skills/feature/scripts/red-team-status.mjs: "if (!row || (row.outcome === 'excluded' && row.reason !== reason)) return false;" → "if (false && (!row || (row.outcome === 'excluded' && row.reason !== reason))) return false;". E-CONT-2 regression: drop appended-ID/exact-reason corroboration. Historical-loop threats remain blocked, then appended deletion/reason variants must expose the missing guard.  Failure evidence: AssertionError: missing appended ID: expected +0 to be 1 // Object.is equality at expectContinuationRejected (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:559:36) at /Users/norbertesekiel/Developer/startups/RepWor. JSON/log evidence /private/tmp/run-e-round2-measure/343.baseline.json, /private/tmp/run-e-round2-measure/343.mutant.json, /private/tmp/run-e-round2-measure/343.baseline.log, /private/tmp/run-e-round2-measure/343.mutant.log. Root explicitly accepted P1 Duty4. The initial finding and source correction remain in history.
+
+## Historical unsuccessful attempts and precise causal review
+
+The original outcomes remain in the frozen state, logs and attempt table. Records14/81/84 retain their accepted exact-fixture behavior-preservation proofs; they do not establish global equivalence or assertion strength for another input. Record19 reached a PostgreSQL pairing constraint before the intended projection assertion and was conservatively not credited; its coherent second mutant killed the contract. Records63/263/290 are actual confirmed P0 survivors, fixed only after later evidence. Records147/187/239/260 are retained timeout/pre-assertion oracle failures, not kills. Records246/280/331 are target-selection misses, not P0s or globally equivalent mutants.
+
+Record331’s selected fixture rejected counter123, unpinned125, non-integers and a pinned124 rollback through other checks; removing supervisor-length equality did not change these inputs. Root and independent arbitration narrowed the initial fixture-gap concern after locating the existing covering sibling. The finite immutable amendment preserved record331 and four report/log hashes; its exact same-ID second attempt332 removed pinned runs<125 and failed the rollback refusal at test749. The originally scheduled checker648 then killed the original length mutant at record346: pinned counter126 with only125 supervisors. No new fixture/case or third attempt was invented. Adjudication remains under state.corrective; original plan/driver and first evidence are unchanged.
+
+Classifier precision:109 was an actual Testing Library DOM-query expectation;195 a fast-check wrapper around the explicit permitted-kind assertion;232 failed inside the intended toMatch matcher;289 was an expected-positive operation rejecting with the wrong domain outcome. The proposed manual-Restore oracle finding was retracted, with no fixture change. Record325 only killed the required E-only diagnostic, not an executed third round.344/347 likewise killed dedicated committed-admission diagnostics while the checker still exited1 elsewhere.340 failed valid launch125 because1599 differed from the frozen1600 grant; it did not reach launch1600.350’s child actually executed, observed the wrong cap and returned failure before the enclosing status assertion. These distinctions prevent describing every failing test as an accepted attack.
+
+Native independent branch-standards review covered the full corrective records298–388 against pinned test bodies, exact source/mutant hashes and both JSON/log files; root accepted90 causal assertion kills and the preserved331 miss. Root also independently inspected the thirteen fixture corrections and named boundary failures. Logs showed no setup/import/syntax or timeout masquerading as a corrective kill. Incremental verifier audit files are /private/tmp/run-e-corrective-failure-review-*.json; exact causal qualifications are /private/tmp/run-e-corrective-causal-clarifications.md. Earlier product failure reviews remain /private/tmp/run-e-successor-failure-review-*.json and original saved state adjudications.
+
+| Record | Identity | Preserved outcome | Baseline / mutant launches | Rationale |
+|---|---|---|---|
+| 14 | src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:1 | equivalent | 27 PASS / 28 PASSED | Pinned restore-inputs.test.ts:13-21 defines VOICE.productsServices=null and both receipt.before and receipt.after spread that same VOICE, differing only in tone. The case at97 chooses set_products_services, whose restoreInputFromState and writerFields project only productsServices. Changing receipt.before to receipt.after therefore yields the exact same null field and output object for this case. This is a proven input-specific equivalent mutant, not a claimed global equivalence or confirmed P0. A second mutant will independently challenge single-field ownership. |
+| 19 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:415 | inconclusive-oracle | 37 PASS / 38 FAILED | The baseline passed and the semantic scope mutation reached the actual ledger INSERT, but PostgreSQL business-pairing enforcement raised before the targeted ledger projection assertion. Conservatively not credited as an assertion kill. Second mutant changes source and scope coherently through the new server rule, remaining valid under the same schema. |
+| 63 | src/lib/auto-approval/__tests__/settings.test.ts:2090 | survived-confirmed-P0 | 125 PASS / 126 PASSED | The added public full-row-state rejection test uses LOCATION_1 with UUID version0 and variant0. z.uuid rejects the location independently. The measured strictObject→object mutation removes the injected-state rejection but the negative assertion still passes. This is not equivalent behavior for the explicitly claimed public-state boundary. |
+| 81 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:3 | equivalent | 161 PASS / 162 PASSED | The archive holder commits before the waiting Restore business SELECT completes. WHERE archived_at IS NULL returns no row; restore.ts54 returns false, then location_not_found. The mutated account SELECT57 is never executed under this exact archived fixture. Both measured runs pass. This proves this mutant preserves this fixture behavior and does not prove account-lock assertion strength. |
+| 84 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:2 | equivalent | 167 PASS / 168 PASSED | seedTenantAccount creates users/accounts only. This fixture applies set_daily_cap to locationId, creating the location override and no account-default policy. policy-state393-395 captures the populated locationRow and rowVersion(null)={id:absent} parent. The measured mutant substitutes that same absent parent value in Restore output; both runs pass and concrete behavior is preserved. It does not prove assertion strength for a populated parent. |
+| 147 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:171 | inconclusive-oracle | 293 PASS / 294 FAILED | Disabling the newly added writing.current guard admits a second request. The fixture awaits that unresolved request before its fetch-count assertion and overwrites the single release callback, so neither assertion nor cleanup is reached. Measured failure is a5006ms Vitest STACK_TRACE_ERROR test timeout, not an assertion kill. Baseline passed. Test171-195 must use a bounded observable second-request attempt and settle all requests in finally. |
+| 187 | src/lib/agents/operator/__tests__/apply.test.ts:233 | inconclusive-oracle | 373 PASS / 374 FAILED | The new Restore-aware mapper omission removes the found proposal, preventing the receipt write. Case233 awaits Apply without asserting success, then dereferences writes()[0]!.text at242 before any write-presence assertion. Actual TypeError preempts the intended receipt assertion. Explicit write-count guards are required at both non-null accesses in this same case; no alternative target is used to manufacture an assertion kill. |
+| 239 | src/lib/agents/operator/__tests__/proposals.test.ts:250 | inconclusive-oracle | 477 PASS / 478 FAILED | The new Restore-aware batch mapper omission returns no view. The test destructures [view] at291 then evaluates view!.turnId at296 before expect receives its argument, so a user-code TypeError preempts the intended field assertion. Add an explicit view-presence assertion before dereferencing; no unrelated target is substituted to manufacture a kill. |
+| 246 | src/lib/agents/operator/__tests__/reads.integration.test.ts:571 | inconclusive-target-selection | 491 PASS / 492 PASSED | Case571–597 asserts transcript length, first/last sequence, last ownerText and sort order. It does not assert IDs. Original planner claim of exact ordered ID assertions was false for this individual case. The ID mutation changes a separate unasserted contract and is not globally equivalent. The second mutation retains id and sets sequence:0 in the same rewritten projection, directly challenging assertions592–593. |
+| 260 | src/lib/agents/operator/__tests__/render.test.ts:409 | inconclusive-oracle | 519 PASS / 520 FAILED | Skipping the first proposal in the changed indexed validator yields ok:true and an empty parsed array. The success assertion passes; result.proposals[0]!.scope at413 throws before the scope matcher runs. Explicit array-length assertions are required before the result, absent and located dereferences in this same case; later scope/domain checks remain intact. |
+| 263 | src/lib/agents/operator/__tests__/render.test.ts:478 | survived-confirmed-P0 | 525 PASS / 526 PASSED | The case supplies one narrowing set_auto_reply_scope threshold:null proposal and claims availability on Copilot. Skipping it in the changed indexed validator yields ok:true but no parsed proposal for downstream Apply. Catalog membership and off.ok assertions still pass. This loses the exact submitted operation required by this case contract; explicit parsed proposal count/operation/scope/input assertions are needed. |
+| 280 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:878 | inconclusive-target-selection | 559 PASS / 560 PASSED | Case878–908 asserts durable turn/reply/proposals/outbox only. Changing the early return fenced:false to true still exits the completion transaction before writes and only changes the worker warn/completed log at429–452. Original direct-fenced-assertion rationale was false. Remove only the token predicate in the unique rewritten UPDATE/RETURNING block for the second attempt; this directly challenges the asserted durable stolen-lease discard contract. |
+| 290 | src/lib/auto-approval/__tests__/settings.test.ts:2100:1 | survived-confirmed-P0 | 579 PASS / 580 PASSED | Removing the threshold3 state rejection still passes because invalid LOCATION_1 version0/variant0 independently fails z.uuid at settings238. The common invalid-policy-restore OR at242–243 rejects before database statements, masking the intended state assertion. The same callback/input location is used by seven invalid-state variants. Only the first variant has measured survivor evidence; sibling outcomes remain explicitly unmeasured. |
+| 331 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:739 | inconclusive-target-selection | 661 PASS / 662 PASSED | The removed supervisor-length check is ineffective for this selected fixture. Other predicates reject every malformed input. A later correctly pinned journal with runs125 and only124 supervisors would differ globally, so this is not labeled equivalent or a product finding. |
+
+## Gate history, advisory check and operational boundary
+
+The final required44-row gate at263fe7 passed with the acknowledged reclassification WARN retained; archive /private/tmp/run-e-green-corrective-gate-263fe7 and log /private/tmp/run-e-corrective-263fe7-full-gate.log. This is the final candidate gate, not a reuse of an earlier green. No claim is made that every optional CI check was green.
+
+Earlier failures remain evidence:6813 exposed a fixture serializer type error plus two checker default timeouts; the finite annotation/timeouts were corrected before9f20. The first9f20 full gate hit the existing admin-contract-audit109 five-second timeout under concurrent lanes; the unchanged candidate passed its serialized full rerun. Archives include /private/tmp/run-e-continuation-gate-failed-9f20-contention and /private/tmp/run-e-green-continuation-gate-9f20. The initial continuation checker full run80/81 also exposed a synthetic fixture admission-anchor omission; the corrected fixture passed81/81, with the original log retained. These ordinary verification runs did not alter the adversarial counter.
+
+The first corrective focused13 run passed12 and failed the overly specific receipt length1 assertion; healthy writes() includes two UPDATEs. Root changed only the two new checks to writes()[0] presence, then all13 passed; the eight new guards and typecheck also passed. Preserve /private/tmp/run-e-corrective-thirteen-focused-first-failed.log and the corrected logs. This failed preparation did not consume a mutation attempt or change the frozen594 checkpoint.
+
+Both complete ac487 gates were RED. The first failed the broad existing continuation test’s five-second timeout AND agent-config because each skill had511 lines; root initially reported only the timeout, and that omission is explicitly corrected. The isolated test passed unchanged in1.97 seconds. The bounded-worker rerun passed all behavioral checks (16,207 database-enabled tests,11 skips, coverage/build/E2E/integrations) but still failed the skill limit. Preserve both /private/tmp/run-e-corrective-gate-ac487-timeout-preserved and /private/tmp/run-e-corrective-gate-ac487-guideline-preserved. The skills were reflowed to498 lines with identical word tokens and mirrors; two documents appended accurate history. No source/test/intake/checkpoint changed. The resulting263fe7 then passed the complete gate with MAX_PARALLEL1, VITEST_WORKERS2 and VITEST_MAX_WORKERS2.
+
+Optional ci:fallow:coverage on ac487 merged coverage (product bytes identical263fe7) was RED: eight complexity thresholds and two clone groups; no dead files/exports across99 changed files. Preserve /private/tmp/run-e-pre-admission-fallow-coverage.log. Independent native source review examined all eight functions and both clone groups at263fe7 and found no new blocking defect or consequential drift: cohesive protocol/validation responsibilities and existing helpers account for the flagged shapes. No suppression, waiver or refactor was proposed. .github/workflows/ci.yml:366 marks this advisory; its RED is retained separately from required gate success and empty risk-waiver authorizations.
+
+Operational finding E-RT-P1-3 is closed only for the static matching rule13 definition. Its original report expressly did not claim a delivery drill. The committed deviations separate this documentation fix from T7 staging installation/readback. The inspected Sentry draft remained unsaved at this certification boundary. Root plans installation/readback after local certification and before completing T7/release; this report does not claim that action or notification delivery occurred. Browser and staging release checks remain governed by the broader feature workflow, not inferred from these mutation results.
+
+## Every round-two attempt
+
+| Record | Identity | Candidate | Attempt result | Baseline / mutant evidence |
+|---|---|---|---|
+| 1 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122:1 | b6ee3973 | killed | [1 PASS](/private/tmp/run-e-round2-measure/1.baseline.json) / [2 FAILED](/private/tmp/run-e-round2-measure/1.mutant.json) |
+| 2 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122:2 | b6ee3973 | killed | [3 PASS](/private/tmp/run-e-round2-measure/2.baseline.json) / [4 FAILED](/private/tmp/run-e-round2-measure/2.mutant.json) |
+| 3 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:28 | b6ee3973 | killed | [5 PASS](/private/tmp/run-e-round2-measure/3.baseline.json) / [6 FAILED](/private/tmp/run-e-round2-measure/3.mutant.json) |
+| 4 | src/lib/agents/operator/__tests__/restore.integration.test.ts:375 | b6ee3973 | killed | [7 PASS](/private/tmp/run-e-round2-measure/4.baseline.json) / [8 FAILED](/private/tmp/run-e-round2-measure/4.mutant.json) |
+| 5 | src/lib/agents/operator/__tests__/restore.integration.test.ts:216 | b6ee3973 | killed | [9 PASS](/private/tmp/run-e-round2-measure/5.baseline.json) / [10 FAILED](/private/tmp/run-e-round2-measure/5.mutant.json) |
+| 6 | src/lib/agents/operator/__tests__/restore.integration.test.ts:240 | b6ee3973 | killed | [11 PASS](/private/tmp/run-e-round2-measure/6.baseline.json) / [12 FAILED](/private/tmp/run-e-round2-measure/6.mutant.json) |
+| 7 | src/lib/agents/operator/__tests__/restore.integration.test.ts:264 | b6ee3973 | killed | [13 PASS](/private/tmp/run-e-round2-measure/7.baseline.json) / [14 FAILED](/private/tmp/run-e-round2-measure/7.mutant.json) |
+| 8 | src/lib/agents/operator/__tests__/restore.integration.test.ts:316 | b6ee3973 | killed | [15 PASS](/private/tmp/run-e-round2-measure/8.baseline.json) / [16 FAILED](/private/tmp/run-e-round2-measure/8.mutant.json) |
+| 9 | src/lib/agents/operator/__tests__/restore.integration.test.ts:362 | b6ee3973 | killed | [17 PASS](/private/tmp/run-e-round2-measure/9.baseline.json) / [18 FAILED](/private/tmp/run-e-round2-measure/9.mutant.json) |
+| 10 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:2 | b6ee3973 | killed | [19 PASS](/private/tmp/run-e-round2-measure/10.baseline.json) / [20 FAILED](/private/tmp/run-e-round2-measure/10.mutant.json) |
+| 11 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:3 | b6ee3973 | killed | [21 PASS](/private/tmp/run-e-round2-measure/11.baseline.json) / [22 FAILED](/private/tmp/run-e-round2-measure/11.mutant.json) |
+| 12 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:5 | b6ee3973 | killed | [23 PASS](/private/tmp/run-e-round2-measure/12.baseline.json) / [24 FAILED](/private/tmp/run-e-round2-measure/12.mutant.json) |
+| 13 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:6 | b6ee3973 | killed | [25 PASS](/private/tmp/run-e-round2-measure/13.baseline.json) / [26 FAILED](/private/tmp/run-e-round2-measure/13.mutant.json) |
+| 14 | src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:1 | b6ee3973 | equivalent | [27 PASS](/private/tmp/run-e-round2-measure/14.baseline.json) / [28 PASSED](/private/tmp/run-e-round2-measure/14.mutant.json) |
+| 15 | src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:1 | b6ee3973 | killed | [29 PASS](/private/tmp/run-e-round2-measure/15.baseline.json) / [30 FAILED](/private/tmp/run-e-round2-measure/15.mutant.json) |
+| 16 | src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:2 | b6ee3973 | killed | [31 PASS](/private/tmp/run-e-round2-measure/16.baseline.json) / [32 FAILED](/private/tmp/run-e-round2-measure/16.mutant.json) |
+| 17 | src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:3 | b6ee3973 | killed | [33 PASS](/private/tmp/run-e-round2-measure/17.baseline.json) / [34 FAILED](/private/tmp/run-e-round2-measure/17.mutant.json) |
+| 18 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:366 | b6ee3973 | killed | [35 PASS](/private/tmp/run-e-round2-measure/18.baseline.json) / [36 FAILED](/private/tmp/run-e-round2-measure/18.mutant.json) |
+| 19 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:415 | b6ee3973 | inconclusive-oracle | [37 PASS](/private/tmp/run-e-round2-measure/19.baseline.json) / [38 FAILED](/private/tmp/run-e-round2-measure/19.mutant.json) |
+| 20 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:415 | b6ee3973 | killed | [39 PASS](/private/tmp/run-e-round2-measure/20.baseline.json) / [40 FAILED](/private/tmp/run-e-round2-measure/20.mutant.json) |
+| 21 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:452 | b6ee3973 | killed | [41 PASS](/private/tmp/run-e-round2-measure/21.baseline.json) / [42 FAILED](/private/tmp/run-e-round2-measure/21.mutant.json) |
+| 22 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:471 | b6ee3973 | killed | [43 PASS](/private/tmp/run-e-round2-measure/22.baseline.json) / [44 FAILED](/private/tmp/run-e-round2-measure/22.mutant.json) |
+| 23 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:498 | b6ee3973 | killed | [45 PASS](/private/tmp/run-e-round2-measure/23.baseline.json) / [46 FAILED](/private/tmp/run-e-round2-measure/23.mutant.json) |
+| 24 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:397 | b6ee3973 | killed | [47 PASS](/private/tmp/run-e-round2-measure/24.baseline.json) / [48 FAILED](/private/tmp/run-e-round2-measure/24.mutant.json) |
+| 25 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:1 | b6ee3973 | killed | [49 PASS](/private/tmp/run-e-round2-measure/25.baseline.json) / [50 FAILED](/private/tmp/run-e-round2-measure/25.mutant.json) |
+| 26 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:2 | b6ee3973 | killed | [51 PASS](/private/tmp/run-e-round2-measure/26.baseline.json) / [52 FAILED](/private/tmp/run-e-round2-measure/26.mutant.json) |
+| 27 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:3 | b6ee3973 | killed | [53 PASS](/private/tmp/run-e-round2-measure/27.baseline.json) / [54 FAILED](/private/tmp/run-e-round2-measure/27.mutant.json) |
+| 28 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:4 | b6ee3973 | killed | [55 PASS](/private/tmp/run-e-round2-measure/28.baseline.json) / [56 FAILED](/private/tmp/run-e-round2-measure/28.mutant.json) |
+| 29 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:5 | b6ee3973 | killed | [57 PASS](/private/tmp/run-e-round2-measure/29.baseline.json) / [58 FAILED](/private/tmp/run-e-round2-measure/29.mutant.json) |
+| 30 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:6 | b6ee3973 | killed | [59 PASS](/private/tmp/run-e-round2-measure/30.baseline.json) / [60 FAILED](/private/tmp/run-e-round2-measure/30.mutant.json) |
+| 31 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:7 | b6ee3973 | killed | [61 PASS](/private/tmp/run-e-round2-measure/31.baseline.json) / [62 FAILED](/private/tmp/run-e-round2-measure/31.mutant.json) |
+| 32 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:8 | b6ee3973 | killed | [63 PASS](/private/tmp/run-e-round2-measure/32.baseline.json) / [64 FAILED](/private/tmp/run-e-round2-measure/32.mutant.json) |
+| 33 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:1 | b6ee3973 | killed | [65 PASS](/private/tmp/run-e-round2-measure/33.baseline.json) / [66 FAILED](/private/tmp/run-e-round2-measure/33.mutant.json) |
+| 34 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:2 | b6ee3973 | killed | [67 PASS](/private/tmp/run-e-round2-measure/34.baseline.json) / [68 FAILED](/private/tmp/run-e-round2-measure/34.mutant.json) |
+| 35 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:3 | b6ee3973 | killed | [69 PASS](/private/tmp/run-e-round2-measure/35.baseline.json) / [70 FAILED](/private/tmp/run-e-round2-measure/35.mutant.json) |
+| 36 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:4 | b6ee3973 | killed | [71 PASS](/private/tmp/run-e-round2-measure/36.baseline.json) / [72 FAILED](/private/tmp/run-e-round2-measure/36.mutant.json) |
+| 37 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:5 | b6ee3973 | killed | [73 PASS](/private/tmp/run-e-round2-measure/37.baseline.json) / [74 FAILED](/private/tmp/run-e-round2-measure/37.mutant.json) |
+| 38 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:6 | b6ee3973 | killed | [75 PASS](/private/tmp/run-e-round2-measure/38.baseline.json) / [76 FAILED](/private/tmp/run-e-round2-measure/38.mutant.json) |
+| 39 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:7 | b6ee3973 | killed | [77 PASS](/private/tmp/run-e-round2-measure/39.baseline.json) / [78 FAILED](/private/tmp/run-e-round2-measure/39.mutant.json) |
+| 40 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:8 | b6ee3973 | killed | [79 PASS](/private/tmp/run-e-round2-measure/40.baseline.json) / [80 FAILED](/private/tmp/run-e-round2-measure/40.mutant.json) |
+| 41 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:9 | b6ee3973 | killed | [81 PASS](/private/tmp/run-e-round2-measure/41.baseline.json) / [82 FAILED](/private/tmp/run-e-round2-measure/41.mutant.json) |
+| 42 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:1 | b6ee3973 | killed | [83 PASS](/private/tmp/run-e-round2-measure/42.baseline.json) / [84 FAILED](/private/tmp/run-e-round2-measure/42.mutant.json) |
+| 43 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:2 | b6ee3973 | killed | [85 PASS](/private/tmp/run-e-round2-measure/43.baseline.json) / [86 FAILED](/private/tmp/run-e-round2-measure/43.mutant.json) |
+| 44 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:3 | b6ee3973 | killed | [87 PASS](/private/tmp/run-e-round2-measure/44.baseline.json) / [88 FAILED](/private/tmp/run-e-round2-measure/44.mutant.json) |
+| 45 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:4 | b6ee3973 | killed | [89 PASS](/private/tmp/run-e-round2-measure/45.baseline.json) / [90 FAILED](/private/tmp/run-e-round2-measure/45.mutant.json) |
+| 46 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:5 | b6ee3973 | killed | [91 PASS](/private/tmp/run-e-round2-measure/46.baseline.json) / [92 FAILED](/private/tmp/run-e-round2-measure/46.mutant.json) |
+| 47 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:6 | b6ee3973 | killed | [93 PASS](/private/tmp/run-e-round2-measure/47.baseline.json) / [94 FAILED](/private/tmp/run-e-round2-measure/47.mutant.json) |
+| 48 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:7 | b6ee3973 | killed | [95 PASS](/private/tmp/run-e-round2-measure/48.baseline.json) / [96 FAILED](/private/tmp/run-e-round2-measure/48.mutant.json) |
+| 49 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:1 | b6ee3973 | killed | [97 PASS](/private/tmp/run-e-round2-measure/49.baseline.json) / [98 FAILED](/private/tmp/run-e-round2-measure/49.mutant.json) |
+| 50 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:2 | b6ee3973 | killed | [99 PASS](/private/tmp/run-e-round2-measure/50.baseline.json) / [100 FAILED](/private/tmp/run-e-round2-measure/50.mutant.json) |
+| 51 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:3 | b6ee3973 | killed | [101 PASS](/private/tmp/run-e-round2-measure/51.baseline.json) / [102 FAILED](/private/tmp/run-e-round2-measure/51.mutant.json) |
+| 52 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:4 | b6ee3973 | killed | [103 PASS](/private/tmp/run-e-round2-measure/52.baseline.json) / [104 FAILED](/private/tmp/run-e-round2-measure/52.mutant.json) |
+| 53 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:5 | b6ee3973 | killed | [105 PASS](/private/tmp/run-e-round2-measure/53.baseline.json) / [106 FAILED](/private/tmp/run-e-round2-measure/53.mutant.json) |
+| 54 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:1 | b6ee3973 | killed | [107 PASS](/private/tmp/run-e-round2-measure/54.baseline.json) / [108 FAILED](/private/tmp/run-e-round2-measure/54.mutant.json) |
+| 55 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:2 | b6ee3973 | killed | [109 PASS](/private/tmp/run-e-round2-measure/55.baseline.json) / [110 FAILED](/private/tmp/run-e-round2-measure/55.mutant.json) |
+| 56 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:3 | b6ee3973 | killed | [111 PASS](/private/tmp/run-e-round2-measure/56.baseline.json) / [112 FAILED](/private/tmp/run-e-round2-measure/56.mutant.json) |
+| 57 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:4 | b6ee3973 | killed | [113 PASS](/private/tmp/run-e-round2-measure/57.baseline.json) / [114 FAILED](/private/tmp/run-e-round2-measure/57.mutant.json) |
+| 58 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:5 | b6ee3973 | killed | [115 PASS](/private/tmp/run-e-round2-measure/58.baseline.json) / [116 FAILED](/private/tmp/run-e-round2-measure/58.mutant.json) |
+| 59 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:6 | b6ee3973 | killed | [117 PASS](/private/tmp/run-e-round2-measure/59.baseline.json) / [118 FAILED](/private/tmp/run-e-round2-measure/59.mutant.json) |
+| 60 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:534 | b6ee3973 | killed | [119 PASS](/private/tmp/run-e-round2-measure/60.baseline.json) / [120 FAILED](/private/tmp/run-e-round2-measure/60.mutant.json) |
+| 61 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:546 | b6ee3973 | killed | [121 PASS](/private/tmp/run-e-round2-measure/61.baseline.json) / [122 FAILED](/private/tmp/run-e-round2-measure/61.mutant.json) |
+| 62 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:558 | b6ee3973 | killed | [123 PASS](/private/tmp/run-e-round2-measure/62.baseline.json) / [124 FAILED](/private/tmp/run-e-round2-measure/62.mutant.json) |
+| 63 | src/lib/auto-approval/__tests__/settings.test.ts:2090 | 9f20dbec | survived-confirmed-P0 | [125 PASS](/private/tmp/run-e-round2-measure/63.baseline.json) / [126 PASSED](/private/tmp/run-e-round2-measure/63.mutant.json) |
+| 64 | src/app/api/operator/__tests__/restore-route.test.ts:36 | 9f20dbec | killed | [127 PASS](/private/tmp/run-e-round2-measure/64.baseline.json) / [128 FAILED](/private/tmp/run-e-round2-measure/64.mutant.json) |
+| 65 | src/app/api/operator/__tests__/restore-route.test.ts:45 | 9f20dbec | killed | [129 PASS](/private/tmp/run-e-round2-measure/65.baseline.json) / [130 FAILED](/private/tmp/run-e-round2-measure/65.mutant.json) |
+| 66 | src/app/api/operator/__tests__/restore-route.test.ts:64:1 | 9f20dbec | killed | [131 PASS](/private/tmp/run-e-round2-measure/66.baseline.json) / [132 FAILED](/private/tmp/run-e-round2-measure/66.mutant.json) |
+| 67 | src/app/api/operator/__tests__/restore-route.test.ts:64:2 | 9f20dbec | killed | [133 PASS](/private/tmp/run-e-round2-measure/67.baseline.json) / [134 FAILED](/private/tmp/run-e-round2-measure/67.mutant.json) |
+| 68 | src/app/api/operator/__tests__/restore-route.test.ts:64:3 | 9f20dbec | killed | [135 PASS](/private/tmp/run-e-round2-measure/68.baseline.json) / [136 FAILED](/private/tmp/run-e-round2-measure/68.mutant.json) |
+| 69 | src/app/api/operator/__tests__/restore-route.test.ts:64:4 | 9f20dbec | killed | [137 PASS](/private/tmp/run-e-round2-measure/69.baseline.json) / [138 FAILED](/private/tmp/run-e-round2-measure/69.mutant.json) |
+| 70 | src/app/api/operator/__tests__/restore-route.test.ts:64:5 | 9f20dbec | killed | [139 PASS](/private/tmp/run-e-round2-measure/70.baseline.json) / [140 FAILED](/private/tmp/run-e-round2-measure/70.mutant.json) |
+| 71 | src/app/api/operator/__tests__/restore-route.test.ts:71 | 9f20dbec | killed | [141 PASS](/private/tmp/run-e-round2-measure/71.baseline.json) / [142 FAILED](/private/tmp/run-e-round2-measure/71.mutant.json) |
+| 72 | src/app/api/operator/__tests__/restore-route.test.ts:80:1 | 9f20dbec | killed | [143 PASS](/private/tmp/run-e-round2-measure/72.baseline.json) / [144 FAILED](/private/tmp/run-e-round2-measure/72.mutant.json) |
+| 73 | src/app/api/operator/__tests__/restore-route.test.ts:80:2 | 9f20dbec | killed | [145 PASS](/private/tmp/run-e-round2-measure/73.baseline.json) / [146 FAILED](/private/tmp/run-e-round2-measure/73.mutant.json) |
+| 74 | src/app/api/operator/__tests__/restore-route.test.ts:80:3 | 9f20dbec | killed | [147 PASS](/private/tmp/run-e-round2-measure/74.baseline.json) / [148 FAILED](/private/tmp/run-e-round2-measure/74.mutant.json) |
+| 75 | src/app/api/operator/__tests__/restore-route.test.ts:80:4 | 9f20dbec | killed | [149 PASS](/private/tmp/run-e-round2-measure/75.baseline.json) / [150 FAILED](/private/tmp/run-e-round2-measure/75.mutant.json) |
+| 76 | src/app/api/operator/__tests__/restore-route.test.ts:80:5 | 9f20dbec | killed | [151 PASS](/private/tmp/run-e-round2-measure/76.baseline.json) / [152 FAILED](/private/tmp/run-e-round2-measure/76.mutant.json) |
+| 77 | src/app/api/operator/__tests__/restore-route.test.ts:80:6 | 9f20dbec | killed | [153 PASS](/private/tmp/run-e-round2-measure/77.baseline.json) / [154 FAILED](/private/tmp/run-e-round2-measure/77.mutant.json) |
+| 78 | src/app/api/operator/__tests__/restore-route.test.ts:91 | 9f20dbec | killed | [155 PASS](/private/tmp/run-e-round2-measure/78.baseline.json) / [156 FAILED](/private/tmp/run-e-round2-measure/78.mutant.json) |
+| 79 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:1 | 9f20dbec | killed | [157 PASS](/private/tmp/run-e-round2-measure/79.baseline.json) / [158 FAILED](/private/tmp/run-e-round2-measure/79.mutant.json) |
+| 80 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:2 | 9f20dbec | killed | [159 PASS](/private/tmp/run-e-round2-measure/80.baseline.json) / [160 FAILED](/private/tmp/run-e-round2-measure/80.mutant.json) |
+| 81 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:3 | 9f20dbec | equivalent | [161 PASS](/private/tmp/run-e-round2-measure/81.baseline.json) / [162 PASSED](/private/tmp/run-e-round2-measure/81.mutant.json) |
+| 82 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:3 | 9f20dbec | killed | [163 PASS](/private/tmp/run-e-round2-measure/82.baseline.json) / [164 FAILED](/private/tmp/run-e-round2-measure/82.mutant.json) |
+| 83 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:1 | 9f20dbec | killed | [165 PASS](/private/tmp/run-e-round2-measure/83.baseline.json) / [166 FAILED](/private/tmp/run-e-round2-measure/83.mutant.json) |
+| 84 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:2 | 9f20dbec | equivalent | [167 PASS](/private/tmp/run-e-round2-measure/84.baseline.json) / [168 PASSED](/private/tmp/run-e-round2-measure/84.mutant.json) |
+| 85 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:2 | 9f20dbec | killed | [169 PASS](/private/tmp/run-e-round2-measure/85.baseline.json) / [170 FAILED](/private/tmp/run-e-round2-measure/85.mutant.json) |
+| 86 | src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:3 | 9f20dbec | killed | [171 PASS](/private/tmp/run-e-round2-measure/86.baseline.json) / [172 FAILED](/private/tmp/run-e-round2-measure/86.mutant.json) |
+| 87 | src/lib/agents/operator/__tests__/restore.integration.test.ts:275 | 9f20dbec | killed | [173 PASS](/private/tmp/run-e-round2-measure/87.baseline.json) / [174 FAILED](/private/tmp/run-e-round2-measure/87.mutant.json) |
+| 88 | src/lib/agents/operator/__tests__/restore.integration.test.ts:301 | 9f20dbec | killed | [175 PASS](/private/tmp/run-e-round2-measure/88.baseline.json) / [176 FAILED](/private/tmp/run-e-round2-measure/88.mutant.json) |
+| 89 | src/lib/agents/operator/__tests__/restore.integration.test.ts:342 | 9f20dbec | killed | [177 PASS](/private/tmp/run-e-round2-measure/89.baseline.json) / [178 FAILED](/private/tmp/run-e-round2-measure/89.mutant.json) |
+| 90 | src/lib/agents/operator/__tests__/restore.integration.test.ts:393 | 9f20dbec | killed | [179 PASS](/private/tmp/run-e-round2-measure/90.baseline.json) / [180 FAILED](/private/tmp/run-e-round2-measure/90.mutant.json) |
+| 91 | src/lib/agents/operator/__tests__/restore.integration.test.ts:423 | 9f20dbec | killed | [181 PASS](/private/tmp/run-e-round2-measure/91.baseline.json) / [182 FAILED](/private/tmp/run-e-round2-measure/91.mutant.json) |
+| 92 | src/lib/agents/operator/__tests__/restore.integration.test.ts:473 | 9f20dbec | killed | [183 PASS](/private/tmp/run-e-round2-measure/92.baseline.json) / [184 FAILED](/private/tmp/run-e-round2-measure/92.mutant.json) |
+| 93 | src/lib/agents/operator/__tests__/restore.integration.test.ts:513 | 9f20dbec | killed | [185 PASS](/private/tmp/run-e-round2-measure/93.baseline.json) / [186 FAILED](/private/tmp/run-e-round2-measure/93.mutant.json) |
+| 94 | src/lib/agents/operator/__tests__/restore.integration.test.ts:531 | 9f20dbec | killed | [187 PASS](/private/tmp/run-e-round2-measure/94.baseline.json) / [188 FAILED](/private/tmp/run-e-round2-measure/94.mutant.json) |
+| 95 | src/lib/agents/operator/__tests__/restore.integration.test.ts:570 | 9f20dbec | killed | [189 PASS](/private/tmp/run-e-round2-measure/95.baseline.json) / [190 FAILED](/private/tmp/run-e-round2-measure/95.mutant.json) |
+| 96 | src/lib/agents/operator/__tests__/refusal-completion.test.ts:80 | 9f20dbec | killed | [191 PASS](/private/tmp/run-e-round2-measure/96.baseline.json) / [192 FAILED](/private/tmp/run-e-round2-measure/96.mutant.json) |
+| 97 | src/lib/agents/operator/__tests__/refusals.test.ts:5 | 9f20dbec | killed | [193 PASS](/private/tmp/run-e-round2-measure/97.baseline.json) / [194 FAILED](/private/tmp/run-e-round2-measure/97.mutant.json) |
+| 98 | src/lib/refusals/__tests__/read.integration.test.ts:476 | 9f20dbec | killed | [195 PASS](/private/tmp/run-e-round2-measure/98.baseline.json) / [196 FAILED](/private/tmp/run-e-round2-measure/98.mutant.json) |
+| 99 | src/lib/refusals/__tests__/vocabulary.test.ts:212 | 9f20dbec | killed | [197 PASS](/private/tmp/run-e-round2-measure/99.baseline.json) / [198 FAILED](/private/tmp/run-e-round2-measure/99.mutant.json) |
+| 100 | src/lib/refusals/__tests__/vocabulary.test.ts:226 | 9f20dbec | killed | [199 PASS](/private/tmp/run-e-round2-measure/100.baseline.json) / [200 FAILED](/private/tmp/run-e-round2-measure/100.mutant.json) |
+| 101 | src/lib/refusals/__tests__/vocabulary.test.ts:235 | 9f20dbec | killed | [201 PASS](/private/tmp/run-e-round2-measure/101.baseline.json) / [202 FAILED](/private/tmp/run-e-round2-measure/101.mutant.json) |
+| 102 | src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1052 | 9f20dbec | killed | [203 PASS](/private/tmp/run-e-round2-measure/102.baseline.json) / [204 FAILED](/private/tmp/run-e-round2-measure/102.mutant.json) |
+| 103 | src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:114 | 9f20dbec | killed | [205 PASS](/private/tmp/run-e-round2-measure/103.baseline.json) / [206 FAILED](/private/tmp/run-e-round2-measure/103.mutant.json) |
+| 104 | src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:147 | 9f20dbec | killed | [207 PASS](/private/tmp/run-e-round2-measure/104.baseline.json) / [208 FAILED](/private/tmp/run-e-round2-measure/104.mutant.json) |
+| 105 | src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:181 | 9f20dbec | killed | [209 PASS](/private/tmp/run-e-round2-measure/105.baseline.json) / [210 FAILED](/private/tmp/run-e-round2-measure/105.mutant.json) |
+| 106 | scripts/ci/__tests__/live-db-suites-audit.test.ts:425 | 9f20dbec | killed | [211 PASS](/private/tmp/run-e-round2-measure/106.baseline.json) / [212 FAILED](/private/tmp/run-e-round2-measure/106.mutant.json) |
+| 107 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:1043 | 9f20dbec | killed | [213 PASS](/private/tmp/run-e-round2-measure/107.baseline.json) / [214 FAILED](/private/tmp/run-e-round2-measure/107.mutant.json) |
+| 108 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:144 | 9f20dbec | killed | [215 PASS](/private/tmp/run-e-round2-measure/108.baseline.json) / [216 FAILED](/private/tmp/run-e-round2-measure/108.mutant.json) |
+| 109 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:206 | 9f20dbec | killed | [217 PASS](/private/tmp/run-e-round2-measure/109.baseline.json) / [218 FAILED](/private/tmp/run-e-round2-measure/109.mutant.json) |
+| 110 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:244 | 9f20dbec | killed | [219 PASS](/private/tmp/run-e-round2-measure/110.baseline.json) / [220 FAILED](/private/tmp/run-e-round2-measure/110.mutant.json) |
+| 111 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:287 | 9f20dbec | killed | [221 PASS](/private/tmp/run-e-round2-measure/111.baseline.json) / [222 FAILED](/private/tmp/run-e-round2-measure/111.mutant.json) |
+| 112 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:300 | 9f20dbec | killed | [223 PASS](/private/tmp/run-e-round2-measure/112.baseline.json) / [224 FAILED](/private/tmp/run-e-round2-measure/112.mutant.json) |
+| 113 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:337 | 9f20dbec | killed | [225 PASS](/private/tmp/run-e-round2-measure/113.baseline.json) / [226 FAILED](/private/tmp/run-e-round2-measure/113.mutant.json) |
+| 114 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:364 | 9f20dbec | killed | [227 PASS](/private/tmp/run-e-round2-measure/114.baseline.json) / [228 FAILED](/private/tmp/run-e-round2-measure/114.mutant.json) |
+| 115 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:408 | 9f20dbec | killed | [229 PASS](/private/tmp/run-e-round2-measure/115.baseline.json) / [230 FAILED](/private/tmp/run-e-round2-measure/115.mutant.json) |
+| 116 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:471 | 9f20dbec | killed | [231 PASS](/private/tmp/run-e-round2-measure/116.baseline.json) / [232 FAILED](/private/tmp/run-e-round2-measure/116.mutant.json) |
+| 117 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:516 | 9f20dbec | killed | [233 PASS](/private/tmp/run-e-round2-measure/117.baseline.json) / [234 FAILED](/private/tmp/run-e-round2-measure/117.mutant.json) |
+| 118 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:598 | 9f20dbec | killed | [235 PASS](/private/tmp/run-e-round2-measure/118.baseline.json) / [236 FAILED](/private/tmp/run-e-round2-measure/118.mutant.json) |
+| 119 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:659 | 9f20dbec | killed | [237 PASS](/private/tmp/run-e-round2-measure/119.baseline.json) / [238 FAILED](/private/tmp/run-e-round2-measure/119.mutant.json) |
+| 120 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:701 | 9f20dbec | killed | [239 PASS](/private/tmp/run-e-round2-measure/120.baseline.json) / [240 FAILED](/private/tmp/run-e-round2-measure/120.mutant.json) |
+| 121 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:746 | 9f20dbec | killed | [241 PASS](/private/tmp/run-e-round2-measure/121.baseline.json) / [242 FAILED](/private/tmp/run-e-round2-measure/121.mutant.json) |
+| 122 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:810 | 9f20dbec | killed | [243 PASS](/private/tmp/run-e-round2-measure/122.baseline.json) / [244 FAILED](/private/tmp/run-e-round2-measure/122.mutant.json) |
+| 123 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:888 | 9f20dbec | killed | [245 PASS](/private/tmp/run-e-round2-measure/123.baseline.json) / [246 FAILED](/private/tmp/run-e-round2-measure/123.mutant.json) |
+| 124 | src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:964 | 9f20dbec | killed | [247 PASS](/private/tmp/run-e-round2-measure/124.baseline.json) / [248 FAILED](/private/tmp/run-e-round2-measure/124.mutant.json) |
+| 125 | src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:230 | 9f20dbec | killed | [249 PASS](/private/tmp/run-e-round2-measure/125.baseline.json) / [250 FAILED](/private/tmp/run-e-round2-measure/125.mutant.json) |
+| 126 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122 | 9f20dbec | killed | [251 PASS](/private/tmp/run-e-round2-measure/126.baseline.json) / [252 FAILED](/private/tmp/run-e-round2-measure/126.mutant.json) |
+| 127 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:144 | 9f20dbec | killed | [253 PASS](/private/tmp/run-e-round2-measure/127.baseline.json) / [254 FAILED](/private/tmp/run-e-round2-measure/127.mutant.json) |
+| 128 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:168 | 9f20dbec | killed | [255 PASS](/private/tmp/run-e-round2-measure/128.baseline.json) / [256 FAILED](/private/tmp/run-e-round2-measure/128.mutant.json) |
+| 129 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:184 | 9f20dbec | killed | [257 PASS](/private/tmp/run-e-round2-measure/129.baseline.json) / [258 FAILED](/private/tmp/run-e-round2-measure/129.mutant.json) |
+| 130 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:195 | 9f20dbec | killed | [259 PASS](/private/tmp/run-e-round2-measure/130.baseline.json) / [260 FAILED](/private/tmp/run-e-round2-measure/130.mutant.json) |
+| 131 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:212 | 9f20dbec | killed | [261 PASS](/private/tmp/run-e-round2-measure/131.baseline.json) / [262 FAILED](/private/tmp/run-e-round2-measure/131.mutant.json) |
+| 132 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:232 | 9f20dbec | killed | [263 PASS](/private/tmp/run-e-round2-measure/132.baseline.json) / [264 FAILED](/private/tmp/run-e-round2-measure/132.mutant.json) |
+| 133 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:64 | 9f20dbec | killed | [265 PASS](/private/tmp/run-e-round2-measure/133.baseline.json) / [266 FAILED](/private/tmp/run-e-round2-measure/133.mutant.json) |
+| 134 | src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:92 | 9f20dbec | killed | [267 PASS](/private/tmp/run-e-round2-measure/134.baseline.json) / [268 FAILED](/private/tmp/run-e-round2-measure/134.mutant.json) |
+| 135 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:1 | 9f20dbec | killed | [269 PASS](/private/tmp/run-e-round2-measure/135.baseline.json) / [270 FAILED](/private/tmp/run-e-round2-measure/135.mutant.json) |
+| 136 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:2 | 9f20dbec | killed | [271 PASS](/private/tmp/run-e-round2-measure/136.baseline.json) / [272 FAILED](/private/tmp/run-e-round2-measure/136.mutant.json) |
+| 137 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:3 | 9f20dbec | killed | [273 PASS](/private/tmp/run-e-round2-measure/137.baseline.json) / [274 FAILED](/private/tmp/run-e-round2-measure/137.mutant.json) |
+| 138 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:4 | 9f20dbec | killed | [275 PASS](/private/tmp/run-e-round2-measure/138.baseline.json) / [276 FAILED](/private/tmp/run-e-round2-measure/138.mutant.json) |
+| 139 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:5 | 9f20dbec | killed | [277 PASS](/private/tmp/run-e-round2-measure/139.baseline.json) / [278 FAILED](/private/tmp/run-e-round2-measure/139.mutant.json) |
+| 140 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:6 | 9f20dbec | killed | [279 PASS](/private/tmp/run-e-round2-measure/140.baseline.json) / [280 FAILED](/private/tmp/run-e-round2-measure/140.mutant.json) |
+| 141 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:68 | 9f20dbec | killed | [281 PASS](/private/tmp/run-e-round2-measure/141.baseline.json) / [282 FAILED](/private/tmp/run-e-round2-measure/141.mutant.json) |
+| 142 | src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:88 | 9f20dbec | killed | [283 PASS](/private/tmp/run-e-round2-measure/142.baseline.json) / [284 FAILED](/private/tmp/run-e-round2-measure/142.mutant.json) |
+| 143 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:107 | 9f20dbec | killed | [285 PASS](/private/tmp/run-e-round2-measure/143.baseline.json) / [286 FAILED](/private/tmp/run-e-round2-measure/143.mutant.json) |
+| 144 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:124 | 9f20dbec | killed | [287 PASS](/private/tmp/run-e-round2-measure/144.baseline.json) / [288 FAILED](/private/tmp/run-e-round2-measure/144.mutant.json) |
+| 145 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:144 | 9f20dbec | killed | [289 PASS](/private/tmp/run-e-round2-measure/145.baseline.json) / [290 FAILED](/private/tmp/run-e-round2-measure/145.mutant.json) |
+| 146 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:158 | 9f20dbec | killed | [291 PASS](/private/tmp/run-e-round2-measure/146.baseline.json) / [292 FAILED](/private/tmp/run-e-round2-measure/146.mutant.json) |
+| 147 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:171 | 9f20dbec | inconclusive-oracle | [293 PASS](/private/tmp/run-e-round2-measure/147.baseline.json) / [294 FAILED](/private/tmp/run-e-round2-measure/147.mutant.json) |
+| 148 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:69 | 9f20dbec | killed | [295 PASS](/private/tmp/run-e-round2-measure/148.baseline.json) / [296 FAILED](/private/tmp/run-e-round2-measure/148.mutant.json) |
+| 149 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:83 | 9f20dbec | killed | [297 PASS](/private/tmp/run-e-round2-measure/149.baseline.json) / [298 FAILED](/private/tmp/run-e-round2-measure/149.mutant.json) |
+| 150 | src/app/api/operator/__tests__/conversation-route.test.ts:33 | 9f20dbec | killed | [299 PASS](/private/tmp/run-e-round2-measure/150.baseline.json) / [300 FAILED](/private/tmp/run-e-round2-measure/150.mutant.json) |
+| 151 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:29 | 9f20dbec | killed | [301 PASS](/private/tmp/run-e-round2-measure/151.baseline.json) / [302 FAILED](/private/tmp/run-e-round2-measure/151.mutant.json) |
+| 152 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:41 | 9f20dbec | killed | [303 PASS](/private/tmp/run-e-round2-measure/152.baseline.json) / [304 FAILED](/private/tmp/run-e-round2-measure/152.mutant.json) |
+| 153 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:46 | 9f20dbec | killed | [305 PASS](/private/tmp/run-e-round2-measure/153.baseline.json) / [306 FAILED](/private/tmp/run-e-round2-measure/153.mutant.json) |
+| 154 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:1 | 9f20dbec | killed | [307 PASS](/private/tmp/run-e-round2-measure/154.baseline.json) / [308 FAILED](/private/tmp/run-e-round2-measure/154.mutant.json) |
+| 155 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:10 | 9f20dbec | killed | [309 PASS](/private/tmp/run-e-round2-measure/155.baseline.json) / [310 FAILED](/private/tmp/run-e-round2-measure/155.mutant.json) |
+| 156 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:2 | 9f20dbec | killed | [311 PASS](/private/tmp/run-e-round2-measure/156.baseline.json) / [312 FAILED](/private/tmp/run-e-round2-measure/156.mutant.json) |
+| 157 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:3 | 9f20dbec | killed | [313 PASS](/private/tmp/run-e-round2-measure/157.baseline.json) / [314 FAILED](/private/tmp/run-e-round2-measure/157.mutant.json) |
+| 158 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:4 | 9f20dbec | killed | [315 PASS](/private/tmp/run-e-round2-measure/158.baseline.json) / [316 FAILED](/private/tmp/run-e-round2-measure/158.mutant.json) |
+| 159 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:5 | 9f20dbec | killed | [317 PASS](/private/tmp/run-e-round2-measure/159.baseline.json) / [318 FAILED](/private/tmp/run-e-round2-measure/159.mutant.json) |
+| 160 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:6 | 9f20dbec | killed | [319 PASS](/private/tmp/run-e-round2-measure/160.baseline.json) / [320 FAILED](/private/tmp/run-e-round2-measure/160.mutant.json) |
+| 161 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:7 | 9f20dbec | killed | [321 PASS](/private/tmp/run-e-round2-measure/161.baseline.json) / [322 FAILED](/private/tmp/run-e-round2-measure/161.mutant.json) |
+| 162 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:8 | 9f20dbec | killed | [323 PASS](/private/tmp/run-e-round2-measure/162.baseline.json) / [324 FAILED](/private/tmp/run-e-round2-measure/162.mutant.json) |
+| 163 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:9 | 9f20dbec | killed | [325 PASS](/private/tmp/run-e-round2-measure/163.baseline.json) / [326 FAILED](/private/tmp/run-e-round2-measure/163.mutant.json) |
+| 164 | src/app/api/operator/__tests__/rules-timeline-route.test.ts:65 | 9f20dbec | killed | [327 PASS](/private/tmp/run-e-round2-measure/164.baseline.json) / [328 FAILED](/private/tmp/run-e-round2-measure/164.mutant.json) |
+| 165 | src/app/api/operator/__tests__/turn-get-route.test.ts:28 | 9f20dbec | killed | [329 PASS](/private/tmp/run-e-round2-measure/165.baseline.json) / [330 FAILED](/private/tmp/run-e-round2-measure/165.mutant.json) |
+| 166 | src/app/api/operator/__tests__/turn-get-route.test.ts:56 | 9f20dbec | killed | [331 PASS](/private/tmp/run-e-round2-measure/166.baseline.json) / [332 FAILED](/private/tmp/run-e-round2-measure/166.mutant.json) |
+| 167 | src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:311 | 9f20dbec | killed | [333 PASS](/private/tmp/run-e-round2-measure/167.baseline.json) / [334 FAILED](/private/tmp/run-e-round2-measure/167.mutant.json) |
+| 168 | src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:323 | 9f20dbec | killed | [335 PASS](/private/tmp/run-e-round2-measure/168.baseline.json) / [336 FAILED](/private/tmp/run-e-round2-measure/168.mutant.json) |
+| 169 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:120 | 9f20dbec | killed | [337 PASS](/private/tmp/run-e-round2-measure/169.baseline.json) / [338 FAILED](/private/tmp/run-e-round2-measure/169.mutant.json) |
+| 170 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:322 | 9f20dbec | killed | [339 PASS](/private/tmp/run-e-round2-measure/170.baseline.json) / [340 FAILED](/private/tmp/run-e-round2-measure/170.mutant.json) |
+| 171 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:339 | 9f20dbec | killed | [341 PASS](/private/tmp/run-e-round2-measure/171.baseline.json) / [342 FAILED](/private/tmp/run-e-round2-measure/171.mutant.json) |
+| 172 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:376:1 | 9f20dbec | killed | [343 PASS](/private/tmp/run-e-round2-measure/172.baseline.json) / [344 FAILED](/private/tmp/run-e-round2-measure/172.mutant.json) |
+| 173 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:376:2 | 9f20dbec | killed | [345 PASS](/private/tmp/run-e-round2-measure/173.baseline.json) / [346 FAILED](/private/tmp/run-e-round2-measure/173.mutant.json) |
+| 174 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:382 | 9f20dbec | killed | [347 PASS](/private/tmp/run-e-round2-measure/174.baseline.json) / [348 FAILED](/private/tmp/run-e-round2-measure/174.mutant.json) |
+| 175 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:439 | 9f20dbec | killed | [349 PASS](/private/tmp/run-e-round2-measure/175.baseline.json) / [350 FAILED](/private/tmp/run-e-round2-measure/175.mutant.json) |
+| 176 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:503 | 9f20dbec | killed | [351 PASS](/private/tmp/run-e-round2-measure/176.baseline.json) / [352 FAILED](/private/tmp/run-e-round2-measure/176.mutant.json) |
+| 177 | src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:749 | 9f20dbec | killed | [353 PASS](/private/tmp/run-e-round2-measure/177.baseline.json) / [354 FAILED](/private/tmp/run-e-round2-measure/177.mutant.json) |
+| 178 | src/lib/agents/operator/__tests__/apply.integration.test.ts:240 | 9f20dbec | killed | [355 PASS](/private/tmp/run-e-round2-measure/178.baseline.json) / [356 FAILED](/private/tmp/run-e-round2-measure/178.mutant.json) |
+| 179 | src/lib/agents/operator/__tests__/apply.integration.test.ts:307 | 9f20dbec | killed | [357 PASS](/private/tmp/run-e-round2-measure/179.baseline.json) / [358 FAILED](/private/tmp/run-e-round2-measure/179.mutant.json) |
+| 180 | src/lib/agents/operator/__tests__/apply.integration.test.ts:390 | 9f20dbec | killed | [359 PASS](/private/tmp/run-e-round2-measure/180.baseline.json) / [360 FAILED](/private/tmp/run-e-round2-measure/180.mutant.json) |
+| 181 | src/lib/agents/operator/__tests__/apply.integration.test.ts:440 | 9f20dbec | killed | [361 PASS](/private/tmp/run-e-round2-measure/181.baseline.json) / [362 FAILED](/private/tmp/run-e-round2-measure/181.mutant.json) |
+| 182 | src/lib/agents/operator/__tests__/apply.integration.test.ts:483 | 9f20dbec | killed | [363 PASS](/private/tmp/run-e-round2-measure/182.baseline.json) / [364 FAILED](/private/tmp/run-e-round2-measure/182.mutant.json) |
+| 183 | src/lib/agents/operator/__tests__/apply.integration.test.ts:525 | 9f20dbec | killed | [365 PASS](/private/tmp/run-e-round2-measure/183.baseline.json) / [366 FAILED](/private/tmp/run-e-round2-measure/183.mutant.json) |
+| 184 | src/lib/agents/operator/__tests__/apply.integration.test.ts:560 | 9f20dbec | killed | [367 PASS](/private/tmp/run-e-round2-measure/184.baseline.json) / [368 FAILED](/private/tmp/run-e-round2-measure/184.mutant.json) |
+| 185 | src/lib/agents/operator/__tests__/apply.integration.test.ts:627 | 9f20dbec | killed | [369 PASS](/private/tmp/run-e-round2-measure/185.baseline.json) / [370 FAILED](/private/tmp/run-e-round2-measure/185.mutant.json) |
+| 186 | src/lib/agents/operator/__tests__/apply.test.ts:200 | 9f20dbec | killed | [371 PASS](/private/tmp/run-e-round2-measure/186.baseline.json) / [372 FAILED](/private/tmp/run-e-round2-measure/186.mutant.json) |
+| 187 | src/lib/agents/operator/__tests__/apply.test.ts:233 | 9f20dbec | inconclusive-oracle | [373 PASS](/private/tmp/run-e-round2-measure/187.baseline.json) / [374 FAILED](/private/tmp/run-e-round2-measure/187.mutant.json) |
+| 188 | src/lib/agents/operator/__tests__/apply.test.ts:279 | 9f20dbec | killed | [375 PASS](/private/tmp/run-e-round2-measure/188.baseline.json) / [376 FAILED](/private/tmp/run-e-round2-measure/188.mutant.json) |
+| 189 | src/lib/agents/operator/__tests__/apply.test.ts:328 | 9f20dbec | killed | [377 PASS](/private/tmp/run-e-round2-measure/189.baseline.json) / [378 FAILED](/private/tmp/run-e-round2-measure/189.mutant.json) |
+| 190 | src/lib/agents/operator/__tests__/apply.test.ts:353 | 9f20dbec | killed | [379 PASS](/private/tmp/run-e-round2-measure/190.baseline.json) / [380 FAILED](/private/tmp/run-e-round2-measure/190.mutant.json) |
+| 191 | src/lib/agents/operator/__tests__/apply.test.ts:377 | 9f20dbec | killed | [381 PASS](/private/tmp/run-e-round2-measure/191.baseline.json) / [382 FAILED](/private/tmp/run-e-round2-measure/191.mutant.json) |
+| 192 | src/lib/agents/operator/__tests__/apply.test.ts:428 | 9f20dbec | killed | [383 PASS](/private/tmp/run-e-round2-measure/192.baseline.json) / [384 FAILED](/private/tmp/run-e-round2-measure/192.mutant.json) |
+| 193 | src/lib/agents/operator/__tests__/apply.test.ts:457 | 9f20dbec | killed | [385 PASS](/private/tmp/run-e-round2-measure/193.baseline.json) / [386 FAILED](/private/tmp/run-e-round2-measure/193.mutant.json) |
+| 194 | src/lib/agents/operator/__tests__/apply.test.ts:497 | 9f20dbec | killed | [387 PASS](/private/tmp/run-e-round2-measure/194.baseline.json) / [388 FAILED](/private/tmp/run-e-round2-measure/194.mutant.json) |
+| 195 | src/lib/agents/operator/__tests__/apply.test.ts:523 | 9f20dbec | killed | [389 PASS](/private/tmp/run-e-round2-measure/195.baseline.json) / [390 FAILED](/private/tmp/run-e-round2-measure/195.mutant.json) |
+| 196 | src/lib/agents/operator/__tests__/apply.test.ts:723 | 9f20dbec | killed | [391 PASS](/private/tmp/run-e-round2-measure/196.baseline.json) / [392 FAILED](/private/tmp/run-e-round2-measure/196.mutant.json) |
+| 197 | src/lib/agents/operator/__tests__/apply.test.ts:783 | 9f20dbec | killed | [393 PASS](/private/tmp/run-e-round2-measure/197.baseline.json) / [394 FAILED](/private/tmp/run-e-round2-measure/197.mutant.json) |
+| 198 | src/lib/agents/operator/__tests__/apply.test.ts:801 | 9f20dbec | killed | [395 PASS](/private/tmp/run-e-round2-measure/198.baseline.json) / [396 FAILED](/private/tmp/run-e-round2-measure/198.mutant.json) |
+| 199 | src/lib/agents/operator/__tests__/apply.test.ts:840 | 9f20dbec | killed | [397 PASS](/private/tmp/run-e-round2-measure/199.baseline.json) / [398 FAILED](/private/tmp/run-e-round2-measure/199.mutant.json) |
+| 200 | src/lib/agents/operator/__tests__/apply.test.ts:878 | 9f20dbec | killed | [399 PASS](/private/tmp/run-e-round2-measure/200.baseline.json) / [400 FAILED](/private/tmp/run-e-round2-measure/200.mutant.json) |
+| 201 | src/lib/agents/operator/__tests__/apply.test.ts:900 | 9f20dbec | killed | [401 PASS](/private/tmp/run-e-round2-measure/201.baseline.json) / [402 FAILED](/private/tmp/run-e-round2-measure/201.mutant.json) |
+| 202 | src/lib/agents/operator/__tests__/apply.test.ts:921 | 9f20dbec | killed | [403 PASS](/private/tmp/run-e-round2-measure/202.baseline.json) / [404 FAILED](/private/tmp/run-e-round2-measure/202.mutant.json) |
+| 203 | src/lib/agents/operator/__tests__/catalog.test.ts:108 | 9f20dbec | killed | [405 PASS](/private/tmp/run-e-round2-measure/203.baseline.json) / [406 FAILED](/private/tmp/run-e-round2-measure/203.mutant.json) |
+| 204 | src/lib/agents/operator/__tests__/catalog.test.ts:119 | 9f20dbec | killed | [407 PASS](/private/tmp/run-e-round2-measure/204.baseline.json) / [408 FAILED](/private/tmp/run-e-round2-measure/204.mutant.json) |
+| 205 | src/lib/agents/operator/__tests__/catalog.test.ts:130 | 9f20dbec | killed | [409 PASS](/private/tmp/run-e-round2-measure/205.baseline.json) / [410 FAILED](/private/tmp/run-e-round2-measure/205.mutant.json) |
+| 206 | src/lib/agents/operator/__tests__/catalog.test.ts:151 | 9f20dbec | killed | [411 PASS](/private/tmp/run-e-round2-measure/206.baseline.json) / [412 FAILED](/private/tmp/run-e-round2-measure/206.mutant.json) |
+| 207 | src/lib/agents/operator/__tests__/catalog.test.ts:171 | 9f20dbec | killed | [413 PASS](/private/tmp/run-e-round2-measure/207.baseline.json) / [414 FAILED](/private/tmp/run-e-round2-measure/207.mutant.json) |
+| 208 | src/lib/agents/operator/__tests__/catalog.test.ts:258 | 9f20dbec | killed | [415 PASS](/private/tmp/run-e-round2-measure/208.baseline.json) / [416 FAILED](/private/tmp/run-e-round2-measure/208.mutant.json) |
+| 209 | src/lib/agents/operator/__tests__/catalog.test.ts:89 | 9f20dbec | killed | [417 PASS](/private/tmp/run-e-round2-measure/209.baseline.json) / [418 FAILED](/private/tmp/run-e-round2-measure/209.mutant.json) |
+| 210 | src/lib/agents/operator/__tests__/context.test.ts:146 | 9f20dbec | killed | [419 PASS](/private/tmp/run-e-round2-measure/210.baseline.json) / [420 FAILED](/private/tmp/run-e-round2-measure/210.mutant.json) |
+| 211 | src/lib/agents/operator/__tests__/model-call.test.ts:100 | 9f20dbec | killed | [421 PASS](/private/tmp/run-e-round2-measure/211.baseline.json) / [422 FAILED](/private/tmp/run-e-round2-measure/211.mutant.json) |
+| 212 | src/lib/agents/operator/__tests__/operation-inputs.test.ts:75 | 9f20dbec | killed | [423 PASS](/private/tmp/run-e-round2-measure/212.baseline.json) / [424 FAILED](/private/tmp/run-e-round2-measure/212.mutant.json) |
+| 213 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:183 | 9f20dbec | killed | [425 PASS](/private/tmp/run-e-round2-measure/213.baseline.json) / [426 FAILED](/private/tmp/run-e-round2-measure/213.mutant.json) |
+| 214 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:216 | 9f20dbec | killed | [427 PASS](/private/tmp/run-e-round2-measure/214.baseline.json) / [428 FAILED](/private/tmp/run-e-round2-measure/214.mutant.json) |
+| 215 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:234 | 9f20dbec | killed | [429 PASS](/private/tmp/run-e-round2-measure/215.baseline.json) / [430 FAILED](/private/tmp/run-e-round2-measure/215.mutant.json) |
+| 216 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:256 | 9f20dbec | killed | [431 PASS](/private/tmp/run-e-round2-measure/216.baseline.json) / [432 FAILED](/private/tmp/run-e-round2-measure/216.mutant.json) |
+| 217 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:266 | 9f20dbec | killed | [433 PASS](/private/tmp/run-e-round2-measure/217.baseline.json) / [434 FAILED](/private/tmp/run-e-round2-measure/217.mutant.json) |
+| 218 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:279 | 9f20dbec | killed | [435 PASS](/private/tmp/run-e-round2-measure/218.baseline.json) / [436 FAILED](/private/tmp/run-e-round2-measure/218.mutant.json) |
+| 219 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:311 | 9f20dbec | killed | [437 PASS](/private/tmp/run-e-round2-measure/219.baseline.json) / [438 FAILED](/private/tmp/run-e-round2-measure/219.mutant.json) |
+| 220 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:347 | 9f20dbec | killed | [439 PASS](/private/tmp/run-e-round2-measure/220.baseline.json) / [440 FAILED](/private/tmp/run-e-round2-measure/220.mutant.json) |
+| 221 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:359 | 9f20dbec | killed | [441 PASS](/private/tmp/run-e-round2-measure/221.baseline.json) / [442 FAILED](/private/tmp/run-e-round2-measure/221.mutant.json) |
+| 222 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:1 | 9f20dbec | killed | [443 PASS](/private/tmp/run-e-round2-measure/222.baseline.json) / [444 FAILED](/private/tmp/run-e-round2-measure/222.mutant.json) |
+| 223 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:2 | 9f20dbec | killed | [445 PASS](/private/tmp/run-e-round2-measure/223.baseline.json) / [446 FAILED](/private/tmp/run-e-round2-measure/223.mutant.json) |
+| 224 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:3 | 9f20dbec | killed | [447 PASS](/private/tmp/run-e-round2-measure/224.baseline.json) / [448 FAILED](/private/tmp/run-e-round2-measure/224.mutant.json) |
+| 225 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:391 | 9f20dbec | killed | [449 PASS](/private/tmp/run-e-round2-measure/225.baseline.json) / [450 FAILED](/private/tmp/run-e-round2-measure/225.mutant.json) |
+| 226 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:400 | 9f20dbec | killed | [451 PASS](/private/tmp/run-e-round2-measure/226.baseline.json) / [452 FAILED](/private/tmp/run-e-round2-measure/226.mutant.json) |
+| 227 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:429 | 9f20dbec | killed | [453 PASS](/private/tmp/run-e-round2-measure/227.baseline.json) / [454 FAILED](/private/tmp/run-e-round2-measure/227.mutant.json) |
+| 228 | src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:441 | 9f20dbec | killed | [455 PASS](/private/tmp/run-e-round2-measure/228.baseline.json) / [456 FAILED](/private/tmp/run-e-round2-measure/228.mutant.json) |
+| 229 | src/lib/agents/operator/__tests__/policy-state.integration.test.ts:411 | 9f20dbec | killed | [457 PASS](/private/tmp/run-e-round2-measure/229.baseline.json) / [458 FAILED](/private/tmp/run-e-round2-measure/229.mutant.json) |
+| 230 | src/lib/agents/operator/__tests__/policy-state.integration.test.ts:467 | 9f20dbec | killed | [459 PASS](/private/tmp/run-e-round2-measure/230.baseline.json) / [460 FAILED](/private/tmp/run-e-round2-measure/230.mutant.json) |
+| 231 | src/lib/agents/operator/__tests__/policy-state.integration.test.ts:504 | 9f20dbec | killed | [461 PASS](/private/tmp/run-e-round2-measure/231.baseline.json) / [462 FAILED](/private/tmp/run-e-round2-measure/231.mutant.json) |
+| 232 | src/lib/agents/operator/__tests__/prompt.test.ts:106 | 9f20dbec | killed | [463 PASS](/private/tmp/run-e-round2-measure/232.baseline.json) / [464 FAILED](/private/tmp/run-e-round2-measure/232.mutant.json) |
+| 233 | src/lib/agents/operator/__tests__/prompt.test.ts:120 | 9f20dbec | killed | [465 PASS](/private/tmp/run-e-round2-measure/233.baseline.json) / [466 FAILED](/private/tmp/run-e-round2-measure/233.mutant.json) |
+| 234 | src/lib/agents/operator/__tests__/prompt.test.ts:47 | 9f20dbec | killed | [467 PASS](/private/tmp/run-e-round2-measure/234.baseline.json) / [468 FAILED](/private/tmp/run-e-round2-measure/234.mutant.json) |
+| 235 | src/lib/agents/operator/__tests__/prompt.test.ts:61 | 9f20dbec | killed | [469 PASS](/private/tmp/run-e-round2-measure/235.baseline.json) / [470 FAILED](/private/tmp/run-e-round2-measure/235.mutant.json) |
+| 236 | src/lib/agents/operator/__tests__/prompt.test.ts:76 | 9f20dbec | killed | [471 PASS](/private/tmp/run-e-round2-measure/236.baseline.json) / [472 FAILED](/private/tmp/run-e-round2-measure/236.mutant.json) |
+| 237 | src/lib/agents/operator/__tests__/proposals.test.ts:168 | 9f20dbec | killed | [473 PASS](/private/tmp/run-e-round2-measure/237.baseline.json) / [474 FAILED](/private/tmp/run-e-round2-measure/237.mutant.json) |
+| 238 | src/lib/agents/operator/__tests__/proposals.test.ts:217 | 9f20dbec | killed | [475 PASS](/private/tmp/run-e-round2-measure/238.baseline.json) / [476 FAILED](/private/tmp/run-e-round2-measure/238.mutant.json) |
+| 239 | src/lib/agents/operator/__tests__/proposals.test.ts:250 | 9f20dbec | inconclusive-oracle | [477 PASS](/private/tmp/run-e-round2-measure/239.baseline.json) / [478 FAILED](/private/tmp/run-e-round2-measure/239.mutant.json) |
+| 240 | src/lib/agents/operator/__tests__/proposals.test.ts:431 | 9f20dbec | killed | [479 PASS](/private/tmp/run-e-round2-measure/240.baseline.json) / [480 FAILED](/private/tmp/run-e-round2-measure/240.mutant.json) |
+| 241 | src/lib/agents/operator/__tests__/proposals.test.ts:471 | 9f20dbec | killed | [481 PASS](/private/tmp/run-e-round2-measure/241.baseline.json) / [482 FAILED](/private/tmp/run-e-round2-measure/241.mutant.json) |
+| 242 | src/lib/agents/operator/__tests__/proposals.test.ts:485 | 9f20dbec | killed | [483 PASS](/private/tmp/run-e-round2-measure/242.baseline.json) / [484 FAILED](/private/tmp/run-e-round2-measure/242.mutant.json) |
+| 243 | src/lib/agents/operator/__tests__/reads.integration.test.ts:274 | 9f20dbec | killed | [485 PASS](/private/tmp/run-e-round2-measure/243.baseline.json) / [486 FAILED](/private/tmp/run-e-round2-measure/243.mutant.json) |
+| 244 | src/lib/agents/operator/__tests__/reads.integration.test.ts:344 | 9f20dbec | killed | [487 PASS](/private/tmp/run-e-round2-measure/244.baseline.json) / [488 FAILED](/private/tmp/run-e-round2-measure/244.mutant.json) |
+| 245 | src/lib/agents/operator/__tests__/reads.integration.test.ts:449 | 9f20dbec | killed | [489 PASS](/private/tmp/run-e-round2-measure/245.baseline.json) / [490 FAILED](/private/tmp/run-e-round2-measure/245.mutant.json) |
+| 246 | src/lib/agents/operator/__tests__/reads.integration.test.ts:571 | 9f20dbec | inconclusive-target-selection | [491 PASS](/private/tmp/run-e-round2-measure/246.baseline.json) / [492 PASSED](/private/tmp/run-e-round2-measure/246.mutant.json) |
+| 247 | src/lib/agents/operator/__tests__/reads.integration.test.ts:571 | 9f20dbec | killed | [493 PASS](/private/tmp/run-e-round2-measure/247.baseline.json) / [494 FAILED](/private/tmp/run-e-round2-measure/247.mutant.json) |
+| 248 | src/lib/agents/operator/__tests__/reads.integration.test.ts:705:1 | 9f20dbec | killed | [495 PASS](/private/tmp/run-e-round2-measure/248.baseline.json) / [496 FAILED](/private/tmp/run-e-round2-measure/248.mutant.json) |
+| 249 | src/lib/agents/operator/__tests__/reads.integration.test.ts:705:2 | 9f20dbec | killed | [497 PASS](/private/tmp/run-e-round2-measure/249.baseline.json) / [498 FAILED](/private/tmp/run-e-round2-measure/249.mutant.json) |
+| 250 | src/lib/agents/operator/__tests__/reads.integration.test.ts:760 | 9f20dbec | killed | [499 PASS](/private/tmp/run-e-round2-measure/250.baseline.json) / [500 FAILED](/private/tmp/run-e-round2-measure/250.mutant.json) |
+| 251 | src/lib/agents/operator/__tests__/reads.integration.test.ts:815 | 9f20dbec | killed | [501 PASS](/private/tmp/run-e-round2-measure/251.baseline.json) / [502 FAILED](/private/tmp/run-e-round2-measure/251.mutant.json) |
+| 252 | src/lib/agents/operator/__tests__/render.test.ts:108 | 9f20dbec | killed | [503 PASS](/private/tmp/run-e-round2-measure/252.baseline.json) / [504 FAILED](/private/tmp/run-e-round2-measure/252.mutant.json) |
+| 253 | src/lib/agents/operator/__tests__/render.test.ts:115 | 9f20dbec | killed | [505 PASS](/private/tmp/run-e-round2-measure/253.baseline.json) / [506 FAILED](/private/tmp/run-e-round2-measure/253.mutant.json) |
+| 254 | src/lib/agents/operator/__tests__/render.test.ts:128 | 9f20dbec | killed | [507 PASS](/private/tmp/run-e-round2-measure/254.baseline.json) / [508 FAILED](/private/tmp/run-e-round2-measure/254.mutant.json) |
+| 255 | src/lib/agents/operator/__tests__/render.test.ts:135 | 9f20dbec | killed | [509 PASS](/private/tmp/run-e-round2-measure/255.baseline.json) / [510 FAILED](/private/tmp/run-e-round2-measure/255.mutant.json) |
+| 256 | src/lib/agents/operator/__tests__/render.test.ts:143 | 9f20dbec | killed | [511 PASS](/private/tmp/run-e-round2-measure/256.baseline.json) / [512 FAILED](/private/tmp/run-e-round2-measure/256.mutant.json) |
+| 257 | src/lib/agents/operator/__tests__/render.test.ts:216 | 9f20dbec | killed | [513 PASS](/private/tmp/run-e-round2-measure/257.baseline.json) / [514 FAILED](/private/tmp/run-e-round2-measure/257.mutant.json) |
+| 258 | src/lib/agents/operator/__tests__/render.test.ts:302 | 9f20dbec | killed | [515 PASS](/private/tmp/run-e-round2-measure/258.baseline.json) / [516 FAILED](/private/tmp/run-e-round2-measure/258.mutant.json) |
+| 259 | src/lib/agents/operator/__tests__/render.test.ts:349 | 9f20dbec | killed | [517 PASS](/private/tmp/run-e-round2-measure/259.baseline.json) / [518 FAILED](/private/tmp/run-e-round2-measure/259.mutant.json) |
+| 260 | src/lib/agents/operator/__tests__/render.test.ts:409 | 9f20dbec | inconclusive-oracle | [519 PASS](/private/tmp/run-e-round2-measure/260.baseline.json) / [520 FAILED](/private/tmp/run-e-round2-measure/260.mutant.json) |
+| 261 | src/lib/agents/operator/__tests__/render.test.ts:439 | 9f20dbec | killed | [521 PASS](/private/tmp/run-e-round2-measure/261.baseline.json) / [522 FAILED](/private/tmp/run-e-round2-measure/261.mutant.json) |
+| 262 | src/lib/agents/operator/__tests__/render.test.ts:448 | 9f20dbec | killed | [523 PASS](/private/tmp/run-e-round2-measure/262.baseline.json) / [524 FAILED](/private/tmp/run-e-round2-measure/262.mutant.json) |
+| 263 | src/lib/agents/operator/__tests__/render.test.ts:478 | 9f20dbec | survived-confirmed-P0 | [525 PASS](/private/tmp/run-e-round2-measure/263.baseline.json) / [526 PASSED](/private/tmp/run-e-round2-measure/263.mutant.json) |
+| 264 | src/lib/agents/operator/__tests__/render.test.ts:500 | 9f20dbec | killed | [527 PASS](/private/tmp/run-e-round2-measure/264.baseline.json) / [528 FAILED](/private/tmp/run-e-round2-measure/264.mutant.json) |
+| 265 | src/lib/agents/operator/__tests__/render.test.ts:556 | 9f20dbec | killed | [529 PASS](/private/tmp/run-e-round2-measure/265.baseline.json) / [530 FAILED](/private/tmp/run-e-round2-measure/265.mutant.json) |
+| 266 | src/lib/agents/operator/__tests__/render.test.ts:72 | 9f20dbec | killed | [531 PASS](/private/tmp/run-e-round2-measure/266.baseline.json) / [532 FAILED](/private/tmp/run-e-round2-measure/266.mutant.json) |
+| 267 | src/lib/agents/operator/__tests__/render.test.ts:97 | 9f20dbec | killed | [533 PASS](/private/tmp/run-e-round2-measure/267.baseline.json) / [534 FAILED](/private/tmp/run-e-round2-measure/267.mutant.json) |
+| 268 | src/lib/agents/operator/__tests__/schema.test.ts:161 | 9f20dbec | killed | [535 PASS](/private/tmp/run-e-round2-measure/268.baseline.json) / [536 FAILED](/private/tmp/run-e-round2-measure/268.mutant.json) |
+| 269 | src/lib/agents/operator/__tests__/schema.test.ts:211 | 9f20dbec | killed | [537 PASS](/private/tmp/run-e-round2-measure/269.baseline.json) / [538 FAILED](/private/tmp/run-e-round2-measure/269.mutant.json) |
+| 270 | src/lib/agents/operator/__tests__/schema.test.ts:79 | 9f20dbec | killed | [539 PASS](/private/tmp/run-e-round2-measure/270.baseline.json) / [540 FAILED](/private/tmp/run-e-round2-measure/270.mutant.json) |
+| 271 | src/lib/agents/operator/__tests__/schema.test.ts:90 | 9f20dbec | killed | [541 PASS](/private/tmp/run-e-round2-measure/271.baseline.json) / [542 FAILED](/private/tmp/run-e-round2-measure/271.mutant.json) |
+| 272 | src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291 | 9f20dbec | killed | [543 PASS](/private/tmp/run-e-round2-measure/272.baseline.json) / [544 FAILED](/private/tmp/run-e-round2-measure/272.mutant.json) |
+| 273 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1169 | 9f20dbec | killed | [545 PASS](/private/tmp/run-e-round2-measure/273.baseline.json) / [546 FAILED](/private/tmp/run-e-round2-measure/273.mutant.json) |
+| 274 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1222 | 9f20dbec | killed | [547 PASS](/private/tmp/run-e-round2-measure/274.baseline.json) / [548 FAILED](/private/tmp/run-e-round2-measure/274.mutant.json) |
+| 275 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1268 | 9f20dbec | killed | [549 PASS](/private/tmp/run-e-round2-measure/275.baseline.json) / [550 FAILED](/private/tmp/run-e-round2-measure/275.mutant.json) |
+| 276 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1441 | 9f20dbec | killed | [551 PASS](/private/tmp/run-e-round2-measure/276.baseline.json) / [552 FAILED](/private/tmp/run-e-round2-measure/276.mutant.json) |
+| 277 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:513 | 9f20dbec | killed | [553 PASS](/private/tmp/run-e-round2-measure/277.baseline.json) / [554 FAILED](/private/tmp/run-e-round2-measure/277.mutant.json) |
+| 278 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:572 | 9f20dbec | killed | [555 PASS](/private/tmp/run-e-round2-measure/278.baseline.json) / [556 FAILED](/private/tmp/run-e-round2-measure/278.mutant.json) |
+| 279 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:792 | 9f20dbec | killed | [557 PASS](/private/tmp/run-e-round2-measure/279.baseline.json) / [558 FAILED](/private/tmp/run-e-round2-measure/279.mutant.json) |
+| 280 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:878 | 9f20dbec | inconclusive-target-selection | [559 PASS](/private/tmp/run-e-round2-measure/280.baseline.json) / [560 PASSED](/private/tmp/run-e-round2-measure/280.mutant.json) |
+| 281 | src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:878 | 9f20dbec | killed | [561 PASS](/private/tmp/run-e-round2-measure/281.baseline.json) / [562 FAILED](/private/tmp/run-e-round2-measure/281.mutant.json) |
+| 282 | src/lib/auto-approval/__tests__/settings.integration.test.ts:632:1 | 9f20dbec | killed | [563 PASS](/private/tmp/run-e-round2-measure/282.baseline.json) / [564 FAILED](/private/tmp/run-e-round2-measure/282.mutant.json) |
+| 283 | src/lib/auto-approval/__tests__/settings.integration.test.ts:632:2 | 9f20dbec | killed | [565 PASS](/private/tmp/run-e-round2-measure/283.baseline.json) / [566 FAILED](/private/tmp/run-e-round2-measure/283.mutant.json) |
+| 284 | src/lib/auto-approval/__tests__/settings.integration.test.ts:666 | 9f20dbec | killed | [567 PASS](/private/tmp/run-e-round2-measure/284.baseline.json) / [568 FAILED](/private/tmp/run-e-round2-measure/284.mutant.json) |
+| 285 | src/lib/auto-approval/__tests__/settings.integration.test.ts:696 | 9f20dbec | killed | [569 PASS](/private/tmp/run-e-round2-measure/285.baseline.json) / [570 FAILED](/private/tmp/run-e-round2-measure/285.mutant.json) |
+| 286 | src/lib/auto-approval/__tests__/settings.integration.test.ts:708 | 9f20dbec | killed | [571 PASS](/private/tmp/run-e-round2-measure/286.baseline.json) / [572 FAILED](/private/tmp/run-e-round2-measure/286.mutant.json) |
+| 287 | src/lib/auto-approval/__tests__/settings.integration.test.ts:730 | 9f20dbec | killed | [573 PASS](/private/tmp/run-e-round2-measure/287.baseline.json) / [574 FAILED](/private/tmp/run-e-round2-measure/287.mutant.json) |
+| 288 | src/lib/auto-approval/__tests__/settings.integration.test.ts:768 | 9f20dbec | killed | [575 PASS](/private/tmp/run-e-round2-measure/288.baseline.json) / [576 FAILED](/private/tmp/run-e-round2-measure/288.mutant.json) |
+| 289 | src/lib/auto-approval/__tests__/settings.integration.test.ts:781 | 9f20dbec | killed | [577 PASS](/private/tmp/run-e-round2-measure/289.baseline.json) / [578 FAILED](/private/tmp/run-e-round2-measure/289.mutant.json) |
+| 290 | src/lib/auto-approval/__tests__/settings.test.ts:2100:1 | 9f20dbec | survived-confirmed-P0 | [579 PASS](/private/tmp/run-e-round2-measure/290.baseline.json) / [580 PASSED](/private/tmp/run-e-round2-measure/290.mutant.json) |
+| 291 | src/lib/llm/__tests__/openai-provider.test.ts:313:4 | 9f20dbec | killed | [581 PASS](/private/tmp/run-e-round2-measure/291.baseline.json) / [582 FAILED](/private/tmp/run-e-round2-measure/291.mutant.json) |
+| 292 | tests/llm-eval/__tests__/structured-runner.test.ts:116 | 9f20dbec | killed | [583 PASS](/private/tmp/run-e-round2-measure/292.baseline.json) / [584 FAILED](/private/tmp/run-e-round2-measure/292.mutant.json) |
+| 293 | tests/llm-eval/__tests__/structured-runner.test.ts:163 | 9f20dbec | killed | [585 PASS](/private/tmp/run-e-round2-measure/293.baseline.json) / [586 FAILED](/private/tmp/run-e-round2-measure/293.mutant.json) |
+| 294 | tests/llm-eval/__tests__/structured-runner.test.ts:261 | 9f20dbec | killed | [587 PASS](/private/tmp/run-e-round2-measure/294.baseline.json) / [588 FAILED](/private/tmp/run-e-round2-measure/294.mutant.json) |
+| 295 | tests/llm-eval/__tests__/structured-runner.test.ts:96 | 9f20dbec | killed | [589 PASS](/private/tmp/run-e-round2-measure/295.baseline.json) / [590 FAILED](/private/tmp/run-e-round2-measure/295.mutant.json) |
+| 296 | worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:292 | 9f20dbec | killed | [591 PASS](/private/tmp/run-e-round2-measure/296.baseline.json) / [592 FAILED](/private/tmp/run-e-round2-measure/296.mutant.json) |
+| 297 | worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:321 | 9f20dbec | killed | [593 PASS](/private/tmp/run-e-round2-measure/297.baseline.json) / [594 FAILED](/private/tmp/run-e-round2-measure/297.mutant.json) |
+| 298 | src/lib/auto-approval/__tests__/settings.test.ts:2090 | 263fe7e3 | killed | [595 PASS](/private/tmp/run-e-round2-measure/298.baseline.json) / [596 FAILED](/private/tmp/run-e-round2-measure/298.mutant.json) |
+| 299 | src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:171 | 263fe7e3 | killed | [597 PASS](/private/tmp/run-e-round2-measure/299.baseline.json) / [598 FAILED](/private/tmp/run-e-round2-measure/299.mutant.json) |
+| 300 | src/lib/agents/operator/__tests__/apply.test.ts:233 | 263fe7e3 | killed | [599 PASS](/private/tmp/run-e-round2-measure/300.baseline.json) / [600 FAILED](/private/tmp/run-e-round2-measure/300.mutant.json) |
+| 301 | src/lib/agents/operator/__tests__/proposals.test.ts:250 | 263fe7e3 | killed | [601 PASS](/private/tmp/run-e-round2-measure/301.baseline.json) / [602 FAILED](/private/tmp/run-e-round2-measure/301.mutant.json) |
+| 302 | src/lib/agents/operator/__tests__/render.test.ts:409 | 263fe7e3 | killed | [603 PASS](/private/tmp/run-e-round2-measure/302.baseline.json) / [604 FAILED](/private/tmp/run-e-round2-measure/302.mutant.json) |
+| 303 | src/lib/agents/operator/__tests__/render.test.ts:478 | 263fe7e3 | killed | [605 PASS](/private/tmp/run-e-round2-measure/303.baseline.json) / [606 FAILED](/private/tmp/run-e-round2-measure/303.mutant.json) |
+| 304 | src/lib/auto-approval/__tests__/settings.test.ts:2100:1 | 263fe7e3 | killed | [607 PASS](/private/tmp/run-e-round2-measure/304.baseline.json) / [608 FAILED](/private/tmp/run-e-round2-measure/304.mutant.json) |
+| 305 | src/lib/auto-approval/__tests__/settings.test.ts:2100:2 | 263fe7e3 | killed | [609 PASS](/private/tmp/run-e-round2-measure/305.baseline.json) / [610 FAILED](/private/tmp/run-e-round2-measure/305.mutant.json) |
+| 306 | src/lib/auto-approval/__tests__/settings.test.ts:2100:3 | 263fe7e3 | killed | [611 PASS](/private/tmp/run-e-round2-measure/306.baseline.json) / [612 FAILED](/private/tmp/run-e-round2-measure/306.mutant.json) |
+| 307 | src/lib/auto-approval/__tests__/settings.test.ts:2100:4 | 263fe7e3 | killed | [613 PASS](/private/tmp/run-e-round2-measure/307.baseline.json) / [614 FAILED](/private/tmp/run-e-round2-measure/307.mutant.json) |
+| 308 | src/lib/auto-approval/__tests__/settings.test.ts:2100:5 | 263fe7e3 | killed | [615 PASS](/private/tmp/run-e-round2-measure/308.baseline.json) / [616 FAILED](/private/tmp/run-e-round2-measure/308.mutant.json) |
+| 309 | src/lib/auto-approval/__tests__/settings.test.ts:2100:6 | 263fe7e3 | killed | [617 PASS](/private/tmp/run-e-round2-measure/309.baseline.json) / [618 FAILED](/private/tmp/run-e-round2-measure/309.mutant.json) |
+| 310 | src/lib/auto-approval/__tests__/settings.test.ts:2100:7 | 263fe7e3 | killed | [619 PASS](/private/tmp/run-e-round2-measure/310.baseline.json) / [620 FAILED](/private/tmp/run-e-round2-measure/310.mutant.json) |
+| 311 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:975 | 263fe7e3 | killed | [621 PASS](/private/tmp/run-e-round2-measure/311.baseline.json) / [622 FAILED](/private/tmp/run-e-round2-measure/311.mutant.json) |
+| 312 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:995 | 263fe7e3 | killed | [623 PASS](/private/tmp/run-e-round2-measure/312.baseline.json) / [624 FAILED](/private/tmp/run-e-round2-measure/312.mutant.json) |
+| 313 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1020 | 263fe7e3 | killed | [625 PASS](/private/tmp/run-e-round2-measure/313.baseline.json) / [626 FAILED](/private/tmp/run-e-round2-measure/313.mutant.json) |
+| 314 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1041 | 263fe7e3 | killed | [627 PASS](/private/tmp/run-e-round2-measure/314.baseline.json) / [628 FAILED](/private/tmp/run-e-round2-measure/314.mutant.json) |
+| 315 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1083 | 263fe7e3 | killed | [629 PASS](/private/tmp/run-e-round2-measure/315.baseline.json) / [630 FAILED](/private/tmp/run-e-round2-measure/315.mutant.json) |
+| 316 | scripts/ci/__tests__/red-team-status.test.ts:corrective:802 | 263fe7e3 | killed | [631 PASS](/private/tmp/run-e-round2-measure/316.baseline.json) / [632 FAILED](/private/tmp/run-e-round2-measure/316.mutant.json) |
+| 317 | scripts/ci/__tests__/red-team-status.test.ts:corrective:822 | 263fe7e3 | killed | [633 PASS](/private/tmp/run-e-round2-measure/317.baseline.json) / [634 FAILED](/private/tmp/run-e-round2-measure/317.mutant.json) |
+| 318 | scripts/ci/__tests__/red-team-status.test.ts:corrective:878 | 263fe7e3 | killed | [635 PASS](/private/tmp/run-e-round2-measure/318.baseline.json) / [636 FAILED](/private/tmp/run-e-round2-measure/318.mutant.json) |
+| 319 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:499 | 263fe7e3 | killed | [637 PASS](/private/tmp/run-e-round2-measure/319.baseline.json) / [638 FAILED](/private/tmp/run-e-round2-measure/319.mutant.json) |
+| 320 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:514 | 263fe7e3 | killed | [639 PASS](/private/tmp/run-e-round2-measure/320.baseline.json) / [640 FAILED](/private/tmp/run-e-round2-measure/320.mutant.json) |
+| 321 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:575 | 263fe7e3 | killed | [641 PASS](/private/tmp/run-e-round2-measure/321.baseline.json) / [642 FAILED](/private/tmp/run-e-round2-measure/321.mutant.json) |
+| 322 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:590:1 | 263fe7e3 | killed | [643 PASS](/private/tmp/run-e-round2-measure/322.baseline.json) / [644 FAILED](/private/tmp/run-e-round2-measure/322.mutant.json) |
+| 323 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:590:2 | 263fe7e3 | killed | [645 PASS](/private/tmp/run-e-round2-measure/323.baseline.json) / [646 FAILED](/private/tmp/run-e-round2-measure/323.mutant.json) |
+| 324 | scripts/ci/__tests__/red-team-status.test.ts:478 | 263fe7e3 | killed | [647 PASS](/private/tmp/run-e-round2-measure/324.baseline.json) / [648 FAILED](/private/tmp/run-e-round2-measure/324.mutant.json) |
+| 325 | scripts/ci/__tests__/red-team-status.test.ts:581 | 263fe7e3 | killed | [649 PASS](/private/tmp/run-e-round2-measure/325.baseline.json) / [650 FAILED](/private/tmp/run-e-round2-measure/325.mutant.json) |
+| 326 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:665 | 263fe7e3 | killed | [651 PASS](/private/tmp/run-e-round2-measure/326.baseline.json) / [652 FAILED](/private/tmp/run-e-round2-measure/326.mutant.json) |
+| 327 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:682 | 263fe7e3 | killed | [653 PASS](/private/tmp/run-e-round2-measure/327.baseline.json) / [654 FAILED](/private/tmp/run-e-round2-measure/327.mutant.json) |
+| 328 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:698 | 263fe7e3 | killed | [655 PASS](/private/tmp/run-e-round2-measure/328.baseline.json) / [656 FAILED](/private/tmp/run-e-round2-measure/328.mutant.json) |
+| 329 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:712 | 263fe7e3 | killed | [657 PASS](/private/tmp/run-e-round2-measure/329.baseline.json) / [658 FAILED](/private/tmp/run-e-round2-measure/329.mutant.json) |
+| 330 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:723 | 263fe7e3 | killed | [659 PASS](/private/tmp/run-e-round2-measure/330.baseline.json) / [660 FAILED](/private/tmp/run-e-round2-measure/330.mutant.json) |
+| 331 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:739 | 263fe7e3 | inconclusive-target-selection | [661 PASS](/private/tmp/run-e-round2-measure/331.baseline.json) / [662 PASSED](/private/tmp/run-e-round2-measure/331.mutant.json) |
+| 332 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:739 | 263fe7e3 | killed | [663 PASS](/private/tmp/run-e-round2-measure/332.baseline.json) / [664 FAILED](/private/tmp/run-e-round2-measure/332.mutant.json) |
+| 333 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:752 | 263fe7e3 | killed | [665 PASS](/private/tmp/run-e-round2-measure/333.baseline.json) / [666 FAILED](/private/tmp/run-e-round2-measure/333.mutant.json) |
+| 334 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:765 | 263fe7e3 | killed | [667 PASS](/private/tmp/run-e-round2-measure/334.baseline.json) / [668 FAILED](/private/tmp/run-e-round2-measure/334.mutant.json) |
+| 335 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:780 | 263fe7e3 | killed | [669 PASS](/private/tmp/run-e-round2-measure/335.baseline.json) / [670 FAILED](/private/tmp/run-e-round2-measure/335.mutant.json) |
+| 336 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:793 | 263fe7e3 | killed | [671 PASS](/private/tmp/run-e-round2-measure/336.baseline.json) / [672 FAILED](/private/tmp/run-e-round2-measure/336.mutant.json) |
+| 337 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:813 | 263fe7e3 | killed | [673 PASS](/private/tmp/run-e-round2-measure/337.baseline.json) / [674 FAILED](/private/tmp/run-e-round2-measure/337.mutant.json) |
+| 338 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:821 | 263fe7e3 | killed | [675 PASS](/private/tmp/run-e-round2-measure/338.baseline.json) / [676 FAILED](/private/tmp/run-e-round2-measure/338.mutant.json) |
+| 339 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:832 | 263fe7e3 | killed | [677 PASS](/private/tmp/run-e-round2-measure/339.baseline.json) / [678 FAILED](/private/tmp/run-e-round2-measure/339.mutant.json) |
+| 340 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:861 | 263fe7e3 | killed | [679 PASS](/private/tmp/run-e-round2-measure/340.baseline.json) / [680 FAILED](/private/tmp/run-e-round2-measure/340.mutant.json) |
+| 341 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:876 | 263fe7e3 | killed | [681 PASS](/private/tmp/run-e-round2-measure/341.baseline.json) / [682 FAILED](/private/tmp/run-e-round2-measure/341.mutant.json) |
+| 342 | scripts/ci/__tests__/red-team-status.test.ts:continuation:568 | 263fe7e3 | killed | [683 PASS](/private/tmp/run-e-round2-measure/342.baseline.json) / [684 FAILED](/private/tmp/run-e-round2-measure/342.mutant.json) |
+| 343 | scripts/ci/__tests__/red-team-status.test.ts:continuation:581 | 263fe7e3 | killed | [685 PASS](/private/tmp/run-e-round2-measure/343.baseline.json) / [686 FAILED](/private/tmp/run-e-round2-measure/343.mutant.json) |
+| 344 | scripts/ci/__tests__/red-team-status.test.ts:continuation:608 | 263fe7e3 | killed | [687 PASS](/private/tmp/run-e-round2-measure/344.baseline.json) / [688 FAILED](/private/tmp/run-e-round2-measure/344.mutant.json) |
+| 345 | scripts/ci/__tests__/red-team-status.test.ts:continuation:620 | 263fe7e3 | killed | [689 PASS](/private/tmp/run-e-round2-measure/345.baseline.json) / [690 FAILED](/private/tmp/run-e-round2-measure/345.mutant.json) |
+| 346 | scripts/ci/__tests__/red-team-status.test.ts:continuation:648 | 263fe7e3 | killed | [691 PASS](/private/tmp/run-e-round2-measure/346.baseline.json) / [692 FAILED](/private/tmp/run-e-round2-measure/346.mutant.json) |
+| 347 | scripts/ci/__tests__/red-team-status.test.ts:continuation:667 | 263fe7e3 | killed | [693 PASS](/private/tmp/run-e-round2-measure/347.baseline.json) / [694 FAILED](/private/tmp/run-e-round2-measure/347.mutant.json) |
+| 348 | scripts/ci/__tests__/red-team-status.test.ts:continuation:680 | 263fe7e3 | killed | [695 PASS](/private/tmp/run-e-round2-measure/348.baseline.json) / [696 FAILED](/private/tmp/run-e-round2-measure/348.mutant.json) |
+| 349 | scripts/ci/__tests__/red-team-status.test.ts:continuation:705 | 263fe7e3 | killed | [697 PASS](/private/tmp/run-e-round2-measure/349.baseline.json) / [698 FAILED](/private/tmp/run-e-round2-measure/349.mutant.json) |
+| 350 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:397 | 263fe7e3 | killed | [699 PASS](/private/tmp/run-e-round2-measure/350.baseline.json) / [700 FAILED](/private/tmp/run-e-round2-measure/350.mutant.json) |
+| 351 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:1 | 263fe7e3 | killed | [701 PASS](/private/tmp/run-e-round2-measure/351.baseline.json) / [702 FAILED](/private/tmp/run-e-round2-measure/351.mutant.json) |
+| 352 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:2 | 263fe7e3 | killed | [703 PASS](/private/tmp/run-e-round2-measure/352.baseline.json) / [704 FAILED](/private/tmp/run-e-round2-measure/352.mutant.json) |
+| 353 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:3 | 263fe7e3 | killed | [705 PASS](/private/tmp/run-e-round2-measure/353.baseline.json) / [706 FAILED](/private/tmp/run-e-round2-measure/353.mutant.json) |
+| 354 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:4 | 263fe7e3 | killed | [707 PASS](/private/tmp/run-e-round2-measure/354.baseline.json) / [708 FAILED](/private/tmp/run-e-round2-measure/354.mutant.json) |
+| 355 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:5 | 263fe7e3 | killed | [709 PASS](/private/tmp/run-e-round2-measure/355.baseline.json) / [710 FAILED](/private/tmp/run-e-round2-measure/355.mutant.json) |
+| 356 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:6 | 263fe7e3 | killed | [711 PASS](/private/tmp/run-e-round2-measure/356.baseline.json) / [712 FAILED](/private/tmp/run-e-round2-measure/356.mutant.json) |
+| 357 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:7 | 263fe7e3 | killed | [713 PASS](/private/tmp/run-e-round2-measure/357.baseline.json) / [714 FAILED](/private/tmp/run-e-round2-measure/357.mutant.json) |
+| 358 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:8 | 263fe7e3 | killed | [715 PASS](/private/tmp/run-e-round2-measure/358.baseline.json) / [716 FAILED](/private/tmp/run-e-round2-measure/358.mutant.json) |
+| 359 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:1 | 263fe7e3 | killed | [717 PASS](/private/tmp/run-e-round2-measure/359.baseline.json) / [718 FAILED](/private/tmp/run-e-round2-measure/359.mutant.json) |
+| 360 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:2 | 263fe7e3 | killed | [719 PASS](/private/tmp/run-e-round2-measure/360.baseline.json) / [720 FAILED](/private/tmp/run-e-round2-measure/360.mutant.json) |
+| 361 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:3 | 263fe7e3 | killed | [721 PASS](/private/tmp/run-e-round2-measure/361.baseline.json) / [722 FAILED](/private/tmp/run-e-round2-measure/361.mutant.json) |
+| 362 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:4 | 263fe7e3 | killed | [723 PASS](/private/tmp/run-e-round2-measure/362.baseline.json) / [724 FAILED](/private/tmp/run-e-round2-measure/362.mutant.json) |
+| 363 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:5 | 263fe7e3 | killed | [725 PASS](/private/tmp/run-e-round2-measure/363.baseline.json) / [726 FAILED](/private/tmp/run-e-round2-measure/363.mutant.json) |
+| 364 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:6 | 263fe7e3 | killed | [727 PASS](/private/tmp/run-e-round2-measure/364.baseline.json) / [728 FAILED](/private/tmp/run-e-round2-measure/364.mutant.json) |
+| 365 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:7 | 263fe7e3 | killed | [729 PASS](/private/tmp/run-e-round2-measure/365.baseline.json) / [730 FAILED](/private/tmp/run-e-round2-measure/365.mutant.json) |
+| 366 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:8 | 263fe7e3 | killed | [731 PASS](/private/tmp/run-e-round2-measure/366.baseline.json) / [732 FAILED](/private/tmp/run-e-round2-measure/366.mutant.json) |
+| 367 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:9 | 263fe7e3 | killed | [733 PASS](/private/tmp/run-e-round2-measure/367.baseline.json) / [734 FAILED](/private/tmp/run-e-round2-measure/367.mutant.json) |
+| 368 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:1 | 263fe7e3 | killed | [735 PASS](/private/tmp/run-e-round2-measure/368.baseline.json) / [736 FAILED](/private/tmp/run-e-round2-measure/368.mutant.json) |
+| 369 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:2 | 263fe7e3 | killed | [737 PASS](/private/tmp/run-e-round2-measure/369.baseline.json) / [738 FAILED](/private/tmp/run-e-round2-measure/369.mutant.json) |
+| 370 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:3 | 263fe7e3 | killed | [739 PASS](/private/tmp/run-e-round2-measure/370.baseline.json) / [740 FAILED](/private/tmp/run-e-round2-measure/370.mutant.json) |
+| 371 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:4 | 263fe7e3 | killed | [741 PASS](/private/tmp/run-e-round2-measure/371.baseline.json) / [742 FAILED](/private/tmp/run-e-round2-measure/371.mutant.json) |
+| 372 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:5 | 263fe7e3 | killed | [743 PASS](/private/tmp/run-e-round2-measure/372.baseline.json) / [744 FAILED](/private/tmp/run-e-round2-measure/372.mutant.json) |
+| 373 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:6 | 263fe7e3 | killed | [745 PASS](/private/tmp/run-e-round2-measure/373.baseline.json) / [746 FAILED](/private/tmp/run-e-round2-measure/373.mutant.json) |
+| 374 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:7 | 263fe7e3 | killed | [747 PASS](/private/tmp/run-e-round2-measure/374.baseline.json) / [748 FAILED](/private/tmp/run-e-round2-measure/374.mutant.json) |
+| 375 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:1 | 263fe7e3 | killed | [749 PASS](/private/tmp/run-e-round2-measure/375.baseline.json) / [750 FAILED](/private/tmp/run-e-round2-measure/375.mutant.json) |
+| 376 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:2 | 263fe7e3 | killed | [751 PASS](/private/tmp/run-e-round2-measure/376.baseline.json) / [752 FAILED](/private/tmp/run-e-round2-measure/376.mutant.json) |
+| 377 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:3 | 263fe7e3 | killed | [753 PASS](/private/tmp/run-e-round2-measure/377.baseline.json) / [754 FAILED](/private/tmp/run-e-round2-measure/377.mutant.json) |
+| 378 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:4 | 263fe7e3 | killed | [755 PASS](/private/tmp/run-e-round2-measure/378.baseline.json) / [756 FAILED](/private/tmp/run-e-round2-measure/378.mutant.json) |
+| 379 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:5 | 263fe7e3 | killed | [757 PASS](/private/tmp/run-e-round2-measure/379.baseline.json) / [758 FAILED](/private/tmp/run-e-round2-measure/379.mutant.json) |
+| 380 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:1 | 263fe7e3 | killed | [759 PASS](/private/tmp/run-e-round2-measure/380.baseline.json) / [760 FAILED](/private/tmp/run-e-round2-measure/380.mutant.json) |
+| 381 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:2 | 263fe7e3 | killed | [761 PASS](/private/tmp/run-e-round2-measure/381.baseline.json) / [762 FAILED](/private/tmp/run-e-round2-measure/381.mutant.json) |
+| 382 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:3 | 263fe7e3 | killed | [763 PASS](/private/tmp/run-e-round2-measure/382.baseline.json) / [764 FAILED](/private/tmp/run-e-round2-measure/382.mutant.json) |
+| 383 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:4 | 263fe7e3 | killed | [765 PASS](/private/tmp/run-e-round2-measure/383.baseline.json) / [766 FAILED](/private/tmp/run-e-round2-measure/383.mutant.json) |
+| 384 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:5 | 263fe7e3 | killed | [767 PASS](/private/tmp/run-e-round2-measure/384.baseline.json) / [768 FAILED](/private/tmp/run-e-round2-measure/384.mutant.json) |
+| 385 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:6 | 263fe7e3 | killed | [769 PASS](/private/tmp/run-e-round2-measure/385.baseline.json) / [770 FAILED](/private/tmp/run-e-round2-measure/385.mutant.json) |
+| 386 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:534 | 263fe7e3 | killed | [771 PASS](/private/tmp/run-e-round2-measure/386.baseline.json) / [772 FAILED](/private/tmp/run-e-round2-measure/386.mutant.json) |
+| 387 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:546 | 263fe7e3 | killed | [773 PASS](/private/tmp/run-e-round2-measure/387.baseline.json) / [774 FAILED](/private/tmp/run-e-round2-measure/387.mutant.json) |
+| 388 | scripts/ci/__tests__/red-team-mutation-runner.test.ts:558 | 263fe7e3 | killed | [775 PASS](/private/tmp/run-e-round2-measure/388.baseline.json) / [776 FAILED](/private/tmp/run-e-round2-measure/388.mutant.json) |
+
+## Complete final inventory
+
+The JSON sidecar carries the complete exact reasons and measurement mutations. The table below lists every final identity and outcome; the original prefix and all excluded original objects remain preserved.
+
+| ID | Outcome | Finding |
+|---|---|---|
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:81 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:101 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:110 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:134 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:147 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:174 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:205 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:230 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:306 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:331 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:435 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:496 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:64 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:92 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:144 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:168 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:184 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:195 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:212 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:232 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:1 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:2 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:3 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:4 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:5 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:48:6 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:68 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/TurnBody.test.tsx:88 | killed |  |
+| src/app/api/operator/__tests__/conversation-route.test.ts:33 | killed |  |
+| src/app/api/operator/__tests__/conversation-route.test.ts:73 | excluded |  |
+| src/app/api/operator/__tests__/conversation-route.test.ts:145 | excluded |  |
+| src/app/api/operator/__tests__/conversation-route.test.ts:199 | excluded |  |
+| src/app/api/operator/__tests__/conversation-route.test.ts:229 | excluded |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:36 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:45 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:64:1 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:64:2 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:64:3 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:64:4 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:64:5 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:71 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:1 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:2 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:3 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:4 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:5 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:80:6 | killed |  |
+| src/app/api/operator/__tests__/restore-route.test.ts:91 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:29 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:41 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:46 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:1 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:2 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:3 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:4 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:5 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:6 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:7 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:8 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:9 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:56:10 | killed |  |
+| src/app/api/operator/__tests__/rules-timeline-route.test.ts:65 | killed |  |
+| src/app/api/operator/__tests__/turn-get-route.test.ts:28 | killed |  |
+| src/app/api/operator/__tests__/turn-get-route.test.ts:56 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:118 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:142 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:160 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:194 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:220 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:257 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:266 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:277 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:294 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:303 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:311 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:323 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:3 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:4 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:5 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:6 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:7 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:8 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:9 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:10 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:11 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:12 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:340:13 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:359 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:3 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:4 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:5 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:6 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:7 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:8 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:9 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:10 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:11 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:12 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:13 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:14 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:15 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:367:16 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:408:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:408:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:408:3 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:408:4 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:421:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:421:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:421:3 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:435 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:3 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:4 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:5 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:6 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:7 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:454:8 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:467 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:490 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:120 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:135 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:154 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:167 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:182 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:189 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:196 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:209 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:225 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:258 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:322 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:339 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:353 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:365:1 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:365:2 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:376:1 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:376:2 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:382 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:388 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:403 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:414 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:439 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:466 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:476 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:481 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:492 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:497 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:503 | killed |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:532 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:625 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:654 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:683 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:693 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:719 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:733 | excluded |  |
+| src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:749 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:192 | excluded |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:200 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:233 | killed | E-RT-RECEIPT-P1 |
+| src/lib/agents/operator/__tests__/apply.test.ts:279 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:328 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:353 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:377 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:416 | excluded |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:428 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:457 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:497 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:523 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:723 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:783 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:801 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:840 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:878 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:900 | killed |  |
+| src/lib/agents/operator/__tests__/apply.test.ts:921 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:89 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:108 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:119 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:130 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:151 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:171 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:258 | killed |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:286 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:303 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:338 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:364 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:402 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:439 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:475 | excluded |  |
+| src/lib/agents/operator/__tests__/catalog.test.ts:525 | excluded |  |
+| src/lib/agents/operator/__tests__/completion-materialization.test.ts:55 | killed |  |
+| src/lib/agents/operator/__tests__/completion-materialization.test.ts:77 | killed |  |
+| src/lib/agents/operator/__tests__/completion-materialization.test.ts:84 | killed |  |
+| src/lib/agents/operator/__tests__/model-call.test.ts:100 | killed |  |
+| src/lib/agents/operator/__tests__/model-call.test.ts:127 | excluded |  |
+| src/lib/agents/operator/__tests__/model-call.test.ts:176 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:183 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:216 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:234 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:256 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:266 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:279 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:311 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:347 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:359 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:1 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:2 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:369:3 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:391 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:400 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:429 | killed |  |
+| src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:441 | killed |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:398 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:411 | killed |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:467 | killed |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:504 | killed |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:549 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:596 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-state.integration.test.ts:645 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-state.test.ts:31 | excluded |  |
+| src/lib/agents/operator/__tests__/policy-state.test.ts:58 | excluded |  |
+| src/lib/agents/operator/__tests__/prompt.test.ts:47 | killed |  |
+| src/lib/agents/operator/__tests__/prompt.test.ts:61 | killed |  |
+| src/lib/agents/operator/__tests__/prompt.test.ts:76 | killed |  |
+| src/lib/agents/operator/__tests__/prompt.test.ts:106 | killed |  |
+| src/lib/agents/operator/__tests__/prompt.test.ts:120 | killed |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:86 | excluded |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:168 | killed |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:217 | killed |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:250 | killed | E-RT-PROPOSAL-VIEW-P1 |
+| src/lib/agents/operator/__tests__/proposals.test.ts:354 | excluded |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:393 | excluded |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:431 | killed |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:471 | killed |  |
+| src/lib/agents/operator/__tests__/proposals.test.ts:485 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:274 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:306 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:344 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:403 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:449 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:550 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:571 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:599 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:654 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:705:1 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:705:2 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:760 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:815 | killed |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:869 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:929 | excluded |  |
+| src/lib/agents/operator/__tests__/reads.integration.test.ts:984 | excluded |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:28 | killed | E-RT-P1-1 |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:1 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:2 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:3 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:4 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:5 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:47:6 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:72 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:80 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:85 | killed |  |
+| src/lib/agents/operator/__tests__/refusal-completion.test.ts:97 | killed |  |
+| src/lib/agents/operator/__tests__/refusals.test.ts:5 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:72 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:97 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:108 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:115 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:128 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:135 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:143 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:153 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:167 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:183 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:216 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:249 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:274 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:302 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:349 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:409 | killed | E-RT-PARSED-PROPOSAL-P1 |
+| src/lib/agents/operator/__tests__/render.test.ts:439 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:448 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:478 | killed | E-RT-COPILOT-P0 |
+| src/lib/agents/operator/__tests__/render.test.ts:500 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:556 | killed |  |
+| src/lib/agents/operator/__tests__/render.test.ts:580 | excluded |  |
+| src/lib/agents/operator/__tests__/render.test.ts:598 | excluded |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:72 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:92 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:1 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:2 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:97:3 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:111 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:122 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:139 | killed |  |
+| src/lib/agents/operator/__tests__/restore-inputs.test.ts:157 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:1 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:2 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:195:3 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:1 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:2 | killed |  |
+| src/lib/agents/operator/__tests__/restore-locking.integration.test.ts:228:3 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:216 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:240 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:264 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:275 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:301 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:316 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:342 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:362 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:375 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:393 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:423 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:473 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:513 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:531 | killed |  |
+| src/lib/agents/operator/__tests__/restore.integration.test.ts:570 | killed |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:79 | killed |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:90 | killed |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:110 | excluded |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:161 | killed |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:211 | killed |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:220 | excluded |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:239 | excluded |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:272 | excluded |  |
+| src/lib/agents/operator/__tests__/schema.test.ts:284 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:366 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:415 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:452 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:471 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:498 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:513 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:572 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:745 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:792 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:822 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:846 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:878 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:911 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:946 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:969 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:994 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1011 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1020 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1033 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1057 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1085 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1107 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1169 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1222 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1268 | killed |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1341 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1370 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1392 | excluded |  |
+| src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1441 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:228 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:262 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:298 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:347 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:393 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:457 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:482 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:540 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:558 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:632:1 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:632:2 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:666 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:696 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:708 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:730 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:768 | killed |  |
+| src/lib/auto-approval/__tests__/settings.integration.test.ts:781 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:372 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:458 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:482 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:503 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:520 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:552 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:584 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:612 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:636 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:661 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:686 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:721 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:3 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:4 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:5 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:6 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:7 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:756:8 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:847 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:892 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:930 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:961 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:976 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1004 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1041 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1079 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1095 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1121 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1149 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1170 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1198 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1227 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1263 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1294 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1319 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1352 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1370 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1405 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1444 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1464 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1507 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1545 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1572 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1636 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1660 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1716 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1746 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1773 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1812 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:3 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:4 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:5 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:6 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1900:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1900:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1920 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1950:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1950:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2003:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2003:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2049:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2049:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2067:1 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2067:2 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2090 | killed | E-RT-UUID-P0 |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:1 | killed | E-RT-INTERNAL-UUID-P0 |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:2 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:3 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:4 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:5 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:6 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2100:7 | killed |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2140 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2186 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2204 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2244 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2282 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:2330 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:147 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:170 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:191 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:204 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:221 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:231 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:241 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:258 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:275 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:313:1 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:313:2 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:313:3 | excluded |  |
+| src/lib/llm/__tests__/openai-provider.test.ts:313:4 | killed |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:300 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:317 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:343 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:405 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:423 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:442 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:459 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:476 | killed |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:525 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:549 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:569 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:592 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:605 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:626 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:639 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:661 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:688 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:709 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:742 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:776 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:795 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:831 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:864 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:878 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:892 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:915 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:950:1 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:950:2 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:950:3 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:967 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:988 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:1009 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:1019 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:1033 | excluded |  |
+| src/lib/refusals/__tests__/read.integration.test.ts:1049 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:212 | killed |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:226 | killed |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:235 | killed |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:242 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:262 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:284 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:300 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:309 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:317 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:334 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:347 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:367 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:392 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:521 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:550 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:563 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:574 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:588 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:609 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:619 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:625 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:635 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:643 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:696 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:713 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:741 | excluded |  |
+| src/lib/refusals/__tests__/vocabulary.test.ts:787 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:464 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:492 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:565 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:588 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:652 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:693 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:737 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:777 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:820 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:842 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:867 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:885 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:902 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:919 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:992 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1013 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1052 | killed |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1113 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1132 | excluded |  |
+| src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1156 | excluded |  |
+| src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:114 | killed |  |
+| src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:147 | killed |  |
+| src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts:181 | killed |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:96 | killed |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:116 | killed |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:157 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:163 | killed |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:180 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:199 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:218 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:232 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:247 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:261 | killed |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:283:1 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:283:2 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:300:1 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:300:2 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:322 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:332 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:353 | excluded |  |
+| tests/llm-eval/__tests__/structured-runner.test.ts:376 | excluded |  |
+| worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:124 | excluded |  |
+| worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:166 | excluded |  |
+| worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:276 | excluded |  |
+| worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:292 | killed |  |
+| worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:321 | killed |  |
+| scripts/ci/__tests__/mint-admin.integration.test.ts:133 | excluded |  |
+| scripts/ci/__tests__/mint-admin.integration.test.ts:167 | excluded |  |
+| scripts/ci/__tests__/mint-admin.integration.test.ts:216 | excluded |  |
+| scripts/ci/__tests__/revoke-admin.integration.test.ts:131 | excluded |  |
+| scripts/ci/__tests__/revoke-admin.integration.test.ts:176 | excluded |  |
+| scripts/ci/__tests__/revoke-admin.integration.test.ts:203 | excluded |  |
+| scripts/ci/__tests__/revoke-admin.integration.test.ts:232 | excluded |  |
+| scripts/ci/__tests__/revoke-admin.integration.test.ts:247 | excluded |  |
+| scripts/ci/__tests__/tenant-tables.integration.test.ts:55 | excluded |  |
+| scripts/ci/__tests__/tenant-tables.integration.test.ts:89 | excluded |  |
+| scripts/ci/__tests__/tenant-tables.integration.test.ts:95 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:215 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:241 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:277 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:296 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:320 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:371 | excluded |  |
+| src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:405 | excluded |  |
+| src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/generate-version.integration.test.ts:229 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:201 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:231 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:271 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:305 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:350 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:404 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:432 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:465 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:504 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:555 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:573 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:609 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:661 | excluded |  |
+| src/lib/admin/__tests__/suppressions-correction.integration.test.ts:704 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:134 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:151 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:194 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:213 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:233 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:308 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:334 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:454 | excluded |  |
+| src/lib/agents/__tests__/run-spine.integration.test.ts:502 | excluded |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:240 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:307 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:390 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:440 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:483 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:525 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:560 | killed |  |
+| src/lib/agents/operator/__tests__/apply.integration.test.ts:627 | killed |  |
+| src/lib/agents/operator/__tests__/snapshot.integration.test.ts:198 | excluded |  |
+| src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291 | killed |  |
+| src/lib/agents/operator/__tests__/snapshot.integration.test.ts:352 | excluded |  |
+| src/lib/agents/operator/__tests__/snapshot.integration.test.ts:403 | excluded |  |
+| src/lib/approval/__tests__/owner-decision-outcomes.integration.test.ts:94 | excluded |  |
+| src/lib/approval/__tests__/owner-decision-outcomes.integration.test.ts:123 | excluded |  |
+| src/lib/approval/__tests__/veto.integration.test.ts:192 | excluded |  |
+| src/lib/approval/__tests__/veto.integration.test.ts:231 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:313 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:338 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:353 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:367 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:380 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:393 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:416 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:424 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:431 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:455 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:480 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:497 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:522 | excluded |  |
+| src/lib/competitors/__tests__/named-rival.integration.test.ts:540 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:371 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:382 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:391 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:398 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:408 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:415 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:423 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:438 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:450 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:456 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:463 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:475 | excluded |  |
+| src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts:484 | excluded |  |
+| src/lib/escalations/__tests__/raise.integration.test.ts:155 | excluded |  |
+| src/lib/escalations/__tests__/raise.integration.test.ts:192 | excluded |  |
+| src/lib/escalations/__tests__/raise.integration.test.ts:199 | excluded |  |
+| src/lib/escalations/__tests__/raise.integration.test.ts:217 | excluded |  |
+| src/lib/escalations/__tests__/transitions.integration.test.ts:135 | excluded |  |
+| src/lib/escalations/__tests__/transitions.integration.test.ts:148 | excluded |  |
+| src/lib/escalations/__tests__/transitions.integration.test.ts:166 | excluded |  |
+| src/lib/escalations/__tests__/transitions.integration.test.ts:175 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:202 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:227 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:266 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:290 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:357 | excluded |  |
+| src/lib/locations/__tests__/add-location-tx.integration.test.ts:385 | excluded |  |
+| src/lib/locations/__tests__/review-qr.integration.test.ts:110 | excluded |  |
+| src/lib/locations/__tests__/review-qr.integration.test.ts:141 | excluded |  |
+| src/lib/onboarding/__tests__/admin-onboarding-rollback.integration.test.ts:110 | excluded |  |
+| src/lib/onboarding/__tests__/admin-onboarding-rollback.integration.test.ts:120 | excluded |  |
+| src/lib/onboarding/__tests__/admin-onboarding-rollback.integration.test.ts:136 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:258 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:299 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:320 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:339 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:351 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:403 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:414 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:442 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:459 | excluded |  |
+| src/lib/past-replies/__tests__/load-replies.integration.test.ts:489 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:243 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:268 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:283 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:325 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:374 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:410 | excluded |  |
+| src/lib/refusals/__tests__/write.integration.test.ts:442 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:266 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:279 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:292 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:356 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:412 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:433 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:1 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:2 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:3 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:4 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:5 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:6 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:7 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:8 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:9 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:10 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:11 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:12 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:13 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:14 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:15 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:16 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:17 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:18 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:19 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:20 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:21 | excluded |  |
+| src/lib/responses/__tests__/judge-store.integration.test.ts:468:22 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:224 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:232 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:248 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:256 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:300 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:320 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:332 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:347 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:369 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:391 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:410 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:435 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:483 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:508 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:525 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:534 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:554 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:593 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:645 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:667 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:700 | excluded |  |
+| src/lib/reviews/__tests__/import-consent.integration.test.ts:726 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:511 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:533 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:551 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:567 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:586 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:620 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:661 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:710 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:734 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:793 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:835 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:870 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:924 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:947 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:973 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:146 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:156 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:170 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:196 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:210 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:272 | excluded |  |
+| src/lib/reviews/__tests__/import-offer-view.integration.test.ts:280 | excluded |  |
+| src/lib/reviews/__tests__/import-review.integration.test.ts:111 | excluded |  |
+| src/lib/reviews/__tests__/import-review.integration.test.ts:157 | excluded |  |
+| src/lib/reviews/__tests__/import-review.integration.test.ts:187 | excluded |  |
+| src/lib/reviews/__tests__/import-review.integration.test.ts:203 | excluded |  |
+| src/lib/reviews/__tests__/process-review-attribution.integration.test.ts:332 | excluded |  |
+| src/lib/reviews/__tests__/process-review-attribution.integration.test.ts:383 | excluded |  |
+| src/lib/reviews/__tests__/process-review-attribution.integration.test.ts:418 | excluded |  |
+| src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts:301 | excluded |  |
+| src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts:319 | excluded |  |
+| src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts:356 | excluded |  |
+| src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts:380 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:58 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:62 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:70 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:80 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:88 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:190 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:206 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:224 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:235:1 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:235:2 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:235:3 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:246 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:264 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:275 | excluded |  |
+| src/lib/shared/__tests__/migration-090-solicitation-ask-evidence.integration.test.ts:286 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:421 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:479 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:512 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:568 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:588 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:627 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:662 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:704 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:737 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:768 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:810 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:820 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:831 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:865 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:884 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:899 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:928 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:955 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:964 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:972 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1000 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1023 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1060 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1088 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1119 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1142 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1169 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1182 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1242 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1279 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1304 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1335 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1347 | excluded |  |
+| src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts:1363 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:97 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:101 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:113 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:120 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:240:1 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:240:2 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:240:3 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:240:4 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:256 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:272:1 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:272:2 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:272:3 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:291 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:307 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:335 | excluded |  |
+| src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts:353 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:50 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:54 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:60 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:64 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:91 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:140 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:157 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:191 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:204 | excluded |  |
+| src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts:215 | excluded |  |
+| src/lib/shared/__tests__/migration-095-consent-business-index.integration.test.ts:46 | excluded |  |
+| src/lib/shared/__tests__/migration-095-consent-business-index.integration.test.ts:78 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:301 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:305 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:314 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:321 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:336 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:344 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:388 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:414 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:460 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:506 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:520 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:535 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:550 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:565 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:577 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:597 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:621 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:640 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:655:1 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:655:2 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:1 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:2 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:3 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:4 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:5 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:6 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:7 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:8 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:9 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:10 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:11 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:12 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:13 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:674:14 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:694 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:707 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:721 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:750 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:779 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:1 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:2 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:3 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:4 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:5 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:6 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:7 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:808:8 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:1 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:2 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:3 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:4 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:5 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:828:6 | excluded |  |
+| src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts:847 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:132 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:206 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:243 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:267 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:285 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:299 | excluded |  |
+| src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts:315 | excluded |  |
+| src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts:295 | excluded |  |
+| src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts:341 | excluded |  |
+| src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts:365 | excluded |  |
+| src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts:391 | excluded |  |
+| src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts:130 | excluded |  |
+| src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts:199 | excluded |  |
+| src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts:236 | excluded |  |
+| src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts:293 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:168 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:184 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:289 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:311 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:340 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:354 | excluded |  |
+| src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts:379 | excluded |  |
+| src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts:149 | excluded |  |
+| src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts:186 | excluded |  |
+| src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts:207 | excluded |  |
+| src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts:224 | excluded |  |
+| src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts:356 | excluded |  |
+| src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts:397 | excluded |  |
+| src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts:457 | excluded |  |
+| src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts:476 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:71 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:78 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:133 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:185 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:209 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:220 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:241 | excluded |  |
+| src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:286 | excluded |  |
+| src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:41 | excluded |  |
+| src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:77 | excluded |  |
+| src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts:351 | excluded |  |
+| src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts:390 | excluded |  |
+| src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts:437 | excluded |  |
+| src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts:462 | excluded |  |
+| src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts:507 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:995 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1013 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1036 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1058 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1090 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1158 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1188 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1204 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1239 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1263 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1300 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1329 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1368 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1400 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1437 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1473 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1500 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1529 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1583 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1621 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1680 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1698 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1720 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1740 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1771 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1787 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1805 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1822 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1840 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1879 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1909 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1934 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1947 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:1983 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2088 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2112 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2135 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2160 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2186 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2213 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2235 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2276 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2314 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2356 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2393 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2464 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2507 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2581 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2601 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2620 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2639 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2667 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2695 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2726 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2769 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2806 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2833 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2858 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2886 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2908 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:2974 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3000 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3037 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3058 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3073 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3091 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3131 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3168 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3254 | excluded |  |
+| src/lib/solicitation/__tests__/approval.integration.test.ts:3273 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:680 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:759 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:843 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:933 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1045 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1106 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1137 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1153 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1181 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1266 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1360 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1430 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1462 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1493 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1533 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1561 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1590 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1615 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1634 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1692 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1738 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1759 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:609 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:657 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:691 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:719 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:744 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:780 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:805 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:834 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:879 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:930 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:976 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1016 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1057 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1087 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1127 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1179 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1255 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1338 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1379 | excluded |  |
+| src/lib/solicitation/__tests__/attribution.integration.test.ts:1446 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:559 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:588 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:649 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:679 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:729 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:798 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:816 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:860 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:908 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:932 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:954 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:984 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:1015 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:1031 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:1055 | excluded |  |
+| src/lib/solicitation/__tests__/auto-approval.integration.test.ts:1145 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:856 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:919 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:966 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:999 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1040 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1068 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1096 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1131 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1217 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1301 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1357 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1433 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1563 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1623 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1649 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1677 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1739 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1778 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1819 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1853 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1936 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1980 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:1995 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2015 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2059 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2076 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2094 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2156 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2172 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2201:1 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2201:2 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2242 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2254:1 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2254:2 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2254:3 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2254:4 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2274:1 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2274:2 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2293:1 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2293:2 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2306 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2315 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2360 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2384 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2425 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2449 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2464 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2489 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2523 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2583 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2668 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2693 | excluded |  |
+| src/lib/solicitation/__tests__/batch-builder.integration.test.ts:2731 | excluded |  |
+| src/lib/solicitation/__tests__/batch-purge-concurrency.integration.test.ts:245 | excluded |  |
+| src/lib/solicitation/__tests__/contacts-repo.integration.test.ts:201 | excluded |  |
+| src/lib/solicitation/__tests__/contacts-repo.integration.test.ts:235 | excluded |  |
+| src/lib/solicitation/__tests__/contacts-repo.integration.test.ts:272 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1269 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1311 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1336 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1369 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1411 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1451 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1483 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1507 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1557 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1592 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1630 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1654 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1690 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1736 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1766 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1809 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1837 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1890 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1927 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:1971 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2015 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2086 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2109 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2199 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2289 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2372 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2474 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2504 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2528 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2569 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2641 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2696 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2775 | excluded |  |
+| src/lib/solicitation/__tests__/dispatch.integration.test.ts:2794 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:192 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:218 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:246 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:280 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:306 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:339 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:396 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:419 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:463 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:501 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:556 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:585 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:614 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:659 | excluded |  |
+| src/lib/solicitation/__tests__/ingest.integration.test.ts:702 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:236 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:250 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:264 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:291 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:326 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:335 | excluded |  |
+| src/lib/solicitation/__tests__/migration-110-send-governors.integration.test.ts:357 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:364 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:385 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:407 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:421 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:445 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:512 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:542 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:575 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:596 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:642 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:678 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:698 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:730 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-close.integration.test.ts:748 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:247 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:282 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:320 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:379 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:423 | excluded |  |
+| src/lib/solicitation/__tests__/outreach-render.integration.test.ts:438 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:229 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:263 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:285 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:326 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:348 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:371 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:404 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:446 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:479 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:536 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:577 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:602 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:630 | excluded |  |
+| src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts:655 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:233 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:278 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:306 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:329 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:362 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:395 | excluded |  |
+| src/lib/solicitation/__tests__/postal-address.integration.test.ts:422 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:933 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:966 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:984 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1001 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1018 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1033 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1050 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1075 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1108 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1124 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1135 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1155 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1214 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1238 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1265 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1303 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1325 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1355 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1390 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1417 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1442 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1468 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1502 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1580 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1643 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1683 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1713 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1741 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1763 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1788 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1820 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1855 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1893 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:1948 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2015 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2048 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2067 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2092 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2122 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2150 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2189 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2230 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2265 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2303 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2340 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2402 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2425 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2443 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2495 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2520 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2546 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2577 | excluded |  |
+| src/lib/solicitation/__tests__/release.integration.test.ts:2605 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:365 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:379 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:397 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:409 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:430 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:442 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:500 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:524 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:557 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:603 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:682 | excluded |  |
+| src/lib/solicitation/__tests__/send-breaker.integration.test.ts:701 | excluded |  |
+| src/lib/solicitation/__tests__/send-caps.integration.test.ts:257 | excluded |  |
+| src/lib/solicitation/__tests__/send-caps.integration.test.ts:281 | excluded |  |
+| src/lib/solicitation/__tests__/send-caps.integration.test.ts:296 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:236 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:264 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:303 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:331 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:367 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:408 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:446 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:465 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:484 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:510 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:542 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:574 | excluded |  |
+| src/lib/solicitation/__tests__/suppression.integration.test.ts:609 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:394 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:409 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:420 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:434 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:456 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:467 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:483 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:511 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:536 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:600 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:627 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:668 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:680 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:694 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:719 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:735 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:745 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:757 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:775 | excluded |  |
+| src/lib/solicitation/__tests__/unsubscribe.integration.test.ts:779 | excluded |  |
+| worker/__tests__/solicitation-attribution.integration.test.ts:388 | excluded |  |
+| worker/__tests__/solicitation-attribution.integration.test.ts:433 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:386 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:404 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:419 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:441:1 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:441:2 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:441:3 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:441:4 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:466 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:483 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:499 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:515 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:538 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:554 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:573 | excluded |  |
+| worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts:614 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:203 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:231 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:247 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:275 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:294 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:315 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:324 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:339 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:354 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:409 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:424 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:445 | excluded |  |
+| worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts:470 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:111 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:129 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:149 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:163 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:181 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:207 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:235 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:260 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:277 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:169 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:185 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:205 | excluded |  |
+| worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:224 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:263 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:270 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:278 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:286 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:294 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:301 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:308 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:314 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:329 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:335 | excluded |  |
+| worker/background/pollers/health-alert/__tests__/checks.integration.test.ts:344 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:316 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:328 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:340 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:379 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:405 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:431 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:450 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:463 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:485 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:507 | excluded |  |
+| worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts:530 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:507 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:526 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:537 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:551 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:571 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:586 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:598 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:616 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:683 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:698 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:712 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:733 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:750 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:762 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:772 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:784 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:802 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:820 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:841 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:856 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:870 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:893 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:909 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:940 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:968 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:985 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1005 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1013 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1044 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1060 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1081 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1108 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1124 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1157 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1184 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1213 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1227 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1259 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1293 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1326 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1378 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1401 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1421 | excluded |  |
+| worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:1442 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:100 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:386 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:394 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:400 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:410 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:431 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:440 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:462 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:483 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:507 | excluded |  |
+| worker/jobs/__tests__/onboarding-drip.integration.test.ts:530 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:746 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:789 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:841 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:888 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:978 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1047 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1121 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1436 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1499 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1578 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1614 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1678 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1712 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1745 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1781 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1823 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1858 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1904 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1976 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:2034 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:2072 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:2111 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:2194 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:290 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:306 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:319 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:336 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:353 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:371 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:384 | excluded |  |
+| worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts:407 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:521 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:536 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:550 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:570 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:584 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:607 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:618 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:634 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:674 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:713 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:732 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:751 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:765 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:809 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:838 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:855 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:873 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:931 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:948 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:977 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:996 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1016 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1049 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1071 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1097 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1133 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1158 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1178 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1208 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1271 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1303 | excluded |  |
+| worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:1323 | excluded |  |
+| worker/jobs/zernio/__tests__/ingestion-origin.integration.test.ts:219 | excluded |  |
+| worker/jobs/zernio/__tests__/ingestion-origin.integration.test.ts:245 | excluded |  |
+| worker/jobs/zernio/__tests__/ingestion-origin.integration.test.ts:268 | excluded |  |
+| worker/jobs/zernio/__tests__/ingestion-origin.integration.test.ts:301 | excluded |  |
+| worker/jobs/zernio/__tests__/job-eligibility.integration.test.ts:387 | excluded |  |
+| worker/jobs/zernio/__tests__/job-eligibility.integration.test.ts:542 | excluded |  |
+| worker/jobs/zernio/__tests__/job-eligibility.integration.test.ts:563 | excluded |  |
+| worker/jobs/zernio/__tests__/job-eligibility.integration.test.ts:587 | excluded |  |
+| worker/jobs/zernio/__tests__/job-eligibility.integration.test.ts:609 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:34 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:38 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:42 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:47 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:55 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:63 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:71 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:79 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:89 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:95 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:103 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:111 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:121 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:135 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:143 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:149 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:157 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:171 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:181 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:195 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:208 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:215 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:228 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:243 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:251 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:273:1 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:273:2 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:273:3 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:273:4 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:278:1 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:278:2 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:278:3 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:278:4 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:286 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:308 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:320 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:333 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:346 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:364 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:372 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:384 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:389 | excluded |  |
+| scripts/ci/__tests__/live-db-suites-audit.test.ts:425 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:144 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:206 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:244 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:287 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:300 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:337 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:364 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:408 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:471 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:516 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:598 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:659 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:701 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:746 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:810 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:888 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:964 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:1043 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/page.test.tsx:38 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:69 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:83 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:107 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:124 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:144 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:158 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:171 | killed | E-RT-CONCURRENCY-P1 |
+| src/app/api/operator/__tests__/apply-route.test.ts:77 | excluded |  |
+| src/app/api/operator/__tests__/apply-route.test.ts:89 | excluded |  |
+| src/app/api/operator/__tests__/apply-route.test.ts:111 | excluded |  |
+| src/app/api/operator/__tests__/apply-route.test.ts:126 | excluded |  |
+| src/app/api/operator/__tests__/apply-route.test.ts:203 | excluded |  |
+| src/lib/agents/operator/__tests__/operation-inputs.test.ts:23 | excluded |  |
+| src/lib/agents/operator/__tests__/operation-inputs.test.ts:47 | excluded |  |
+| src/lib/agents/operator/__tests__/operation-inputs.test.ts:61 | excluded |  |
+| src/lib/agents/operator/__tests__/operation-inputs.test.ts:75 | killed |  |
+| src/app/api/operator/__tests__/decline-route.test.ts:62 | excluded |  |
+| src/app/api/operator/__tests__/decline-route.test.ts:87 | excluded |  |
+| e2e/operator.spec.ts:41 | excluded |  |
+| e2e/operator.spec.ts:74 | excluded |  |
+| e2e/operator.spec.ts:125 | excluded |  |
+| e2e/operator.spec.ts:213 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:10 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:15 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:19 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:24 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:30 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:37 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:43 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:51 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:62 | excluded |  |
+| src/lib/responses/__tests__/model-pinning.test.ts:73 | excluded |  |
+| worker/jobs/agent-turn/__tests__/failed-hook.test.ts:58 | excluded |  |
+| worker/jobs/agent-turn/__tests__/failed-hook.test.ts:84 | excluded |  |
+| worker/jobs/agent-turn/__tests__/failed-hook.test.ts:114 | excluded |  |
+| worker/jobs/agent-turn/__tests__/failed-hook.test.ts:127 | excluded |  |
+| worker/jobs/agent-turn/__tests__/failed-hook.test.ts:142 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:65 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:96 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:118 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:140 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:153 | excluded |  |
+| src/app/api/operator/__tests__/turns-route.test.ts:175 | excluded |  |
+| src/lib/agents/operator/__tests__/turns.test.ts:52 | excluded |  |
+| src/lib/agents/operator/__tests__/turns.test.ts:113 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:129 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:141 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:163 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:173 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:181 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:191 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:204 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:226 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:243 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:261 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:268 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:278 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:1 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:2 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:3 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:4 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:5 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:6 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:7 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:288:8 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:307:1 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:307:2 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:307:3 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:307:4 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:307:5 | excluded |  |
+| src/app/api/settings/auto-approval/__tests__/route.test.ts:323 | excluded |  |
+| src/lib/agents/operator/__tests__/context.test.ts:146 | killed |  |
+| src/lib/agents/operator/__tests__/context.test.ts:215 | excluded |  |
+| src/lib/agents/operator/__tests__/context.test.ts:238 | excluded |  |
+| src/lib/agents/operator/__tests__/context.test.ts:251 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:234 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:272 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:290 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:307 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:333 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:390 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:472 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:497 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:527 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:547 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:558 | excluded |  |
+| src/lib/auto-approval/__tests__/suspension.integration.test.ts:616 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:103 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:121 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:129 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:139 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:146 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:179 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:187 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:195 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:212 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:230 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:257 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:263 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:284 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:313 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:327 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:357 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:374 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:411 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:427 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:454 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:471 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:492 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:542 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:591 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:608 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:641 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:659 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:682 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:709 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:739:1 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:739:2 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:773 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:803 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:842 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:860 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:872 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:893 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:924 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:952 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:974 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:984 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:1003 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:1015 | excluded |  |
+| src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:1038 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:83 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:90 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:106 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:120 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:132 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:148 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:163 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:197 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:208 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:308 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:337 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:373 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:385 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:393 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:409 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:423 | excluded |  |
+| src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx:437 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:31 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:41 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:47 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:1 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:2 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:3 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:4 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:5 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:6 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:7 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:8 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:55:9 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:69:1 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:69:2 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:69:3 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:69:4 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:1 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:2 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:3 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:4 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:5 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:6 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:7 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:8 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:9 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:10 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:11 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:78:12 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:95 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:102 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:109 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:117 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:126 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:130 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:135 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:146 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:167 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:194 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:203 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:216 | excluded |  |
+| src/lib/auto-approval/__tests__/policy.test.ts:225 | excluded |  |
+| src/lib/auto-approval/__tests__/threshold-labels.test.ts:10 | excluded |  |
+| src/lib/auto-approval/__tests__/threshold-labels.test.ts:16 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:1 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:2 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:3 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:4 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:5 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:6 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:7 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:96:8 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:111 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:115 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:119 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:123 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:129 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:132 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:138 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:147 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:161 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:178 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:194 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:205 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:234 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:246 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:266 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:284 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:297 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:314 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:331 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:356 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:372 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:382 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:392 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:400 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:411 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:415 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:421 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:428 | excluded |  |
+| src/lib/past-replies/__tests__/replies-view.test.ts:448 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:213 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:228 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:247 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:263 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:284 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:300 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:313 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:335 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:364 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:395 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:419 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:446 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:486 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:503 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:537 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:550 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:565 | excluded |  |
+| src/lib/past-replies/__tests__/reviews-list.test.ts:578 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:89 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:99 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:106 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:113 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:123 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:129 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:137 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:158 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:175 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:186 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:195 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:216 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:231 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:244 | excluded |  |
+| worker/jobs/publisher/__tests__/mark-posted.test.ts:275 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:87:1 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:87:2 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:105:1 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:105:2 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:129 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:145 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:170 | excluded |  |
+| worker/jobs/publisher/__tests__/veto-window-gate.test.ts:203 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts:223 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts:248 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts:315 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts:347 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:101 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:121 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:157 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:189 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:199:1 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:199:2 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:1 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:2 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:3 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:4 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:5 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:6 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:7 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:8 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:9 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:10 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:11 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:12 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:13 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:14 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:15 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:16 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:17 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:18 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:19 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:20 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:238:21 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:248 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:261 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:276 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:292 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:304:1 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:304:2 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:304:3 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:319 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:330 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:343 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:356 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:367 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:439 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:458 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:467 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:482 | excluded |  |
+| worker/jobs/response-generation/__tests__/auto-approval.test.ts:497 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:321 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:413 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:433 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:460 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:481 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:516 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:548 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:645 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:674 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:687 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:711 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:756 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:811 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:855 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:931 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:954 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:972 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:991 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1024 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1078 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1125 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1150 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1191 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1238 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1249 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1260 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1274 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1290 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1314 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1338 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1348 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1368 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1490 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1511 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1555 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1601 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1631 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1700 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1722 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1754 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1770 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1792 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1818 | excluded |  |
+| src/lib/refusals/__tests__/write.test.ts:1837 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:323 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:354 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:377 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:410 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:449 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:467 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:487 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:511 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:539 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:576 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:601 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:660 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:698 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:730 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:74 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:99 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:127 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:157 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:205 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:255 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:275 | excluded |  |
+| worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:294 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:459 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:487 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:506 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:526 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:551 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:566 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:589 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:614 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:624 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:638 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:647 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:679 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:1 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:2 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:3 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:4 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:5 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:6 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:7 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:8 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:9 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:10 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:11 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:12 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:13 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:14 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:15 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:16 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:17 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:18 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:19 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:20 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:692:21 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:709 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:725 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:745 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:788 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:815 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:853 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:874 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:888 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:902 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:930 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:965 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:971 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:984 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1021 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1037 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1047 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1057 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1067 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1118 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1168 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1277 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1298 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1308 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1321 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1353 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1371 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1494 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1524 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1551 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1580 | excluded |  |
+| worker/jobs/response-generation/__tests__/persist.test.ts:1601 | excluded |  |
+| worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:103 | excluded |  |
+| worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:126 | excluded |  |
+| worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:156 | excluded |  |
+| worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:177 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:294 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:334 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:359 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:389 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:437 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:465 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:494 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:531 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:553 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:580 | excluded |  |
+| src/app/api/dashboard/__tests__/refusals-route.test.ts:600 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:285 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:311 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:330 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:399 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:419 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:436 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:449 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:463 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:500 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:510 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:518 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:546 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:569 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:590 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:614 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:633 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:642 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:650 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:659 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:671 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:692 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:727 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:748 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:777 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:797 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:821 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:876 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:928 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:945 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:981 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:995 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1009 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1020 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1069 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1096 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1116 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1127 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1142 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1169 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1192 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1403 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1445 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1461 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1479 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1522 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1549 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1568 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1585 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1601 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1616 | excluded |  |
+| src/lib/solicitation/__tests__/ask-generation.test.ts:1648 | excluded |  |
+| excluded-production-types | excluded |  |
+| excluded-production-writer-types | excluded |  |
+| excluded-migration-121 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:7 | excluded |  |
+| src/lib/auto-approval/__tests__/settings.test.ts:1883:8 | excluded |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122:1 | killed |  |
+| src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx:122:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:397 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:3 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:4 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:5 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:6 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:7 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:410:8 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:3 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:4 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:5 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:6 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:7 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:8 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:427:9 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:3 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:4 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:5 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:6 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:448:7 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:3 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:4 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:469:5 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:2 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:3 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:4 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:5 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:483:6 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:499 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:514 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:534 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:546 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:558 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:575 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:590:1 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:590:2 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:478 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:581 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:190 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:196:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:196:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:8 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:9 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:10 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:11 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:12 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:210:13 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:250 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:261 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:270:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:270:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:270:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:293 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:670 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:682:8 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:8 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:702:9 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:723:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:739:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:739:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:739:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:739:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:739:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:755:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:778 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:791 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:803:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:803:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:803:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:803:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:811:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:811:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:811:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:811:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:811:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:818 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:825:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:825:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:839 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:845 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:857:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:857:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:871 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:885 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:891 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:899 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:907 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:912:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:912:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:912:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:912:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:912:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:928 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:948 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:958 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:968 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:978 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:984 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:995 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1006 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1017 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1031 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1048 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1059 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1067 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1077 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1090 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1113 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1125 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1136 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1146 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1166 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1192 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1204 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1212:8 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1265 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1277 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1287:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1287:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1304 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:3 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:4 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:5 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:6 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:7 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:8 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:9 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:10 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:11 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1314:12 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1349 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1362 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1374:1 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1374:2 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1389 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1408 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1417 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1426 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1443 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1451 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1460 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1469 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1477 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:1492 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:296 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:304 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:309:1 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:309:2 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:309:3 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:1 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:2 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:3 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:4 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:5 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:6 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:7 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:8 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:9 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:10 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:11 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:12 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:13 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:14 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:322:15 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:618 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:624 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:629 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:651 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:660 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:668 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:675 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:683 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:688 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:696 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:706 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:721 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:730 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:740 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:755 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:763 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:779 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:793 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:804 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:816 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:842 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:860 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:889 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:900 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:925 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:937 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:945 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:952 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:957 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:969 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:990 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1015 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1036 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1071 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1083 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1091 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1105 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1117 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1125 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1133 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1145 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1165 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1182 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1194 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1227 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1238 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1254 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1267 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1288 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1296 | excluded |  |
+| scripts/ci/__tests__/red-team-status.test.ts:1306 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:1 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:2 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:3 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:4 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:5 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:6 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:36:7 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:51 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:58 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:68 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:84 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:93 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:105 | excluded |  |
+| scripts/ci/__tests__/feature-workflow-runtime.test.ts:114 | excluded |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:665 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:682 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:698 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:712 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:723 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:739 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:752 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:765 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:780 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:793 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:813 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:821 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:832 | killed | E-CONT-1 |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:861 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:continuation:876 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:568 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:581 | killed | E-CONT-2 |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:608 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:620 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:648 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:667 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:680 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:continuation:705 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:975 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:995 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1020 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1041 | killed |  |
+| scripts/ci/__tests__/red-team-mutation-runner.test.ts:corrective:1083 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:corrective:802 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:corrective:822 | killed |  |
+| scripts/ci/__tests__/red-team-status.test.ts:corrective:878 | killed |  |
