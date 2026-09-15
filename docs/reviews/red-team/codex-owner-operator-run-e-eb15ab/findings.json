@@ -5,11 +5,11 @@
   "branch": "codex/owner-operator-run-e",
   "fork_sha": "30896acbcb2ee127131504e531f230fcfc7e4409",
   "merge_base_sha": "30896acbcb2ee127131504e531f230fcfc7e4409",
-  "head_sha": "263fe7e3def2ebd1cae4f76de146c7822b278d9a",
+  "head_sha": "ba0c65bb3a3665ed10a6441d27917802819ad4c1",
   "intake_sha256": "ddcef1773537438c852ba04eb01a8447d68fec58c33401403dd2dc0e7fd7029b",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-15T08:10:25.181Z",
+  "generated_at": "2026-09-15T10:53:56.036Z",
   "inventory": [
     {
       "id": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:81",
@@ -2484,8 +2484,8 @@
       "id": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133",
       "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
       "test": "worker retries the model call once on invalid output and fails the turn model_output_invalid on the second failure",
-      "outcome": "excluded",
-      "reason": "Discovery correction (root ACCEPT): Both mocked outputs fail existing text validation before assembly. The validator entry may execute changed code, but no Restore proposal or refusal is supplied and assertions concern retry accounting and model_output_invalid only. It is not a whole-validator unreachability claim."
+      "outcome": "killed",
+      "reason": "Historical776 disposition excluded: Discovery correction (root ACCEPT): Both mocked outputs fail existing text validation before assembly. The validator entry may execute changed code, but no Restore proposal or refusal is supplied and assertions concern retry accounting and model_output_invalid only. It is not a whole-validator unreachability claim. New diagnostic contract reactivated the same identity. Round2 record392, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch783 PASS and mutant launch784 FAILED, exactly one selected case in each; killed. Target src/lib/agents/operator/model-call.ts: \"rejection_codes: semanticRejectionCodes(validated.reasons).join(','),\" → \"rejection_codes: (attempt += 1, semanticRejectionCodes(validated.reasons).join(',')),\". Makes the newly added diagnostic expression consume a retry number. The real worker fixture then calls the model once instead of the asserted twice; diagnostic computation must preserve retry/billing behavior.  Failure: AssertionError: expected \"vi.fn()\" to be called 2 times, but got 1 times at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1149:26 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-r. Evidence /private/tmp/run-e-round2-measure/392.baseline.json, /private/tmp/run-e-round2-measure/392.mutant.json, /private/tmp/run-e-round2-measure/392.baseline.log, /private/tmp/run-e-round2-measure/392.mutant.log."
     },
     {
       "id": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1169",
@@ -17002,6 +17002,83 @@
       "test": "the committed Run E second-pass proof same-round continuation certification finite corrective admission certification rejects renamed or stripped corrective reports and missing-report waivers without opening a third round",
       "outcome": "killed",
       "reason": "Round2 record318, HEAD 263fe7e3def2ebd1cae4f76de146c7822b278d9a, baseline launch635 PASS and mutant launch636 FAILED, exactly one selected case in each; adjudication killed. Target .agents/skills/feature/scripts/red-team-status.mjs: \"if (requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {\" → \"if (false && requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {\". Disable the new corrective ancestry obligation in the missing-report branch, allowing the old normal-risk waiver to bypass corrective certification.  Failure evidence: AssertionError: codex/owner-operator-run-e: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:889:49 at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/co. JSON/log evidence /private/tmp/run-e-round2-measure/318.baseline.json, /private/tmp/run-e-round2-measure/318.mutant.json, /private/tmp/run-e-round2-measure/318.baseline.log, /private/tmp/run-e-round2-measure/318.mutant.log. Final latest required outcome is killed. Root finalized all source restoration and776 process groups at 2026-09-15T08:03:51.538213+00:00."
+    },
+    {
+      "id": "src/lib/agents/operator/__tests__/render.test.ts:staging:73",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "operator output validator distinguishes completion, scope and reference rejection diagnostics from real validation",
+      "outcome": "killed",
+      "reason": "Round2 record389, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch777 PASS and mutant launch778 FAILED, exactly one selected case in each; killed. Target src/lib/agents/operator/render.ts: \"['a text segment claims a completion;', 'completion_claim'],\" → \"['a text segment claims a completion;', 'invented_count'],\". Misclassifies an actual completion rejection as an invented count; the real-validator closed-code array assertion changes.  Failure: AssertionError: expected [ 'invented_count', …(2) ] to deeply equal [ 'completion_claim', …(2) ] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/render.test.ts:83:52 at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/. Evidence /private/tmp/run-e-round2-measure/389.baseline.json, /private/tmp/run-e-round2-measure/389.mutant.json, /private/tmp/run-e-round2-measure/389.baseline.log, /private/tmp/run-e-round2-measure/389.mutant.log."
+    },
+    {
+      "id": "src/lib/agents/operator/__tests__/render.test.ts:staging:88",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "operator output validator never copies model-controlled reason suffixes or unknown reasons into diagnostic codes",
+      "outcome": "killed",
+      "reason": "Round2 record390, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch779 PASS and mutant launch780 FAILED, exactly one selected case in each; killed. Target src/lib/agents/operator/render.ts: \"?? 'unknown_semantic_rejection'\" → \"?? (reason as SemanticRejectionCode)\". Returns unknown raw model-controlled text instead of the fixed fallback code; the private sentinel/unknown-code assertions detect leakage.  Failure: AssertionError: expected [ 'unknown_status_metric', …(6) ] to deeply equal [ 'unknown_status_metric', …(6) ] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/render.test.ts:99:19 at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modu. Evidence /private/tmp/run-e-round2-measure/390.baseline.json, /private/tmp/run-e-round2-measure/390.mutant.json, /private/tmp/run-e-round2-measure/390.baseline.log, /private/tmp/run-e-round2-measure/390.mutant.log."
+    },
+    {
+      "id": "src/lib/agents/operator/__tests__/model-call.test.ts:staging:102",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts",
+      "test": "operator model call logs only closed rejection codes with the existing attempt metadata for semantic failures",
+      "outcome": "killed",
+      "reason": "Round2 record391, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch781 PASS and mutant launch782 FAILED, exactly one selected case in each; killed. Target src/lib/agents/operator/model-call.ts: \"rejection_codes: semanticRejectionCodes(validated.reasons).join(','),\" → \"rejection_codes: semanticRejectionCodes(validated.reasons),\". Reintroduces the reviewed array serialization defect: the real logger sanitizer drops the array, and emitted JSON lacks the asserted scalar codes.  Failure: AssertionError: expected [ { …(6) }, { …(6) } ] to deeply equal [ ObjectContaining{…}, …(1) ] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/model-call.test.ts:116:71 at processTicksAndRejections (node:internal/process/task_queues:104:5) at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-ope. Evidence /private/tmp/run-e-round2-measure/391.baseline.json, /private/tmp/run-e-round2-measure/391.mutant.json, /private/tmp/run-e-round2-measure/391.baseline.log, /private/tmp/run-e-round2-measure/391.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1047",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run E second pass Run E same-round continuation Run E finite corrective admission Run E finite staging diagnostic admission pins the staging diagnostic before its next launch and preserves all three historical admissions",
+      "outcome": "killed",
+      "reason": "Round2 record393, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch785 PASS and mutant launch786 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"journal.stagingCorrectionAdmission = authorization.stagingCorrectionAdmission;\" → \"void authorization.stagingCorrectionAdmission;\". Omits the new durable pin before child release; the child-observed journal has no staging pin.  Failure: AssertionError: expected undefined to deeply equal { …(4) } at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1057:55 at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:. Evidence /private/tmp/run-e-round2-measure/393.baseline.json, /private/tmp/run-e-round2-measure/393.mutant.json, /private/tmp/run-e-round2-measure/393.baseline.log, /private/tmp/run-e-round2-measure/393.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1067",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run E second pass Run E same-round continuation Run E finite corrective admission Run E finite staging diagnostic admission requires a clean first staging baseline and restores a later journaled diagnostic mutant",
+      "outcome": "killed",
+      "reason": "Round2 record394, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch787 PASS and mutant launch788 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"if (journal.stagingCorrectionAdmission === undefined) {\\n      if (!allowUnpinned || journal.runs !== checkpoint.runs\\n        || Object.keys(journal).sort().join(',') !== keys\\n        || JSON.stringify(journal) !== JSON.stringify(checkpoint)\\n        || git(root, ['diff', '--name-only', 'HEAD'])\\n        || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;\" → \"if (journal.stagingCorrectionAdmission === undefined) {\\n      if (!allowUnpinned || journal.runs !== checkpoint.runs\\n        || Object.keys(journal).sort().join(',') !== keys) return null;\". Drops exact first-checkpoint and clean-tree conditions while retaining ordinary round/shape admission. A matching journaled mutant can become the first baseline; the public refusal witness observes an executed child.  Failure: AssertionError: journaled dirty first staging baseline: expected +0 to be 1 // Object.is equality at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutat. Evidence /private/tmp/run-e-round2-measure/394.baseline.json, /private/tmp/run-e-round2-measure/394.mutant.json, /private/tmp/run-e-round2-measure/394.baseline.log, /private/tmp/run-e-round2-measure/394.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1089",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run E second pass Run E same-round continuation Run E finite corrective admission Run E finite staging diagnostic admission rejects altered staging checkpoint history, diagnostic blobs, and unreviewed paths without a child",
+      "outcome": "killed",
+      "reason": "Round2 record395, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch789 PASS and mutant launch790 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"for (const [path, blob] of blobs) {\\n      if (git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\\\\t${path}`) return null;\" → \"for (const [path, blob] of blobs) {\\n      if (false && git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\\\\t${path}`) return null;\". Disables the exact diagnostic blob comparison. The first altered-content variant still has approved ancestry/path but now executes a child.  Failure: AssertionError: staging evidence 0: expected +0 to be 1 // Object.is equality at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1. Evidence /private/tmp/run-e-round2-measure/395.baseline.json, /private/tmp/run-e-round2-measure/395.mutant.json, /private/tmp/run-e-round2-measure/395.baseline.log, /private/tmp/run-e-round2-measure/395.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1105",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run E second pass Run E same-round continuation Run E finite corrective admission Run E finite staging diagnostic admission refuses staging counter rollback, changed old pins, stripped admissions, and renamed round resets",
+      "outcome": "killed",
+      "reason": "Round2 record396, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch791 PASS and mutant launch792 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"|| ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission']\\n        .some((key) => JSON.stringify(journal[key]) !== JSON.stringify(checkpoint[key]))\" → \"|| ['budgetAuthorization', 'continuationAdmission']\\n        .some((key) => JSON.stringify(journal[key]) !== JSON.stringify(checkpoint[key]))\". Stops preserving the live correctiveAdmission pin. The explicit changed-corrective-firstRun witness becomes accepted while the frozen historical proof itself stays valid.  Failure: AssertionError: corrective pin changed: expected +0 to be 1 // Object.is equality at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.. Evidence /private/tmp/run-e-round2-measure/396.baseline.json, /private/tmp/run-e-round2-measure/396.mutant.json, /private/tmp/run-e-round2-measure/396.baseline.log, /private/tmp/run-e-round2-measure/396.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1136",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run E second pass Run E same-round continuation Run E finite corrective admission Run E finite staging diagnostic admission allows staging launch 1600 but refuses 1601, third-round prose, and a second staging candidate",
+      "outcome": "killed",
+      "reason": "Round2 record397, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch793 PASS and mutant launch794 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"|| JSON.stringify(journal.stagingCorrectionAdmission) !== JSON.stringify(stagingCorrectionAdmission)\" → \"|| false\". Disables exact staging-pin equality. The final within-cap second-candidate witness executes, even though earlier cap/third-round checks still reject their inputs.  Failure: AssertionError: second staging candidate: expected +0 to be 1 // Object.is equality at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.tes. Evidence /private/tmp/run-e-round2-measure/397.baseline.json, /private/tmp/run-e-round2-measure/397.mutant.json, /private/tmp/run-e-round2-measure/397.baseline.log, /private/tmp/run-e-round2-measure/397.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-status.test.ts:staging:887",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run E second-pass proof same-round continuation certification finite corrective admission certification finite staging diagnostic certification certifies an empty-waiver staging report with the frozen completed report and all four pins",
+      "outcome": "killed",
+      "reason": "Round2 record398, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch795 PASS and mutant launch796 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"} else if (journal.runs <= checkpoint.runs\\n      || Object.keys(journal).sort().join(',') !== keys.replace('supervisors,', 'stagingCorrectionAdmission,supervisors,')\" → \"} else if (journal.runs <= checkpoint.runs + 1\\n      || Object.keys(journal).sort().join(',') !== keys.replace('supervisors,', 'stagingCorrectionAdmission,supervisors,')\". Off-by-one proof rejects the first legitimately pinned added launch; the positive public checker expects successful certification.  Failure: AssertionError: expected { status: 1, stdout: '', …(1) } to match object { status: +0, stderr: '' } (1 matching property omitted from actual) at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1283:10) at Proxy.<anonymous> (file:///Users/norbertesekiel/. Evidence /private/tmp/run-e-round2-measure/398.baseline.json, /private/tmp/run-e-round2-measure/398.mutant.json, /private/tmp/run-e-round2-measure/398.baseline.log, /private/tmp/run-e-round2-measure/398.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-status.test.ts:staging:911",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run E second-pass proof same-round continuation certification finite corrective admission certification finite staging diagnostic certification rejects staging certification with corrupted checkpoints, old pins, closed history, or diagnostic blobs",
+      "outcome": "killed",
+      "reason": "Round2 record399, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch797 PASS and mutant launch798 FAILED, exactly one selected case in each; killed. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"const proof = validateRunECorrectiveAdmission(root, checkpoint, RUN_E_STAGING_PREDECESSOR);\\n    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2\\n      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600\\n      || !Array.isArray(journal.supervisors) || journal.supervisors.length !== journal.runs\" → \"const proof = validateRunECorrectiveAdmission(root, checkpoint, RUN_E_STAGING_PREDECESSOR);\\n    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2\\n      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600\\n      || !Array.isArray(journal.supervisors) || false\". Removes only the new live supervisor-count check. The counter-without-supervisor witness preserves all frozen prefixes and pins, so public certification incorrectly succeeds.  Failure: AssertionError: counter lacks supervisor: expected +0 to be 1 // Object.is equality at expectCorrectiveRejected (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:797:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:926:13 at fi. Evidence /private/tmp/run-e-round2-measure/399.baseline.json, /private/tmp/run-e-round2-measure/399.mutant.json, /private/tmp/run-e-round2-measure/399.baseline.log, /private/tmp/run-e-round2-measure/399.mutant.log."
+    },
+    {
+      "id": "scripts/ci/__tests__/red-team-status.test.ts:staging:955",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run E second-pass proof same-round continuation certification finite corrective admission certification finite staging diagnostic certification rejects missing or downgraded staging reports and a later candidate even with renamed stripped journals",
+      "outcome": "killed",
+      "reason": "Round2 record400, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch799 PASS and mutant launch800 PASSED, exactly one selected case in each; inconclusive-target-selection. Target .agents/skills/red-team/scripts/mutation-runner.mjs: \"|| JSON.stringify(journal.stagingCorrectionAdmission) !== JSON.stringify(stagingCorrectionAdmission)\" → \"|| false\". The final later-report-head witness shows certification cannot move the staging pin. Removing equality wrongly certifies that later candidate; this independently tests the checker interface, not only the runner. The later-head checker witness includes the post-admission report publication commit. The candidate changed-path allowlist rejects those report artifact paths before the mutated staging pin equality. Missing-report and downgraded-round legs also reject independently of that equality. Failure: none (mutant passed). Evidence /private/tmp/run-e-round2-measure/400.baseline.json, /private/tmp/run-e-round2-measure/400.mutant.json, /private/tmp/run-e-round2-measure/400.baseline.log, /private/tmp/run-e-round2-measure/400.mutant.log. Earlier attempt remains evidence; later attempt follows. Round2 record401, HEAD ba0c65bb3a3665ed10a6441d27917802819ad4c1, baseline launch801 PASS and mutant launch802 FAILED, exactly one selected case in each; killed. Target .agents/skills/feature/scripts/red-team-status.mjs: \"fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);\" → \"process.exit(0);\". Turn the exact mandatory missing-report denial into false process success. This case explicitly removes the report and strips the journal before requiring denial; it directly tests the existing missing-report contract.  Failure: AssertionError: missing report cannot use a low-risk or stripped-journal fallback: expected +0 to be 1 // Object.is equality at expectCorrectiveRejected (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:797:38) at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tes. Evidence /private/tmp/run-e-round2-measure/401.baseline.json, /private/tmp/run-e-round2-measure/401.mutant.json, /private/tmp/run-e-round2-measure/401.baseline.log, /private/tmp/run-e-round2-measure/401.mutant.log."
     }
   ],
   "findings": [
@@ -17119,13 +17196,13 @@
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 2426,
-    "killed": 349,
+    "inventory_total": 2437,
+    "killed": 361,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 2077,
+    "excluded": 2076,
     "findings_total": 12,
     "p0_open": 0,
     "p1_open": 0,
