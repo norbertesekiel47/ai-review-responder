@@ -799,6 +799,188 @@ describe('the committed Run E second-pass proof', () => {
         expect(readFileSync(join(repo, journalPath), 'utf8'), label).toBe(before);
       }
 
+
+      describe('finite staging diagnostic certification', () => {
+        const diagnosticPath = 'src/diagnostic.ts';
+        const diagnosticCode = 'export const diagnostic = "closed";\n';
+        const stagingRuns = 128;
+        type StagingJournal = CorrectiveJournal & { stagingCorrectionAdmission?: CorrectivePin };
+
+        function prepareStaging(options: {
+          changeDocument?: (document: string) => string;
+          diagnosticContents?: string;
+          extraPath?: string;
+        } = {}) {
+          const previous = prepareCorrective();
+          previous.final.inventory.push({
+            id: 'src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133',
+            file: KILLED_ROW.file, test: 'existing real semantic-warning path',
+            outcome: 'excluded', reason: 'Previously outside the changed contract.',
+          });
+          previous.final.counts = countsFor(previous.final);
+          write(report, JSON.stringify(previous.final));
+          git('add', report);
+          git('commit', '-qm', 'freeze the previously excluded diagnostic caller');
+          const historicalText = readFileSync(join(repo, report), 'utf8');
+          const historicalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+          const publication = git('rev-parse', 'HEAD');
+          const checkpoint: StagingJournal = {
+            ...structuredClone(previous.journal), runs: stagingRuns,
+            supervisors: [...previous.journal.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 127, active: false }],
+          };
+          write(diagnosticPath, options.diagnosticContents ?? diagnosticCode);
+          git('add', diagnosticPath);
+          git('commit', '-qm', 'intermediate diagnostic candidate');
+          const diagnosticHead = git('rev-parse', 'HEAD');
+          const checkpointSha256 = sha256(JSON.stringify(checkpoint));
+          const runnerPath = join(repo, 'fixture-e-runner.mjs');
+          let source = readFileSync(runnerPath, 'utf8');
+          for (const [name, value] of Object.entries({
+            RUN_E_STAGING_PREDECESSOR: previous.pin.headSha,
+            RUN_E_STAGING_PUBLICATION: publication,
+            RUN_E_STAGING_DIAGNOSTIC: diagnosticHead,
+            RUN_E_STAGING_CHECKPOINT_SHA256: checkpointSha256,
+            RUN_E_STAGING_REPORT_SHA256: sha256(historicalText),
+            RUN_E_STAGING_MARKDOWN_SHA256: sha256(historicalMarkdown),
+          })) {
+            const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+            expect(source.match(anchor)).toHaveLength(1);
+            source = source.replace(anchor, `const ${name} = '${value}';`);
+          }
+          const blob = createHash('sha1').update(`blob ${Buffer.byteLength(diagnosticCode)}\0${diagnosticCode}`).digest('hex');
+          const runsAnchor = /const RUN_E_STAGING_CHECKPOINT_RUNS = \d+;/g;
+          const blobsAnchor = /const RUN_E_STAGING_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+          expect(source.match(runsAnchor)).toHaveLength(1);
+          expect(source.match(blobsAnchor)).toHaveLength(1);
+          source = source.replace(runsAnchor, `const RUN_E_STAGING_CHECKPOINT_RUNS = ${stagingRuns};`)
+            .replace(blobsAnchor, `const RUN_E_STAGING_BLOBS = Object.freeze(${JSON.stringify({ [diagnosticPath]: blob })});`);
+          writeFileSync(runnerPath, source);
+          const document = readFileSync(join(repo, scopePath), 'utf8') + section('STAGING_CHECKPOINT_776', checkpoint);
+          write(scopePath, options.changeDocument?.(document) ?? document);
+          git('add', scopePath);
+          if (options.extraPath) {
+            write(options.extraPath, 'unreviewed\n');
+            git('add', options.extraPath);
+          }
+          git('commit', '-qm', 'finite staging proof candidate');
+          const headSha = git('rev-parse', 'HEAD');
+          const pin: CorrectivePin = {
+            headSha, predecessorHeadSha: previous.pin.headSha, checkpointSha256, firstRun: stagingRuns + 1,
+          };
+          const journal: StagingJournal = {
+            ...structuredClone(checkpoint), runs: stagingRuns + 1,
+            supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - stagingRuns, active: false }],
+            stagingCorrectionAdmission: pin,
+          };
+          previous.final.head_sha = headSha;
+          previous.final.inventory.at(-1)!.outcome = 'killed';
+          previous.final.inventory.at(-1)!.reason = 'A new individual baseline and meaningful diagnostic-path mutant were measured.';
+          previous.final.counts = countsFor(previous.final);
+          write(report, JSON.stringify(previous.final));
+          write(markdown, historicalMarkdown + '\n# Staging diagnostic final evidence\n');
+          git('add', report, markdown);
+          git('commit', '-qm', 'publish staging evidence after immutable admission');
+          write(journalPath, JSON.stringify(journal));
+          return { ...previous, checkpoint, journal, pin, historicalText, historicalMarkdown, document };
+        }
+
+        it('certifies an empty-waiver staging report with the frozen completed report and all four pins', () => {
+          prepareCorrective();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          recreateFixture();
+          const fixture = prepareStaging();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          expect(fixture.final.authorizations).toEqual([]);
+          expect(fixture.journal.stagingCorrectionAdmission).toEqual(fixture.pin);
+          for (const key of ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission'] as const) {
+            expect(fixture.journal[key]).toEqual(fixture.checkpoint[key]);
+          }
+          const capped = structuredClone(fixture.journal);
+          capped.supervisors.push(...Array.from({ length: 1600 - capped.runs }, (_, index) => ({
+            pgid: Number.MAX_SAFE_INTEGER - capped.runs - index, active: false,
+          })));
+          capped.runs = 1600;
+          write(journalPath, JSON.stringify(capped));
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          capped.runs = 1601;
+          capped.supervisors.push({ pgid: Number.MAX_SAFE_INTEGER - 1600, active: false });
+          write(journalPath, JSON.stringify(capped));
+          expectCorrectiveRejected('staging report above cumulative cap');
+        }, 30_000);
+
+        it('rejects staging certification with corrupted checkpoints, old pins, closed history, or diagnostic blobs', () => {
+          const fixture = prepareStaging();
+          const changes: Array<[string, (journal: StagingJournal) => void]> = [
+            ['staging pin absent', (value) => { delete value.stagingCorrectionAdmission; }],
+            ['zero added launches', (value) => { value.runs = stagingRuns; value.supervisors.pop(); }],
+            ['counter lacks supervisor', (value) => { value.runs += 1; }],
+            ['old admission changed', (value) => { value.correctiveAdmission!.headSha = '0'.repeat(40); }],
+            ['staging checkpoint changed', (value) => { value.stagingCorrectionAdmission!.checkpointSha256 = '0'.repeat(64); }],
+            ['open supervisor', (value) => { value.supervisors.at(-1)!.active = true; }],
+            ['open mutation', (value) => { value.mutations[0]!.state = 'prepared'; }],
+          ];
+          for (const [label, change] of changes) {
+            const value = structuredClone(fixture.journal);
+            change(value);
+            write(journalPath, JSON.stringify(value));
+            expectCorrectiveRejected(label);
+          }
+          write(journalPath, JSON.stringify(fixture.journal));
+          const unmeasured = structuredClone(fixture.final);
+          unmeasured.inventory.at(-1)!.outcome = 'excluded';
+          unmeasured.inventory.at(-1)!.reason = 'Previously outside the changed contract.';
+          unmeasured.counts = countsFor(unmeasured);
+          write(report, JSON.stringify(unmeasured));
+          expectCorrectiveRejected('newly affected warning path cannot retain its historical exclusion');
+          const changedReport = structuredClone(fixture.final);
+          changedReport.inventory[0]!.reason = 'rewrite a finalized historical reason';
+          write(report, JSON.stringify(changedReport));
+          expectCorrectiveRejected('rewritten finalized row');
+          write(report, JSON.stringify(fixture.final));
+          write(markdown, fixture.admissionMarkdown + '\nDiscarded completed corrective evidence\n');
+          expectCorrectiveRejected('missing frozen completed Markdown prefix');
+          for (const options of [
+            { diagnosticContents: diagnosticCode + '// unreviewed\n' },
+            { extraPath: 'src/unreviewed.ts' },
+            { changeDocument: (document: string) => document.replace('"runs":128', '"runs":127') },
+          ]) {
+            recreateFixture();
+            const altered = prepareStaging(options);
+            expectCorrectiveRejected('changed committed staging proof');
+            write(scopePath, altered.document);
+            expectCorrectiveRejected('live repaired document is not committed proof');
+          }
+        }, 30_000);
+
+        it('rejects missing or downgraded staging reports and a later candidate even with renamed stripped journals', () => {
+          for (const currentBranch of [branch, 'codex/renamed-staging-report']) {
+            recreateFixture();
+            const fixture = prepareStaging();
+            git('branch', '-m', currentBranch);
+            rmSync(join(repo, report));
+            write(journalPath, JSON.stringify({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } }));
+            expectCorrectiveRejected('missing report cannot use a low-risk or stripped-journal fallback');
+            for (const round of [1, 3]) {
+              const downgraded = structuredClone(fixture.final);
+              downgraded.round = round;
+              if (round === 3) downgraded.authorizations.push({
+                id: 'forged-third', date: '2026-09-15', finding_ids: [], text: 'no third round; third round authorized',
+              });
+              write(report, JSON.stringify(downgraded));
+              expectCorrectiveRejected('report round label cannot bypass staging proof');
+            }
+          }
+          recreateFixture();
+          const fixture = prepareStaging();
+          write(scopePath, fixture.document + '\nAnother candidate is not admitted.\n');
+          git('add', scopePath);
+          git('commit', '-qm', 'later staging candidate');
+          fixture.final.head_sha = git('rev-parse', 'HEAD');
+          write(report, JSON.stringify(fixture.final));
+          expectCorrectiveRejected('new report head cannot replace the pinned staging candidate');
+        }, 30_000);
+      });
+
       it('certifies an empty-waiver corrective report with all three pins while preserving quiet original admission', () => {
         // Original fixtures do not bind the new corrective predecessor: its
         // missing-object probe must preserve the public clean-stderr contract.

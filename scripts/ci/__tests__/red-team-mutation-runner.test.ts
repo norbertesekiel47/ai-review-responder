@@ -972,6 +972,196 @@ describe('the owner-approved Run E second pass', () => {
         expect(existsSync(join(repo, '.feature/corrective-child-launched')), label).toBe(false);
       }
 
+
+      describe('Run E finite staging diagnostic admission', () => {
+        const diagnosticPath = 'src/diagnostic.ts';
+        const diagnosticCode = 'export const diagnostic = "closed";\n';
+        const stagingRuns = 128;
+        type StagingJournal = CorrectiveJournal & { stagingCorrectionAdmission?: CorrectivePin };
+
+        function prepareStaging(options: {
+          changeDocument?: (document: string) => string;
+          diagnosticContents?: string;
+          extraPath?: string;
+        } = {}) {
+          const previous = prepareCorrective();
+          const checkpoint: StagingJournal = {
+            ...structuredClone(previous.checkpoint), runs: stagingRuns,
+            correctiveAdmission: previous.pin,
+            mutations: [...previous.checkpoint.mutations, {
+              path: settingsPath, originalOid: git('rev-parse', `HEAD:${settingsPath}`),
+              mutantOid: git('rev-parse', `HEAD:${settingsPath}`), state: 'restored',
+            }],
+            supervisors: [...previous.checkpoint.supervisors, inactiveSupervisor(126), inactiveSupervisor(127)],
+          };
+          const historical = JSON.parse(read(report));
+          historical.round = 2;
+          historical.head_sha = previous.pin.headSha;
+          write(report, JSON.stringify(historical));
+          write(markdown, read(markdown) + '\n# Frozen completed corrective evidence\n');
+          git('add', report, markdown);
+          git('commit', '-qm', 'publish immutable completed corrective report');
+          const publication = git('rev-parse', 'HEAD');
+          write(diagnosticPath, options.diagnosticContents ?? diagnosticCode);
+          git('add', diagnosticPath);
+          git('commit', '-qm', 'intermediate diagnostic candidate');
+          const diagnosticHead = git('rev-parse', 'HEAD');
+          const checkpointSha256 = digest(checkpoint);
+          for (const [name, value] of Object.entries({
+            RUN_E_STAGING_PREDECESSOR: previous.pin.headSha,
+            RUN_E_STAGING_PUBLICATION: publication,
+            RUN_E_STAGING_DIAGNOSTIC: diagnosticHead,
+            RUN_E_STAGING_CHECKPOINT_SHA256: checkpointSha256,
+            RUN_E_STAGING_REPORT_SHA256: createHash('sha256').update(read(report)).digest('hex'),
+            RUN_E_STAGING_MARKDOWN_SHA256: createHash('sha256').update(read(markdown)).digest('hex'),
+          })) replaceContinuationAnchor(name, value);
+          const blob = createHash('sha1').update(`blob ${Buffer.byteLength(diagnosticCode)}\0${diagnosticCode}`).digest('hex');
+          let source = readFileSync(runner, 'utf8');
+          const runsAnchor = /const RUN_E_STAGING_CHECKPOINT_RUNS = \d+;/g;
+          const blobsAnchor = /const RUN_E_STAGING_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+          expect(source.match(runsAnchor)).toHaveLength(1);
+          expect(source.match(blobsAnchor)).toHaveLength(1);
+          source = source.replace(runsAnchor, `const RUN_E_STAGING_CHECKPOINT_RUNS = ${stagingRuns};`)
+            .replace(blobsAnchor, `const RUN_E_STAGING_BLOBS = Object.freeze(${JSON.stringify({ [diagnosticPath]: blob })});`);
+          writeFileSync(runner, source);
+          const document = read(reviewDocument) + section('STAGING_CHECKPOINT_776', checkpoint);
+          write(reviewDocument, options.changeDocument?.(document) ?? document);
+          git('add', reviewDocument);
+          if (options.extraPath) {
+            write(options.extraPath, 'unreviewed\n');
+            git('add', options.extraPath);
+          }
+          git('commit', '-qm', 'finite staging admission support');
+          const headSha = git('rev-parse', 'HEAD');
+          const pin: CorrectivePin = {
+            headSha, predecessorHeadSha: previous.pin.headSha, checkpointSha256, firstRun: stagingRuns + 1,
+          };
+          writeJournal(checkpoint);
+          return { checkpoint, pin, document };
+        }
+
+        function stagingJournal(): StagingJournal {
+          return JSON.parse(read('.feature/red-team-journal.json')) as StagingJournal;
+        }
+
+        it('pins the staging diagnostic before its next launch and preserves all three historical admissions', () => {
+          prepareCorrective();
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true')).toMatchObject({ status: 0, stderr: '' });
+          resetCorrectiveFixture();
+          const fixture = prepareStaging();
+          const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+            'const fs=require("node:fs");fs.writeFileSync(".feature/staging-observed.json",fs.readFileSync(".feature/red-team-journal.json"))');
+          expect(result).toMatchObject({ status: 0, stderr: '' });
+          const observed = JSON.parse(read('.feature/staging-observed.json')) as StagingJournal;
+          expect(observed.runs).toBe(stagingRuns + 1);
+          expect(observed.stagingCorrectionAdmission).toEqual(fixture.pin);
+          for (const key of ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission'] as const) {
+            expect(observed[key]).toEqual(fixture.checkpoint[key]);
+          }
+          expect(observed.mutations).toEqual(fixture.checkpoint.mutations);
+          expect(observed.supervisors.slice(0, stagingRuns)).toEqual(fixture.checkpoint.supervisors);
+          expect(observed.supervisors[stagingRuns]?.active).toBe(true);
+          expect(stagingJournal().supervisors[stagingRuns]?.active).toBe(false);
+        }, 30_000);
+
+        it('requires a clean first staging baseline and restores a later journaled diagnostic mutant', () => {
+          prepareStaging();
+          write('.feature/staging-mutant.ts', diagnosticCode + '// mutant\n');
+          expect(run('mutate', '--file', diagnosticPath, '--mutant', join(repo, '.feature/staging-mutant.ts')).status).toBe(0);
+          expectCorrectiveRefused('journaled dirty first staging baseline');
+          expect(stagingJournal().stagingCorrectionAdmission).toBeUndefined();
+          expect(run('finalize').status).toBe(0);
+          expectCorrectiveRefused('first checkpoint cannot acquire an extra restored mutation');
+          resetCorrectiveFixture();
+          const secondFixture = prepareStaging();
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+          write('.feature/staging-mutant.ts', diagnosticCode + '// mutant\n');
+          expect(run('mutate', '--file', diagnosticPath, '--mutant', join(repo, '.feature/staging-mutant.ts')).status).toBe(0);
+          expect(run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+            `process.exit(require('node:fs').readFileSync('${diagnosticPath}','utf8').includes('// mutant')?0:7)`).status).toBe(0);
+          expect(stagingJournal().runs).toBe(stagingRuns + 2);
+          expect(stagingJournal().mutations.slice(0, secondFixture.checkpoint.mutations.length)).toEqual(secondFixture.checkpoint.mutations);
+          expect(run('finalize').status).toBe(0);
+          expect(read(diagnosticPath)).toBe(diagnosticCode);
+          expect(stagingJournal().mutations.at(-1)?.state).toBe('restored');
+        }, 30_000);
+
+        it('rejects altered staging checkpoint history, diagnostic blobs, and unreviewed paths without a child', () => {
+          const variants: Array<Parameters<typeof prepareStaging>[0]> = [
+            { diagnosticContents: diagnosticCode + '// changed\n' },
+            { extraPath: 'src/unreviewed.ts' },
+            { changeDocument: (document) => document.replace('STAGING_CHECKPOINT_776_START', 'UNCOMMITTED_CHECKPOINT_START') },
+            { changeDocument: (document) => document.replace('"runs":128', '"runs":127') },
+          ];
+          for (const [index, options] of variants.entries()) {
+            resetCorrectiveFixture();
+            const fixture = prepareStaging(options);
+            expectCorrectiveRefused(`staging evidence ${index}`);
+            write(reviewDocument, fixture.document);
+            expectCorrectiveRefused(`live repair cannot replace committed evidence ${index}`);
+          }
+        }, 30_000);
+
+        it('refuses staging counter rollback, changed old pins, stripped admissions, and renamed round resets', () => {
+          prepareStaging();
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+          const pinned = stagingJournal();
+          const changes: Array<[string, (journal: StagingJournal) => void]> = [
+            ['staging pin missing', (value) => { delete value.stagingCorrectionAdmission; }],
+            ['counter rollback', (value) => { value.runs = stagingRuns; value.supervisors.pop(); }],
+            ['counter without supervisor', (value) => { value.runs += 1; }],
+            ['supervisor prefix changed', (value) => { value.supervisors[0]!.active = true; }],
+            ['mutation prefix changed', (value) => { value.mutations[0]!.state = 'prepared'; }],
+            ['original pin changed', (value) => { value.budgetAuthorization.headSha = '0'.repeat(40); }],
+            ['continuation pin changed', (value) => { value.continuationAdmission!.firstRun = 126; }],
+            ['corrective pin changed', (value) => { value.correctiveAdmission!.firstRun = 128; }],
+            ['staging pin changed', (value) => { value.stagingCorrectionAdmission!.firstRun = 128; }],
+          ];
+          for (const [label, change] of changes) {
+            const value = structuredClone(pinned);
+            change(value);
+            writeJournal(value);
+            expectCorrectiveRefused(label);
+          }
+          for (const branch of ['codex/owner-operator-run-e', 'codex/renamed-staging-diagnostic']) {
+            git('branch', '-m', branch);
+            writeJournal({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } });
+            expectCorrectiveRefused(branch);
+            const before = read('.feature/red-team-journal.json');
+            expect(run('round-start').status).toBe(1);
+            expect(read('.feature/red-team-journal.json')).toBe(before);
+          }
+        }, 30_000);
+
+        it('allows staging launch 1600 but refuses 1601, third-round prose, and a second staging candidate', () => {
+          prepareStaging();
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+          const capped = stagingJournal();
+          capped.supervisors.push(...Array.from({ length: 1599 - capped.runs }, (_, index) => inactiveSupervisor(capped.runs + index)));
+          capped.runs = 1599;
+          writeJournal(capped);
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+          expect(stagingJournal().runs).toBe(1600);
+          expectCorrectiveRefused('staging launch 1601');
+          for (const text of ['no third round', 'third round authorized']) {
+            const value = stagingJournal();
+            value.round = 3;
+            writeJournal(value);
+            const sidecar = JSON.parse(read(report));
+            sidecar.authorizations.push({ id: 'forged', date: '2026-09-15', finding_ids: [], text });
+            write(report, JSON.stringify(sidecar));
+            expectCorrectiveRefused(text);
+          }
+          resetCorrectiveFixture();
+          prepareStaging();
+          expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+          write(reviewDocument, read(reviewDocument) + '\nAnother candidate is not admitted.\n');
+          git('add', reviewDocument);
+          git('commit', '-qm', 'second staging candidate below cap');
+          expectCorrectiveRefused('second staging candidate');
+        }, 30_000);
+      });
+
       it('pins the finite Run E correction before launch N+1 and preserves both earlier admissions', () => {
         // Exercise the real missing-predecessor probe before rebinding its anchor.
         prepareContinuation();

@@ -42,6 +42,7 @@ import {
   runCFourthAuthorization, validRunCFourthReport,
   runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
   requiresRunECorrectiveAdmission, validateRunECorrectiveAdmission,
+  requiresRunEStagingAdmission, validateRunEStagingAdmission,
 } from '../../red-team/scripts/mutation-runner.mjs';
 
 const RUN_E_BRANCH = 'codex/owner-operator-run-e';
@@ -535,14 +536,35 @@ function validRunEReport(root, sidecar, sidecarPath, journal) {
   const pin = journal.budgetAuthorization;
   if (!isPlainObject(pin) || pin.id !== RUN_E_GRANT || pin.maxRuns !== 1600
     || pin.firstRun !== 1) return false;
-  const correcting = requiresRunECorrectiveAdmission(root, journal, sidecar.head_sha);
+  const staging = requiresRunEStagingAdmission(root, journal, sidecar.head_sha);
+  const correcting = staging || requiresRunECorrectiveAdmission(root, journal, sidecar.head_sha);
   const continuing = correcting || requiresRunEContinuation(root, journal, sidecar.head_sha);
-  const proof = correcting
+  const proof = staging ? validateRunEStagingAdmission(root, journal, sidecar.head_sha) : correcting
     ? validateRunECorrectiveAdmission(root, journal, sidecar.head_sha)
     : continuing ? validateRunEContinuation(root, journal, sidecar.head_sha)
       : validateRunEAdmission(root, pin.headSha);
   if (!proof || (!continuing && (pin.headSha !== sidecar.head_sha
     || ['id', 'maxRuns', 'sha256', 'headSha'].some((key) => pin[key] !== proof.grant[key])))) return false;
+  // A new diagnostic row may reactivate this previously excluded real warning path.
+  // Every other finalized row and finding remains byte-for-byte evidence.
+  if (staging) {
+    const historical = proof.stagingHistoricalReport;
+    const affectedId = 'src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133';
+    if (sidecar.inventory.length < historical.inventory.length
+      || !historical.inventory.some((row) => row.id === affectedId)) return false;
+    for (const [index, row] of historical.inventory.entries()) {
+      const current = sidecar.inventory[index];
+      if (row.id === affectedId) {
+        if (current.outcome === 'excluded'
+          || ['id', 'file', 'test'].some((key) => current[key] !== row[key])
+          || !nonEmptyString(current.reason)
+          || (current.outcome !== row.outcome && current.reason === row.reason)) return false;
+      } else if (JSON.stringify(current) !== JSON.stringify(row)) return false;
+    }
+    for (const row of historical.findings) {
+      if (JSON.stringify(sidecar.findings.find((finding) => finding.id === row.id)) !== JSON.stringify(row)) return false;
+    }
+  }
   let scopeCorrections;
   try {
     scopeCorrections = runEScopeCorrections(root, proof.grant.headSha);
@@ -564,7 +586,8 @@ function validRunEReport(root, sidecar, sidecarPath, journal) {
     if (JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
       !== JSON.stringify(proof.intake)) return false;
     const markdown = readFileSync(join(root, sidecarPath.replace(/\.json$/, '.md')));
-    if (!markdown.subarray(0, proof.admissionMarkdown.length).equals(proof.admissionMarkdown)) return false;
+    if (!markdown.subarray(0, proof.admissionMarkdown.length).equals(proof.admissionMarkdown)
+      || (staging && !markdown.toString('utf8').startsWith(proof.stagingHistoricalMarkdown))) return false;
   } catch {
     return false;
   }
@@ -732,7 +755,8 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
-    if (requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
+    if (requiresRunEStagingAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))
+      || requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
       fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);
     }
     // The risk-scoped waiver (2026-08-31). A feature-lane run requires the
@@ -794,7 +818,8 @@ function main(argv) {
 
   const journal = readJournal(root);
   // Checkout ancestry survives a forged report branch/round and stripped pins.
-  const correctiveProofRequired = requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);
+  const correctiveProofRequired = requiresRunEStagingAdmission(root, journal, sidecar?.head_sha)
+    || requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);
   if (correctiveProofRequired && sidecar?.round !== 2) {
     fail([...errors, 'Run E corrective admission retains round 2 regardless of report or journal labels']);
   }

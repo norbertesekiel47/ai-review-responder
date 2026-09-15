@@ -308,12 +308,12 @@ fixture correction after the `9f20dbecd2ce302494088a49cc3147bca96a3f27` continua
 checkpoint and the exact corrected test blobs, six existing verifier support paths and two append-only review/deviation
 documents. Both earlier pins, all journal prefixes, original evidence and the existing grant remain unchanged. A separate
 `correctiveAdmission` pins the candidate before checkpoint launch N+1. Its first baseline is clean; later launches require
-that exact candidate and matching journaled mutations. No further successor is admitted. Ancestry and pin checks prevent
+that exact candidate and matching journaled mutations. That corrective pin admits no further successor. Ancestry and pin checks prevent
 stripped journals, branch renames and report-round downgrades from reaching a generic allowance or a report waiver. Round 2,
 1,600 cumulative launches and at most two mutants per original case remain the limits across all pins. Changed contracts need
 fresh measurements within those limits; exhausted or unresolved cases remain incomplete. New safeguard identities are
 appended, never aliases for exhausted existing cases. The checkpoint constants must stay fail-closed until the root freezes
-the pass, reviews the exact final correction set and admits the verified committed candidate.
+the pass, reviews the exact final correction set and admits the verified committed candidate. **Finite staging diagnostic admission:** root adjudication additionally preserves the closed 776-launch checkpoint and all three pins, retaining exactly the reviewed 690a8792 diagnostic product/test blobs and incident document. One separate `stagingCorrectionAdmission` pins the final support candidate before launch 777; its frozen completed report, journal prefixes, exact surface, clean first baseline and later journaled mutations are checked. No further staging successor or generic budget is admitted. Intermediate staging diagnosis has only its recorded focused/build/pre-push evidence and stale red-team status; final certification requires the new exact proof, full gate, unchanged 1,600 cumulative cap and two mutants per original identity. Preserve old reports and findings, append genuine new identities, and never count a recovery on a new turn as proof that the earlier failed turn succeeded.
 
 ## Duty 2 — fragile assertions
 
