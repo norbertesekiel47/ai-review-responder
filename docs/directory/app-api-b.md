@@ -89,6 +89,8 @@ The **Owner Operator** API, gated by `OWNER_OPERATOR_ENABLED` (404 `operator_dis
 | `conversation/route.ts` | GET: **Run A**, deepened in Run B. The transcript (50 most recent turns) plus the live summary panel. `?id=` selects a conversation; **Run B's `?locationId=` scopes the summary when the conversation has no turns yet**, so an owner with no conversation at all gets the empty view with a scoped summary rather than a 404, and the summary carries the location's `connectionStatus`. |
 | `proposals/[id]/apply/route.ts` | POST: **Run B.** `withSameOrigin` → flag → `requireWritableOwner` → impersonation → `{ expectedVersionToken }` (`.strict()`, no `confirmationLevel` — that is slice 2) → `applyProposal`. Maps six result kinds: applied 200, stale 409 `proposal_stale`, rejected 409 `<reason>`, not-pending 409, failed 500 `apply_failed`, not-found 404. Every non-404 body carries the **Proposal** row. |
 | `proposals/[id]/decline/route.ts` | POST: **Run B.** Same gates, no body. `declineProposal` records the actor only and is idempotent; an already-decided **Proposal** answers 409 `proposal_not_pending`. |
+| `proposals/[id]/restore/route.ts` | POST: same-origin, flag, writable-owner and impersonation gates; accepts only an empty strict object. Uses the stored same-account source receipt to prepare or reuse a pending Restore proposal. No settings mutation occurs until its separate Apply. |
+| `rules-timeline/route.ts` | GET: account-scoped applied proposals with exact location filtering, bounded page size and paired timestamp/UUID keyset cursor. Includes pending Restores for each page's source receipts so prepared cards survive reload beyond the transcript window. |
 
 #### `contact/route.ts` / `demo-request/route.ts` / `feedback/route.ts`
 

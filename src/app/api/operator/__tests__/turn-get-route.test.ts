@@ -25,6 +25,28 @@ const LOCATION = '00000000-0000-7000-8000-00000000b101';
 const TURN = '00000000-0000-7000-8000-000000000011';
 
 describe('GET /api/operator/turns/:id', () => {
+  it('returns stored refusals under a separate GET key without converting them to unsupported requests', async () => {
+    const refused = [{
+      type: 'refusal',
+      reason: 'invented_business_fact',
+      subjectId: '11111111-1111-4111-8111-111111111111',
+      text: 'RepWorth rules prohibit inventing or claiming unverified business facts, including licenses and credentials.',
+    }];
+    mockGetTurnForOwner.mockResolvedValue({
+      id: TURN, status: 'completed', failureReason: null, locationId: LOCATION,
+      segments: refused, proposals: [], unsupported: [], refused,
+    });
+    const response = await GET(
+      new NextRequest(`https://app.repworth.test/api/operator/turns/${TURN}`),
+      { params: Promise.resolve({ id: TURN }) },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      id: TURN, status: 'completed', failureReason: null,
+      segments: refused, proposals: [], unsupported: [], refused,
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.OWNER_OPERATOR_ENABLED = 'true';
@@ -44,6 +66,7 @@ describe('GET /api/operator/turns/:id', () => {
       ],
       proposals: [{ id: 'prop-1', operation: 'set_tone', labelKind: 'fact', status: 'pending' }],
       unsupported: [{ id: 'unsup-1', request: 'Stop replying on weekends', context: '' }],
+      refused: [],
     });
 
     const response = await GET(
@@ -70,6 +93,7 @@ describe('GET /api/operator/turns/:id', () => {
     // Two kinds, two keys — a renderer can never grow Apply onto an unsupported row.
     expect(body.proposals).toHaveLength(1);
     expect(body.unsupported).toHaveLength(1);
+    expect(body.refused).toEqual([]);
     expect(mockGetTurnForOwner.mock.calls[0]![1]).toEqual({ turnId: TURN, accountId: ACCOUNT });
 
     // Another account's turn is indistinguishable from one that does not exist.

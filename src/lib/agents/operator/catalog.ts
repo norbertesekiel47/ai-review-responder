@@ -1,6 +1,5 @@
-// The v1 operation catalog. Four kinds, separated by TypeScript type so a write
-// cannot be registered as immediately executable (spec §4): three reads, seven
-// proposable operations and one capture. The Apply/Decline commands are server
+// The operation catalog separates reads, eight ordinary proposables, capture,
+// and server-prepared Restore requests. The Apply/Decline commands are server
 // routes, never catalog entries, so the model cannot name them.
 //
 // The proposables split again by the settings DOMAIN they write, and the split
@@ -21,6 +20,7 @@ import type {
   AutoApprovalReadinessBlockReason,
   AutoApprovalThreshold,
   PolicyExposureClassification,
+  RestoreReplyPolicyRequest,
   VetoWindowMinutes,
 } from '@/lib/auto-approval/types';
 import type { VoiceConfig } from '@/lib/responses/voice-settings';
@@ -46,6 +46,7 @@ export type CatalogOperationId =
   | 'read_recent_completed'
   | VoiceOperationId
   | PolicyOperationId
+  | 'restore_last'
   | 'record_unsupported_request';
 
 export type LabelKind = 'rule' | 'fact';
@@ -60,6 +61,14 @@ export interface CaptureOperation {
   id: CatalogOperationId;
   kind: 'capture';
   describe: string;
+}
+
+export interface PrepareOperation {
+  id: 'restore_last';
+  kind: 'prepare';
+  describe: string;
+  inputShape: '{}';
+  scopeRule: 'account_or_location';
 }
 
 export interface ProposablePreview {
@@ -90,16 +99,19 @@ export type PolicyTarget = { scope: 'account' } | { scope: 'location'; locationI
 export interface PolicyScopeState {
   accountDefault: PolicyState;
   location: PolicyState | null;
+  /** Suspension on the targeted stored row, distinct from inherited suspension. */
+  targetRowSuspended: boolean;
 }
 
 type ParseInputResult = { ok: true; input: Record<string, unknown> } | { ok: false };
 
 /**
- * What every proposable shares. `parseInput` is the only door: it runs the
+ * What every proposable shares. `parseInput` is the model-input door: it runs the
  * operation's own zod schema and hands the narrowed value to the other members
  * through a closure, so each `as T` inside `defineVoice`/`definePolicy` is the
  * one place the erasure is undone and it is unreachable without a successful
- * parse. No `any` anywhere.
+ * parse. Trusted inverses are derived separately from validated receipt state;
+ * they never widen the model schema. No `any` anywhere.
  */
 interface ProposableCommon {
   kind: 'proposable';
@@ -142,6 +154,8 @@ export interface VoiceProposableOperation extends ProposableCommon {
    * writing more than was proposed is a widening nobody approved (D10).
    */
   writerFields(input: unknown): Partial<VoiceConfig>;
+  /** Server-only inverse; the caller must validate the source Receipt first. */
+  restoreInputFromState(before: VoiceConfig): Record<string, unknown>;
 }
 
 type PolicyWriterOperation =
@@ -152,7 +166,8 @@ type PolicyWriterOperation =
   | 'set_account_veto_window'
   | 'set_location_veto_window'
   | 'set_account_daily_cap'
-  | 'set_location_daily_cap';
+  | 'set_location_daily_cap'
+  | 'delete_location_override';
 
 type WithoutConfirmation<T> = T extends unknown ? Omit<T, 'confirmationLevel'> : never;
 
@@ -165,10 +180,14 @@ export type PolicyWriterPatch = WithoutConfirmation<
   Extract<AutoApprovalPatchRequest, { operation: PolicyWriterOperation }>
 >;
 
+export type PolicyRestoreWriterPatch = PolicyWriterPatch
+  | Omit<RestoreReplyPolicyRequest, 'confirmationLevel'>
+  | { operation: 'clear_account_default' };
+
 export interface PolicyProposableOperation extends ProposableCommon {
   id: PolicyOperationId;
   domain: 'policy';
-  scopeRule: 'account_or_location';
+  scopeRule: 'account_or_location' | 'location';
   /** Spec §8.4: future eligible reviews. A draft already granted a veto window keeps it. */
   affects: 'future_eligible_reviews';
   preview(state: PolicyScopeState, target: PolicyTarget, input: unknown): PolicyPreview;
@@ -177,13 +196,15 @@ export interface PolicyProposableOperation extends ProposableCommon {
   confirmationPhrase(after: PolicyState, target: PolicyTarget): string;
   /** This operation's input as ONE shared-writer operation, and nothing more (D10). */
   writerPatch(input: unknown, target: PolicyTarget): PolicyWriterPatch;
+  /** Preserve absence and reverse only the dial the original operation wrote. */
+  restoreInputFromState(before: PolicyState, after: PolicyState, target: PolicyTarget): PolicyRestoreWriterPatch;
   /** The card's full before/after sentence, including the created-row sentence (spec §4). */
   describeChange(input: unknown, preview: PolicyPreview, target: PolicyTarget): string;
 }
 
 export type ProposableOperation = VoiceProposableOperation | PolicyProposableOperation;
 
-export type CatalogOperation = ReadOperation | ProposableOperation | CaptureOperation;
+export type CatalogOperation = ReadOperation | ProposableOperation | CaptureOperation | PrepareOperation;
 
 function parserFor<T extends Record<string, unknown>>(schema: ZodType<T>) {
   return (value: unknown): ParseInputResult => {
@@ -206,6 +227,7 @@ function defineVoice<T extends Record<string, unknown>>(spec: {
    * writer — could show the owner a preview the executor does not honour.
    */
   writerFields: (input: T) => Partial<VoiceConfig>;
+  restoreInputFromState: (before: VoiceConfig) => Record<string, unknown>;
 }): VoiceProposableOperation {
   return {
     id: spec.id,
@@ -218,6 +240,7 @@ function defineVoice<T extends Record<string, unknown>>(spec: {
     summary: spec.summary,
     inputShape: spec.inputShape,
     parseInput: parserFor(spec.inputSchema),
+    restoreInputFromState: spec.restoreInputFromState,
     describe(input) {
       return spec.describe(input as T);
     },
@@ -229,7 +252,7 @@ function defineVoice<T extends Record<string, unknown>>(spec: {
       return { before: voice, after: { ...voice, ...spec.writerFields(input as T) } };
     },
     // Same `as T` erasure undoing as `describe`: unreachable without a
-    // successful `parseInput`, which every caller runs first.
+    // successful model parse or server derivation from validated receipt state.
     writerFields(input) {
       return spec.writerFields(input as T);
     },
@@ -360,6 +383,85 @@ function writerPatchFor(patch: PolicyDialPatch, target: PolicyTarget): PolicyWri
   }
 }
 
+function restorePolicyInput(
+  before: PolicyState,
+  after: PolicyState,
+  target: PolicyTarget,
+  originalDial: PolicyDialPatch,
+): PolicyRestoreWriterPatch {
+  if (!before.rowExists) {
+    return target.scope === 'account'
+      ? { operation: 'clear_account_default' }
+      : { operation: 'delete_location_override', locationId: target.locationId };
+  }
+  if (!after.rowExists) {
+    return {
+      operation: 'restore_reply_policy',
+      locationId: target.scope === 'account' ? null : target.locationId,
+      state: {
+        threshold: before.threshold,
+        vetoWindowMinutes: before.vetoWindowMinutes,
+        dailyAutoPostCap: before.dailyAutoPostCap,
+      },
+    };
+  }
+  return writerPatchFor(originalDial, target);
+}
+
+/** Preview the trusted inverse through the same row-seeding and clear rules. */
+export function previewPolicyRestore(
+  state: PolicyScopeState,
+  target: PolicyTarget,
+  patch: PolicyRestoreWriterPatch,
+): PolicyPreview {
+  const before = currentPolicyState(state, target);
+  if (patch.operation === 'delete_location_override' || patch.operation === 'clear_account_default') {
+    const inherited = target.scope === 'location'
+      ? state.accountDefault
+      : freshRowBase(state.accountDefault, target);
+    return {
+      before,
+      after: state.targetRowSuspended
+        ? { ...before, threshold: null }
+        : { ...inherited, rowExists: false },
+    };
+  }
+  const base = before.rowExists ? before : freshRowBase(state.accountDefault, target);
+  if (patch.operation === 'restore_reply_policy') {
+    return {
+      before,
+      after: { domain: 'policy', ...patch.state, effectiveDailyCap: resolveDailyCap(patch.state), rowExists: true },
+    };
+  }
+  let dial: PolicyDialPatch;
+  switch (patch.operation) {
+    case 'set_account_default':
+    case 'set_location_override':
+      dial = { dial: 'threshold', value: patch.threshold };
+      break;
+    case 'set_account_manual':
+    case 'set_location_manual':
+      dial = { dial: 'threshold', value: null };
+      break;
+    case 'set_account_veto_window':
+    case 'set_location_veto_window':
+      dial = { dial: 'vetoWindowMinutes', value: patch.minutes };
+      break;
+    case 'set_account_daily_cap':
+    case 'set_location_daily_cap':
+      dial = { dial: 'dailyAutoPostCap', value: patch.cap };
+      break;
+  }
+  return { before, after: applyDial(base, dial) };
+}
+
+export function describePolicyRestore(preview: PolicyPreview, target: PolicyTarget): string {
+  const scope = target.scope === 'account' ? 'Account default' : 'This location';
+  const row = preview.after.rowExists ? 'The scope keeps its own settings.'
+    : target.scope === 'account' ? 'The account default is absent.' : 'This location uses the account default.';
+  return `Restore: ${scope} now: ${stateWords(preview.before)}. After Apply: ${stateWords(preview.after)}. ${row}`;
+}
+
 // ── Policy card words ─────────────────────────────────────────────────────
 
 const THRESHOLD_STATE_WORDS: Record<AutoApprovalThreshold, string> = {
@@ -413,6 +515,7 @@ function definePolicy<T extends Record<string, unknown>>(spec: {
   inputShape: string;
   describe: (input: T) => string;
   patch: (input: T) => PolicyDialPatch;
+  restoreDial: (before: PolicyState) => PolicyDialPatch;
 }): PolicyProposableOperation {
   return {
     id: spec.id,
@@ -437,6 +540,9 @@ function definePolicy<T extends Record<string, unknown>>(spec: {
     confirmationPhrase: policyConfirmationPhrase,
     writerPatch(input, target) {
       return writerPatchFor(spec.patch(input as T), target);
+    },
+    restoreInputFromState(before, after, target) {
+      return restorePolicyInput(before, after, target, spec.restoreDial(before));
     },
     describeChange(input, preview, target) {
       return describePolicyChange(spec.patch(input as T).dial, preview, target);
@@ -467,6 +573,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputShape: '{"tone": string}',
     describe: (input) => `Set the reply tone to "${input.tone}"`,
     writerFields: (input) => ({ tone: input.tone }),
+    restoreInputFromState: (before) => ({ tone: before.tone }),
   }),
   set_products_services: defineVoice({
     id: 'set_products_services',
@@ -477,6 +584,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
       ? 'Clear the products and services the replies may mention'
       : 'Update the products and services the replies may mention',
     writerFields: (input) => ({ productsServices: input.productsServices }),
+    restoreInputFromState: (before) => ({ productsServices: before.productsServices }),
   }),
   set_avoid_facts: defineVoice({
     id: 'set_avoid_facts',
@@ -485,6 +593,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputShape: '{"avoidFacts": string[]}',
     describe: (input) => `Keep ${input.avoidFacts.length} thing(s) out of every reply`,
     writerFields: (input) => ({ avoidFacts: input.avoidFacts }),
+    restoreInputFromState: (before) => ({ avoidFacts: [...before.avoidFacts] }),
   }),
   set_highlight_facts: defineVoice({
     id: 'set_highlight_facts',
@@ -493,6 +602,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputShape: '{"highlightFacts": string[]}',
     describe: (input) => `Highlight ${input.highlightFacts.length} thing(s) when a reply fits`,
     writerFields: (input) => ({ highlightFacts: input.highlightFacts }),
+    restoreInputFromState: (before) => ({ highlightFacts: [...before.highlightFacts] }),
   }),
   set_auto_reply_scope: definePolicy({
     id: 'set_auto_reply_scope',
@@ -503,6 +613,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
       ? 'Turn auto-posting off so every reply waits for you'
       : SCOPE_DESCRIPTIONS[input.threshold],
     patch: (input) => ({ dial: 'threshold', value: input.threshold }),
+    restoreDial: (before) => ({ dial: 'threshold', value: before.threshold }),
   }),
   set_veto_window: definePolicy({
     id: 'set_veto_window',
@@ -511,6 +622,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputShape: '{"minutes": 15 | 30}',
     describe: (input) => `Make each auto-post wait ${input.minutes} minutes for you first`,
     patch: (input) => ({ dial: 'vetoWindowMinutes', value: input.minutes }),
+    restoreDial: (before) => ({ dial: 'vetoWindowMinutes', value: before.vetoWindowMinutes }),
   }),
   set_daily_cap: definePolicy({
     id: 'set_daily_cap',
@@ -521,7 +633,56 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
       ? 'Use the platform daily limit for auto-posts'
       : `Auto-post at most ${input.cap} replies a day`,
     patch: (input) => ({ dial: 'dailyAutoPostCap', value: input.cap }),
+    restoreDial: (before) => ({ dial: 'dailyAutoPostCap', value: before.dailyAutoPostCap }),
   }),
+  clear_location_override: {
+    id: 'clear_location_override',
+    kind: 'proposable',
+    domain: 'policy',
+    contractVersion: 1,
+    labelKind: 'rule',
+    scopeRule: 'location',
+    affects: 'future_eligible_reviews',
+    summary: 'Clear this location’s own auto-posting settings and use the account default; a suspended override stays manual',
+    inputShape: '{}',
+    parseInput: parserFor(OPERATION_INPUT_SCHEMAS.clear_location_override),
+    describe: () => 'Use the account default for this location',
+    preview(state, target) {
+      if (target.scope !== 'location') throw new Error('clear_location_override requires a location');
+      const before = currentPolicyState(state, target);
+      // Match the shared writer: deleting a suspended row would erase the
+      // Governor's decision. Keep that row and its dials, returning to manual.
+      const after = state.targetRowSuspended
+        ? { ...before, threshold: null }
+        : { ...state.accountDefault, rowExists: false };
+      return { before, after };
+    },
+    exposure: classifyPolicyPreview,
+    confirmationPhrase: policyConfirmationPhrase,
+    writerPatch(_input, target) {
+      if (target.scope !== 'location') throw new Error('clear_location_override requires a location');
+      return { operation: 'delete_location_override', locationId: target.locationId };
+    },
+    restoreInputFromState(before, after, target) {
+      if (target.scope !== 'location') throw new Error('clear_location_override requires a location');
+      // A suspended clear keeps its row and changes only the threshold. Only
+      // an actual deletion needs the atomic full-row inverse.
+      return restorePolicyInput(before, after, target, { dial: 'threshold', value: before.threshold });
+    },
+    describeChange(_input, preview) {
+      const outcome = preview.after.rowExists
+        ? 'The location keeps its settings and suspension; every reply waits for you.'
+        : 'This location now uses the account default.';
+      return `This location now: ${stateWords(preview.before)}. After this change: ${stateWords(preview.after)}. ${outcome}`;
+    },
+  },
+  restore_last: {
+    id: 'restore_last',
+    kind: 'prepare',
+    describe: 'Prepare a Restore proposal from the latest applied receipt for this scope; nothing changes until Apply',
+    inputShape: '{}',
+    scopeRule: 'account_or_location',
+  },
   record_unsupported_request: {
     id: 'record_unsupported_request',
     kind: 'capture',
@@ -558,6 +719,9 @@ export function modelVisibleOperations(readiness: {
   readonly blockReasons: readonly AutoApprovalReadinessBlockReason[];
 }): readonly ModelVisibleOperation[] {
   return Object.values(CATALOG).map((op): ModelVisibleOperation => {
+    if (op.kind === 'prepare') {
+      return { id: op.id, kind: op.kind, labelKind: null, describe: op.describe, input: op.inputShape, scopeRule: op.scopeRule };
+    }
     if (op.kind !== 'proposable') {
       return { id: op.id, kind: op.kind, labelKind: null, describe: op.describe };
     }

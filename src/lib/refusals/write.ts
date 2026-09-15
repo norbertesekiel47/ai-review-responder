@@ -288,6 +288,8 @@ interface RefusalLaneShapes {
   outreach_withheld: AtLocation & Subject<'solicitation_outreach'> & WithCode;
   batch_halted: AtLocation & Subject<'solicitation_batch'> & WithCode;
   policy_gate_held: AtLocation & Subject<'response'> & WithCodeSet;
+  operator_content_refused: AtLocation & Subject<'operator_refusal'> & WithCode;
+  operator_policy_refused: AccountWide & Subject<'operator_refusal'> & WithCode;
 }
 
 /**

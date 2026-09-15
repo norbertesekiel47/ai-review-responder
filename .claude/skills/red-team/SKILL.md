@@ -267,6 +267,54 @@ the approval text says “no third round.” Fresh report results append while
 preserving all prior evidence. Isolation, root finalization, timeouts,
 per-test mutation limits and honest incomplete statuses remain required.
 
+**Owner-approved Run E second pass (2026-09-15).** Only
+`codex/owner-operator-run-e`, round 2, may use the exact committed grant
+`owner-run-e-second-pass-1600` for at most **1,600 supervised local launches**.
+The corrected code baseline is
+`54cb1a05e82de192355e379b7eb7b76182189306`; the original measured head remains
+`890eea76c8c04b8d2acfcc73a895ec3112560e38`. Original reports were published
+unchanged in a separate pinned history commit after the code correction.
+Admission checks their exact hashes, all 2,113 ordered inventory identities,
+complete historical evidence, finite supporting paths, and the exact intake
+amendment. The grant covers 707 unmeasured original cases, the Restore fix and
+directly affected callers, and finite verifier safeguards; the cap is not a
+coverage waiver. Every launch pins/revalidates committed HEAD and grant, rejects
+untracked or unjournaled drift, and spends the same bounded counter. Run E
+cannot open, launch or certify a third round, even when permission text contains
+“no third round.” The checker corroborates the closed journal and immutable
+admission history. Final JSON keeps `authorizations: []`: the exact completed
+execution grant stays in permanent admission history, with no risk waived and
+no separate report-format approval required. The approved supporting alert work
+includes staging configuration/readback; delivery is not claimed without a
+drill, and production configuration is required before future enablement. This
+grants no production Operator enablement, external provider calls, external
+Claude/Opus delegation, other-branch budget changes, or relaxation of isolation,
+timeouts, per-test mutation limits, restoration or incomplete-status rules.
+
+**Run E same-round discovery correction.** The approved proposal expressly permits root adjudication of a required correction
+after admission within the same round and cap. One continuation preserves the closed 124-launch checkpoint from
+`b6ee3973b3e0ad9f6749f02c5428e6b4980cf837`, all original attempts and the unchanged `budgetAuthorization` pin. Before launch
+125, the runner records one successor HEAD and checkpoint digest; subsequent launches require that same pin and the exact
+historical journal prefixes. No counter reset, second successor, third round, product change or intake/history rewrite is
+admitted by that discovery continuation. The finite source-correction manifest and checkpoint live in the existing
+budget-extension review document. Original discovery evidence remains intact. Only independently reviewed cases outside the
+changed behavioral contract may be reclassified; unresolved cases remain incomplete. A case's two-mutation limit spans both
+pins, and changed verifier cases need fresh successor measurements. Migration 121's executable regression is in scope because
+that test reads and executes the SQL during its body; its existing finally restores the five constraints, and readback must
+confirm restoration. This does not change the general exclusion for migrations provisioned before a test.
+
+**Run E finite corrective admission.** The same owner-approved post-admission correction clause permits the root-adjudicated
+fixture correction after the `9f20dbecd2ce302494088a49cc3147bca96a3f27` continuation. It requires a new frozen, closed
+checkpoint and the exact corrected test blobs, six existing verifier support paths and two append-only review/deviation
+documents. Both earlier pins, all journal prefixes, original evidence and the existing grant remain unchanged. A separate
+`correctiveAdmission` pins the candidate before checkpoint launch N+1. Its first baseline is clean; later launches require
+that exact candidate and matching journaled mutations. That corrective pin admits no further successor. Ancestry and pin checks prevent
+stripped journals, branch renames and report-round downgrades from reaching a generic allowance or a report waiver. Round 2,
+1,600 cumulative launches and at most two mutants per original case remain the limits across all pins. Changed contracts need
+fresh measurements within those limits; exhausted or unresolved cases remain incomplete. New safeguard identities are
+appended, never aliases for exhausted existing cases. The checkpoint constants must stay fail-closed until the root freezes
+the pass, reviews the exact final correction set and admits the verified committed candidate. **Finite staging diagnostic admission:** root adjudication additionally preserves the closed 776-launch checkpoint and all three pins, retaining exactly the reviewed 690a8792 diagnostic product/test blobs and incident document. One separate `stagingCorrectionAdmission` pins the final support candidate before launch 777; its frozen completed report, journal prefixes, exact surface, clean first baseline and later journaled mutations are checked. No further staging successor or generic budget is admitted. Intermediate staging diagnosis has only its recorded focused/build/pre-push evidence and stale red-team status; final certification requires the new exact proof, full gate, unchanged 1,600 cumulative cap and two mutants per original identity. Preserve old reports and findings, append genuine new identities, and never count a recovery on a new turn as proof that the earlier failed turn succeeded.
+
 ## Duty 2 — fragile assertions
 
 Scan the changed tests for assertions on incidental structure. Each is **P1**,

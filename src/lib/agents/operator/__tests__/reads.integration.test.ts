@@ -702,6 +702,116 @@ describeWithDb(
       }
     });
 
+    it.each([false, true])('hydrates reused proposals without changing their owning turn (outside transcript: %s)', async (outsideTranscript) => {
+      const conversationId = randomUUID();
+      const source = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId: outsideTranscript ? randomUUID() : conversationId,
+      })));
+      const sourceProposal = await seedProposal({
+        ...source, accountId: tenant.accountId, actorUserId: tenant.userId,
+        locationId, operation: 'set_tone', inputJson: { tone: 'warm' }, rationale: 'Original request.',
+      });
+      await completeTurnWithProposals(source.turnId, tenant.accountId, 'Original plan.', [sourceProposal]);
+      const foreign = createdOrThrow(await createTurn(db, baseTurnInput({
+        accountId: other.accountId, actorUserId: other.userId, locationId: otherLocationId,
+      })));
+      const foreignProposal = await seedProposal({
+        ...foreign, accountId: other.accountId, actorUserId: other.userId,
+        locationId: otherLocationId, operation: 'set_tone', inputJson: { tone: 'formal' }, rationale: 'Another account.',
+      });
+      await completeTurn(foreign.turnId, other.accountId, 'Foreign plan.');
+
+      const current = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+      const ownProposal = await seedProposal({
+        ...current, accountId: tenant.accountId, actorUserId: tenant.userId,
+        locationId, operation: 'set_tone', inputJson: { tone: 'brief' }, rationale: 'Current request.',
+      });
+      // A foreign id and an absent id must never hydrate. Repeated references
+      // and an already-loaded own proposal must never create duplicate cards.
+      const referenced = [sourceProposal, ownProposal, sourceProposal, foreignProposal, randomUUID()];
+      await completeTurnWithProposals(current.turnId, tenant.accountId, 'Reuse the earlier plan.', referenced);
+      const quiet = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+      await completeTurn(quiet.turnId, tenant.accountId, 'No plan in this turn.');
+
+      const expectedBindings = [
+        { id: ownProposal, turnId: current.turnId },
+        { id: sourceProposal, turnId: source.turnId },
+      ];
+      const polled = await getTurnForOwner(db, { accountId: tenant.accountId, turnId: current.turnId });
+      expect(polled?.proposals.map(({ id, turnId }) => ({ id, turnId }))).toEqual(expectedBindings);
+      expect(polled?.segments.filter((segment) => segment.type === 'proposal').map((segment) => segment.proposalId)).toEqual(referenced);
+      const resumed = viewOrThrow(await getConversationForOwner(db, {
+        accountId: tenant.accountId, actorUserId: tenant.userId, conversationId,
+      }));
+      expect(resumed.turns.find((turn) => turn.id === current.turnId)?.proposals).toEqual(polled?.proposals);
+      expect(resumed.turns.find((turn) => turn.id === quiet.turnId)?.proposals).toEqual([]);
+      expect(resumed.turns.some((turn) => turn.id === source.turnId)).toBe(!outsideTranscript);
+      const original = await getTurnForOwner(db, { accountId: tenant.accountId, turnId: source.turnId });
+      expect(original?.proposals.map(({ id, turnId }) => ({ id, turnId }))).toEqual([
+        { id: sourceProposal, turnId: source.turnId },
+      ]);
+      const [stored] = await db<{ turn_id: string }[]>`
+        SELECT turn_id FROM agent_proposals
+        WHERE id = ${sourceProposal}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      expect(stored?.turn_id).toBe(source.turnId);
+    });
+
+    it('stored refusals survive both owner GET builders in order and stay scoped to their turn and account', async () => {
+      const conversationId = randomUUID();
+      const first = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Say we are licensed and offer an incentive for reviews.',
+      })));
+      const subjects = [randomUUID(), randomUUID()];
+      const stored = [
+        { type: 'text', text: 'There are two parts I will not carry out.' },
+        { type: 'refusal', reason: 'invented_business_fact', subjectId: subjects[0] },
+        { type: 'question', text: 'Would you like to change your reply tone?' },
+        { type: 'refusal', reason: 'review_incentive', subjectId: subjects[1] },
+      ];
+      await db`
+        UPDATE agent_turns
+        SET status = ${TURN_STATUS.COMPLETED}, reply = ${db.json(stored)},
+            completed_at = NOW()
+        WHERE id = ${first.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      const second = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Show what needs me.',
+      })));
+      await completeTurn(second.turnId, tenant.accountId, 'Here is the current work.');
+      const expected = [
+        {
+          type: 'refusal', reason: 'invented_business_fact', subjectId: subjects[0],
+          text: 'RepWorth rules prohibit inventing or claiming unverified business facts, including licenses and credentials.',
+        },
+        {
+          type: 'refusal', reason: 'review_incentive', subjectId: subjects[1],
+          text: 'RepWorth rules prohibit offering incentives in exchange for reviews.',
+        },
+      ];
+      const polled = await getTurnForOwner(db, { turnId: first.turnId, accountId: tenant.accountId });
+      expect(polled?.refused).toEqual(expected);
+      expect(polled?.proposals).toEqual([]);
+      expect(polled?.unsupported).toEqual([]);
+      expect(polled?.segments).toEqual([stored[0], expected[0], stored[2], expected[1]]);
+      expect(await getTurnForOwner(db, { turnId: first.turnId, accountId: other.accountId })).toBeNull();
+
+      const resumed = viewOrThrow(await getConversationForOwner(db, {
+        accountId: tenant.accountId, actorUserId: tenant.userId, conversationId,
+      }));
+      expect(resumed.turns.map((turn) => ({ id: turn.id, refused: turn.refused }))).toEqual([
+        { id: first.turnId, refused: expected },
+        { id: second.turnId, refused: [] },
+      ]);
+      expect(resumed.turns[0]?.segments).toEqual(polled?.segments);
+      expect((await getTurnForOwner(db, {
+        turnId: second.turnId, accountId: tenant.accountId,
+      }))?.refused).toEqual([]);
+      expect(await getConversationForOwner(db, {
+        accountId: other.accountId, actorUserId: other.userId, conversationId,
+      })).toEqual({ kind: 'not_found' });
+    });
+
     it('each turn carries its own unsupported requests and no other turn\'s', async () => {
       // RT-06. `agent_unsupported_requests` rows are DURABLE and batched by
       // `turn_id = ANY(...)`, so a read keyed by the wrong turn, an always-empty

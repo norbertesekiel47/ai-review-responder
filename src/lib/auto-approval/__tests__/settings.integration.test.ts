@@ -16,6 +16,7 @@ import {
   patchAutoApprovalSettingsInTransaction,
 } from '../settings';
 import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '../types';
+import type { RestoreReplyPolicyRequest } from '../types';
 
 // Live-DB suite for the WS4 Task 12 settings writers: migration 074 rebuilt
 // the two partial unique indexes on auto_approval_policies to include
@@ -58,6 +59,16 @@ const actor = {
   actorUserId: null,
   impersonated: false,
 } as const;
+
+function restorePolicy(locationId: string | null, state: RestoreReplyPolicyRequest['state']) {
+  return sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+    ...actor,
+    operation: 'restore_reply_policy',
+    locationId,
+    state,
+    confirmationLevel: 'standard',
+  }));
+}
 
 type SqlExecutor = postgresType.Sql | postgresType.TransactionSql;
 
@@ -614,6 +625,187 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
       releaseHolder.resolve();
       await Promise.allSettled(pending);
       await writer.end({ timeout: 5 });
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it.each([2, null])('restore round-trips a cleared exact 5/30/%s override and returns to absence', async (cap) => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 10 });
+    const state = { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: cap } as const;
+    try {
+      await restorePolicy(locationId, state);
+      await patch({ ...actor, operation: 'delete_location_override', locationId, confirmationLevel: 'standard' });
+      expect(await readScratchOverride(locationId)).toBeNull();
+
+      const restored = await restorePolicy(locationId, state);
+      expect(restored.locations.find((entry) => entry.locationId === locationId)?.override)
+        .toMatchObject({ exists: true, ...state });
+      expect(await readScratchOverride(locationId)).toMatchObject({
+        auto_approve_min_star: 5, veto_window_minutes: 30, daily_auto_post_cap: cap,
+      });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 3 });
+
+      // Exercise the conflict path as well: every owner-controlled column is
+      // replaced, and the existing policy identity survives the full restore.
+      const policyId = (await readScratchOverride(locationId))?.id;
+      await restorePolicy(locationId, { threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 50 });
+      await restorePolicy(locationId, state);
+      expect(await readScratchOverride(locationId)).toMatchObject({
+        id: policyId, auto_approve_min_star: 5, veto_window_minutes: 30, daily_auto_post_cap: cap,
+      });
+
+      await patch({ ...actor, operation: 'delete_location_override', locationId, confirmationLevel: 'standard' });
+      expect(await readScratchOverride(locationId)).toBeNull();
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 6 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('atomic policy restore rolls back after a post-write error and records one audit', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 10 });
+    const state = { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 } as const;
+    try {
+      await expect(sql().begin(async (tx) => {
+        await patchAutoApprovalSettingsInTransaction(tx, {
+          ...actor, operation: 'restore_reply_policy', locationId, state,
+        });
+        expect(await countScratchRows(tx, locationId)).toEqual({ policies: 1, audits: 1 });
+        throw new Error('injected post-write restore failure');
+      })).rejects.toThrow('injected post-write restore failure');
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 0 });
+
+      await restorePolicy(locationId, state);
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 1 });
+      const [audit] = await sql()<{ payload: { operation: string; afterRow: unknown; exposureClassification: string } }[]>`
+        SELECT payload FROM account_audit_log
+        WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+          AND event_type = 'auto_approval_policy_changed'
+      `;
+      expect(audit?.payload).toMatchObject({
+        operation: 'restore_reply_policy', exposureClassification: 'contraction',
+        afterRow: { exists: true, ...state },
+      });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('restore recreates and updates an account default while preserving an originally absent default', async () => {
+    await patch({ ...actor, operation: 'clear_account_default', confirmationLevel: 'standard' });
+    const created = await restorePolicy(null, { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+    expect(created.accountDefault).toMatchObject({ exists: true, threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+    const updated = await restorePolicy(null, { threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null });
+    expect(updated.accountDefault).toMatchObject({
+      policyId: created.accountDefault.policyId, exists: true, threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null,
+    });
+    const cleared = await patch({ ...actor, operation: 'clear_account_default', confirmationLevel: 'standard' });
+    expect(cleared.accountDefault.exists).toBe(false);
+  });
+
+  it('restore retains current suspension columns and refuses to expand a suspended row', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 10 });
+    try {
+      await restorePolicy(locationId, { threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 10 });
+      await sql()`
+        UPDATE auto_approval_policies SET suspended_at = NOW(), suspended_reason = 'test governor suspension'
+        WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+      `;
+      const restored = await restorePolicy(locationId, { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+      expect(restored.locations.find((entry) => entry.locationId === locationId)?.override).toMatchObject({
+        threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2,
+        suspended: true, suspendedReason: 'test governor suspension',
+      });
+      await expect(restorePolicy(locationId, { threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 2 }))
+        .rejects.toMatchObject({ blockReasons: ['policy_suspended'] });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 2 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('restore rejects foreign locations, impersonation, missing confirmation and unready expansion before writes', async () => {
+    const locationId = await seedScratchLocation();
+    const foreign = await seedTenantAccount(sql());
+    await resetAccountDefault({ threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null });
+    const input = {
+      ...actor, operation: 'restore_reply_policy', locationId,
+      state: { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      confirmationLevel: 'standard',
+    } as const;
+    try {
+      // Catch inside the caller transaction and commit the read-only outcome:
+      // rejection must happen before writes, rather than relying on rollback.
+      await sql().begin(async (tx) => {
+        await expect(patchAutoApprovalSettingsInTransaction(tx, { ...input, accountId: foreign.accountId }))
+          .rejects.toMatchObject({ code: 'location_not_found' });
+        await expect(patchAutoApprovalSettingsInTransaction(tx, { ...input, impersonated: true }))
+          .rejects.toMatchObject({ blockReasons: ['impersonation_not_allowed'] });
+        await expect(patchAutoApprovalSettingsInTransaction(tx, { ...input, confirmationLevel: undefined }))
+          .rejects.toMatchObject({ confirmationLevel: 'standard' });
+        vi.stubEnv('AUTO_APPROVAL_ENABLED', 'false');
+        await expect(patchAutoApprovalSettingsInTransaction(tx, input))
+          .rejects.toMatchObject({ blockReasons: expect.arrayContaining(['auto_approval_disabled']) });
+        expect(await countScratchRows(tx, locationId)).toEqual({ policies: 0, audits: 0 });
+      });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 0 });
+      const [foreignRows] = await sql()<{ policies: number; audits: number }[]>`
+        SELECT
+          (SELECT COUNT(*)::int FROM auto_approval_policies WHERE account_id = ${foreign.accountId}::uuid) AS policies,
+          (SELECT COUNT(*)::int FROM account_audit_log WHERE account_id = ${foreign.accountId}::uuid) AS audits
+      `;
+      expect(foreignRows).toEqual({ policies: 0, audits: 0 });
+    } finally {
+      vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+      await cleanupScratchLocation(locationId);
+      await cleanupTenantAccount(sql(), foreign);
+    }
+  });
+
+  it('restore cannot rearm an archived location even when the restored threshold contracts', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: 10 });
+    try {
+      await sql()`UPDATE businesses SET archived_at = NOW() WHERE account_id = ${tenant.accountId}::uuid AND id = ${locationId}::uuid`;
+      await expect(restorePolicy(locationId, { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 }))
+        .rejects.toMatchObject({ code: 'location_inactive' });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 0 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('restore classifies the final manual state once and still gates dial widening on an already-manual row', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+    const state = { threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null } as const;
+    try {
+      vi.stubEnv('AUTO_APPROVAL_ENABLED', 'false');
+      const restored = await sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor, operation: 'restore_reply_policy', locationId, state,
+      }));
+      expect(restored.locations.find((entry) => entry.locationId === locationId)?.effective)
+        .toMatchObject({ ...state, source: 'location_override' });
+
+      // Tighten the stored manual dials, then attempt to widen them again.
+      await sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor, operation: 'restore_reply_policy', locationId,
+        state: { threshold: null, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      }));
+      await expect(sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor, operation: 'restore_reply_policy', locationId, state,
+      }))).rejects.toMatchObject({ confirmationLevel: 'standard' });
+      await expect(restorePolicy(locationId, state))
+        .rejects.toMatchObject({ blockReasons: expect.arrayContaining(['auto_approval_disabled']) });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 2 });
+      expect(await readScratchOverride(locationId)).toMatchObject({
+        auto_approve_min_star: null, veto_window_minutes: 30, daily_auto_post_cap: 2,
+      });
+    } finally {
+      vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
       await cleanupScratchLocation(locationId);
     }
   });

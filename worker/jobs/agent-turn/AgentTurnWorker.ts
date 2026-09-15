@@ -12,8 +12,8 @@ import {
   type PolicyPreparations,
   type UnsupportedRow,
 } from '@/lib/agents/operator/proposals';
-import { materializeReply, scrubPastedReview, type ParsedProposal } from '@/lib/agents/operator/render';
-import { TURN_FAILURE_REASON, type StoredSegment } from '@/lib/agents/operator/schema';
+import { scrubPastedReview, type ParsedProposal } from '@/lib/agents/operator/render';
+import { TURN_FAILURE_REASON } from '@/lib/agents/operator/schema';
 import {
   claimTurn,
   completeTurnFenced,
@@ -24,6 +24,7 @@ import {
   readTerminalTurn,
   releaseTurnClaim,
   type ClaimedTurn,
+  type TurnReplyPlan,
 } from '@/lib/agents/operator/turns';
 import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
@@ -58,7 +59,7 @@ interface OutboxHandle {
 
 /** Everything the fenced completion stores, assembled while the lease is held. */
 interface AssembledTurn {
-  segments: StoredSegment[];
+  replyPlan: TurnReplyPlan;
   proposals: ReturnType<typeof buildProposalRows>;
   unsupported: UnsupportedRow[];
   /** Model attempts spent, for the completion log line only. */
@@ -310,19 +311,24 @@ async function generateAndAssemble(
     request: u.request,
     context: u.context,
   }));
-  // The stored reply, materialized in one place (`materializeReply`, render.ts):
-  // `status_ref` → a frozen `status`, `proposal_ref` → a stored `proposal` id,
-  // and the scrub notice prepended. Index-aligned with `generated.proposals`
-  // by construction — the validator returned them in the model's own order
-  // and `buildProposalRows` maps one-to-one over that array.
-  const segments = materializeReply({
+  // Reserve original model indices. Restore rows and refusal subjects do not
+  // exist until the completion transaction wins its turn fence.
+  let ordinaryIndex = 0;
+  const proposalIds = generated.output.proposals.map((proposal) => {
+    if (proposal.operation === 'restore_last') return null;
+    const row = proposals[ordinaryIndex++];
+    if (!row) throw new Error('agents/operator: ordinary proposal index has no prepared row');
+    return row.id;
+  });
+  const replyPlan: TurnReplyPlan = {
     segments: generated.output.segments,
     metrics: snapshot.metrics,
-    proposalIds: proposals.map((row) => row.id),
+    proposalIds,
+    restoreRequests: generated.restoreRequests,
     scrubbed: scrubbed.scrubbed,
-  });
+  };
 
-  return { segments, proposals, unsupported, attempts: generated.attempts };
+  return { replyPlan, proposals, unsupported, attempts: generated.attempts };
 }
 
 /**
@@ -425,7 +431,8 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
       accountId: claimed.accountId,
       conversationId: claimed.conversationId,
       attemptToken: claimed.attemptToken,
-      segments: assembled.segments,
+      segments: [],
+      replyPlan: assembled.replyPlan,
       proposals: assembled.proposals,
       unsupported: assembled.unsupported,
       ...outbox,

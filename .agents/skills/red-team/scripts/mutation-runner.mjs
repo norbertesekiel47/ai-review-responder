@@ -208,6 +208,447 @@ function authorizedRunDBudget(root, journal) {
   }
 }
 
+const RUN_E_BRANCH = 'codex/owner-operator-run-e';
+const RUN_E_BASELINE = '54cb1a05e82de192355e379b7eb7b76182189306';
+const RUN_E_HISTORY_COMMIT = '76f7914636e3d20c4a676a5d7ef512e17dab25ce';
+const RUN_E_HISTORY_BLOB = 'b6348b608056c339cbb0915f3ac581574a18c3b1';
+const RUN_E_HISTORY_MARKDOWN_BLOB = '348acba4301870cc9be3ba72866891ba681c3573';
+const RUN_E_HISTORY_SHA256 = 'b869b052d2f39574c51418e2a608f136c43e375853e3692385921f95c2259a0c';
+const RUN_E_MARKDOWN_SHA256 = '42cc8719dba7356dac5e626b6d606628789b5d24698de4e7998cbcb138b0cc46';
+const RUN_E_IDENTITY_SHA256 = 'cb7c194ac0f963e76e723f123007c143b913aea924360b77439b6a8007c4476b';
+const RUN_E_REPORT = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/findings.json';
+const RUN_E_MARKDOWN = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/findings.md';
+const RUN_E_INTAKE = 'docs/superpowers/plans/codex-owner-operator-run-e-intake.json';
+const RUN_E_AUTHORIZATION = 'owner-run-e-second-pass-1600';
+const RUN_E_TEXT = 'Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.\nOwner: Yes, approve the scoped E second pass';
+const RUN_E_SUPPORT_PATHS = [
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/red-team/SKILL.md',
+  '.claude/skills/red-team/SKILL.md',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  '.agents/skills/feature/scripts/red-team-status.mjs',
+  'scripts/ci/__tests__/red-team-status.test.ts',
+  'docs/runbooks/beta-launch-alerting.md',
+];
+const RUN_E_ADDED_TESTS = [
+  'adopts a rejected timeline Apply and refreshes its Restore source: %s',
+  'pins Run E HEAD and grant before the first child executes',
+  'allows Run E launch 1600 and refuses 1601 and a third round',
+  'certifies Run E round 2 only with intact admission history and a closed capped launch journal',
+  'rejects Run E third and higher reports before generic authorization prose',
+];
+const RUN_E_EXTENSION_PATHS = new Set([
+  ...RUN_E_SUPPORT_PATHS, RUN_E_REPORT, RUN_E_MARKDOWN, RUN_E_INTAKE,
+  'docs/superpowers/plans/codex-owner-operator-run-e-plan.md',
+  'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md',
+  'docs/reviews/codex-owner-operator-run-e/second-pass-authorization.md',
+  'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md',
+]);
+const RUN_E_ORIGINAL_ADMISSION = 'b6ee3973b3e0ad9f6749f02c5428e6b4980cf837';
+const RUN_E_CHECKPOINT_SHA256 = '1fd1ce99a5a70d8ba0feacb6ca0b30a2f0623207295f32e184258a104122df72';
+// Complete root-reviewed census; the earlier 162 corrections remain separate.
+const RUN_E_CONTINUATION_SCOPE_SHA256 = 'e0cde5e28d709850630f5c1470e150d9d94269c7c04b0dd5c8e26020bfc271b3';
+const RUN_E_REVIEW_DOCUMENT = 'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md';
+const RUN_E_CONTINUATION_PATHS = new Set([
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/feature/scripts/red-team-status.mjs',
+  '.agents/skills/red-team/SKILL.md', '.claude/skills/red-team/SKILL.md',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  'scripts/ci/__tests__/red-team-status.test.ts',
+  RUN_E_REVIEW_DOCUMENT,
+  'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md',
+]);
+
+// Finite root-adjudicated correction under the existing E grant. The root
+// finalized and froze this complete checkpoint before preparing the candidate.
+const RUN_E_CORRECTIVE_PREDECESSOR = '9f20dbecd2ce302494088a49cc3147bca96a3f27';
+const RUN_E_CORRECTIVE_CHECKPOINT_SHA256 = '1d38d0cc1f21f86833c42f1e5ebc568c8fa42d9546c2bdfefe70829830853b4b';
+const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = 594;
+// Exact full-file blobs, not permission to make arbitrary edits to these paths.
+// Root and independent review verified these five exact corrected test files.
+const RUN_E_CORRECTIVE_TEST_BLOBS = Object.freeze({
+  'src/lib/auto-approval/__tests__/settings.test.ts': 'b0dfad32973e956b7ae9ca2fcabcddf8be767841',
+  'src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx': '2188c84b35f4aa479ee4dfa746ea837a4045565b',
+  'src/lib/agents/operator/__tests__/apply.test.ts': '9f9e0df549f23323d88abaa582010c56aec0c6da',
+  'src/lib/agents/operator/__tests__/proposals.test.ts': '76b7d410968d882c5b7ecd006800118340a68411',
+  'src/lib/agents/operator/__tests__/render.test.ts': '0e257ef89fab59698ceb2f5fb5bc6909a69766fd',
+});
+const RUN_E_CORRECTIVE_DOCUMENTS = [
+  RUN_E_REVIEW_DOCUMENT,
+  'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md',
+];
+
+
+// One root-adjudicated staging diagnostic correction; never a reusable successor budget.
+const RUN_E_STAGING_PREDECESSOR = '263fe7e3def2ebd1cae4f76de146c7822b278d9a';
+const RUN_E_STAGING_PUBLICATION = 'da87399c317d89f85ca8076a6dc1643c4c8995cc';
+const RUN_E_STAGING_DIAGNOSTIC = '690a8792efebc2f0f791653d4f73fdaa9bb660da';
+const RUN_E_STAGING_CHECKPOINT_SHA256 = '5652b40bbf08cb1883c6fda49376ad8dd30d27dfc54de376030039d89e422321';
+const RUN_E_STAGING_CHECKPOINT_RUNS = 776;
+const RUN_E_STAGING_REPORT_SHA256 = 'bdca52a9c33b62a980cab848080a97cc80c37ea961ca48fa02f258322c830fb5';
+const RUN_E_STAGING_MARKDOWN_SHA256 = '25fa9b2847ffba6461ac71cbe2262a50a8a3a1d2f22c0c7c30734f9e42f19050';
+const RUN_E_STAGING_BLOBS = Object.freeze({
+  'src/lib/agents/operator/render.ts': '29b3b67d3f08e71f9e5b9534826adc3187d1345c',
+  'src/lib/agents/operator/model-call.ts': '7584b6f6fd6c35b7a12b79a199e41364e82008f3',
+  'src/lib/agents/operator/__tests__/render.test.ts': '8f53cc82d2be5ad6b21b904b64987ce747f5fb4b',
+  'src/lib/agents/operator/__tests__/model-call.test.ts': '2d8415d121832bce5af7cdd8b616499f980d9bfc',
+  'docs/reviews/codex-owner-operator-run-e/staging-diagnostics.md': '5cda288cff0e5a656f56f19c8bc9b23bdcbf0658',
+});
+
+/** Denial text must never satisfy the generic third-round prose matcher. */
+export function runEThirdRoundForbidden(branch, grantId, round) {
+  return round >= 3 && (branch === RUN_E_BRANCH || grantId === RUN_E_AUTHORIZATION);
+}
+
+/** Committed evidence shared by launch admission and final certification. */
+export function validateRunEAdmission(root, headSha) {
+  try {
+    if (typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)
+      || git(root, ['merge-base', RUN_E_BASELINE, RUN_E_HISTORY_COMMIT]) !== RUN_E_BASELINE
+      || git(root, ['merge-base', RUN_E_HISTORY_COMMIT, headSha]) !== RUN_E_HISTORY_COMMIT
+      || git(root, ['merge-base', headSha, 'HEAD']) !== headSha) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_BASELINE, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_E_EXTENSION_PATHS.has(path))) return null;
+    // History was published after corrected code: pin its own commit and exact
+    // bytes, never pretend the original report existed at the product baseline.
+    if (git(root, ['rev-parse', `${RUN_E_HISTORY_COMMIT}:${RUN_E_REPORT}`]) !== RUN_E_HISTORY_BLOB
+      || git(root, ['rev-parse', `${RUN_E_HISTORY_COMMIT}:${RUN_E_MARKDOWN}`]) !== RUN_E_HISTORY_MARKDOWN_BLOB) return null;
+    const historicalBytes = execFileSync('git', ['cat-file', 'blob', RUN_E_HISTORY_BLOB], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    const historicalMarkdown = execFileSync('git', ['cat-file', 'blob', RUN_E_HISTORY_MARKDOWN_BLOB], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    if (sha256(historicalBytes) !== RUN_E_HISTORY_SHA256
+      || sha256(historicalMarkdown) !== RUN_E_MARKDOWN_SHA256) return null;
+    const historical = JSON.parse(historicalBytes.toString('utf8'));
+    const admission = JSON.parse(git(root, ['show', `${headSha}:${RUN_E_REPORT}`]));
+    if (historical?.mode !== 'feature' || historical.branch !== RUN_E_BRANCH || historical.round !== 1
+      || historical.head_sha !== '890eea76c8c04b8d2acfcc73a895ec3112560e38'
+      || !Array.isArray(historical.inventory) || historical.inventory.length !== 2113
+      || !Array.isArray(historical.authorizations) || historical.authorizations.length !== 0
+      || !Array.isArray(admission.authorizations) || admission.authorizations.length !== 1) return null;
+    const identities = historical.inventory.map((row) => ({ id: row?.id, file: row?.file, test: row?.test }));
+    if (sha256(JSON.stringify(identities)) !== RUN_E_IDENTITY_SHA256) return null;
+    const authorization = admission.authorizations[0];
+    if (authorization?.id !== RUN_E_AUTHORIZATION || authorization.date !== '2026-09-15'
+      || authorization.text !== RUN_E_TEXT
+      || Object.keys(authorization).sort().join(',') !== 'date,finding_ids,id,text'
+      || !Array.isArray(authorization.finding_ids) || authorization.finding_ids.length !== 0) return null;
+    const { authorizations: _oldGrants, ...oldEvidence } = historical;
+    const { authorizations: _newGrants, ...newEvidence } = admission;
+    if (JSON.stringify(oldEvidence) !== JSON.stringify(newEvidence)) return null;
+    const admissionMarkdown = execFileSync('git', ['show', `${headSha}:${RUN_E_MARKDOWN}`], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    if (!admissionMarkdown.subarray(0, historicalMarkdown.length).equals(historicalMarkdown)
+      || !admissionMarkdown.subarray(historicalMarkdown.length).toString('utf8').includes(RUN_E_TEXT)) return null;
+    const originalIntake = JSON.parse(git(root, ['show', `${RUN_E_BASELINE}:${RUN_E_INTAKE}`]));
+    const intake = JSON.parse(git(root, ['show', `${headSha}:${RUN_E_INTAKE}`]));
+    const { allowed_edit_surface: originalSurface, tests_to_add: originalTests, ...originalContract } = originalIntake;
+    const { allowed_edit_surface: surface, tests_to_add: tests, ...contract } = intake;
+    if (!Array.isArray(originalSurface) || !Array.isArray(surface) || !Array.isArray(originalTests)
+      || JSON.stringify(tests) !== JSON.stringify([...RUN_E_ADDED_TESTS, ...originalTests])
+      || JSON.stringify(originalContract) !== JSON.stringify(contract)) return null;
+    const correctedSurface = originalSurface.map((path) => path === 'docs/reviews/red-team/codex-owner-operator-run-e/**'
+      ? 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/**' : path);
+    if (surface.some((path) => typeof path !== 'string')
+      || JSON.stringify([...surface].sort())
+        !== JSON.stringify([...new Set([...correctedSurface, ...RUN_E_SUPPORT_PATHS])].sort())) return null;
+    return {
+      grant: { id: authorization.id, maxRuns: 1600, sha256: sha256(JSON.stringify(authorization)), headSha },
+      historical, admission, historicalMarkdown, admissionMarkdown, intake,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function committedRunESection(document, name) {
+  const start = `<!-- RUN_E_${name}_START -->`;
+  const end = `<!-- RUN_E_${name}_END -->`;
+  if (document.split(start).length !== 2 || document.split(end).length !== 2
+    || document.indexOf(start) >= document.indexOf(end)) return null;
+  const payload = document.slice(document.indexOf(start) + start.length, document.indexOf(end))
+    .match(/^\s*```json\s*\n([\s\S]*?)\n```\s*$/);
+  return payload ? JSON.parse(payload[1]) : null;
+}
+
+/** One reviewed correction may continue the closed checkpoint, never replace it. */
+export function validateRunEContinuation(root, journal, headSha, allowUnpinned = false) {
+  try {
+    if (headSha === RUN_E_ORIGINAL_ADMISSION
+      || git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || git(root, ['merge-base', RUN_E_ORIGINAL_ADMISSION, headSha]) !== RUN_E_ORIGINAL_ADMISSION) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_ORIGINAL_ADMISSION, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_E_CONTINUATION_PATHS.has(path))) return null;
+    const original = validateRunEAdmission(root, RUN_E_ORIGINAL_ADMISSION);
+    const proof = validateRunEAdmission(root, headSha);
+    if (!original || !proof) return null;
+    const readDocument = (revision) => execFileSync('git', ['show', `${revision}:${RUN_E_REVIEW_DOCUMENT}`], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    const originalDocument = readDocument(RUN_E_ORIGINAL_ADMISSION);
+    const document = readDocument(headSha);
+    if (!document.startsWith(originalDocument)) return null;
+    const checkpoint = committedRunESection(document, 'CHECKPOINT_124');
+    const scopeCorrections = committedRunESection(document, 'CONTINUATION_SCOPE_CORRECTIONS');
+    if (!checkpoint || sha256(JSON.stringify(checkpoint)) !== RUN_E_CHECKPOINT_SHA256
+      || Object.keys(checkpoint).sort().join(',') !== 'budgetAuthorization,dotenv,mutations,round,runs,supervisors,version'
+      || checkpoint.version !== 1 || checkpoint.round !== 2 || checkpoint.runs !== 124
+      || checkpoint.mutations?.length !== 62 || checkpoint.supervisors?.length !== 124
+      || checkpoint.mutations.some((entry) => entry.state !== 'restored')
+      || checkpoint.supervisors.some((entry) => entry.active !== false)
+      || JSON.stringify(checkpoint.dotenv) !== JSON.stringify({ open: false, files: [] })
+      || JSON.stringify(checkpoint.budgetAuthorization) !== JSON.stringify({ ...original.grant, firstRun: 1 })
+      || !scopeCorrections || sha256(JSON.stringify(scopeCorrections)) !== RUN_E_CONTINUATION_SCOPE_SHA256
+      || scopeCorrections.schema !== 1 || scopeCorrections.sourceHead !== RUN_E_ORIGINAL_ADMISSION
+      || !Array.isArray(scopeCorrections.groups)) return null;
+    if (journal.version !== checkpoint.version || journal.round !== 2
+      || !Number.isInteger(journal.runs) || journal.runs < 124 || journal.runs > 1600
+      || journal.supervisors?.length !== journal.runs
+      || !unchangedPrefix(checkpoint.supervisors, journal.supervisors)
+      || !unchangedPrefix(checkpoint.mutations, journal.mutations)
+      || JSON.stringify(journal.budgetAuthorization) !== JSON.stringify(checkpoint.budgetAuthorization)) return null;
+    const continuationAdmission = { headSha, checkpointSha256: RUN_E_CHECKPOINT_SHA256, firstRun: 125 };
+    if (journal.continuationAdmission === undefined) {
+      if (!allowUnpinned || journal.runs !== 124 || journal.mutations.length !== 62
+        || git(root, ['diff', '--name-only', 'HEAD'])) return null;
+    } else if (journal.runs < 125
+      || JSON.stringify(journal.continuationAdmission) !== JSON.stringify(continuationAdmission)) return null;
+    return { ...proof, continuationAdmission, scopeCorrections };
+  } catch {
+    return null;
+  }
+}
+
+function afterRunEOriginalAdmission(root, headSha) {
+  if (headSha === RUN_E_ORIGINAL_ADMISSION) return false;
+  try {
+    return git(root, ['merge-base', RUN_E_ORIGINAL_ADMISSION, headSha]) === RUN_E_ORIGINAL_ADMISSION;
+  } catch {
+    return false;
+  }
+}
+
+export function requiresRunEContinuation(root, journal, headSha) {
+  return journal.continuationAdmission !== undefined
+    || afterRunEOriginalAdmission(root, headSha)
+    || Boolean(journal.budgetAuthorization && journal.budgetAuthorization.headSha !== headSha);
+}
+
+/** Missing immutable anchor is ordinary in independent test/branch histories.
+ * Capture stderr and distinguish expected absence from probe failure; a caught
+ * execFileSync diagnostic would break those public fixtures' clean stderr. */
+function runECorrectiveDescendant(root, revision) {
+  const probe = (args) => spawnSync('git', args, {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10_000, maxBuffer: 1024 * 1024,
+  });
+  const anchor = probe(['rev-parse', '--verify', '--quiet', `${RUN_E_CORRECTIVE_PREDECESSOR}^{commit}`]);
+  if (!anchor.error && anchor.status === 1 && anchor.stderr === '') return false;
+  if (anchor.error || anchor.status !== 0 || anchor.stderr !== '') return null;
+  const target = probe(['rev-parse', '--verify', '--quiet', `${revision}^{commit}`]);
+  if (target.error || target.status !== 0 || target.stderr !== '') return null;
+  if (target.stdout.trim() === RUN_E_CORRECTIVE_PREDECESSOR) return false;
+  const ancestry = probe(['merge-base', '--is-ancestor', RUN_E_CORRECTIVE_PREDECESSOR, target.stdout.trim()]);
+  if (ancestry.error || ancestry.stderr !== '' || ![0, 1].includes(ancestry.status)) return null;
+  return ancestry.status === 0;
+}
+
+/** Either actual checkout ancestry or supplied proof selects this obligation.
+ * Unexpected Git failures also require proof, which then fails closed. */
+export function requiresRunECorrectiveAdmission(root, journal, headSha) {
+  return journal?.correctiveAdmission !== undefined
+    || runECorrectiveDescendant(root, 'HEAD') !== false
+    || runECorrectiveDescendant(root, headSha) !== false;
+}
+
+/** One exact corrective candidate preserves both earlier pins and all attempts. */
+export function validateRunECorrectiveAdmission(root, journal, headSha, allowUnpinned = false) {
+  try {
+    if (!Number.isInteger(RUN_E_CORRECTIVE_CHECKPOINT_RUNS)
+      || RUN_E_CORRECTIVE_CHECKPOINT_RUNS < 125 || RUN_E_CORRECTIVE_CHECKPOINT_RUNS >= 1600
+      || RUN_E_CORRECTIVE_CHECKPOINT_SHA256 === '0'.repeat(64)
+      || typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)
+      || runECorrectiveDescendant(root, headSha) !== true
+      || git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || git(root, ['merge-base', headSha, 'HEAD']) !== headSha) return null;
+    const fixes = Object.entries(RUN_E_CORRECTIVE_TEST_BLOBS);
+    if (fixes.length === 0 || fixes.some(([path, blob]) => !path || !/^[0-9a-f]{40}$/.test(blob))) return null;
+    const allowed = new Set([...RUN_E_CONTINUATION_PATHS, ...fixes.map(([path]) => path)]);
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_CORRECTIVE_PREDECESSOR, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !allowed.has(path))) return null;
+    for (const [path, blob] of fixes) {
+      if (git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\t${path}`) return null;
+    }
+    const readDocument = (revision, path) => execFileSync('git', ['show', `${revision}:${path}`], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    for (const path of RUN_E_CORRECTIVE_DOCUMENTS) {
+      if (!readDocument(headSha, path).startsWith(readDocument(RUN_E_CORRECTIVE_PREDECESSOR, path))) return null;
+    }
+    const checkpoint = committedRunESection(readDocument(headSha, RUN_E_REVIEW_DOCUMENT), 'CORRECTIVE_CHECKPOINT');
+    const keys = 'budgetAuthorization,continuationAdmission,dotenv,mutations,round,runs,supervisors,version';
+    if (!checkpoint || sha256(JSON.stringify(checkpoint)) !== RUN_E_CORRECTIVE_CHECKPOINT_SHA256
+      || Object.keys(checkpoint).sort().join(',') !== keys
+      || checkpoint.runs !== RUN_E_CORRECTIVE_CHECKPOINT_RUNS
+      || checkpoint.mutations.some((entry) => entry.state !== 'restored')
+      || checkpoint.supervisors.some((entry) => entry.active !== false)
+      || JSON.stringify(checkpoint.dotenv) !== JSON.stringify({ open: false, files: [] })) return null;
+    // Validate the archived predecessor, never widen the old baseline's paths.
+    const proof = validateRunEContinuation(root, checkpoint, RUN_E_CORRECTIVE_PREDECESSOR);
+    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2
+      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600
+      || !Array.isArray(journal.supervisors) || journal.supervisors.length !== journal.runs
+      || !Array.isArray(journal.mutations)
+      || !unchangedPrefix(checkpoint.supervisors, journal.supervisors)
+      || !unchangedPrefix(checkpoint.mutations, journal.mutations)
+      || JSON.stringify(journal.budgetAuthorization) !== JSON.stringify(checkpoint.budgetAuthorization)
+      || JSON.stringify(journal.continuationAdmission) !== JSON.stringify(checkpoint.continuationAdmission)) return null;
+    const correctiveAdmission = {
+      headSha, predecessorHeadSha: RUN_E_CORRECTIVE_PREDECESSOR,
+      checkpointSha256: RUN_E_CORRECTIVE_CHECKPOINT_SHA256, firstRun: checkpoint.runs + 1,
+    };
+    if (journal.correctiveAdmission === undefined) {
+      if (!allowUnpinned || journal.runs !== checkpoint.runs
+        || Object.keys(journal).sort().join(',') !== keys
+        || JSON.stringify(journal) !== JSON.stringify(checkpoint)
+        || git(root, ['diff', '--name-only', 'HEAD'])
+        || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    } else if (journal.runs <= checkpoint.runs
+      || Object.keys(journal).sort().join(',') !== keys.replace('dotenv,', 'correctiveAdmission,dotenv,')
+      || JSON.stringify(journal.correctiveAdmission) !== JSON.stringify(correctiveAdmission)) return null;
+    return { ...proof, correctiveAdmission };
+  } catch {
+    return null;
+  }
+}
+
+function runEStagingDescendant(root, revision) {
+  const probe = (args) => spawnSync('git', args, {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10_000, maxBuffer: 1024 * 1024,
+  });
+  const anchor = probe(['rev-parse', '--verify', '--quiet', `${RUN_E_STAGING_DIAGNOSTIC}^{commit}`]);
+  if (!anchor.error && anchor.status === 1 && anchor.stderr === '') return false;
+  if (anchor.error || anchor.status !== 0 || anchor.stderr !== '') return null;
+  const target = probe(['rev-parse', '--verify', '--quiet', `${revision}^{commit}`]);
+  if (target.error || target.status !== 0 || target.stderr !== '') return null;
+  if (target.stdout.trim() === RUN_E_STAGING_DIAGNOSTIC) return false;
+  const ancestry = probe(['merge-base', '--is-ancestor', RUN_E_STAGING_DIAGNOSTIC, target.stdout.trim()]);
+  if (ancestry.error || ancestry.stderr !== '' || ![0, 1].includes(ancestry.status)) return null;
+  return ancestry.status === 0;
+}
+
+/** Checkout ancestry and either proof source must survive stripped journal labels. */
+export function requiresRunEStagingAdmission(root, journal, headSha) {
+  return journal?.stagingCorrectionAdmission !== undefined
+    || runEStagingDescendant(root, 'HEAD') !== false
+    || runEStagingDescendant(root, headSha) !== false;
+}
+
+/** Preserve the finalized 776-launch proof and admit only the reviewed diagnostic blobs. */
+export function validateRunEStagingAdmission(root, journal, headSha, allowUnpinned = false) {
+  try {
+    if (!Number.isInteger(RUN_E_STAGING_CHECKPOINT_RUNS)
+      || RUN_E_STAGING_CHECKPOINT_RUNS < 127 || RUN_E_STAGING_CHECKPOINT_RUNS >= 1600
+      || RUN_E_STAGING_CHECKPOINT_SHA256 === '0'.repeat(64)
+      || typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)
+      || runEStagingDescendant(root, headSha) !== true
+      || git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || git(root, ['merge-base', headSha, 'HEAD']) !== headSha
+      || git(root, ['merge-base', RUN_E_STAGING_PREDECESSOR, RUN_E_STAGING_PUBLICATION]) !== RUN_E_STAGING_PREDECESSOR
+      || git(root, ['merge-base', RUN_E_STAGING_PUBLICATION, RUN_E_STAGING_DIAGNOSTIC]) !== RUN_E_STAGING_PUBLICATION) return null;
+    const blobs = Object.entries(RUN_E_STAGING_BLOBS);
+    if (blobs.length === 0 || blobs.some(([path, blob]) => !path || !/^[0-9a-f]{40}$/.test(blob))) return null;
+    const allowed = new Set([...RUN_E_CONTINUATION_PATHS, ...blobs.map(([path]) => path)]);
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_STAGING_PUBLICATION, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !allowed.has(path))) return null;
+    for (const [path, blob] of blobs) {
+      if (git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\t${path}`) return null;
+    }
+    const readDocument = (revision, path) => execFileSync('git', ['show', `${revision}:${path}`], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    for (const path of RUN_E_CORRECTIVE_DOCUMENTS) {
+      if (!readDocument(headSha, path).startsWith(readDocument(RUN_E_STAGING_PUBLICATION, path))) return null;
+    }
+    const historicalText = readDocument(RUN_E_STAGING_PUBLICATION, RUN_E_REPORT);
+    const historicalMarkdown = readDocument(RUN_E_STAGING_PUBLICATION, RUN_E_REPORT.replace(/\.json$/, '.md'));
+    if (sha256(historicalText) !== RUN_E_STAGING_REPORT_SHA256
+      || sha256(historicalMarkdown) !== RUN_E_STAGING_MARKDOWN_SHA256) return null;
+    const stagingHistoricalReport = JSON.parse(historicalText);
+    if (stagingHistoricalReport.head_sha !== RUN_E_STAGING_PREDECESSOR
+      || stagingHistoricalReport.round !== 2 || !Array.isArray(stagingHistoricalReport.inventory)
+      || !Array.isArray(stagingHistoricalReport.findings)) return null;
+    const checkpoint = committedRunESection(readDocument(headSha, RUN_E_REVIEW_DOCUMENT), 'STAGING_CHECKPOINT_776');
+    const keys = 'budgetAuthorization,continuationAdmission,correctiveAdmission,dotenv,mutations,round,runs,supervisors,version';
+    if (!checkpoint || sha256(JSON.stringify(checkpoint)) !== RUN_E_STAGING_CHECKPOINT_SHA256
+      || Object.keys(checkpoint).sort().join(',') !== keys
+      || checkpoint.runs !== RUN_E_STAGING_CHECKPOINT_RUNS
+      || checkpoint.mutations.some((entry) => entry.state !== 'restored')
+      || checkpoint.supervisors.some((entry) => entry.active !== false)
+      || JSON.stringify(checkpoint.dotenv) !== JSON.stringify({ open: false, files: [] })) return null;
+    const proof = validateRunECorrectiveAdmission(root, checkpoint, RUN_E_STAGING_PREDECESSOR);
+    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2
+      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600
+      || !Array.isArray(journal.supervisors) || journal.supervisors.length !== journal.runs
+      || !Array.isArray(journal.mutations)
+      || !unchangedPrefix(checkpoint.supervisors, journal.supervisors)
+      || !unchangedPrefix(checkpoint.mutations, journal.mutations)
+      || ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission']
+        .some((key) => JSON.stringify(journal[key]) !== JSON.stringify(checkpoint[key]))) return null;
+    const stagingCorrectionAdmission = {
+      headSha, predecessorHeadSha: RUN_E_STAGING_PREDECESSOR,
+      checkpointSha256: RUN_E_STAGING_CHECKPOINT_SHA256, firstRun: checkpoint.runs + 1,
+    };
+    if (journal.stagingCorrectionAdmission === undefined) {
+      if (!allowUnpinned || journal.runs !== checkpoint.runs
+        || Object.keys(journal).sort().join(',') !== keys
+        || JSON.stringify(journal) !== JSON.stringify(checkpoint)
+        || git(root, ['diff', '--name-only', 'HEAD'])
+        || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    } else if (journal.runs <= checkpoint.runs
+      || Object.keys(journal).sort().join(',') !== keys.replace('supervisors,', 'stagingCorrectionAdmission,supervisors,')
+      || JSON.stringify(journal.stagingCorrectionAdmission) !== JSON.stringify(stagingCorrectionAdmission)) return null;
+    return {
+      ...proof, stagingCorrectionAdmission, stagingHistoricalReport, stagingHistoricalMarkdown: historicalMarkdown,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function authorizedRunEBudget(root, journal) {
+  if (journal.round !== 2 || !Number.isInteger(journal.runs) || journal.runs < 0) return null;
+  try {
+    if (git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || !onlyJournaledChanges(root, journal)
+      || (journal.runs === 0 && git(root, ['diff', '--name-only', 'HEAD']))
+      || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    if (requiresRunEStagingAdmission(root, journal, headSha)) {
+      const proof = validateRunEStagingAdmission(root, journal, headSha, true);
+      if (!proof || JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
+        !== JSON.stringify(proof.intake)) return null;
+      return { ...proof.grant, stagingCorrectionAdmission: proof.stagingCorrectionAdmission };
+    }
+    if (requiresRunECorrectiveAdmission(root, journal, headSha)) {
+      const proof = validateRunECorrectiveAdmission(root, journal, headSha, true);
+      if (!proof || JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
+        !== JSON.stringify(proof.intake)) return null;
+      return { ...proof.grant, correctiveAdmission: proof.correctiveAdmission };
+    }
+    const continuing = requiresRunEContinuation(root, journal, headSha);
+    const proof = continuing
+      ? validateRunEContinuation(root, journal, headSha, true)
+      : validateRunEAdmission(root, headSha);
+    if (!proof || JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
+      !== JSON.stringify(JSON.parse(git(root, ['show', `${proof.grant.headSha}:${RUN_E_INTAKE}`])))) return null;
+    if (!continuing && ((journal.runs > 0 && !journal.budgetAuthorization)
+      || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, proof.grant)
+        || journal.budgetAuthorization.firstRun !== 1)))) return null;
+    return continuing ? { ...proof.grant, continuationAdmission: proof.continuationAdmission } : proof.grant;
+  } catch {
+    return null;
+  }
+}
+
 /** Pure shape check shared with the checker; matching prose alone grants nothing. */
 export function runCFourthAuthorization(sidecar) {
   if (sidecar?.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'
@@ -349,7 +790,7 @@ function authorizedRunCBudget(root, journal) {
 
 function authorizedBudget(root, journal) {
   if (journal.round === 4) return authorizedRunCFourthBudget(root, journal);
-  if (journal.round === 2) return authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
+  if (journal.round === 2) return authorizedRunEBudget(root, journal) ?? authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
   if (journal.round !== 1) return null;
   try {
     if (git(root, ['branch', '--show-current']) !== 'feat/1185') return null;
@@ -739,6 +1180,27 @@ function hasThirdRoundAuthorization(root) {
  */
 function cmdRoundStart(root) {
   const journal = readJournal(root);
+  const branch = git(root, ['branch', '--show-current']);
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  if (requiresRunEStagingAdmission(root, journal, headSha)
+    || requiresRunECorrectiveAdmission(root, journal, headSha) || afterRunEOriginalAdmission(root, headSha)) {
+    console.error('round-start: REFUSED — Run E continuation retains its existing round and spent launches');
+    return 1;
+  }
+  if (branch === RUN_E_BRANCH || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION) {
+    // Opening a round discards its counter: an already pinned E grant cannot
+    // re-enter admission even if its round number has been changed backwards.
+    if (journal.budgetAuthorization) {
+      console.error('round-start: REFUSED — Run E grant is already pinned and grants no third round');
+      return 1;
+    }
+    if (!Number.isInteger(journal.round) || journal.round < 0
+      || !Number.isInteger(journal.runs) || journal.runs < 0
+      || (journal.round === 0 && journal.runs !== 0)) {
+      console.error('round-start: REFUSED — malformed Run E round or run counter');
+      return 1;
+    }
+  }
   const blockers = [];
   if (journal.dotenv?.open === true) blockers.push('the dotenv swap is still open');
   for (const entry of journal.mutations ?? []) {
@@ -758,6 +1220,10 @@ function cmdRoundStart(root) {
     return 1;
   }
   const round = (journal.round ?? 0) + 1;
+  if (runEThirdRoundForbidden(git(root, ['branch', '--show-current']), journal.budgetAuthorization?.id, round)) {
+    console.error('round-start: REFUSED — Run E authorization grants no third round');
+    return 1;
+  }
   // The Run D grant itself says "no third round"; the legacy text matcher
   // must never interpret that denial as permission to open another round.
   if (round >= 3 && (git(root, ['branch', '--show-current']) === RUN_D_BRANCH
@@ -880,6 +1346,15 @@ async function cmdRun(root, parsed) {
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
+  const runEBranch = git(root, ['branch', '--show-current']) === RUN_E_BRANCH;
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  const runEAdmittedHead = headSha === RUN_E_ORIGINAL_ADMISSION || afterRunEOriginalAdmission(root, headSha);
+  if (((runEBranch && journal.round !== 1) || runEAdmittedHead || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION
+    || requiresRunECorrectiveAdmission(root, journal, headSha) || requiresRunEStagingAdmission(root, journal, headSha))
+    && (!authorization || journal.round !== 2 || authorization.id !== RUN_E_AUTHORIZATION)) {
+    console.error('run: Run E second-pass authorization, evidence or pinned HEAD invalid; refusing launch');
+    return 1;
+  }
   const runDBranch = git(root, ['branch', '--show-current']) === RUN_D_BRANCH;
   if (((runDBranch && journal.round !== 1) || journal.budgetAuthorization?.id === RUN_D_AUTHORIZATION)
     && (!authorization || journal.round !== 2 || authorization.id !== RUN_D_AUTHORIZATION)) {
@@ -932,6 +1407,15 @@ async function cmdRun(root, parsed) {
   journal.runs += 1;
   if (authorization && !journal.budgetAuthorization) {
     journal.budgetAuthorization = { ...authorization, firstRun: journal.runs };
+  }
+  if (authorization?.continuationAdmission && journal.continuationAdmission === undefined) {
+    journal.continuationAdmission = authorization.continuationAdmission;
+  }
+  if (authorization?.correctiveAdmission && journal.correctiveAdmission === undefined) {
+    journal.correctiveAdmission = authorization.correctiveAdmission;
+  }
+  if (authorization?.stagingCorrectionAdmission && journal.stagingCorrectionAdmission === undefined) {
+    journal.stagingCorrectionAdmission = authorization.stagingCorrectionAdmission;
   }
   journal.supervisors.push({
     pid,

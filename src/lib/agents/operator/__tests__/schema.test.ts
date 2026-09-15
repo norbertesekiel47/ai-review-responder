@@ -59,7 +59,9 @@ function strictProviderViolations(node: unknown, path: string): string[] {
   if (node.type === 'object') {
     const properties = isJsonNode(node.properties) ? node.properties : {};
     const required = Array.isArray(node.required) ? node.required : [];
-    if (Object.keys(properties).length === 0) violations.push(`${path}: object without properties`);
+    // Closed empty input is valid for clear_location_override; an open record
+    // remains rejected by additionalProperties below.
+    if (!isJsonNode(node.properties)) violations.push(`${path}: object without properties`);
     if (node.additionalProperties !== false) violations.push(`${path}: additionalProperties is not false`);
     for (const [key, property] of Object.entries(properties)) {
       if (!required.includes(key) && !(isJsonNode(property) && admitsNull(property))) {
@@ -74,6 +76,37 @@ function strictProviderViolations(node: unknown, path: string): string[] {
 }
 
 describe('operator model output schema', () => {
+  it('allows only scope and empty input for restore_last, never receipt IDs or prior state', () => {
+    const restore = { ...PROPOSAL, operation: 'restore_last', input: {} };
+    const accepts = (proposal: unknown) => OperatorModelOutputSchema.safeParse({ ...MINIMAL, proposals: [proposal] }).success;
+    expect(accepts(restore)).toBe(true);
+    expect(accepts({ ...restore, scope: { accountId: ACCOUNT, locationId: null } })).toBe(true);
+    for (const input of [{ sourceProposalId: LOCATION }, { tone: null }, { restore: { sourceProposalId: LOCATION } }]) {
+      expect(accepts({ ...restore, input })).toBe(false);
+    }
+    expect(accepts({ ...restore, receipt: {} })).toBe(false);
+  });
+
+  it('accepts only a closed refusal reason and rejects fabricated wording, scope, category and durable IDs', () => {
+    const reasons = ['invented_business_fact', 'customer_data_exposure', 'reviewer_disparagement',
+      'review_incentive', 'review_edit_pressure', 'competitor_review_reply'];
+    for (const reason of reasons) {
+      const segment = { type: 'refusal_ref', reason };
+      expect(OperatorModelOutputSchema.safeParse({ ...MINIMAL, segments: [segment] }).success, reason).toBe(true);
+      for (const key of ['text', 'scope', 'category', 'subjectId', 'businessId', ...FORBIDDEN]) {
+        expect(OperatorModelOutputSchema.safeParse({
+          ...MINIMAL, segments: [{ ...segment, [key]: 'fabricated' }],
+        }).success, key).toBe(false);
+      }
+    }
+    expect(OperatorModelOutputSchema.safeParse({
+      ...MINIMAL, segments: [{ type: 'refusal_ref', reason: 'made_up' }],
+    }).success).toBe(false);
+    expect(OperatorModelOutputSchema.safeParse({
+      ...MINIMAL, segments: [{ type: 'refusal', reason: reasons[0], subjectId: LOCATION }],
+    }).success).toBe(false);
+  });
+
   it('model output schema has no field for counts, approval, confirmation, or receipts', () => {
     expect(OperatorModelOutputSchema.safeParse(MINIMAL).success).toBe(true);
 
@@ -151,6 +184,8 @@ describe('operator model output schema', () => {
     expect(accepts({ ...cap, scope: { accountId: ACCOUNT, locationId: 'not-a-uuid' } })).toBe(false);
     expect(accepts({ ...cap, operation: 'set_veto_window', input: { minutes: 20 } })).toBe(false);
     expect(accepts({ ...cap, operation: 'set_auto_reply_scope', input: { threshold: 3 } })).toBe(false);
+    expect(accepts({ ...PROPOSAL, operation: 'clear_location_override', input: {} })).toBe(true);
+    expect(accepts({ ...PROPOSAL, operation: 'clear_location_override', input: { restore: true } })).toBe(false);
 
     // The wire does not encode tenancy: a foreign uuid is shape-valid, and the
     // semantic validator refuses it (render.test.ts).
@@ -161,6 +196,8 @@ describe('operator model output schema', () => {
       .map((option) => option.shape.operation.value)
       .sort();
     expect(operations).toEqual([
+      'clear_location_override',
+      'restore_last',
       'set_auto_reply_scope',
       'set_avoid_facts',
       'set_daily_cap',

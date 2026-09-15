@@ -19,7 +19,7 @@ export type VoiceOperationId =
   | 'set_avoid_facts'
   | 'set_highlight_facts';
 
-export type PolicyOperationId = 'set_auto_reply_scope' | 'set_veto_window' | 'set_daily_cap';
+export type PolicyOperationId = 'set_auto_reply_scope' | 'set_veto_window' | 'set_daily_cap' | 'clear_location_override';
 
 export type ProposableOperationId = VoiceOperationId | PolicyOperationId;
 
@@ -82,4 +82,5 @@ export const OPERATION_INPUT_SCHEMAS = {
   set_auto_reply_scope: AutoReplyScopeInput,
   set_veto_window: VetoWindowInput,
   set_daily_cap: DailyCapInput,
+  clear_location_override: z.strictObject({}),
 } as const satisfies Record<ProposableOperationId, z.ZodType<Record<string, unknown>>>;

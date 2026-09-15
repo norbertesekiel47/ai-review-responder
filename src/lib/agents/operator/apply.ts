@@ -16,8 +16,9 @@
 // Invariant #15: `sql`/`tx` arrive as parameters; this module never imports
 // @/lib/db/server. Invariant #9: every statement carries an `account_id`
 // predicate. Invariant #3: the only things that change are a location's voice
-// columns through the voice writer, or ONE auto-approval dial through the
-// shared settings writer, which repeats every gate. No LLM, no `api_costs`.
+// columns through the voice writer, or auto-approval dials through the shared
+// settings writer, which repeats every gate. Restore can recreate all three
+// policy dials atomically after a deletion. No LLM, no `api_costs`.
 import type postgres from 'postgres';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
@@ -35,9 +36,10 @@ import { readVoiceConfig, updateVoiceConfig, type VoiceConfig } from '@/lib/resp
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import {
   proposableOperation,
+  previewPolicyRestore,
   type PolicyProposableOperation,
   type PolicyTarget,
-  type PolicyWriterPatch,
+  type PolicyRestoreWriterPatch,
 } from './catalog';
 import {
   readPolicySnapshot,
@@ -51,8 +53,10 @@ import {
   policyStateWithConsequence,
   policyTargetOf,
   readProposalForAccount,
+  resolveProposalRestoreInput,
   type ProposalView,
 } from './proposals';
+import { hasRestoreInput } from './restore-inputs';
 import {
   PROPOSAL_FAILURE_REASON,
   PROPOSAL_STATUS,
@@ -229,10 +233,16 @@ async function applyVoiceProposal(
   // 4. No confirmation: no voice operation widens autonomy.
 
   // 5. Execute, through the operation's own fields only (D10).
-  const parsedInput = operation.parseInput(proposal.input);
-  if (!parsedInput.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
-
-  const fields: Partial<VoiceConfig> = operation.writerFields(parsedInput.input);
+  let fields: Partial<VoiceConfig>;
+  if (hasRestoreInput(proposal.input)) {
+    const inverse = await resolveProposalRestoreInput(tx, input.accountId, proposal);
+    if (inverse?.domain !== 'voice') return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    fields = inverse.fields;
+  } else {
+    const parsedInput = operation.parseInput(proposal.input);
+    if (!parsedInput.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    fields = operation.writerFields(parsedInput.input);
+  }
   // A THROW here propagates and rolls the whole transaction back (D12).
   const write = await updateVoiceConfig(tx, {
     accountId: input.accountId,
@@ -282,7 +292,7 @@ interface PolicyPlan {
   target: PolicyTarget;
   /** The locked pre-write read: values, token and the review cohort both consequence lines use. */
   prewrite: PolicySnapshot;
-  patch: PolicyWriterPatch;
+  patch: PolicyRestoreWriterPatch;
   /** Server-classified from the CURRENT locked state, never the stored flag or the model. */
   expansion: boolean;
   /** The stored `after` the card showed, stripped to its dials. */
@@ -311,6 +321,7 @@ async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<A
     operation === null
     || operation.domain !== 'policy'
     || operation.contractVersion !== proposal.contractVersion
+    || (operation.scopeRule === 'location' && proposal.locationId === null)
   ) {
     return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
   }
@@ -334,16 +345,26 @@ async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<A
   }
 
   // 7. Re-parse the stored input and preview on the SERVER from the locked state.
-  const parsed = operation.parseInput(proposal.input);
-  if (!parsed.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
   const target = policyTargetOf(proposal.locationId);
-  const preview = operation.preview(prewrite.state, target, parsed.input);
+  let patch: PolicyRestoreWriterPatch;
+  let preview;
+  if (hasRestoreInput(proposal.input)) {
+    const inverse = await resolveProposalRestoreInput(tx, input.accountId, proposal);
+    if (inverse?.domain !== 'policy') return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    patch = inverse.patch;
+    preview = previewPolicyRestore(prewrite.state, target, patch);
+  } else {
+    const parsed = operation.parseInput(proposal.input);
+    if (!parsed.ok) return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
+    patch = operation.writerPatch(parsed.input, target);
+    preview = operation.preview(prewrite.state, target, parsed.input);
+  }
   const plan: PolicyPlan = {
     proposal,
     operation,
     target,
     prewrite,
-    patch: operation.writerPatch(parsed.input, target),
+    patch,
     expansion: operation.exposure(preview, target) === 'expansion',
     storedAfter: parsePolicyState(proposal.after, 'agent_proposals.after'),
   };

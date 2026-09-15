@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { parsePolicyState, parseVoiceState } from '@/lib/agents/operator/schema';
 import { PolicyConsequenceLine, PolicyStateDetail } from './PolicyStateDetail';
@@ -27,6 +27,7 @@ const POLICY_TITLES: Readonly<Record<string, string>> = {
   set_auto_reply_scope: 'Change auto-reply scope',
   set_veto_window: 'Change the time to stop a reply',
   set_daily_cap: 'Change the daily auto-reply limit',
+  clear_location_override: 'Use the account default for auto-reply',
 };
 
 export interface ProposalCardProps {
@@ -40,6 +41,7 @@ export interface ProposalCardProps {
   onApply: (proposal: ProposalView, confirmationLevel?: string) => void;
   onDecline: (proposal: ProposalView) => void;
   onRefreshPlan: (proposal: ProposalView) => void;
+  onRestore?: (proposal: ProposalView) => void;
   busy: boolean;
   error: string | null;
 }
@@ -62,12 +64,14 @@ export function ProposalCard({
   onApply,
   onDecline,
   onRefreshPlan,
+  onRestore,
   busy,
   error,
 }: ProposalCardProps) {
   const policy = proposal.before.domain === 'policy';
   const account = policy && proposal.locationId === null;
-  const headingId = `op-proposal-${proposal.id}`;
+  const instanceId = useId();
+  const headingId = `op-proposal-${proposal.id}-${instanceId}`;
   const reasonId = `${headingId}-reason`;
 
   const applied = proposal.status === 'applied';
@@ -83,7 +87,8 @@ export function ProposalCard({
       {!applied && (
         <span className="badge op-label-chip">{PROPOSAL_LABEL_PENDING[proposal.labelKind]}</span>
       )}
-      <h2 className="card-h2" id={headingId}>{policy ? POLICY_TITLES[proposal.operation] ?? proposal.describe : proposal.describe}</h2>
+      <h2 className="card-h2" id={headingId}>{proposal.describe.startsWith('Restore:')
+        ? proposal.describe : policy ? POLICY_TITLES[proposal.operation] ?? proposal.describe : proposal.describe}</h2>
 
       <ProposalTarget proposal={proposal} account={account} turnLocationId={turnLocationId}
         locationLabel={locationLabel} scopeMoved={scopeMoved} />
@@ -97,6 +102,7 @@ export function ProposalCard({
         onApply={onApply}
         onDecline={onDecline}
         onRefreshPlan={onRefreshPlan}
+        onRestore={onRestore}
         busy={busy}
         error={error}
       />
@@ -164,11 +170,12 @@ function ProposalState({
   onApply,
   onDecline,
   onRefreshPlan,
+  onRestore,
   busy,
   error,
 }: Pick<
   ProposalCardProps,
-  'proposal' | 'locationLabel' | 'onApply' | 'onDecline' | 'onRefreshPlan' | 'busy' | 'error'
+  'proposal' | 'locationLabel' | 'onApply' | 'onDecline' | 'onRefreshPlan' | 'onRestore' | 'busy' | 'error'
 > & {
   /** The id the refusal notice carries, so Apply can describe itself by it. */
   reasonId: string;
@@ -191,6 +198,15 @@ function ProposalState({
 
       {pending && <PendingProposalActions proposal={proposal} reasonId={reasonId}
         onApply={onApply} onDecline={onDecline} busy={busy} error={error} />}
+
+      {proposal.status === 'applied' && proposal.receipt !== null && onRestore && (
+        <div className="op-actions">
+          <button type="button" className="btn btn-secondary op-action" disabled={busy}
+            aria-describedby={error !== null ? reasonId : undefined}
+            onClick={() => onRestore(proposal)}>{busy ? 'Preparing restore…' : 'Restore'}</button>
+          <span className="op-note">Prepare a change to review before applying.</span>
+        </div>
+      )}
 
       {!pending && refreshable && (
         <div className="op-actions">

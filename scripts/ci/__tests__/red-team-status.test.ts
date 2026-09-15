@@ -143,13 +143,15 @@ function countsFor(sidecar: Pick<Sidecar, 'inventory' | 'findings'>): Record<str
  * the only shape in which the narrowed staleness exclusion means anything.
  */
 function seedRepo(options: {
+  branch?: string;
   intake?: Record<string, unknown> | null;
   patch?: (sidecar: Sidecar) => void;
   mode?: string;
   detached?: boolean;
   checkerArgs?: (shas: { forkSha: string; headSha: string }) => string[];
 } = {}): { reportDir: string; sidecar: Sidecar } {
-  git('init', '-q', '-b', BRANCH);
+  const branch = options.branch ?? BRANCH;
+  git('init', '-q', '-b', branch);
   git('config', 'user.email', 'red-team@example.test');
   git('config', 'user.name', 'red team');
   write('src/thing.ts', 'export const thing = 1;\n');
@@ -176,7 +178,7 @@ function seedRepo(options: {
     schema: 1,
     mode,
     run_id: `${mode}-${slug}`,
-    branch: options.detached ? null : BRANCH,
+    branch: options.detached ? null : branch,
     fork_sha: forkSha,
     merge_base_sha: forkSha,
     head_sha: headSha,
@@ -351,6 +353,885 @@ describe('the committed Run C fourth-round proof', () => {
       expect(check().status).toBe(1);
     },
   );
+});
+
+describe('the committed Run E second-pass proof', () => {
+  const branch = 'codex/owner-operator-run-e';
+  const reportDir = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab';
+  const report = `${reportDir}/findings.json`;
+  const markdown = `${reportDir}/findings.md`;
+  const intakePath = 'docs/superpowers/plans/codex-owner-operator-run-e-intake.json';
+  const journalPath = '.feature/red-team-journal.json';
+  const scopePath = 'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md';
+  const scopeManifest = { schema: 1, sourceHead: '54cb1a05e82de192355e379b7eb7b76182189306', groups: [
+    { id: 'unchanged-mocked-case', reason: 'Root-reviewed discovery correction: the unchanged whole-module mock cuts the changed runtime edge.', ids: ['E0'] },
+  ] };
+  const scopeStart = '<!-- RUN_E_SCOPE_CORRECTIONS_START -->';
+  const scopeEnd = '<!-- RUN_E_SCOPE_CORRECTIONS_END -->';
+  const scopeDocument = `${scopeStart}\n\`\`\`json\n${JSON.stringify(scopeManifest)}\n\`\`\`\n${scopeEnd}\n`;
+  const approval = {
+    id: 'owner-run-e-second-pass-1600', date: '2026-09-15', finding_ids: [],
+    text: 'Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.\nOwner: Yes, approve the scoped E second pass',
+  };
+  const supportingPaths = [
+    '.agents/skills/red-team/scripts/mutation-runner.mjs', '.agents/skills/red-team/SKILL.md',
+    '.claude/skills/red-team/SKILL.md', 'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+    '.agents/skills/feature/scripts/red-team-status.mjs', 'scripts/ci/__tests__/red-team-status.test.ts',
+    'docs/runbooks/beta-launch-alerting.md',
+  ];
+  const addedTests = [
+    'adopts a rejected timeline Apply and refreshes its Restore source: %s',
+    'pins Run E HEAD and grant before the first child executes',
+    'allows Run E launch 1600 and refuses 1601 and a third round',
+    'certifies Run E round 2 only with intact admission history and a closed capped launch journal',
+    'rejects Run E third and higher reports before generic authorization prose',
+  ];
+
+  function prepareE(scopeProof: string | null = scopeDocument, publishFinal = true): { final: Sidecar; journal: Record<string, unknown>; historyCommit: string; admissionMarkdown: string } {
+    checker = CHECKER;
+    const { sidecar } = seedRepo({ intake: { risk: 'high' } });
+    git('branch', '-m', branch);
+    const originalIntake = { risk: 'high', allowed_edit_surface: ['docs/reviews/red-team/codex-owner-operator-run-e/**'], tests_to_add: ['original promise'] };
+    write(intakePath, JSON.stringify(originalIntake));
+    git('add', intakePath);
+    git('commit', '-qm', 'corrected code baseline without original reports');
+    const baseline = git('rev-parse', 'HEAD');
+    Object.assign(sidecar, {
+      branch, run_id: 'feature-codex-owner-operator-run-e-eb15ab', risk: 'high', round: 1,
+      head_sha: '890eea76c8c04b8d2acfcc73a895ec3112560e38', status: 'INCOMPLETE_BUDGET',
+      inventory: Array.from({ length: 2113 }, (_, index) => ({
+        id: `E${index}`, file: KILLED_ROW.file, test: `original case ${index}`,
+        outcome: index === 0 || index === 3 ? 'skipped-budget' : index === 1 ? 'killed' : 'excluded',
+        reason: index === 0 || index === 3 ? 'Original budget exhausted.' : 'Original evidence retained.',
+      })),
+      findings: [{ id: 'E-P1', severity: 'P1', title: 'Historical finding', at: 'src/thing.ts:1', duty: 2, disposition: 'open' }],
+      authorizations: [],
+    });
+    sidecar.counts = countsFor(sidecar);
+    const history = JSON.stringify(sidecar);
+    const historyMarkdown = '# Original E evidence\n\nExact historical duties.\n\n';
+    write(report, history);
+    write(markdown, historyMarkdown);
+    git('add', report, markdown);
+    git('commit', '-qm', 'publish immutable original evidence');
+    const historyCommit = git('rev-parse', 'HEAD');
+    const anchors: Record<string, string> = {
+      RUN_E_BASELINE: baseline,
+      RUN_E_HISTORY_COMMIT: historyCommit,
+      RUN_E_HISTORY_BLOB: git('rev-parse', `HEAD:${report}`),
+      RUN_E_HISTORY_MARKDOWN_BLOB: git('rev-parse', `HEAD:${markdown}`),
+      RUN_E_HISTORY_SHA256: sha256(history),
+      RUN_E_MARKDOWN_SHA256: sha256(historyMarkdown),
+      RUN_E_IDENTITY_SHA256: sha256(JSON.stringify(sidecar.inventory.map(({ id, file, test }) => ({ id, file, test })))),
+    };
+    // Rebind only immutable trust anchors for this disposable repository;
+    // exercise the actual admission helper and checker, without mocked proofs.
+    let runner = readFileSync(resolve(process.cwd(), '.agents/skills/red-team/scripts/mutation-runner.mjs'), 'utf8');
+    for (const [name, value] of Object.entries(anchors)) {
+      const declaration = new RegExp(`const ${name} = '[^']*';`);
+      expect(runner).toMatch(declaration);
+      runner = runner.replace(declaration, `const ${name} = '${value}';`);
+    }
+    write('fixture-e-runner.mjs', runner);
+    checker = join(repo, 'fixture-e-checker.mjs');
+    const checkerSource = readFileSync(CHECKER, 'utf8');
+    const scopeAnchor = /const RUN_E_SCOPE_CORRECTIONS_SHA256 = '[^']*';/g;
+    expect(checkerSource.match(scopeAnchor)).toHaveLength(1);
+    writeFileSync(checker, checkerSource.replace(
+      '../../red-team/scripts/mutation-runner.mjs', './fixture-e-runner.mjs',
+    ).replace(scopeAnchor, `const RUN_E_SCOPE_CORRECTIONS_SHA256 = '${sha256(JSON.stringify(scopeManifest))}';`));
+    sidecar.authorizations = [approval];
+    write(report, JSON.stringify(sidecar));
+    const admissionMarkdown = `${historyMarkdown}## Execution admission\n${approval.text}\n`;
+    write(markdown, admissionMarkdown);
+    const intake = JSON.stringify({ ...originalIntake,
+      allowed_edit_surface: ['docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/**', ...supportingPaths],
+      tests_to_add: [...addedTests, ...originalIntake.tests_to_add],
+    });
+    write(intakePath, intake);
+    write('.feature/intake.json', intake);
+    git('add', report, markdown, intakePath);
+    if (scopeProof !== null) {
+      write(scopePath, scopeProof);
+      git('add', scopePath);
+    }
+    git('commit', '-qm', 'commit exact execution admission');
+    const admissionHead = git('rev-parse', 'HEAD');
+    const originalAdmissionAnchor = /const RUN_E_ORIGINAL_ADMISSION = '[^']*';/g;
+    expect(runner.match(originalAdmissionAnchor)).toHaveLength(1);
+    write('fixture-e-runner.mjs', runner.replace(originalAdmissionAnchor, `const RUN_E_ORIGINAL_ADMISSION = '${admissionHead}';`));
+    Object.assign(sidecar, { round: 2, head_sha: admissionHead, intake_sha256: sha256(intake), status: 'CLEAR', authorizations: [] });
+    sidecar.inventory[0] = { ...sidecar.inventory[0], outcome: 'killed', reason: 'New individual baseline and mutant measured green/red; selector original case 0.' };
+    sidecar.inventory[3] = { ...sidecar.inventory[3], outcome: 'killed', reason: 'New individual baseline and mutant measured green/red; selector original case 3.' };
+    sidecar.inventory.push({ ...KILLED_ROW, id: 'E-APPENDED' });
+    sidecar.findings[0] = { ...sidecar.findings[0], disposition: 'fixed', reason: 'Root verified correction and its new measurement.' };
+    sidecar.counts = countsFor(sidecar);
+    if (publishFinal) {
+      write(report, JSON.stringify(sidecar));
+      write(markdown, `${admissionMarkdown}\n# Final E result\nNew evidence appended after exact admission.\n`);
+      git('add', report, markdown);
+      git('commit', '-qm', 'final results after admitted measurement');
+    }
+    const journal = {
+      round: 2, runs: 4, mutations: [], supervisors: [], dotenv: { open: false, files: [] },
+      budgetAuthorization: { id: approval.id, headSha: admissionHead, maxRuns: 1600, firstRun: 1, sha256: sha256(JSON.stringify(approval)) },
+    };
+    write(journalPath, JSON.stringify(journal));
+    return { final: sidecar, journal, historyCommit, admissionMarkdown };
+  }
+
+  describe('same-round continuation certification', () => {
+    interface ContinuationJournal {
+      version: number;
+      round: number;
+      runs: number;
+      mutations: Array<{ path: string; state: string }>;
+      supervisors: Array<{ pgid: number; active: boolean }>;
+      dotenv: { open: boolean; files: string[] };
+      budgetAuthorization: { id: string; maxRuns: number; sha256: string; headSha: string; firstRun: number };
+      continuationAdmission?: { headSha: string; checkpointSha256: string; firstRun: number };
+    }
+
+    const correctionReason = 'Root-reviewed source correction: original case 3 stops at its unchanged mock boundary; no changed runtime behavior is reached.';
+    const section = (name: string, value: unknown) =>
+      `<!-- RUN_E_${name}_START -->\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n<!-- RUN_E_${name}_END -->\n`;
+
+    function prepareContinuation(options: {
+      changeDocument?: (document: string) => string;
+      extraChange?: { path: string; contents: string };
+    } = {}) {
+      const fixture = prepareE(scopeDocument, false);
+      const originalHead = fixture.final.head_sha;
+      const checkpoint: ContinuationJournal = {
+        version: 1, round: 2, runs: 124,
+        mutations: Array.from({ length: 62 }, (_, index) => ({ path: `src/checkpoint-${index}.ts`, state: 'restored' })),
+        // These inert values cannot name a process group on the host.
+        supervisors: Array.from({ length: 124 }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - index, active: false })),
+        dotenv: { open: false, files: [] },
+        budgetAuthorization: { id: approval.id, maxRuns: 1600, sha256: sha256(JSON.stringify(approval)), headSha: originalHead, firstRun: 1 },
+      };
+      const corrections = { schema: 1, sourceHead: originalHead, groups: [
+        { id: 'continuation-mock-boundary', reason: correctionReason, ids: ['E3', 'E-DISCOVERY-DELTA'] },
+      ] };
+      const checkpointDigest = sha256(JSON.stringify(checkpoint));
+      let runner = readFileSync(join(repo, 'fixture-e-runner.mjs'), 'utf8');
+      for (const [name, value] of Object.entries({
+        RUN_E_ORIGINAL_ADMISSION: originalHead,
+        RUN_E_CHECKPOINT_SHA256: checkpointDigest,
+        RUN_E_CONTINUATION_SCOPE_SHA256: sha256(JSON.stringify(corrections)),
+      })) {
+        const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+        expect(runner.match(anchor)).toHaveLength(1);
+        runner = runner.replace(anchor, `const ${name} = '${value}';`);
+      }
+      write('fixture-e-runner.mjs', runner);
+      const document = `${scopeDocument}${section('CHECKPOINT_124', checkpoint)}${section('CONTINUATION_SCOPE_CORRECTIONS', corrections)}`;
+      write(scopePath, options.changeDocument?.(document) ?? document);
+      const supportPath = 'scripts/ci/__tests__/red-team-status.test.ts';
+      write(supportPath, '// Synthetic continuation support change.\n');
+      git('add', scopePath, supportPath);
+      if (options.extraChange) {
+        write(options.extraChange.path, options.extraChange.contents);
+        git('add', options.extraChange.path);
+      }
+      git('commit', '-qm', 'commit reviewed same-round successor');
+      const successorHead = git('rev-parse', 'HEAD');
+      const journal: ContinuationJournal = {
+        ...structuredClone(checkpoint), runs: 125,
+        supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 124, active: false }],
+        continuationAdmission: { headSha: successorHead, checkpointSha256: checkpointDigest, firstRun: 125 },
+      };
+      fixture.final.head_sha = successorHead;
+      fixture.final.inventory[0] = { ...fixture.final.inventory[0], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason };
+      fixture.final.inventory[3] = { ...fixture.final.inventory[3], outcome: 'excluded', reason: correctionReason };
+      fixture.final.inventory.push({ ...KILLED_ROW, id: 'E-DISCOVERY-DELTA', outcome: 'excluded', reason: correctionReason });
+      fixture.final.counts = countsFor(fixture.final);
+      write(report, JSON.stringify(fixture.final));
+      write(markdown, `${fixture.admissionMarkdown}\n# Continuation result\nMeasured continuation and exact source corrections.\n`);
+      git('add', report, markdown);
+      git('commit', '-qm', 'publish continuation results separately');
+      write(journalPath, JSON.stringify(journal));
+      return { ...fixture, journal, originalHead, successorHead, document };
+    }
+
+    function expectContinuationRejected(label: string): void {
+      const result = check();
+      expect(result.status, label).toBe(1);
+      expect(result.stderr, label).toContain('Run E round 2 requires');
+    }
+
+    function recreateFixture(): void {
+      rmSync(repo, { recursive: true, force: true });
+      mkdirSync(repo, { recursive: true });
+    }
+
+    it('certifies a closed Run E continuation with both exact correction manifests and a separate final report', () => {
+      const fixture = prepareContinuation();
+      expect(git('rev-parse', 'HEAD')).not.toBe(fixture.successorHead);
+      expect(git('rev-parse', 'HEAD^')).toBe(fixture.successorHead);
+      expect(fixture.journal.budgetAuthorization.headSha).toBe(fixture.originalHead);
+      expect(check()).toMatchObject({ status: 0, stderr: '' });
+      const capped = structuredClone(fixture.journal);
+      capped.runs = 1600;
+      capped.supervisors.push(...Array.from({ length: 1475 }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - 125 - index, active: false })));
+      write(journalPath, JSON.stringify(capped));
+      expect(check()).toMatchObject({ status: 0, stderr: '' });
+    });
+
+    it('rejects continuation exclusions with altered reasons, unapproved IDs, or previously measured outcomes', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      for (const [index, reason] of [
+        [3, `${correctionReason} Additional waiver.`],
+        [0, correctionReason],
+        [1, correctionReason],
+        [2, correctionReason],
+      ] as const) {
+        const final = structuredClone(fixture.final);
+        final.inventory[index] = { ...final.inventory[index], outcome: 'excluded', reason };
+        final.counts = countsFor(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected(`correction for E${index}: ${reason}`);
+      }
+      for (const change of ['missing appended ID', 'altered appended reason']) {
+        const final = structuredClone(fixture.final);
+        const index = final.inventory.findIndex((row) => row.id === 'E-DISCOVERY-DELTA');
+        expect(index).toBeGreaterThan(2112);
+        if (change === 'missing appended ID') final.inventory.splice(index, 1);
+        else final.inventory[index]!.reason = `${correctionReason} Additional waiver.`;
+        final.counts = countsFor(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected(change);
+      }
+    }, 15_000);
+
+    it('requires the exact committed continuation checkpoint even when the live document is repaired', () => {
+      for (const changeDocument of [
+        (document: string) => document.replace(/<!-- RUN_E_CHECKPOINT_124_START -->[\s\S]*?<!-- RUN_E_CHECKPOINT_124_END -->\n/, ''),
+        (document: string) => document.replace('"runs":124', '"runs":123'),
+      ]) {
+        recreateFixture();
+        const fixture = prepareContinuation({ changeDocument });
+        write(scopePath, fixture.document);
+        expectContinuationRejected('missing or altered committed checkpoint');
+      }
+    }, 15_000);
+
+    it('rejects continuation journal prefix edits, missing pins, and a second successor pin', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      const changes: Array<[string, (journal: ContinuationJournal) => void]> = [
+        ['mutation prefix', (journal) => { journal.mutations[0]!.path = 'src/replacement.ts'; }],
+        ['supervisor prefix', (journal) => { journal.supervisors[0]!.pgid -= 1; }],
+        ['truncated mutations', (journal) => { journal.mutations.shift(); }],
+        ['open appended mutation', (journal) => { journal.mutations.push({ path: 'src/unrestored.ts', state: 'applied' }); }],
+        ['active appended supervisor', (journal) => { journal.supervisors[124]!.active = true; }],
+        ['open dotenv scrub', (journal) => { journal.dotenv.open = true; }],
+        ['missing continuation pin', (journal) => { delete journal.continuationAdmission; }],
+        ['missing original authorization pin', (journal) => { Reflect.deleteProperty(journal, 'budgetAuthorization'); }],
+        ['checkpoint pin', (journal) => { journal.continuationAdmission!.checkpointSha256 = '0'.repeat(64); }],
+        ['retroactive first run', (journal) => { journal.continuationAdmission!.firstRun = 124; }],
+        ['second successor pin', (journal) => { journal.continuationAdmission!.headSha = git('rev-parse', 'HEAD'); }],
+        ['original authorization pin', (journal) => { journal.budgetAuthorization.headSha = fixture.successorHead; }],
+      ];
+      for (const [label, change] of changes) {
+        const journal = structuredClone(fixture.journal);
+        change(journal);
+        write(journalPath, JSON.stringify(journal));
+        expectContinuationRejected(label);
+      }
+      write(journalPath, JSON.stringify(fixture.journal));
+      write(report, JSON.stringify({ ...fixture.final, head_sha: fixture.originalHead }));
+      expectContinuationRejected('fallback to original admission after continuation pin');
+    }, 15_000);
+
+    it('keeps continuation in round two without a counter reset or a fresh 1600 launch allowance', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      for (const runs of [0, 124, 1601]) {
+        const journal = structuredClone(fixture.journal);
+        journal.runs = runs;
+        journal.supervisors = Array.from({ length: runs }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - index, active: false }));
+        write(journalPath, JSON.stringify(journal));
+        expectContinuationRejected(`counter ${runs}`);
+      }
+      write(journalPath, JSON.stringify({ ...fixture.journal, runs: 126 }));
+      expectContinuationRejected('counter without its supervisor');
+      for (const round of [1, 3]) {
+        write(journalPath, JSON.stringify({ ...fixture.journal, round }));
+        write(report, JSON.stringify({ ...fixture.final, round }));
+        expect(check().status, `round ${round}`).toBe(1);
+      }
+    });
+
+    it('requires the committed continuation scope digest and preserves the original review prefix', () => {
+      for (const changeDocument of [
+        (document: string) => document.replace(correctionReason, 'Unreviewed exclusion reason.'),
+        (document: string) => document.replace('RUN_E_CONTINUATION_SCOPE_CORRECTIONS_START', 'MISSING_SCOPE_START'),
+        (document: string) => `Rewritten original prefix\n${document}`,
+      ]) {
+        recreateFixture();
+        const fixture = prepareContinuation({ changeDocument });
+        write(scopePath, fixture.document);
+        expectContinuationRejected('committed scope or original review prefix');
+      }
+    }, 20_000);
+
+    it('preserves historical identities, findings, and admission markdown through continuation', () => {
+      const fixture = prepareContinuation();
+      expect(check().status).toBe(0);
+      const changes: Array<(final: Sidecar) => void> = [
+        (final) => { final.inventory[0]!.test = 'Replacement identity'; },
+        (final) => { final.findings[0]!.title = 'Replacement finding'; },
+        (final) => { final.inventory[2]!.reason = 'Rewritten original exclusion'; },
+      ];
+      for (const change of changes) {
+        const final = structuredClone(fixture.final);
+        change(final);
+        write(report, JSON.stringify(final));
+        expectContinuationRejected('rewritten original evidence');
+      }
+      write(report, JSON.stringify(fixture.final));
+      const finalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+      for (const text of [
+        finalMarkdown.replace('Exact historical duties.', 'Replacement duties.'),
+        finalMarkdown.replace(approval.text, 'Replacement execution authority.'),
+      ]) {
+        write(markdown, text);
+        expectContinuationRejected('rewritten admission markdown');
+      }
+    });
+
+    it('rejects continuation commits that change product code, canonical intake, or a ninth support path', () => {
+      for (const extraChange of [
+        { path: 'src/thing.ts', contents: 'export const thing = 3;\n' },
+        { path: intakePath, contents: '{"risk":"normal"}\n' },
+        { path: 'docs/runbooks/beta-launch-alerting.md', contents: 'Outside the eight continuation paths.\n' },
+      ]) {
+        recreateFixture();
+        prepareContinuation({ extraChange });
+        expectContinuationRejected(extraChange.path);
+      }
+    }, 20_000);
+    describe('finite corrective admission certification', () => {
+      const settingsPath = 'src/lib/auto-approval/__tests__/settings.test.ts';
+      const deviationsPath = 'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md';
+      const correctedSettings = "export const locationId = 'bbbbbbbb-0000-4000-8000-000000000001';\n";
+      const checkpointRuns = 126;
+      type CorrectivePin = { headSha: string; predecessorHeadSha: string; checkpointSha256: string; firstRun: number };
+      type CorrectiveJournal = ContinuationJournal & { correctiveAdmission?: CorrectivePin };
+
+      function committedText(revision: string, path: string): string {
+        const result = spawnSync('git', ['show', `${revision}:${path}`], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+        if (result.status !== 0) throw new Error(`missing committed fixture evidence: ${revision}:${path}`);
+        return result.stdout;
+      }
+
+      function prepareCorrective(options: {
+        changeDocument?: (document: string) => string;
+        settingsContents?: string;
+        extraChange?: { path: string; contents: string };
+      } = {}) {
+        const fixture = prepareContinuation();
+        // The old helper publishes a report after admission. Restore its exact
+        // archived admission bytes before freezing the synthetic predecessor.
+        write(report, committedText(fixture.successorHead, report));
+        write(markdown, committedText(fixture.successorHead, markdown));
+        write(deviationsPath, '# Preserved predecessor deviations\n');
+        git('add', report, markdown, deviationsPath);
+        git('commit', '-qm', 'freeze corrective predecessor with original admission evidence');
+        const predecessorHead = git('rev-parse', 'HEAD');
+        const checkpoint: CorrectiveJournal = {
+          ...structuredClone(fixture.journal), runs: checkpointRuns,
+          mutations: [...fixture.journal.mutations, { path: 'src/thing.ts', state: 'restored' }],
+          supervisors: [...fixture.journal.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 125, active: false }],
+          continuationAdmission: { ...fixture.journal.continuationAdmission!, headSha: predecessorHead },
+        };
+        const checkpointSha256 = sha256(JSON.stringify(checkpoint));
+        const blob = createHash('sha1').update(`blob ${Buffer.byteLength(correctedSettings)}\0${correctedSettings}`).digest('hex');
+        const runnerPath = join(repo, 'fixture-e-runner.mjs');
+        let source = readFileSync(runnerPath, 'utf8');
+        for (const [name, value] of Object.entries({
+          RUN_E_CORRECTIVE_PREDECESSOR: predecessorHead,
+          RUN_E_CORRECTIVE_CHECKPOINT_SHA256: checkpointSha256,
+        })) {
+          const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+          expect(source.match(anchor)).toHaveLength(1);
+          source = source.replace(anchor, `const ${name} = '${value}';`);
+        }
+        const runsAnchor = /const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = -?\d+;/g;
+        const blobsAnchor = /const RUN_E_CORRECTIVE_TEST_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+        expect(source.match(runsAnchor)).toHaveLength(1);
+        expect(source.match(blobsAnchor)).toHaveLength(1);
+        source = source.replace(runsAnchor, `const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = ${checkpointRuns};`)
+          .replace(blobsAnchor, `const RUN_E_CORRECTIVE_TEST_BLOBS = Object.freeze(${JSON.stringify({ [settingsPath]: blob })});`);
+        writeFileSync(runnerPath, source);
+        const document = `${readFileSync(join(repo, scopePath), 'utf8')}${section('CORRECTIVE_CHECKPOINT', checkpoint)}`;
+        write(scopePath, options.changeDocument?.(document) ?? document);
+        write(settingsPath, options.settingsContents ?? correctedSettings);
+        git('add', scopePath, settingsPath);
+        if (options.extraChange) {
+          write(options.extraChange.path, options.extraChange.contents);
+          git('add', options.extraChange.path);
+        }
+        git('commit', '-qm', 'commit exact corrective candidate before final report');
+        const headSha = git('rev-parse', 'HEAD');
+        const pin: CorrectivePin = { headSha, predecessorHeadSha: predecessorHead, checkpointSha256, firstRun: checkpointRuns + 1 };
+        const journal: CorrectiveJournal = {
+          ...structuredClone(checkpoint), runs: checkpointRuns + 1,
+          supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - checkpointRuns, active: false }],
+          correctiveAdmission: pin,
+        };
+        fixture.final.head_sha = headSha;
+        write(report, JSON.stringify(fixture.final));
+        write(markdown, `${fixture.admissionMarkdown}\n# Corrective final result\nAll prior evidence and scope reasons retained.\n`);
+        git('add', report, markdown);
+        git('commit', '-qm', 'publish corrective results separately');
+        write(journalPath, JSON.stringify(journal));
+        return { ...fixture, journal, checkpoint, predecessorHead, pin, document };
+      }
+
+      function expectCorrectiveRejected(label: string): void {
+        const before = readFileSync(join(repo, journalPath), 'utf8');
+        const result = check();
+        expect(result.status, label).toBe(1);
+        expect(result.stderr, label).toContain('Run E');
+        expect(readFileSync(join(repo, journalPath), 'utf8'), label).toBe(before);
+      }
+
+
+      describe('finite staging diagnostic certification', () => {
+        const diagnosticPath = 'src/diagnostic.ts';
+        const diagnosticCode = 'export const diagnostic = "closed";\n';
+        const stagingRuns = 128;
+        type StagingJournal = CorrectiveJournal & { stagingCorrectionAdmission?: CorrectivePin };
+
+        function prepareStaging(options: {
+          changeDocument?: (document: string) => string;
+          diagnosticContents?: string;
+          extraPath?: string;
+        } = {}) {
+          const previous = prepareCorrective();
+          previous.final.inventory.push({
+            id: 'src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133',
+            file: KILLED_ROW.file, test: 'existing real semantic-warning path',
+            outcome: 'excluded', reason: 'Previously outside the changed contract.',
+          });
+          previous.final.counts = countsFor(previous.final);
+          write(report, JSON.stringify(previous.final));
+          git('add', report);
+          git('commit', '-qm', 'freeze the previously excluded diagnostic caller');
+          const historicalText = readFileSync(join(repo, report), 'utf8');
+          const historicalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+          const publication = git('rev-parse', 'HEAD');
+          const checkpoint: StagingJournal = {
+            ...structuredClone(previous.journal), runs: stagingRuns,
+            supervisors: [...previous.journal.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 127, active: false }],
+          };
+          write(diagnosticPath, options.diagnosticContents ?? diagnosticCode);
+          git('add', diagnosticPath);
+          git('commit', '-qm', 'intermediate diagnostic candidate');
+          const diagnosticHead = git('rev-parse', 'HEAD');
+          const checkpointSha256 = sha256(JSON.stringify(checkpoint));
+          const runnerPath = join(repo, 'fixture-e-runner.mjs');
+          let source = readFileSync(runnerPath, 'utf8');
+          for (const [name, value] of Object.entries({
+            RUN_E_STAGING_PREDECESSOR: previous.pin.headSha,
+            RUN_E_STAGING_PUBLICATION: publication,
+            RUN_E_STAGING_DIAGNOSTIC: diagnosticHead,
+            RUN_E_STAGING_CHECKPOINT_SHA256: checkpointSha256,
+            RUN_E_STAGING_REPORT_SHA256: sha256(historicalText),
+            RUN_E_STAGING_MARKDOWN_SHA256: sha256(historicalMarkdown),
+          })) {
+            const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+            expect(source.match(anchor)).toHaveLength(1);
+            source = source.replace(anchor, `const ${name} = '${value}';`);
+          }
+          const blob = createHash('sha1').update(`blob ${Buffer.byteLength(diagnosticCode)}\0${diagnosticCode}`).digest('hex');
+          const runsAnchor = /const RUN_E_STAGING_CHECKPOINT_RUNS = \d+;/g;
+          const blobsAnchor = /const RUN_E_STAGING_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+          expect(source.match(runsAnchor)).toHaveLength(1);
+          expect(source.match(blobsAnchor)).toHaveLength(1);
+          source = source.replace(runsAnchor, `const RUN_E_STAGING_CHECKPOINT_RUNS = ${stagingRuns};`)
+            .replace(blobsAnchor, `const RUN_E_STAGING_BLOBS = Object.freeze(${JSON.stringify({ [diagnosticPath]: blob })});`);
+          writeFileSync(runnerPath, source);
+          const document = readFileSync(join(repo, scopePath), 'utf8') + section('STAGING_CHECKPOINT_776', checkpoint);
+          write(scopePath, options.changeDocument?.(document) ?? document);
+          git('add', scopePath);
+          if (options.extraPath) {
+            write(options.extraPath, 'unreviewed\n');
+            git('add', options.extraPath);
+          }
+          git('commit', '-qm', 'finite staging proof candidate');
+          const headSha = git('rev-parse', 'HEAD');
+          const pin: CorrectivePin = {
+            headSha, predecessorHeadSha: previous.pin.headSha, checkpointSha256, firstRun: stagingRuns + 1,
+          };
+          const journal: StagingJournal = {
+            ...structuredClone(checkpoint), runs: stagingRuns + 1,
+            supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - stagingRuns, active: false }],
+            stagingCorrectionAdmission: pin,
+          };
+          previous.final.head_sha = headSha;
+          previous.final.inventory.at(-1)!.outcome = 'killed';
+          previous.final.inventory.at(-1)!.reason = 'A new individual baseline and meaningful diagnostic-path mutant were measured.';
+          previous.final.counts = countsFor(previous.final);
+          write(report, JSON.stringify(previous.final));
+          write(markdown, historicalMarkdown + '\n# Staging diagnostic final evidence\n');
+          git('add', report, markdown);
+          git('commit', '-qm', 'publish staging evidence after immutable admission');
+          write(journalPath, JSON.stringify(journal));
+          return { ...previous, checkpoint, journal, pin, historicalText, historicalMarkdown, document };
+        }
+
+        it('certifies an empty-waiver staging report with the frozen completed report and all four pins', () => {
+          prepareCorrective();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          recreateFixture();
+          const fixture = prepareStaging();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          expect(fixture.final.authorizations).toEqual([]);
+          expect(fixture.journal.stagingCorrectionAdmission).toEqual(fixture.pin);
+          for (const key of ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission'] as const) {
+            expect(fixture.journal[key]).toEqual(fixture.checkpoint[key]);
+          }
+          const capped = structuredClone(fixture.journal);
+          capped.supervisors.push(...Array.from({ length: 1600 - capped.runs }, (_, index) => ({
+            pgid: Number.MAX_SAFE_INTEGER - capped.runs - index, active: false,
+          })));
+          capped.runs = 1600;
+          write(journalPath, JSON.stringify(capped));
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          capped.runs = 1601;
+          capped.supervisors.push({ pgid: Number.MAX_SAFE_INTEGER - 1600, active: false });
+          write(journalPath, JSON.stringify(capped));
+          expectCorrectiveRejected('staging report above cumulative cap');
+        }, 30_000);
+
+        it('rejects staging certification with corrupted checkpoints, old pins, closed history, or diagnostic blobs', () => {
+          const fixture = prepareStaging();
+          const changes: Array<[string, (journal: StagingJournal) => void]> = [
+            ['staging pin absent', (value) => { delete value.stagingCorrectionAdmission; }],
+            ['zero added launches', (value) => { value.runs = stagingRuns; value.supervisors.pop(); }],
+            ['counter lacks supervisor', (value) => { value.runs += 1; }],
+            ['old admission changed', (value) => { value.correctiveAdmission!.headSha = '0'.repeat(40); }],
+            ['staging checkpoint changed', (value) => { value.stagingCorrectionAdmission!.checkpointSha256 = '0'.repeat(64); }],
+            ['open supervisor', (value) => { value.supervisors.at(-1)!.active = true; }],
+            ['open mutation', (value) => { value.mutations[0]!.state = 'prepared'; }],
+          ];
+          for (const [label, change] of changes) {
+            const value = structuredClone(fixture.journal);
+            change(value);
+            write(journalPath, JSON.stringify(value));
+            expectCorrectiveRejected(label);
+          }
+          write(journalPath, JSON.stringify(fixture.journal));
+          const unmeasured = structuredClone(fixture.final);
+          unmeasured.inventory.at(-1)!.outcome = 'excluded';
+          unmeasured.inventory.at(-1)!.reason = 'Previously outside the changed contract.';
+          unmeasured.counts = countsFor(unmeasured);
+          write(report, JSON.stringify(unmeasured));
+          expectCorrectiveRejected('newly affected warning path cannot retain its historical exclusion');
+          const changedReport = structuredClone(fixture.final);
+          changedReport.inventory[0]!.reason = 'rewrite a finalized historical reason';
+          write(report, JSON.stringify(changedReport));
+          expectCorrectiveRejected('rewritten finalized row');
+          write(report, JSON.stringify(fixture.final));
+          write(markdown, fixture.admissionMarkdown + '\nDiscarded completed corrective evidence\n');
+          expectCorrectiveRejected('missing frozen completed Markdown prefix');
+          for (const options of [
+            { diagnosticContents: diagnosticCode + '// unreviewed\n' },
+            { extraPath: 'src/unreviewed.ts' },
+            { changeDocument: (document: string) => document.replace('"runs":128', '"runs":127') },
+          ]) {
+            recreateFixture();
+            const altered = prepareStaging(options);
+            expectCorrectiveRejected('changed committed staging proof');
+            write(scopePath, altered.document);
+            expectCorrectiveRejected('live repaired document is not committed proof');
+          }
+        }, 30_000);
+
+        it('rejects missing or downgraded staging reports and a later candidate even with renamed stripped journals', () => {
+          for (const currentBranch of [branch, 'codex/renamed-staging-report']) {
+            recreateFixture();
+            const fixture = prepareStaging();
+            git('branch', '-m', currentBranch);
+            rmSync(join(repo, report));
+            write(journalPath, JSON.stringify({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } }));
+            expectCorrectiveRejected('missing report cannot use a low-risk or stripped-journal fallback');
+            for (const round of [1, 3]) {
+              const downgraded = structuredClone(fixture.final);
+              downgraded.round = round;
+              if (round === 3) downgraded.authorizations.push({
+                id: 'forged-third', date: '2026-09-15', finding_ids: [], text: 'no third round; third round authorized',
+              });
+              write(report, JSON.stringify(downgraded));
+              expectCorrectiveRejected('report round label cannot bypass staging proof');
+            }
+          }
+          recreateFixture();
+          const fixture = prepareStaging();
+          write(scopePath, fixture.document + '\nAnother candidate is not admitted.\n');
+          git('add', scopePath);
+          git('commit', '-qm', 'later staging candidate');
+          fixture.final.head_sha = git('rev-parse', 'HEAD');
+          write(report, JSON.stringify(fixture.final));
+          expectCorrectiveRejected('new report head cannot replace the pinned staging candidate');
+        }, 30_000);
+      });
+
+      it('certifies an empty-waiver corrective report with all three pins while preserving quiet original admission', () => {
+        // Original fixtures do not bind the new corrective predecessor: its
+        // missing-object probe must preserve the public clean-stderr contract.
+        prepareE();
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        recreateFixture();
+        const fixture = prepareCorrective();
+        expect(fixture.final.authorizations).toEqual([]);
+        expect(git('rev-parse', 'HEAD^')).toBe(fixture.pin.headSha);
+        expect(fixture.journal.budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+        expect(fixture.journal.continuationAdmission).toEqual(fixture.checkpoint.continuationAdmission);
+        expect(fixture.journal.correctiveAdmission).toEqual(fixture.pin);
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        const capped = structuredClone(fixture.journal);
+        capped.runs = 1600;
+        capped.supervisors.push(...Array.from({ length: 1600 - capped.supervisors.length }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - checkpointRuns - 1 - index, active: false })));
+        write(journalPath, JSON.stringify(capped));
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+      }, 20_000);
+
+      it('rejects corrective report forgery across candidate blobs, checkpoints, prior pins, closure, and historical evidence', () => {
+        const fixture = prepareCorrective();
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        const journalChanges: Array<[string, (value: CorrectiveJournal) => void]> = [
+          ['missing corrective pin', (value) => { delete value.correctiveAdmission; }],
+          ['missing original pin', (value) => { Reflect.deleteProperty(value, 'budgetAuthorization'); }],
+          ['missing continuation pin', (value) => { delete value.continuationAdmission; }],
+          ['altered corrective checkpoint pin', (value) => { value.correctiveAdmission!.checkpointSha256 = '0'.repeat(64); }],
+          ['altered old admission', (value) => { value.budgetAuthorization.headSha = fixture.predecessorHead; }],
+          ['altered mutation prefix', (value) => { value.mutations[0]!.path = 'src/replacement.ts'; }],
+          ['altered supervisor prefix', (value) => { value.supervisors[0]!.pgid -= 1; }],
+          ['open mutation', (value) => { value.mutations.push({ path: settingsPath, state: 'applied' }); }],
+          ['active supervisor', (value) => { value.supervisors[checkpointRuns]!.active = true; }],
+          ['open dotenv', (value) => { value.dotenv.open = true; }],
+          ['counter rollback', (value) => { value.runs = checkpointRuns; value.supervisors.pop(); }],
+          ['cap exceeded', (value) => { value.runs = 1601; value.supervisors.push(...Array.from({ length: 1601 - value.supervisors.length }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - 1000 - index, active: false }))); }],
+        ];
+        for (const [label, change] of journalChanges) {
+          const value = structuredClone(fixture.journal);
+          change(value);
+          write(journalPath, JSON.stringify(value));
+          expectCorrectiveRejected(label);
+        }
+        write(journalPath, JSON.stringify(fixture.journal));
+        const reportChanges: Array<[string, (value: Sidecar) => void]> = [
+          ['old reported candidate', (value) => { value.head_sha = fixture.predecessorHead; }],
+          ['changed original identity', (value) => { value.inventory[0]!.test = 'Replacement identity'; }],
+          ['changed original finding', (value) => { value.findings[0]!.title = 'Replacement finding'; }],
+          ['changed original exclusion', (value) => { value.inventory[2]!.reason = 'Replacement exclusion'; }],
+          ['changed continuation scope reason', (value) => { value.inventory.find((row) => row.id === 'E-DISCOVERY-DELTA')!.reason = 'Unreviewed scope waiver'; }],
+          ['risk waiver', (value) => { value.authorizations = [{ ...approval, finding_ids: ['E-P1'] }]; value.findings[0]!.disposition = 'accepted-risk'; value.findings[0]!.authorization = approval.id; }],
+        ];
+        for (const [label, change] of reportChanges) {
+          const value = structuredClone(fixture.final);
+          change(value);
+          value.counts = countsFor(value);
+          write(report, JSON.stringify(value));
+          expectCorrectiveRejected(label);
+        }
+        write(report, JSON.stringify(fixture.final));
+        const finalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+        write(markdown, finalMarkdown.replace('Exact historical duties.', 'Rewritten historical duties.'));
+        expectCorrectiveRejected('rewritten admission markdown');
+        const variants: Array<{ label: string; options: Parameters<typeof prepareCorrective>[0] }> = [
+          { label: 'missing committed checkpoint', options: { changeDocument: (document) => document.replace(/<!-- RUN_E_CORRECTIVE_CHECKPOINT_START -->[\s\S]*?<!-- RUN_E_CORRECTIVE_CHECKPOINT_END -->\n/, '') } },
+          { label: 'altered committed checkpoint', options: { changeDocument: (document) => document.replace('"runs":126', '"runs":125') } },
+          { label: 'wrong exact settings blob', options: { settingsContents: `${correctedSettings}// unreviewed addition\n` } },
+          { label: 'extra corrective path', options: { extraChange: { path: 'src/thing.ts', contents: 'export const thing = 3;\n' } } },
+        ];
+        for (const variant of variants) {
+          recreateFixture();
+          prepareCorrective(variant.options);
+          expectCorrectiveRejected(variant.label);
+        }
+      }, 60_000);
+
+      it('rejects renamed or stripped corrective reports and missing-report waivers without opening a third round', () => {
+        for (const currentBranch of [branch, 'codex/renamed-corrective-report']) {
+          recreateFixture();
+          const fixture = prepareCorrective();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          git('branch', '-m', currentBranch);
+          const runtimeIntake = JSON.stringify({ risk: 'normal' });
+          write('.feature/intake.json', runtimeIntake);
+          write(journalPath, JSON.stringify({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } }));
+          rmSync(join(repo, report));
+          const missing = check();
+          expect(missing.status, currentBranch).toBe(1);
+          expect(missing.stderr).toContain('Run E corrective admission requires its report at');
+          expect(missing.stdout).not.toContain('WAIVED');
+          const match = missing.stderr.match(/requires its report at (\S+);/);
+          expect(match?.[1]).toBeTruthy();
+          const expectedReport = match![1]!;
+          const forged = { ...structuredClone(fixture.final), branch: currentBranch, head_sha: fixture.originalHead,
+            risk: 'normal', intake_sha256: sha256(runtimeIntake), round: 1 };
+          write(expectedReport, JSON.stringify(forged));
+          write(expectedReport.replace(/\.json$/, '.md'), '# Forged downgraded report\n');
+          const downgraded = check();
+          expect(downgraded.status).toBe(1);
+          expect(downgraded.stderr).toContain('Run E corrective admission retains round 2');
+          for (const text of ['third round authorized', 'no third round']) {
+            write(expectedReport, JSON.stringify({ ...forged, round: 3, authorizations: [{ ...approval, text }] }));
+            const third = check();
+            expect(third.status, text).toBe(1);
+            expect(third.stderr, text).toContain('Run E corrective admission retains round 2');
+          }
+          write(expectedReport, JSON.stringify({ ...forged, round: 2 }));
+          expectCorrectiveRejected('round two cannot certify with stripped admissions');
+        }
+      }, 30_000);
+    });
+
+  });
+
+  it('certifies Run E round 2 only with intact admission history and a closed capped launch journal', () => {
+    const fixture = prepareE();
+    expect(check()).toMatchObject({ status: 0, stderr: '' });
+    const corrected = structuredClone(fixture.final);
+    corrected.inventory[0] = { ...corrected.inventory[0], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason };
+    corrected.counts = countsFor(corrected);
+    write(report, JSON.stringify(corrected));
+    expect(check()).toMatchObject({ status: 0, stderr: '' });
+    const checks: Array<{ name: string; mutate: (final: Sidecar, journal: Record<string, unknown>) => void }> = [
+      { name: 'different measured head', mutate: (final) => { final.head_sha = fixture.historyCommit; } },
+      { name: 'missing committed admission', mutate: (final, journal) => {
+        final.head_sha = fixture.historyCommit;
+        (journal.budgetAuthorization as Record<string, unknown>).headSha = fixture.historyCommit;
+      } },
+      { name: 'missing launch pin', mutate: (_final, journal) => { delete journal.budgetAuthorization; } },
+      { name: 'wrong grant digest', mutate: (_final, journal) => { (journal.budgetAuthorization as Record<string, unknown>).sha256 = '0'.repeat(64); } },
+      { name: 'enlarged cap', mutate: (_final, journal) => { (journal.budgetAuthorization as Record<string, unknown>).maxRuns = 1601; } },
+      { name: 'retroactive first launch', mutate: (_final, journal) => { (journal.budgetAuthorization as Record<string, unknown>).firstRun = 2; } },
+      { name: 'wrong journal round', mutate: (_final, journal) => { journal.round = 1; } },
+      ...[0, '0', null].flatMap((runs) => [true, false].map((pinPresent) => ({
+        name: `downgraded report with count ${String(runs)} and pin ${String(pinPresent)}`,
+        mutate: (final: Sidecar, journal: Record<string, unknown>) => {
+          final.round = 1;
+          journal.runs = runs;
+          if (!pinPresent) delete journal.budgetAuthorization;
+        },
+      }))),
+      ...[-1, 0, 0.5, '2', null, 1601].map((runs) => ({ name: `invalid count ${String(runs)}`, mutate: (_final: Sidecar, journal: Record<string, unknown>) => { journal.runs = runs; } })),
+      { name: 'open mutation', mutate: (_final, journal) => { journal.mutations = [{ path: 'src/thing.ts', state: 'applied' }]; } },
+      { name: 'open dotenv', mutate: (_final, journal) => { journal.dotenv = { open: true }; } },
+      { name: 'active supervisor', mutate: (_final, journal) => { journal.supervisors = [{ active: true, pgid: 999999 }]; } },
+      { name: 'missing closure state', mutate: (_final, journal) => { delete journal.dotenv; } },
+      { name: 'same-length identity replacement', mutate: (final) => { final.inventory[0]!.test = 'different case'; } },
+      { name: 'same-length identity reordering', mutate: (final) => { [final.inventory[0], final.inventory[1]] = [final.inventory[1]!, final.inventory[0]!]; } },
+      { name: 'rewritten exclusion', mutate: (final) => { final.inventory[2]!.reason = 'changed old reason'; } },
+      { name: 'coverage waiver', mutate: (final) => { final.inventory[0]!.outcome = 'excluded'; } },
+      { name: 'altered discovery correction reason', mutate: (final) => { final.inventory[0] = { ...final.inventory[0], outcome: 'excluded', reason: `${scopeManifest.groups[0]!.reason} Additional waiver.` }; } },
+      { name: 'unapproved discovery correction ID', mutate: (final) => { final.inventory[3] = { ...final.inventory[3], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason }; } },
+      { name: 'measured result converted to exclusion', mutate: (final) => { final.inventory[1] = { ...final.inventory[1], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason }; } },
+      { name: 'unmeasured resolution', mutate: (final) => { final.inventory[0]!.reason = 'Original budget exhausted.'; } },
+      { name: 'missing historical finding', mutate: (final) => { final.findings = []; } },
+      { name: 'rewritten finding identity', mutate: (final) => { final.findings[0]!.title = 'Replacement finding'; } },
+      { name: 'unexplained disposition', mutate: (final) => { delete final.findings[0]!.reason; } },
+      { name: 'execution grant treated as risk waiver', mutate: (final) => { final.authorizations = [{ ...approval, finding_ids: ['E-P1'] }]; final.findings[0]!.disposition = 'accepted-risk'; final.findings[0]!.authorization = approval.id; } },
+    ];
+    for (const scenario of checks) {
+      const final = structuredClone(fixture.final);
+      const journal = structuredClone(fixture.journal);
+      scenario.mutate(final, journal);
+      final.counts = countsFor(final);
+      write(report, JSON.stringify(final));
+      write(journalPath, JSON.stringify(journal));
+      const result = check();
+      expect(result.status, scenario.name).toBe(1);
+      expect(result.stderr, scenario.name).toContain('Run E round 2 requires');
+    }
+    write(report, JSON.stringify(fixture.final));
+    write(journalPath, JSON.stringify({ ...fixture.journal, runs: 1600 }));
+    expect(check()).toMatchObject({ status: 0, stderr: '' });
+    const finalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+    const admissionMarkdown = git('show', `${fixture.final.head_sha}:${markdown}`);
+    for (const forged of [
+      '# Replacement evidence\n',
+      finalMarkdown.replace('Exact historical duties.', 'Changed historical duties.'),
+      finalMarkdown.replace(approval.text, 'Third round authorized'),
+      `${admissionMarkdown.trimEnd()}# Final E result\n`,
+    ]) {
+      write(markdown, forged);
+      expect(check().stderr).toContain('Run E round 2 requires');
+    }
+    write(markdown, finalMarkdown);
+    const admittedIntake = readFileSync(join(repo, '.feature/intake.json'), 'utf8');
+    const changedIntake = JSON.stringify({ ...JSON.parse(admittedIntake), extraAuthority: true });
+    write('.feature/intake.json', changedIntake);
+    write(report, JSON.stringify({ ...fixture.final, intake_sha256: sha256(changedIntake) }));
+    expect(check().stderr).toContain('Run E round 2 requires');
+    write('.feature/intake.json', admittedIntake);
+    write(report, JSON.stringify(fixture.final));
+    rmSync(join(repo, journalPath));
+    expect(check().stderr).toContain('Run E round 2 requires');
+    for (const scopeProof of [
+      null,
+      scopeDocument.replace('unchanged-mocked-case', 'unreviewed-group'),
+      scopeDocument.replace('E0', 'E3'),
+      scopeDocument.replace(scopeManifest.groups[0]!.reason, 'New unreviewed reason.'),
+      `${scopeDocument}${scopeStart}\n`,
+      `${scopeEnd}\n${scopeDocument.replace(scopeEnd, '')}`,
+    ]) {
+      rmSync(repo, { recursive: true, force: true });
+      mkdirSync(repo, { recursive: true });
+      const tampered = prepareE(scopeProof);
+      const final = structuredClone(tampered.final);
+      final.inventory[0] = { ...final.inventory[0], outcome: 'excluded', reason: scopeManifest.groups[0]!.reason };
+      final.counts = countsFor(final);
+      write(report, JSON.stringify(final));
+      // A valid live document cannot replace absent or altered committed proof.
+      write(scopePath, scopeDocument);
+      const result = check();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Run E round 2 requires');
+    }
+  }, 30_000); // Real git histories for admission-proof threats exceed Vitest's default 5 seconds.
+
+  it('rejects Run E third and higher reports before generic authorization prose', () => {
+    const { reportDir: ordinaryDir, sidecar } = seedRepo();
+    const ordinary = structuredClone(sidecar);
+    ordinary.round = 3;
+    ordinary.findings = [{ id: 'RISK', severity: 'P2', title: 'Explicit ordinary risk', at: 'src/thing.ts:1', duty: 2, disposition: 'accepted-risk', authorization: 'ordinary-third' }];
+    ordinary.authorizations = [{ id: 'ordinary-third', date: '2026-09-15', finding_ids: ['RISK'], text: 'third round authorized' }];
+    ordinary.counts = countsFor(ordinary);
+    write(`${ordinaryDir}/findings.json`, JSON.stringify(ordinary));
+    expect(check()).toMatchObject({ status: 0, stderr: '' });
+    for (const text of ['no third round', 'third round authorized', 'no third round; third round authorized']) {
+      for (const round of [3, 4, 5]) {
+        for (const identity of ['report branch', 'report grant', 'journal grant']) {
+          const forged = structuredClone(ordinary);
+          forged.round = round;
+          forged.authorizations[0]!.text = text;
+          if (identity === 'report branch') forged.branch = branch;
+          if (identity === 'report grant') { forged.authorizations[0]!.id = approval.id; forged.findings[0]!.authorization = approval.id; }
+          write(`${ordinaryDir}/findings.json`, JSON.stringify(forged));
+          write(journalPath, JSON.stringify({ round, runs: 0, mutations: [], supervisors: [], dotenv: { open: false },
+            ...(identity === 'journal grant' ? { budgetAuthorization: { id: approval.id } } : {}),
+          }));
+          const result = check();
+          expect(result.status, `${identity}/${round}/${text}`).toBe(1);
+          expect(result.stderr).toContain('Run E grants round 2 only');
+        }
+      }
+    }
+    // Genuine round 1 has no E execution pin or recorded round-2 journal.
+    // Recreate only this test's disposable repository for its compatibility leg.
+    rmSync(repo, { recursive: true, force: true });
+    mkdirSync(repo, { recursive: true });
+    seedRepo({ branch });
+    expect(check()).toMatchObject({ status: 0, stderr: '' });
+  });
 });
 
 describe('the CLI contract', () => {

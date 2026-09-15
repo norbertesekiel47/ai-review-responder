@@ -82,12 +82,12 @@ import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
 // ---------------------------------------------------------------------------
 
 /**
- * The seven lanes, named for the ACT rather than the table they were read from
+ * The nine lanes, named for the ACT rather than the table they were read from
  * before the ledger existed.
  *
- * MIRRORS MIGRATION 116's `refusal_source` CHECK, IN ITS ORDER, and the
+ * MIRRORS MIGRATION 121's `refusal_source` CHECK, IN ITS ORDER, and the
  * migration is the authority — this array is the TypeScript view of it, never a
- * second one. `vocabulary.test.ts` parses 116 and compares, which is what keeps
+ * second one. `vocabulary.test.ts` compares 121's lists, which is what keeps
  * the two from drifting; that parse is the guard, and it is why no member is
  * restated as a literal in a test.
  *
@@ -111,6 +111,8 @@ export const REFUSAL_SOURCES = [
   'outreach_withheld', // An Outreach withheld at send.
   'batch_halted', // A batch WE halted — never one the owner halted.
   'policy_gate_held', // A draft an auto-approval gate held for the owner.
+  'operator_content_refused', // A location-specific unsafe content request.
+  'operator_policy_refused', // An account-wide prohibited policy request.
 ] as const;
 export type RefusalSource = (typeof REFUSAL_SOURCES)[number];
 
@@ -120,9 +122,9 @@ export type RefusalSource = (typeof REFUSAL_SOURCES)[number];
 // ---------------------------------------------------------------------------
 
 /**
- * The eight things RepWorth declines to do, in the owner's terms.
+ * The nine categories of decisions, in the owner's terms.
  *
- * MIRRORS MIGRATION 116's `refusal_category` CHECK, IN ITS ORDER, on the same
+ * MIRRORS MIGRATION 121's `refusal_category` CHECK, IN ITS ORDER, on the same
  * terms as `REFUSAL_SOURCES` above: adding a member is migration-bearing,
  * reordering is presentation only (#995), renaming is forbidden. Retiring a
  * member SOFTLY — ceasing to write it while old rows keep it — needs no
@@ -145,6 +147,7 @@ export const REFUSAL_CATEGORIES = [
   'autonomy_paused', // We are not acting on your behalf right now.
   'missing_information', // We did not have what we needed.
   'owner_review_required', // We wanted you to look at it first.
+  'request_not_allowed', // The requested action violates an operating rule.
 ] as const;
 export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
 
@@ -154,9 +157,9 @@ export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
 // ---------------------------------------------------------------------------
 
 /**
- * The four kinds of thing a Refusal can name.
+ * The five kinds of thing a Refusal can name.
  *
- * MIRRORS MIGRATION 116's `subject_type` CHECK, on the same terms as the two
+ * MIRRORS MIGRATION 121's `subject_type` CHECK, on the same terms as the two
  * axes above. This list is NOT the whole rule: C1 makes the LANE determine the
  * subject type totally, and C2 makes a subject whole or absent. Both live in the
  * database on purpose (#1001) — a TypeScript copy of them would be a second
@@ -171,6 +174,7 @@ export const REFUSAL_SUBJECT_TYPES = [
   'solicitation_ask',
   'solicitation_outreach',
   'solicitation_batch',
+  'operator_refusal',
 ] as const;
 export type RefusalSubjectType = (typeof REFUSAL_SUBJECT_TYPES)[number];
 

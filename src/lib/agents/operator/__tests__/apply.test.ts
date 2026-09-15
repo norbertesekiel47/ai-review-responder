@@ -238,6 +238,7 @@ describe('applyProposal', () => {
     primeHappyPath();
     await applyProposal(sql, input());
 
+    expect(writes()[0]).toBeDefined();
     const appliedWrite = writes()[0]!;
     expect(appliedWrite.text).toContain('SET status = ?');
     const receipt = appliedWrite.values.find(
@@ -269,6 +270,7 @@ describe('applyProposal', () => {
       mkTaggedResult([]),
     );
     await applyProposal(sql, input());
+    expect(writes()[0]).toBeDefined();
     const fallback = writes()[0]!.values.find(
       (value): value is { actorName: unknown } =>
         typeof value === 'object' && value !== null && 'actorName' in value,
@@ -612,7 +614,7 @@ function policySnapshot(options: {
     locationId: options.locationId,
     target: targetOf(options.locationId),
     state: {
-      accountDefault: account ? options.target : policyState(),
+      targetRowSuspended: false, accountDefault: account ? options.target : policyState(),
       location: account ? null : options.target,
     },
     versionToken: options.versionToken ?? (account ? ACCOUNT_TOKEN : LOCATION_TOKEN),
@@ -640,7 +642,7 @@ function policyRow(options: {
   if (operation?.domain !== 'policy') throw new Error('set_auto_reply_scope left the policy catalog');
   const account = options.locationId === null;
   const preview = operation.preview(
-    { accountDefault: account ? options.before : policyState(), location: account ? null : options.before },
+    { targetRowSuspended: false, accountDefault: account ? options.before : policyState(), location: account ? null : options.before },
     targetOf(options.locationId),
     options.input,
   );
@@ -777,7 +779,7 @@ describe('applyProposal policy scope', () => {
     // An account-default write sweeps every policy proposal of the account.
     const sweep = writes()[1]!;
     expect(sweep.text).not.toContain('location_id');
-    expect(sweep.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+    expect(sweep.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap', 'clear_location_override']);
   });
 
   it('policy Apply leaves an expansion pending and writes nothing unless the typed scope matches byte for byte', async () => {

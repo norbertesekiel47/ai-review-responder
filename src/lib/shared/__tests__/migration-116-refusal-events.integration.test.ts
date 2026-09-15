@@ -73,6 +73,11 @@ import {
   TENANT_SCOPE_COLUMNS,
   TENANT_TABLES,
 } from '../../../../scripts/ci/tenant-tables';
+import {
+  REFUSAL_SOURCES as HEAD_SOURCES,
+  REFUSAL_CATEGORIES as HEAD_CATEGORIES,
+  REFUSAL_SUBJECT_TYPES as HEAD_SUBJECT_TYPES,
+} from '@/lib/refusals/vocabulary';
 
 const MIGRATION_FILE = 'supabase/migrations/116_refusal_events.sql';
 
@@ -1044,7 +1049,7 @@ describeWithDb(
       expect(rows.every((row) => row.created_at instanceof Date)).toBe(true);
     });
 
-    it('the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member', async () => {
+    it('the refusal vocabulary CHECKs match migration head, retain the original members, and reject an unknown member', async () => {
       // MEMBERSHIP, read off the rendered `= ANY (ARRAY[…])`: a closed
       // vocabulary is only closed if nothing extra is in it. Both sides are
       // SORTED on purpose — the migration's own `refusal_category` comment says
@@ -1052,14 +1057,17 @@ describeWithDb(
       // order-sensitive compare would turn red for an edit the schema
       // documents as meaningless. Same treatment as the canonical-row case.
       expect(checkMembers(await constraintDefinition(SOURCE_ENUM_CHECK)).sort()).toEqual(
-        [...REFUSAL_SOURCES].sort(),
+        [...HEAD_SOURCES].sort(),
       );
       expect(checkMembers(await constraintDefinition(CATEGORY_ENUM_CHECK)).sort()).toEqual(
-        [...REFUSAL_CATEGORIES].sort(),
+        [...HEAD_CATEGORIES].sort(),
       );
       expect(checkMembers(await constraintDefinition(SUBJECT_TYPE_ENUM_CHECK)).sort()).toEqual(
-        [...SUBJECT_TYPES].sort(),
+        [...HEAD_SUBJECT_TYPES].sort(),
       );
+      expect(HEAD_SOURCES).toEqual(expect.arrayContaining([...REFUSAL_SOURCES]));
+      expect(HEAD_CATEGORIES).toEqual(expect.arrayContaining([...REFUSAL_CATEGORIES]));
+      expect(HEAD_SUBJECT_TYPES).toEqual(expect.arrayContaining([...SUBJECT_TYPES]));
 
       // Every category is reachable: the eighth (owner_review_required) is the
       // one #998 added, and a stale CHECK would reject it here.
