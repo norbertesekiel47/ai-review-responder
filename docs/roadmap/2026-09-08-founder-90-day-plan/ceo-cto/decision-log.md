@@ -85,6 +85,10 @@ funding discovery continue alongside customer learning.
 - **Sanitized (this file):** GitHub under `docs/roadmap/2026-09-08-founder-90-day-plan/ceo-cto/`.
 - **Trello:** sanitized pointer only on CTO-01.
 
+## 2026-09-15 decision — Owner Operator pilot
+
+- **Pilot owner:** Tanicia Resort (COO roster). Production `OWNER_OPERATOR_ENABLED` flipped on 2026-09-15T18:12Z with the founder in session. Onboarding in production is the next action; observation window starts at the first eligible review after setup. Record: `docs/runbooks/evidence/owner-operator-pilot-tanicia-resort.md`.
+
 ## Review checkpoints
 
 Weekly; also Day 30 (2026-10-07), Day 60 (2026-11-06), Day 90 (2026-12-06).
