@@ -208,6 +208,125 @@ function authorizedRunDBudget(root, journal) {
   }
 }
 
+const RUN_E_BRANCH = 'codex/owner-operator-run-e';
+const RUN_E_BASELINE = '54cb1a05e82de192355e379b7eb7b76182189306';
+const RUN_E_HISTORY_COMMIT = '76f7914636e3d20c4a676a5d7ef512e17dab25ce';
+const RUN_E_HISTORY_BLOB = 'b6348b608056c339cbb0915f3ac581574a18c3b1';
+const RUN_E_HISTORY_MARKDOWN_BLOB = '348acba4301870cc9be3ba72866891ba681c3573';
+const RUN_E_HISTORY_SHA256 = 'b869b052d2f39574c51418e2a608f136c43e375853e3692385921f95c2259a0c';
+const RUN_E_MARKDOWN_SHA256 = '42cc8719dba7356dac5e626b6d606628789b5d24698de4e7998cbcb138b0cc46';
+const RUN_E_IDENTITY_SHA256 = 'cb7c194ac0f963e76e723f123007c143b913aea924360b77439b6a8007c4476b';
+const RUN_E_REPORT = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/findings.json';
+const RUN_E_MARKDOWN = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/findings.md';
+const RUN_E_INTAKE = 'docs/superpowers/plans/codex-owner-operator-run-e-intake.json';
+const RUN_E_AUTHORIZATION = 'owner-run-e-second-pass-1600';
+const RUN_E_TEXT = 'Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.\nOwner: Yes, approve the scoped E second pass';
+const RUN_E_SUPPORT_PATHS = [
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/red-team/SKILL.md',
+  '.claude/skills/red-team/SKILL.md',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  '.agents/skills/feature/scripts/red-team-status.mjs',
+  'scripts/ci/__tests__/red-team-status.test.ts',
+  'docs/runbooks/beta-launch-alerting.md',
+];
+const RUN_E_ADDED_TESTS = [
+  'adopts a rejected timeline Apply and refreshes its Restore source: %s',
+  'pins Run E HEAD and grant before the first child executes',
+  'allows Run E launch 1600 and refuses 1601 and a third round',
+  'certifies Run E round 2 only with intact admission history and a closed capped launch journal',
+  'rejects Run E third and higher reports before generic authorization prose',
+];
+const RUN_E_EXTENSION_PATHS = new Set([
+  ...RUN_E_SUPPORT_PATHS, RUN_E_REPORT, RUN_E_MARKDOWN, RUN_E_INTAKE,
+  'docs/superpowers/plans/codex-owner-operator-run-e-plan.md',
+  'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md',
+  'docs/reviews/codex-owner-operator-run-e/second-pass-authorization.md',
+  'docs/reviews/codex-owner-operator-run-e/budget-extension-review.md',
+]);
+
+/** Denial text must never satisfy the generic third-round prose matcher. */
+export function runEThirdRoundForbidden(branch, grantId, round) {
+  return round >= 3 && (branch === RUN_E_BRANCH || grantId === RUN_E_AUTHORIZATION);
+}
+
+/** Committed evidence shared by launch admission and final certification. */
+export function validateRunEAdmission(root, headSha) {
+  try {
+    if (typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)
+      || git(root, ['merge-base', RUN_E_BASELINE, RUN_E_HISTORY_COMMIT]) !== RUN_E_BASELINE
+      || git(root, ['merge-base', RUN_E_HISTORY_COMMIT, headSha]) !== RUN_E_HISTORY_COMMIT
+      || git(root, ['merge-base', headSha, 'HEAD']) !== headSha) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_E_BASELINE, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_E_EXTENSION_PATHS.has(path))) return null;
+    // History was published after corrected code: pin its own commit and exact
+    // bytes, never pretend the original report existed at the product baseline.
+    if (git(root, ['rev-parse', `${RUN_E_HISTORY_COMMIT}:${RUN_E_REPORT}`]) !== RUN_E_HISTORY_BLOB
+      || git(root, ['rev-parse', `${RUN_E_HISTORY_COMMIT}:${RUN_E_MARKDOWN}`]) !== RUN_E_HISTORY_MARKDOWN_BLOB) return null;
+    const historicalBytes = execFileSync('git', ['cat-file', 'blob', RUN_E_HISTORY_BLOB], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    const historicalMarkdown = execFileSync('git', ['cat-file', 'blob', RUN_E_HISTORY_MARKDOWN_BLOB], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    if (sha256(historicalBytes) !== RUN_E_HISTORY_SHA256
+      || sha256(historicalMarkdown) !== RUN_E_MARKDOWN_SHA256) return null;
+    const historical = JSON.parse(historicalBytes.toString('utf8'));
+    const admission = JSON.parse(git(root, ['show', `${headSha}:${RUN_E_REPORT}`]));
+    if (historical?.mode !== 'feature' || historical.branch !== RUN_E_BRANCH || historical.round !== 1
+      || historical.head_sha !== '890eea76c8c04b8d2acfcc73a895ec3112560e38'
+      || !Array.isArray(historical.inventory) || historical.inventory.length !== 2113
+      || !Array.isArray(historical.authorizations) || historical.authorizations.length !== 0
+      || !Array.isArray(admission.authorizations) || admission.authorizations.length !== 1) return null;
+    const identities = historical.inventory.map((row) => ({ id: row?.id, file: row?.file, test: row?.test }));
+    if (sha256(JSON.stringify(identities)) !== RUN_E_IDENTITY_SHA256) return null;
+    const authorization = admission.authorizations[0];
+    if (authorization?.id !== RUN_E_AUTHORIZATION || authorization.date !== '2026-09-15'
+      || authorization.text !== RUN_E_TEXT
+      || Object.keys(authorization).sort().join(',') !== 'date,finding_ids,id,text'
+      || !Array.isArray(authorization.finding_ids) || authorization.finding_ids.length !== 0) return null;
+    const { authorizations: _oldGrants, ...oldEvidence } = historical;
+    const { authorizations: _newGrants, ...newEvidence } = admission;
+    if (JSON.stringify(oldEvidence) !== JSON.stringify(newEvidence)) return null;
+    const admissionMarkdown = execFileSync('git', ['show', `${headSha}:${RUN_E_MARKDOWN}`], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+    if (!admissionMarkdown.subarray(0, historicalMarkdown.length).equals(historicalMarkdown)
+      || !admissionMarkdown.subarray(historicalMarkdown.length).toString('utf8').includes(RUN_E_TEXT)) return null;
+    const originalIntake = JSON.parse(git(root, ['show', `${RUN_E_BASELINE}:${RUN_E_INTAKE}`]));
+    const intake = JSON.parse(git(root, ['show', `${headSha}:${RUN_E_INTAKE}`]));
+    const { allowed_edit_surface: originalSurface, tests_to_add: originalTests, ...originalContract } = originalIntake;
+    const { allowed_edit_surface: surface, tests_to_add: tests, ...contract } = intake;
+    if (!Array.isArray(originalSurface) || !Array.isArray(surface) || !Array.isArray(originalTests)
+      || JSON.stringify(tests) !== JSON.stringify([...RUN_E_ADDED_TESTS, ...originalTests])
+      || JSON.stringify(originalContract) !== JSON.stringify(contract)) return null;
+    const correctedSurface = originalSurface.map((path) => path === 'docs/reviews/red-team/codex-owner-operator-run-e/**'
+      ? 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/**' : path);
+    if (surface.some((path) => typeof path !== 'string')
+      || JSON.stringify([...surface].sort())
+        !== JSON.stringify([...new Set([...correctedSurface, ...RUN_E_SUPPORT_PATHS])].sort())) return null;
+    return {
+      grant: { id: authorization.id, maxRuns: 1600, sha256: sha256(JSON.stringify(authorization)), headSha },
+      historical, admission, historicalMarkdown, admissionMarkdown, intake,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function authorizedRunEBudget(root, journal) {
+  if (journal.round !== 2 || !Number.isInteger(journal.runs) || journal.runs < 0) return null;
+  try {
+    if (git(root, ['branch', '--show-current']) !== RUN_E_BRANCH
+      || !onlyJournaledChanges(root, journal)
+      || (journal.runs === 0 && git(root, ['diff', '--name-only', 'HEAD']))
+      || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    const proof = validateRunEAdmission(root, git(root, ['rev-parse', 'HEAD']));
+    if (!proof || JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
+      !== JSON.stringify(JSON.parse(git(root, ['show', `${proof.grant.headSha}:${RUN_E_INTAKE}`])))) return null;
+    if ((journal.runs > 0 && !journal.budgetAuthorization)
+      || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, proof.grant)
+        || journal.budgetAuthorization.firstRun !== 1))) return null;
+    return proof.grant;
+  } catch {
+    return null;
+  }
+}
+
 /** Pure shape check shared with the checker; matching prose alone grants nothing. */
 export function runCFourthAuthorization(sidecar) {
   if (sidecar?.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'
@@ -349,7 +468,7 @@ function authorizedRunCBudget(root, journal) {
 
 function authorizedBudget(root, journal) {
   if (journal.round === 4) return authorizedRunCFourthBudget(root, journal);
-  if (journal.round === 2) return authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
+  if (journal.round === 2) return authorizedRunEBudget(root, journal) ?? authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
   if (journal.round !== 1) return null;
   try {
     if (git(root, ['branch', '--show-current']) !== 'feat/1185') return null;
@@ -739,6 +858,21 @@ function hasThirdRoundAuthorization(root) {
  */
 function cmdRoundStart(root) {
   const journal = readJournal(root);
+  const branch = git(root, ['branch', '--show-current']);
+  if (branch === RUN_E_BRANCH || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION) {
+    // Opening a round discards its counter: an already pinned E grant cannot
+    // re-enter admission even if its round number has been changed backwards.
+    if (journal.budgetAuthorization) {
+      console.error('round-start: REFUSED — Run E grant is already pinned and grants no third round');
+      return 1;
+    }
+    if (!Number.isInteger(journal.round) || journal.round < 0
+      || !Number.isInteger(journal.runs) || journal.runs < 0
+      || (journal.round === 0 && journal.runs !== 0)) {
+      console.error('round-start: REFUSED — malformed Run E round or run counter');
+      return 1;
+    }
+  }
   const blockers = [];
   if (journal.dotenv?.open === true) blockers.push('the dotenv swap is still open');
   for (const entry of journal.mutations ?? []) {
@@ -758,6 +892,10 @@ function cmdRoundStart(root) {
     return 1;
   }
   const round = (journal.round ?? 0) + 1;
+  if (runEThirdRoundForbidden(git(root, ['branch', '--show-current']), journal.budgetAuthorization?.id, round)) {
+    console.error('round-start: REFUSED — Run E authorization grants no third round');
+    return 1;
+  }
   // The Run D grant itself says "no third round"; the legacy text matcher
   // must never interpret that denial as permission to open another round.
   if (round >= 3 && (git(root, ['branch', '--show-current']) === RUN_D_BRANCH
@@ -880,6 +1018,12 @@ async function cmdRun(root, parsed) {
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
+  const runEBranch = git(root, ['branch', '--show-current']) === RUN_E_BRANCH;
+  if (((runEBranch && journal.round !== 1) || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION)
+    && (!authorization || journal.round !== 2 || authorization.id !== RUN_E_AUTHORIZATION)) {
+    console.error('run: Run E second-pass authorization, evidence or pinned HEAD invalid; refusing launch');
+    return 1;
+  }
   const runDBranch = git(root, ['branch', '--show-current']) === RUN_D_BRANCH;
   if (((runDBranch && journal.round !== 1) || journal.budgetAuthorization?.id === RUN_D_AUTHORIZATION)
     && (!authorization || journal.round !== 2 || authorization.id !== RUN_D_AUTHORIZATION)) {

@@ -379,6 +379,17 @@ email shares the Resend provider with the product.
 > `subsystem:health_alert` / cost-cap are still unchecked). Until then, billing-reconcile
 > drift pages only via the high-priority → email path.
 
+- [ ] **Owner Operator button Restore invariant routed to Discord (Run E).**
+  The Next.js Restore route reports an impossible missing proposal after
+  transactional preparation. Match endpoint `api/operator/proposals/[id]/restore POST`
+  and exception text `agents/operator: prepared Restore vanished in its transaction`,
+  scoped to the deployment environment. Use error level, default exception-stack
+  grouping, every-event delivery with a 60-minute per-issue throttle, and the
+  environment's existing Discord alerts channel. Rule 13 below owns the exact
+  configuration and response procedure. Configure and read back staging before
+  deploying E; configure production before enabling Owner Operator there.
+  Configuration and delivery evidence remain separate requirements.
+
 ## 1a-do. The Sentry click-path — every unconfigured rule, in one sitting
 
 > **§1 and §1a above are authoritative** for *which* signals must route and *why*.
@@ -424,6 +435,16 @@ _If_ (filter), _Then_ (action) → name it → Save.
 `readRetainedVetoCount` in `src/lib/agents/operator/policy-state.ts` throws when an in-scope approved auto-policy response lacks a valid latest approval grant. The Apply route reports that exception after its transaction rolls back: policy, audit and receipt changes are not committed, and the proposal stays pending. Rule 11's worker tags do not match this Next.js event. Before deploying the policy Apply path, configure and read back this rule in staging; repeat for production before enabling Owner Operator there. Staging delivery remains a separate runbook check.
 
 Operator action: inspect the affected response's approval-audit history under its account and diagnose the missing or invalid grant. Do not fabricate a historical veto grant or repeatedly retry Apply before the inconsistency is resolved. Use the captured proposal ID to correlate the failed action; keep review text and credentials out of the incident record.
+
+**Rule 13 — Operator button Restore invariant (Run E). REQUIRED; CONFIGURATION AND DELIVERY PENDING.**
+
+| Rule name | Emitted identity and filter | Level and grouping | Trigger and destination |
+|---|---|---|---|
+| `operator-restore-invariant → discord` | Next.js `reportCaughtError`; tag `endpoint` equals `api/operator/proposals/[id]/restore POST` AND exception message contains `agents/operator: prepared Restore vanished in its transaction`; scope to the deployment environment | `error`; default exception-stack grouping, no custom fingerprint | Every event, action throttle 60 minutes per issue; the environment's existing Discord alerts channel via integration 443670 |
+
+`createRestoreProposal` throws if its newly prepared proposal cannot be read in the same transaction. The transaction rolls back; the button route emits the exception and returns `restore_failed` without changing settings. The worker's model Restore path remains covered by rule 11 after retry exhaustion. Rule 12 filters Apply POST and cannot match this button endpoint.
+
+Operator action: use the correlated structured error log to identify the proposal ID, then inspect the account-scoped source receipt, deployment, preparation transaction and read projection for the missing row. Repair the invariant before retrying Restore. Do not fabricate a receipt, bypass the transaction, or log owner text. Read back the saved staging rule and its destination; record a delivery drill separately if performed. Production configuration is required before future enablement, and this rule grants no production flag change.
 
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:

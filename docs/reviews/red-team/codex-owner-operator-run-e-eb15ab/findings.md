@@ -2171,3 +2171,10 @@ None. Generic round1 only. No extra budget, third round, accepted-risk finding, 
 | excluded-production-types | Changed RestoreReplyPolicyRequest interface | excluded | Pinned diff adds a TypeScript interface only. It erases at runtime; no behavior-affecting production hunk to mutate. |
 | excluded-production-writer-types | Changed RefusalLaneShapes interface | excluded | Pinned diff adds two interface members only. The ledger writer executable code is unchanged; type-only callers have no mutation obligation. |
 | excluded-migration-121 | Migration121 SQL file | excluded | Migrations are excluded by the red-team skill because the database is provisioned before measurement. Its three executable integration tests remain in the in-scope inventory and are skipped-budget. |
+
+## Owner-authorized second pass — 2026-09-15
+
+Execution grant `owner-run-e-second-pass-1600`; no finding or coverage waiver. Original report bytes above and untouched JSON are preserved in historical commit `76f7914636e3d20c4a676a5d7ef512e17dab25ce`. Final risk-waiver authorizations remain empty, with this exact grant retained permanently in admission history.
+
+Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.
+Owner: Yes, approve the scoped E second pass

@@ -14832,7 +14832,14 @@
       "reason": "The new post-insert invariant throws \"agents/operator: prepared Restore vanished in its transaction\". The button route catches it at src/app/api/operator/proposals/[id]/restore/route.ts:38-40, emits reportCaughtError with endpoint api/operator/proposals/[id]/restore POST, and returns restore_failed 500. beta-launch-alerting.md contains no rule for this endpoint/invariant: its Operator Next.js rule at line422 explicitly filters the apply POST endpoint and retained-veto text; rule11 filters worker_job/agent_turn, which cannot match the button request. Add a matching operator-actionable invariant rule with identity, filter, error level, exception grouping, every-event cadence/throttle and destination action. This static finding does not claim a staging delivery drill occurred."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-run-e-second-pass-1600",
+      "date": "2026-09-15",
+      "finding_ids": [],
+      "text": "Question: May I apply the reviewed Run E proposal at /private/tmp/run-e-next-pass-proposal.md and run one second adversarial pass, capped at 1,600 local test launches? This covers the 707 remaining cases, the Restore fix and verifier safeguards, the named supporting files and staging alert setup. It preserves earlier evidence and your approval in history, leaves the final risk-waiver list empty, uses Codex only, and grants no third round.\nOwner: Yes, approve the scoped E second pass"
+    }
+  ],
   "counts": {
     "inventory_total": 2113,
     "killed": 15,

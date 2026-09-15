@@ -267,6 +267,30 @@ the approval text says “no third round.” Fresh report results append while
 preserving all prior evidence. Isolation, root finalization, timeouts,
 per-test mutation limits and honest incomplete statuses remain required.
 
+**Owner-approved Run E second pass (2026-09-15).** Only
+`codex/owner-operator-run-e`, round 2, may use the exact committed grant
+`owner-run-e-second-pass-1600` for at most **1,600 supervised local launches**.
+The corrected code baseline is
+`54cb1a05e82de192355e379b7eb7b76182189306`; the original measured head remains
+`890eea76c8c04b8d2acfcc73a895ec3112560e38`. Original reports were published
+unchanged in a separate pinned history commit after the code correction.
+Admission checks their exact hashes, all 2,113 ordered inventory identities,
+complete historical evidence, finite supporting paths, and the exact intake
+amendment. The grant covers 707 unmeasured original cases, the Restore fix and
+directly affected callers, and finite verifier safeguards; the cap is not a
+coverage waiver. Every launch pins/revalidates committed HEAD and grant, rejects
+untracked or unjournaled drift, and spends the same bounded counter. Run E
+cannot open, launch or certify a third round, even when permission text contains
+“no third round.” The checker corroborates the closed journal and immutable
+admission history. Final JSON keeps `authorizations: []`: the exact completed
+execution grant stays in permanent admission history, with no risk waived and
+no separate report-format approval required. The approved supporting alert work
+includes staging configuration/readback; delivery is not claimed without a
+drill, and production configuration is required before future enablement. This
+grants no production Operator enablement, external provider calls, external
+Claude/Opus delegation, other-branch budget changes, or relaxation of isolation,
+timeouts, per-test mutation limits, restoration or incomplete-status rules.
+
 ## Duty 2 — fragile assertions
 
 Scan the changed tests for assertions on incidental structure. Each is **P1**,
