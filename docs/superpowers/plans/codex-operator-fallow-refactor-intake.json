@@ -52,7 +52,7 @@
   ],
   "tests_to_add": [],
   "verification_commands": [
-    "pnpm test --maxWorkers=1 --coverage --coverage.reportsDirectory=.feature/operator-live-coverage/full && for attempt in $(seq 1 900); do [ -f .feature/logs/test.rc ] && break; sleep 1; done && test \"$(cat .feature/logs/test.rc)\" = 0 && pnpm tsx scripts/merge-coverage.ts coverage/coverage-final.json .feature/operator-live-coverage && pnpm ci:fallow:coverage",
+    "pnpm test --project=integration --maxWorkers=1 --coverage --coverage.reportsDirectory=.feature/operator-integration-coverage/full && for attempt in $(seq 1 900); do [ -f .feature/logs/test.rc ] && break; sleep 1; done && test \"$(cat .feature/logs/test.rc)\" = 0 && pnpm tsx scripts/merge-coverage.ts coverage/coverage-final.json .feature/operator-integration-coverage && pnpm ci:fallow:coverage",
     "FALLOW_BASE=6b2eb580940480c6a9b304f3e69c0d7a3bb04f29 pnpm ci:fallow",
     "FALLOW_BASE=a95478037fb662cae6ce2e4cc1eb89671016b492 pnpm ci:fallow",
     "pnpm test:e2e --project=chromium && sleep 61 && pnpm test:e2e --project=mobile-chrome"
