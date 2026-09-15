@@ -1,6 +1,6 @@
 # Owner Operator Run E — restore and policy refusals
 
-Status: proposed plan, ticket-seeded, standard / high / mixed. Root: Codex. Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e`. Starting candidate: `4b13d96621b156a47dbc4140995f45745bc8114d`. Intake: [run-e-intake](codex-owner-operator-run-e-intake.json). Spec: [Operator](../../roadmap/2026-09-11-owner-operator/README.md) §3.6, §4, §6.6. Coordination: [D/E deviation](codex-owner-operator-run-e-deviations.md).
+Status: feature #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z; reviewed report head `fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4`; final adversarial certification CLEAR, required current-head CI passed and staging/cleanup complete. Parent ba0c65bb full gate passed; the current local post-report wrapper did not pass. Owner-approved verification exception is recorded in [release approval](../../reviews/codex-owner-operator-run-e/release-verification-approval.md); post-merge staging deployment/readiness [post-merge readback](../../runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) PASS. This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity. Root: native Codex. Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e`. Intake: [run-e-intake](codex-owner-operator-run-e-intake.json). Spec: [Operator](../../roadmap/2026-09-11-owner-operator/README.md) §3.6, §4, §6.6. Coordination: [D/E deviation](codex-owner-operator-run-e-deviations.md).
 
 ## Authority and sequencing
 
@@ -58,10 +58,31 @@ Plan review: Codex round 1 returned two P2 findings (cross-turn restore ownershi
 
 T1's vocabulary extension also supplies the two existing Restraint label-map entries, because those exhaustive `Record<RefusalCategory, string>` consumers must compile as soon as the category exists. This is supporting work within the approved surface; the complete refusal card, GET and ledger-completion behavior remains T5/T6. Migration121 has no new schema-object names, so `schema-ready.ts` documents the executable definition check instead of adding a misleading presence-only requirement.
 
-Use `/private/tmp/run-e-local-check.py` for local commands: fixed E root, safe local port5499/test_ws5, blank provider/Sentry keys, no copied dotenv. Logs stay in scratch. Provision only the isolated local database; never use D's database for E migration probes. TDD through public behavior, no private-helper mirror tests. Serialize DB runs and full gates (`MAX_PARALLEL=1 VITEST_WORKERS=2`). Relevant narrow suites plus build follow behavior changes; final full review wrapper covers lint/typecheck/audits/build/integrations, with explicit full test, offline LLM eval and E2E extras.
+Use `/private/tmp/run-e-local-check.py` for local commands: fixed E root, safe local port5499/test_ws5, blank provider/Sentry keys, no copied dotenv. Logs stay in scratch. Provision only the isolated local database; never use D's database for E migration probes. TDD through public behavior, no private-helper mirror tests. Serialize independent DB processes and full gates. Record actual worker settings per execution in the existing evidence; the successful 263fe7 gate used the bounded two-worker rerun. Earlier throughput experiments remain historical, not standing execution defaults. Relevant narrow suites plus build follow behavior changes; final full review wrapper covers lint/typecheck/audits/build/integrations, with explicit full test, offline LLM eval and E2E extras.
 
 Before E remote work, D and its docs closeout must be merged and observation fixtures cleaned. Rebase only E's own commits onto latest main, resolve D final-fix overlaps, then pin final fork. Migration121 preflight introspects staging and production; apply staging first and production in the same authorized window. Confirm rendered CHECK definitions and unchanged RLS/grants, not migration-history rows. No production fixture writes. Keep migration LOCAL-ONLY until actual promotion; record exact application evidence.
 
 Open a sanitized fixture/teardown ledger before E staging writes. No posting connection, public reply, email or SMS. Use in-app Browser only, actual390/1440 dimensions and backend outcome checks. Store actual attempts including errors; cleanup exact fixture account/Auth and terminal queue jobs, verify zero rows and restore viewport. No claim from unit mocks substitutes for deployed journey evidence.
 
 Final high-risk review is one frozen wave: spec/correctness, maintainability, applicable database/tenancy risk axis and root-owned red-team execution under the skill. Three plan rounds maximum; two adversarial rounds maximum, no inherited C/D extensions. Root triages every finding and runs the mutation finalizer. Commit review reports, then run verified review gate last and check fingerprint. Normal pre-push hooks, draft PR then ready/checks/squash, staging realignment and fresh postmerge check, then separate documentation closeout and architecture counter rule. Human pilot/production enablement remain blocked-human.
+
+## T8 documentation and release handoff
+
+The glossary, refusal ADR and spec describe implemented contracts; directory
+ownership is recorded. The [E evidence](../../runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md)
+owns qualified J1–J7 PASS, matched staging deployments, completed cleanup,
+migration 121 lockstep and alert 3993328 configuration; delivery is unproven.
+Parent ba0c65bb's full-gate PASS remains historical; fb66d15d changes only
+the two reports (195 insertions / 7 deletions). Final certification is CLEAR:
+2,437 identities = 361 killed + 2,076 excluded; 12 fixed / zero open / zero waivers.
+Round2 finalized 802 launches / 401 pairs, preserving record400's target miss
+and same-ID attempt401's assertion kill, within the cumulative/per-case caps.
+Required CI34962247726 passed, with deploy-install validly skipped; optional
+Fallow failed (eight complexity findings / two clone groups). E2E34962247838
+passed 30 / 54 skipped; Doctor34962247896 passed. The local post-report wrapper
+did not pass: four timeouts, then ten (14,893 passed / 1,316 skipped; 1,280.09s);
+remaining checks stopped. The owner approved the bounded verification exception; the failed local runs remain failed.
+Preserve original J5 failure, uncaptured J6 GET key and invalid blank J7 captures.
+Feature #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z.
+Matched staging deployment/readiness [post-merge readback](../../runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) is **PASS** at d4a96f3; production Operator remains UNSET. This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
+Architecture 2→3 is recorded once for the feature; the docs merge does not count. No additional observation or production enablement.

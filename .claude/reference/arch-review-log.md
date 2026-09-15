@@ -1,5 +1,7 @@
 # Architecture review log
 
+- **PR #1293** — Owner Operator Run E (2026-09-15, squash `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf`, merged 2026-09-15T16:39:27Z): Adds receipt-derived Restore preparation and Rules timeline, server-only inverse policy state through existing writers, and durable refusals in the winning fenced transaction. Migration 121 extends two ledger lanes and one category; applied staging-first/production-second with unchanged recorded access controls. Restore/refusal modules retain one owner per contract; no new production flag, dependency or agent framework. Same-round verifier admissions preserve checkpoints, pins, counters and failed attempts. Final certification CLEAR: 2,437 identities, 361 killed / 2,076 excluded; 12 fixed / zero open/waived; 802 launches / 401 pairs. Parent ba0c65bb full gate and reviewed-head required CI/E2E/Doctor passed; optional Fallow failed. The failed local post-report wrapper is retained under the [owner-approved bounded exception](../../docs/reviews/codex-owner-operator-run-e/release-verification-approval.md), never relabeled green. Staging/cleanup passed with documented limits; matched post-merge deployment/readiness [post-merge readback](../../docs/runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed at d4a96f3, with production Operator UNSET. This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity. Counter 2→3, counted once below; docs do not count and no architecture pass is claimed. Next pass: examine cross-owner Restore lock ordering and the accumulating finite verifier admission proofs.
+
 2026-09-14 — **Owner Operator Run E (pre-merge candidate):** Adds receipt-derived Restore preparation, explicit Apply through the existing settings writers, paginated operating-rule history, and durable server-written refusal decisions fenced with turn completion. New Restore and refusal modules own source validation, current-state previews and transactional ledger writes. Migration 121 extends the refusal vocabulary and is LOCAL-ONLY pending lockstep staging-first promotion. Counter remains 2 until the separate post-merge closeout.
 
 - **PR #1291** — Owner Operator Run D (2026-09-14, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`): Keeps Operator lifecycle writes in `turns.ts` and dispatch/watchdog decisions in OutboxPoller. Winning exhaustion and bound-turn failure share one transaction; live/contended claims remain recoverable, including rollback to exhausted dispatching. Healthy predecessor waits fence claim release and liveness by token/dispatch attempt; delay failures preserve retry. Adds owner recovery wording and bounded D-only verifier admission safeguards with preserved grant history. No migration, env var, flag change, dependency or new production module; two local outbox-status annotations distinguish claim-yield/heartbeat states from the canonical dedup set. Counter 1→2. Next pass: inspect cross-owner lock ordering, rollback recovery eligibility and the accumulating named verifier exceptions.
@@ -303,7 +305,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — reset by the **2026-09-12 pass**
+**Merges since last architecture pass: 3** — reset by the **2026-09-12 pass**
 (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-09-12/`.
 
@@ -360,6 +362,7 @@ Prior passes: `PATHFINDER-2026-08-26/`, `-08-24/`, `-08-22/`, `-08-18/`, `-08-15
 
 Merges since the 2026-09-12 pass:
 
+- #1293 — Owner Operator Run E, `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf`: production Restore preparation/timeline, exact policy inverses and fenced refusal ledger extension (counts: yes).
 - #1291 — Owner Operator Run D, `fb91cd2f4a3769f5ac35227cf58751720d83b381`: production dispatch/turn recovery and fenced predecessor waiting (counts: yes).
 - #1278 — Owner Operator Run C, `280d1b0137f4f5a3e2cd613abe7464238d0f665e`: production policy Apply, consequence provenance, provider schemas and Console cards (counts: yes).
 

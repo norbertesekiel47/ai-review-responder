@@ -103,7 +103,7 @@ finds an answer rather than an omission.
 **Correction 2 — the counts.** The parked text said seven categories and six
 lanes. It is **eight categories** (`owner_review_required`, #998) and **seven
 lanes** (`policy_gate_held`, #1003). Migration 116's two column CHECKs are the
-storage-level authority for both closed sets.
+storage-level authority for both closed sets at that decision. The Run E extension below adds two lanes and one category through migration 121.
 
 ### 4. `null` is a decision, never an omission
 
@@ -148,6 +148,31 @@ The array's **members** are deliberately not constrained against the 22
 `AutoApprovalBlockReason` values. That enum lives in TypeScript and has no
 migration owner; spelling it into a CHECK would create a second authority that
 drifts. An exhaustiveness test guards it at the type layer, where it belongs.
+
+### 6. Operator rule refusals extend the ledger without exposing its codes
+
+Merged Run E (#1293) adds `operator_content_refused` (location) and
+`operator_policy_refused` (account), both categorized `request_not_allowed`.
+The closed reason map and scope selection belong to
+`src/lib/agents/operator/refusals.ts`. A model supplies only a reason reference;
+the winning fenced completion mints a distinct `operator_refusal` subject UUID,
+stores it in the reply, and calls the existing ledger writer in the same
+transaction. Its `transaction_time` anchor matches the turn's completion time
+without a JavaScript timestamp round trip. A lost fence writes neither;
+a ledger write error aborts completion. The existing ledger kill switch remains
+authoritative.
+
+The Operator transcript may explain the selected, server-owned RepWorth rule;
+it never projects moderation prose or reads ledger code columns for display.
+The Restraint projection remains category/time/link only, and the new category
+has no subject link. Requested capabilities remain a separate response kind.
+
+Migration 121 atomically extends source/category/subject checks, source-to-subject
+pairing and C3: `business_id IS NULL` exactly for `autonomy_suspended` and
+`operator_policy_refused`. It preserves C2/C4/C5, deny-all RLS, grants and indexes.
+Remote application status is owned by the
+[migration inventory](../../.claude/reference/migrations-log.md); this extension
+does not establish deployment or browser verification.
 
 ## Limits, stated rather than papered over
 
@@ -239,8 +264,8 @@ strict one-clock reading was rejected.
 - Adding a member to any mapped source enum breaks the build until it is
   mapped. Adding one to a migration CHECK breaks a test. Both are intentional:
   an unmapped refusal is a refusal nobody decided about.
-- Adding an eighth **Refusal source** requires editing migration 116's source
-  CHECK **and** CHECK C1's `CASE`. C1 is wrapped in `IS TRUE` precisely so
+- Adding a **Refusal source** requires a new migration extending the source
+  CHECK **and** CHECK C1's `CASE` (Run E uses migration 121). C1 is wrapped in `IS TRUE` precisely so
   forgetting the second is a rejection rather than a silent acceptance.
 
 ## Alternatives rejected

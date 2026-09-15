@@ -830,3 +830,33 @@ The first code for the **Owner Operator**, the conversational surface an owner w
 **Staging and limits.** The original campaign's actual 390px/1440px journeys covered next-draft tone, pinned location and durable recovery. The owner's early close yielded 24/24 completed turns over 19h50m14.857381s (p50 6.838317s; p95 16.10373645s), explicitly `full_24_hours_elapsed=false`. The tone prompt was reconstructed from source inputs; its literal placeholder signoff remains a recorded quality limitation. The corrected candidate `091d86bc778480dfd3c2cbc9fbbf61017392bbe0` then ran on Railway `113ceb47-ac01-49fb-8f6d-fd50741c0b04` and Vercel `dpl_E9ncrTWQ96hvov9pmYxXPdsFGofM`. The actual deployed watchdog produced a matching terminal pair at 2026-09-14T19:17:47.567765Z; independent ten-scope cleanup was all zero at 19:18:21.401216Z. That fixture exercised the durable rollback state without model work, Auth creation, live outage injection or an alert-delivery drill. Original fixtures and follow-up fixtures were removed. [Evidence](runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) owns detailed cleanup and post-merge deployment records.
 
 **Release.** Required CI passed for the merged feature head. Architecture counter 1→2; a pass is not yet due. The separate documentation closeout precedes E. §12.1 item 9 remains BLOCKED-human; production enablement remains a human decision.
+
+## 2026-09-15 — Owner Operator Run E #1293 merged; post-merge deployment/readiness PASS
+
+Candidate `ba0c65bb3a3665ed10a6441d27917802819ad4c1` implements receipt-derived
+Restore, Rules timeline, clear override and fenced durable policy refusals.
+Corrective fixtures strengthen13 existing cases; finite verifier additions retain
+the frozen388 records / 776 launches, earlier findings and round 2's 1,600-launch cap.
+Closed semantic-warning diagnostics were independently corrected to a scalar
+field retained by the actual logger, without prompt/validation/retry/billing changes.
+The [E evidence](runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md)
+records qualified J1–J7 PASS and exact cleanup:67 public rows, Auth/session scopes,
+7 observed queue jobs and campaign tabs/viewport closed by approximately 10:34Z.
+The original J5 failed turn remains separate from successful later recovery;
+J6's direct GET key is uncaptured and blank J7 images are not visual proof.
+Migration 121 applied in both projects; alert 3993328 is configured, delivery unproven.
+Parent ba0c65bb full gate passed: 16,218 DB / 11 skipped, 14,903 ordinary /
+1,316 skipped; build/E2E/checks PASS. Report-only fb66d15d changes two files
+(195 insertions / 7 deletions), leaving application/test/configuration unchanged.
+Final certification CLEAR: 2,437 identities = 361 killed + 2,076 excluded;
+12 fixed / zero open / zero waivers. Round2 finalized 802 launches / 401 pairs;
+record400's target-selection miss and same-ID second-attempt401 kill are retained.
+Required CI34962247726 passed, deploy-install validly skipped; optional Fallow
+failed (eight complexity findings / two clone groups). E2E34962247838 passed
+30 / 54 skipped; Doctor34962247896 passed. Local post-report verification did
+not pass: first four timeouts, then ten with 14,893 passed / 1,316 skipped in
+1,280.09s; remaining wrapper checks stopped. The owner [approved the bounded exception](reviews/codex-owner-operator-run-e/release-verification-approval.md), accepting passing GitHub checks and the earlier full local pass on identical application code without declaring the failed local wrapper green.
+Feature #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z.
+Matched post-merge deployments and [post-merge readback](runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed at d4a96f3: Railway SUCCESS16:49:36.554Z, Vercel READY16:42:55.421Z with staging alias, `/ready` HTTP20016:49:55.515Z, PostgreSQL/both Redis OK and named flags unchanged (production Operator UNSET). This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
+Architecture records 2→3 once for this feature; docs do not count. D docs #1292/30896acb closed the dependency;
+its shortened observation and human pilot/production decisions are unchanged.

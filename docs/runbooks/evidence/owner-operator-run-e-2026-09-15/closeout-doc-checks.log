@@ -1,0 +1,14 @@
+Already up to date
+Done in 153ms using pnpm v11.0.9
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.7 /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e-closeout
+
+
+ Test Files  4 passed (4)
+      Tests  335 passed (335)
+   Start at  09:46:31
+   Duration  489ms (transform 36ms, setup 113ms, import 51ms, tests 62ms, environment 0ms)
+

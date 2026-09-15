@@ -1,0 +1,260 @@
+{
+  "capturedAt": {
+    "current_time": "2026-09-15 08:52:01 UTC"
+  },
+  "data": {
+    "api_costs": [
+      {
+        "id": "01a0a443-8ad7-743e-84d0-b12119ebed41",
+        "flagged": false,
+        "cost_usd": 0.000603,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:51:25.022615+00:00",
+        "latency_ms": 2509,
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 3601,
+        "output_tokens": 104,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      }
+    ],
+    "businesses": [
+      {
+        "id": "019f43e0-0000-7000-8000-000000000011",
+        "name": "Salon",
+        "tone": "formal and factual",
+        "website": null,
+        "category": "Salon",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:49:23.434747+00:00",
+        "is_primary": true,
+        "owner_name": "Run E Synthetic Owner",
+        "updated_at": "2026-09-15T08:49:23.434747+00:00",
+        "archived_at": null,
+        "avoid_facts": [],
+        "owner_email": "run-e-019f43e0@e2e.repworth.net",
+        "owner_phone": null,
+        "staff_names": [],
+        "last_sync_at": null,
+        "onboarded_by": "019f43e0-0000-7000-8000-000000000002",
+        "display_label": "Salon",
+        "rival_place_id": null,
+        "google_maps_url": null,
+        "google_place_id": null,
+        "highlight_facts": [],
+        "import_decision": "declined",
+        "rival_picked_at": null,
+        "google_place_lat": null,
+        "google_place_lng": null,
+        "sample_responses": [],
+        "tracked_keywords": [],
+        "place_id_verified": true,
+        "products_services": null,
+        "subscription_tier": "autopilot",
+        "import_decision_at": null,
+        "stripe_customer_id": null,
+        "owner_email_bounced": false,
+        "subscription_status": "active",
+        "baseline_captured_at": null,
+        "google_place_address": null,
+        "initial_review_count": null,
+        "rival_title_snapshot": null,
+        "monthly_impact_enabled": false,
+        "stripe_subscription_id": null,
+        "weekly_summary_enabled": false,
+        "import_offer_expires_at": null,
+        "initial_responded_count": null,
+        "ranking_search_location": null,
+        "subscription_activated_at": null,
+        "solicitation_postal_address": null,
+        "solicitation_postal_address_attested_at": null,
+        "solicitation_postal_address_attested_digest": null,
+        "solicitation_postal_address_attestation_version": null,
+        "solicitation_postal_address_attested_by_user_id": null
+      },
+      {
+        "id": "019f43e0-0000-7000-8000-000000000012",
+        "name": "Cafe",
+        "tone": "formal and factual",
+        "website": null,
+        "category": "Cafe",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:49:23.434747+00:00",
+        "is_primary": false,
+        "owner_name": "Run E Synthetic Owner",
+        "updated_at": "2026-09-15T08:49:23.434747+00:00",
+        "archived_at": null,
+        "avoid_facts": [],
+        "owner_email": "run-e-019f43e0@e2e.repworth.net",
+        "owner_phone": null,
+        "staff_names": [],
+        "last_sync_at": null,
+        "onboarded_by": "019f43e0-0000-7000-8000-000000000002",
+        "display_label": "Cafe",
+        "rival_place_id": null,
+        "google_maps_url": null,
+        "google_place_id": null,
+        "highlight_facts": [],
+        "import_decision": "declined",
+        "rival_picked_at": null,
+        "google_place_lat": null,
+        "google_place_lng": null,
+        "sample_responses": [],
+        "tracked_keywords": [],
+        "place_id_verified": true,
+        "products_services": null,
+        "subscription_tier": "autopilot",
+        "import_decision_at": null,
+        "stripe_customer_id": null,
+        "owner_email_bounced": false,
+        "subscription_status": "active",
+        "baseline_captured_at": null,
+        "google_place_address": null,
+        "initial_review_count": null,
+        "rival_title_snapshot": null,
+        "monthly_impact_enabled": false,
+        "stripe_subscription_id": null,
+        "weekly_summary_enabled": false,
+        "import_offer_expires_at": null,
+        "initial_responded_count": null,
+        "ranking_search_location": null,
+        "subscription_activated_at": null,
+        "solicitation_postal_address": null,
+        "solicitation_postal_address_attested_at": null,
+        "solicitation_postal_address_attested_digest": null,
+        "solicitation_postal_address_attestation_version": null,
+        "solicitation_postal_address_attested_by_user_id": null
+      }
+    ],
+    "job_outbox": [
+      {
+        "id": "01a0a443-7b8f-747d-8853-4f2147dd1a28",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "available_at": "2026-09-15T08:51:20.148547+00:00",
+        "completed_at": "2026-09-15T08:51:25.151102+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T08:51:21.657176+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      }
+    ],
+    "agent_turns": [
+      {
+        "id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "reply": [
+          {
+            "type": "proposal",
+            "proposalId": "01a0a443-8b57-710c-ae30-d2c869e266b7"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 1,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T08:51:21.659235+00:00",
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "owner_text": "Change the reply tone for Salon to warm and concise.",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "completed_at": "2026-09-15T08:51:25.151102+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a443-7db3-72a6-bdf9-90b45d684b0a",
+        "failure_reason": null,
+        "client_turn_key": "a7c52bd2-3790-4959-8718-0115953376c6",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      }
+    ],
+    "refusal_events": [],
+    "agent_proposals": [
+      {
+        "id": "01a0a443-8b57-710c-ae30-d2c869e266b7",
+        "after": {
+          "tone": "warm and concise",
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "input": {
+          "tone": "warm and concise"
+        },
+        "before": {
+          "tone": "formal and factual",
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "status": "pending",
+        "receipt": null,
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "operation": "set_tone",
+        "rationale": "You asked to change the reply tone for Salon to warm and concise.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": null,
+        "created_at": "2026-09-15T08:51:25.151102+00:00",
+        "label_kind": "fact",
+        "updated_at": "2026-09-15T08:51:25.151102+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": null,
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "businessId": "019f43e0-0000-7000-8000-000000000011"
+        }
+      }
+    ],
+    "analytics_events": [],
+    "account_audit_log": [],
+    "agent_conversations": [
+      {
+        "id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "last_turn_at": "2026-09-15T08:51:25.151102+00:00",
+        "created_by_user_id": "019f43e0-0000-7000-8000-000000000002"
+      }
+    ],
+    "auto_approval_policies": [
+      {
+        "id": "019f43e0-0000-7000-8000-000000000013",
+        "persona": "reply",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:49:23.434747+00:00",
+        "updated_at": "2026-09-15T08:49:23.434747+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "action_class": "posting",
+        "suspended_at": null,
+        "daily_send_cap": null,
+        "suspended_reason": null,
+        "daily_auto_post_cap": 2,
+        "veto_window_minutes": 30,
+        "auto_approve_min_star": 5
+      }
+    ],
+    "agent_unsupported_requests": []
+  }
+}

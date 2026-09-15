@@ -1,0 +1,2 @@
+reap: every journaled process group is empty (776 recorded)
+finalize: restored 0 mutated file(s) and 0 dotenv file(s); journal closed

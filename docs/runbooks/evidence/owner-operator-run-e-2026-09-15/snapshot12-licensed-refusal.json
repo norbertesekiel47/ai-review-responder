@@ -1,0 +1,2039 @@
+{
+  "capturedAt": {
+    "current_time": "2026-09-15 09:25:19 UTC"
+  },
+  "data": {
+    "api_costs": [
+      {
+        "id": "01a0a443-8ad7-743e-84d0-b12119ebed41",
+        "flagged": false,
+        "cost_usd": 0.000603,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:51:25.022615+00:00",
+        "latency_ms": 2509,
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 3601,
+        "output_tokens": 104,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a448-56f9-7319-8157-764eff1dc836",
+        "flagged": false,
+        "cost_usd": 0.000611,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:56:39.424986+00:00",
+        "latency_ms": 1679,
+        "business_id": "019f43e0-0000-7000-8000-000000000012",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 3658,
+        "output_tokens": 104,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a44c-77cb-72b4-9708-e6cf352a9dae",
+        "flagged": false,
+        "cost_usd": 0.000636,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:01:09.970873+00:00",
+        "latency_ms": 2139,
+        "business_id": "019f43e0-0000-7000-8000-000000000012",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 3822,
+        "output_tokens": 105,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a452-08c2-7523-ad24-3e153b0137f9",
+        "flagged": false,
+        "cost_usd": 0.00065,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:07:14.761345+00:00",
+        "latency_ms": 1775,
+        "business_id": "019f43e0-0000-7000-8000-000000000012",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 3915,
+        "output_tokens": 104,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a45f-9dba-73bb-abdb-d6073d2d73eb",
+        "flagged": false,
+        "cost_usd": 0.000676,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:22:04.86854+00:00",
+        "latency_ms": 1419,
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 4133,
+        "output_tokens": 94,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a45f-a726-76f9-9a03-104b98aaeb2a",
+        "flagged": false,
+        "cost_usd": 0.000679,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:22:07.280163+00:00",
+        "latency_ms": 2304,
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 4150,
+        "output_tokens": 94,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      },
+      {
+        "id": "01a0a462-24b8-7115-bc2d-0d220dc7f1ec",
+        "flagged": false,
+        "cost_usd": 0.000638,
+        "endpoint": "owner-operator",
+        "provider": "openai",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:24:50.499005+00:00",
+        "latency_ms": 1988,
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "flag_reason": null,
+        "response_id": null,
+        "input_tokens": 4154,
+        "output_tokens": 25,
+        "output_excerpt": null,
+        "prompt_version": "2026-09-14.2",
+        "moderation_score": null,
+        "system_prompt_hash": "f358130a056c53b386ddf59581bb32cef4f7516099e13e6e96c3e77fb1bf9033",
+        "moderation_categories": null
+      }
+    ],
+    "businesses": [
+      {
+        "id": "019f43e0-0000-7000-8000-000000000011",
+        "name": "Salon",
+        "tone": "warm and concise",
+        "website": null,
+        "category": "Salon",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:49:23.434747+00:00",
+        "is_primary": true,
+        "owner_name": "Run E Synthetic Owner",
+        "updated_at": "2026-09-15T09:21:30.633751+00:00",
+        "archived_at": null,
+        "avoid_facts": [],
+        "owner_email": "run-e-019f43e0@e2e.repworth.net",
+        "owner_phone": null,
+        "staff_names": [],
+        "last_sync_at": null,
+        "onboarded_by": "019f43e0-0000-7000-8000-000000000002",
+        "display_label": "Salon",
+        "rival_place_id": null,
+        "google_maps_url": null,
+        "google_place_id": null,
+        "highlight_facts": [],
+        "import_decision": "declined",
+        "rival_picked_at": null,
+        "google_place_lat": null,
+        "google_place_lng": null,
+        "sample_responses": [],
+        "tracked_keywords": [],
+        "place_id_verified": true,
+        "products_services": null,
+        "subscription_tier": "autopilot",
+        "import_decision_at": null,
+        "stripe_customer_id": null,
+        "owner_email_bounced": false,
+        "subscription_status": "active",
+        "baseline_captured_at": null,
+        "google_place_address": null,
+        "initial_review_count": null,
+        "rival_title_snapshot": null,
+        "monthly_impact_enabled": false,
+        "stripe_subscription_id": null,
+        "weekly_summary_enabled": false,
+        "import_offer_expires_at": null,
+        "initial_responded_count": null,
+        "ranking_search_location": null,
+        "subscription_activated_at": null,
+        "solicitation_postal_address": null,
+        "solicitation_postal_address_attested_at": null,
+        "solicitation_postal_address_attested_digest": null,
+        "solicitation_postal_address_attestation_version": null,
+        "solicitation_postal_address_attested_by_user_id": null
+      },
+      {
+        "id": "019f43e0-0000-7000-8000-000000000012",
+        "name": "Cafe",
+        "tone": "formal and factual",
+        "website": null,
+        "category": "Cafe",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:49:23.434747+00:00",
+        "is_primary": false,
+        "owner_name": "Run E Synthetic Owner",
+        "updated_at": "2026-09-15T08:49:23.434747+00:00",
+        "archived_at": null,
+        "avoid_facts": [],
+        "owner_email": "run-e-019f43e0@e2e.repworth.net",
+        "owner_phone": null,
+        "staff_names": [],
+        "last_sync_at": null,
+        "onboarded_by": "019f43e0-0000-7000-8000-000000000002",
+        "display_label": "Cafe",
+        "rival_place_id": null,
+        "google_maps_url": null,
+        "google_place_id": null,
+        "highlight_facts": [],
+        "import_decision": "declined",
+        "rival_picked_at": null,
+        "google_place_lat": null,
+        "google_place_lng": null,
+        "sample_responses": [],
+        "tracked_keywords": [],
+        "place_id_verified": true,
+        "products_services": null,
+        "subscription_tier": "autopilot",
+        "import_decision_at": null,
+        "stripe_customer_id": null,
+        "owner_email_bounced": false,
+        "subscription_status": "active",
+        "baseline_captured_at": null,
+        "google_place_address": null,
+        "initial_review_count": null,
+        "rival_title_snapshot": null,
+        "monthly_impact_enabled": false,
+        "stripe_subscription_id": null,
+        "weekly_summary_enabled": false,
+        "import_offer_expires_at": null,
+        "initial_responded_count": null,
+        "ranking_search_location": null,
+        "subscription_activated_at": null,
+        "solicitation_postal_address": null,
+        "solicitation_postal_address_attested_at": null,
+        "solicitation_postal_address_attested_digest": null,
+        "solicitation_postal_address_attestation_version": null,
+        "solicitation_postal_address_attested_by_user_id": null
+      }
+    ],
+    "job_outbox": [
+      {
+        "id": "01a0a443-7b8f-747d-8853-4f2147dd1a28",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "available_at": "2026-09-15T08:51:20.148547+00:00",
+        "completed_at": "2026-09-15T08:51:25.151102+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T08:51:21.657176+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      },
+      {
+        "id": "01a0a448-42bf-728f-aaa1-d7e39a3631f7",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T08:56:33.402005+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+        "available_at": "2026-09-15T08:56:33.402005+00:00",
+        "completed_at": "2026-09-15T08:56:39.874305+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T08:56:36.795513+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      },
+      {
+        "id": "01a0a44c-5ea1-714b-92f4-fee2f6987dac",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a44c-5db9-7589-9d12-4186c84417c8",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T09:01:02.681053+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a44c-5db9-7589-9d12-4186c84417c8",
+        "available_at": "2026-09-15T09:01:02.681053+00:00",
+        "completed_at": "2026-09-15T09:01:10.387085+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T09:01:06.897583+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      },
+      {
+        "id": "01a0a451-efea-769b-b547-df6c6752e002",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T09:07:07.546254+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "available_at": "2026-09-15T09:07:07.546254+00:00",
+        "completed_at": "2026-09-15T09:07:15.173266+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T09:07:12.054914+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      },
+      {
+        "id": "01a0a45f-8573-70ff-b748-c7f0f1372bea",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a45f-8470-752a-8e23-1c43e9486596",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T09:21:57.7129+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a45f-8470-752a-8e23-1c43e9486596",
+        "available_at": "2026-09-15T09:21:57.7129+00:00",
+        "completed_at": "2026-09-15T09:22:07.379987+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T09:22:02.466062+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      },
+      {
+        "id": "01a0a462-0840-742f-b1ee-ab162defbe36",
+        "topic": "agent_turn",
+        "status": "completed",
+        "payload": {
+          "turn_id": "01a0a462-0724-759a-9632-fa904ab8f4e4",
+          "account_id": "019f43e0-0000-7000-8000-000000000001",
+          "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-15T09:24:42.177093+00:00",
+        "last_error": null,
+        "aggregate_id": "01a0a462-0724-759a-9632-fa904ab8f4e4",
+        "available_at": "2026-09-15T09:24:42.177093+00:00",
+        "completed_at": "2026-09-15T09:24:50.629265+00:00",
+        "max_attempts": 5,
+        "dispatched_at": "2026-09-15T09:24:47.53208+00:00",
+        "aggregate_type": "agent_turn",
+        "completion_reason": null
+      }
+    ],
+    "agent_turns": [
+      {
+        "id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "reply": [
+          {
+            "type": "proposal",
+            "proposalId": "01a0a443-8b57-710c-ae30-d2c869e266b7"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 1,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T08:51:21.659235+00:00",
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "owner_text": "Change the reply tone for Salon to warm and concise.",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "completed_at": "2026-09-15T08:51:25.151102+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a443-7db3-72a6-bdf9-90b45d684b0a",
+        "failure_reason": null,
+        "client_turn_key": "a7c52bd2-3790-4959-8718-0115953376c6",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      },
+      {
+        "id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+        "reply": [
+          {
+            "type": "proposal",
+            "proposalId": "01a0a448-58b8-724e-b57c-5575f99bce29"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 2,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T08:56:36.797198+00:00",
+        "created_at": "2026-09-15T08:56:33.402005+00:00",
+        "owner_text": "Clear the location auto-approval override for Cafe so it inherits the account defaults.",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "completed_at": "2026-09-15T08:56:39.874305+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a448-4cb6-749d-84bd-5e38fb13e4ef",
+        "failure_reason": null,
+        "client_turn_key": "5b51b9b4-24d8-4877-995a-2a51e50155f8",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      },
+      {
+        "id": "01a0a44c-5db9-7589-9d12-4186c84417c8",
+        "reply": [
+          {
+            "type": "proposal",
+            "proposalId": "01a0a44c-796b-775c-ae39-3d2b0d513585"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 3,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T09:01:06.898154+00:00",
+        "created_at": "2026-09-15T09:01:02.681053+00:00",
+        "owner_text": "Clear the current location auto-approval override for Cafe so it inherits the account defaults.",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "completed_at": "2026-09-15T09:01:10.387085+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a44c-6bcb-71eb-b32e-37474f879634",
+        "failure_reason": null,
+        "client_turn_key": "847d7926-18b8-45ce-9946-138312bc34b2",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      },
+      {
+        "id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "reply": [
+          {
+            "type": "proposal",
+            "proposalId": "01a0a452-0a5e-7399-a197-29cff0698783"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 4,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T09:07:12.056392+00:00",
+        "created_at": "2026-09-15T09:07:07.546254+00:00",
+        "owner_text": "Clear the current auto-approval override for Cafe and use the current account defaults.",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "completed_at": "2026-09-15T09:07:15.173266+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a451-fe31-77a6-908d-3f2690ea1840",
+        "failure_reason": null,
+        "client_turn_key": "087ba488-3b86-4c83-9c19-3a845fa5b308",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      },
+      {
+        "id": "01a0a45f-8470-752a-8e23-1c43e9486596",
+        "reply": null,
+        "status": "failed",
+        "attempt": 1,
+        "sequence": 5,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T09:22:02.466794+00:00",
+        "created_at": "2026-09-15T09:21:57.7129+00:00",
+        "owner_text": "Undo my last change for Salon.",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "completed_at": "2026-09-15T09:22:07.379987+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a45f-9459-71a4-8336-62062272d4b6",
+        "failure_reason": "model_output_invalid",
+        "client_turn_key": "19d28ba6-f83e-4def-b224-be343aaa8737",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      },
+      {
+        "id": "01a0a462-0724-759a-9632-fa904ab8f4e4",
+        "reply": [
+          {
+            "type": "refusal",
+            "reason": "invented_business_fact",
+            "subjectId": "ba6d3f83-e9c3-4366-a745-845eee37525c"
+          }
+        ],
+        "status": "completed",
+        "attempt": 1,
+        "sequence": 6,
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "claimed_at": "2026-09-15T09:24:47.532661+00:00",
+        "created_at": "2026-09-15T09:24:42.177093+00:00",
+        "owner_text": "say we are licensed",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "completed_at": "2026-09-15T09:24:50.629265+00:00",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "attempt_token": "01a0a462-1922-7786-ae7c-60e06c7dcff7",
+        "failure_reason": null,
+        "client_turn_key": "9f675da1-7f8e-4793-839b-c354697dad49",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+      }
+    ],
+    "refusal_events": [
+      {
+        "id": "01a0a462-2584-76c9-8f26-e64e3ac14b6d",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:24:50.629265+00:00",
+        "subject_id": "ba6d3f83-e9c3-4366-a745-845eee37525c",
+        "business_id": "019f43e0-0000-7000-8000-000000000011",
+        "occurred_at": "2026-09-15T09:24:50.629265+00:00",
+        "refusal_code": "invented_business_fact",
+        "subject_type": "operator_refusal",
+        "refusal_source": "operator_content_refused",
+        "refusal_category": "request_not_allowed",
+        "all_refusal_codes": null,
+        "vocabulary_version": "refusal_vocab_2026-08-30.1"
+      }
+    ],
+    "agent_proposals": [
+      {
+        "id": "01a0a443-8b57-710c-ae30-d2c869e266b7",
+        "after": {
+          "tone": "warm and concise",
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "input": {
+          "tone": "warm and concise"
+        },
+        "before": {
+          "tone": "formal and factual",
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "tone": "warm and concise",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000011"
+          },
+          "before": {
+            "tone": "formal and factual",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "turnId": "01a0a443-7a8b-721f-8628-463813414ecd",
+          "affects": "future_drafts",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T08:53:07.333Z",
+          "operation": "set_tone",
+          "ownerText": "Change the reply tone for Salon to warm and concise.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "versionToken": {
+            "after": {
+              "updatedAt": "2026-09-15 08:53:06.127144+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            },
+            "before": {
+              "updatedAt": "2026-09-15 08:49:23.434747+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            }
+          },
+          "remainingBlocked": [],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "operation": "set_tone",
+        "rationale": "You asked to change the reply tone for Salon to warm and concise.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T08:53:07.333+00:00",
+        "created_at": "2026-09-15T08:51:25.151102+00:00",
+        "label_kind": "fact",
+        "updated_at": "2026-09-15T08:53:06.127144+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "updatedAt": "2026-09-15 08:49:23.434747+00",
+          "businessId": "019f43e0-0000-7000-8000-000000000011"
+        }
+      },
+      {
+        "id": "01a0a448-58b8-724e-b57c-5575f99bce29",
+        "after": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T08:56:39.832604Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T08:56:39.832604Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T08:56:39.832604Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": null,
+          "effectiveDailyCap": 10,
+          "vetoWindowMinutes": 15,
+          "affectedLocationCount": 1
+        },
+        "input": {},
+        "before": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": 5,
+          "consequence": {
+            "asOf": "2026-09-15T08:56:39.832604Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T08:56:39.832604Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T08:56:39.832604Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "domain": "policy",
+            "rowExists": false,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T08:56:58.346277Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T08:56:58.346277Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T08:56:58.346277Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": null,
+            "effectiveDailyCap": 10,
+            "vetoWindowMinutes": 15,
+            "affectedLocationCount": 1
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000012"
+          },
+          "before": {
+            "domain": "policy",
+            "rowExists": true,
+            "threshold": 5,
+            "consequence": {
+              "asOf": "2026-09-15T08:56:58.346277Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T08:56:58.346277Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T08:56:58.346277Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "turnId": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+          "affects": "future_eligible_reviews",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T08:57:00.253Z",
+          "operation": "clear_location_override",
+          "ownerText": "Clear the location auto-approval override for Cafe so it inherits the account defaults.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "retainedVeto": {
+            "asOf": "2026-09-15T08:57:00.093608Z",
+            "count": 0
+          },
+          "versionToken": {
+            "after": {
+              "locationRow": {
+                "id": "absent"
+              },
+              "accountDefaultRow": {
+                "id": "absent"
+              }
+            },
+            "before": {
+              "locationRow": {
+                "id": "019f43e0-0000-7000-8000-000000000013",
+                "updatedAt": "2026-09-15 08:49:23.434747+00"
+              },
+              "accountDefaultRow": {
+                "id": "absent"
+              }
+            }
+          },
+          "remainingBlocked": [
+            "auto_approval_disabled",
+            "autopilot_unavailable"
+          ],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+        "operation": "clear_location_override",
+        "rationale": "You asked to clear the location auto-approval override for Cafe so it inherits the account defaults.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T08:57:00.253+00:00",
+        "created_at": "2026-09-15T08:56:39.874305+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T08:56:57.602687+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "019f43e0-0000-7000-8000-000000000013",
+            "updatedAt": "2026-09-15 08:49:23.434747+00"
+          },
+          "accountDefaultRow": {
+            "id": "absent"
+          }
+        }
+      },
+      {
+        "id": "01a0a44c-796b-775c-ae39-3d2b0d513585",
+        "after": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:01:10.354517Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:01:10.354517Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:01:10.354517Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": null,
+          "effectiveDailyCap": 10,
+          "vetoWindowMinutes": 15,
+          "expansionBlockedBy": [
+            "auto_approval_disabled",
+            "autopilot_unavailable",
+            "provider_moderation_not_validated"
+          ],
+          "affectedLocationCount": 1
+        },
+        "input": {},
+        "before": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:01:10.354517Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:01:10.354517Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:01:10.354517Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "status": "rejected",
+        "receipt": null,
+        "turn_id": "01a0a44c-5db9-7589-9d12-4186c84417c8",
+        "operation": "clear_location_override",
+        "rationale": "You asked to clear the current location auto-approval override for Cafe so it inherits the account defaults.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": null,
+        "created_at": "2026-09-15T09:01:10.387085+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T09:02:28.001213+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": true,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "019f43e0-0000-7000-8000-000000000014",
+            "updatedAt": "2026-09-15 08:59:19.793454+00"
+          },
+          "accountDefaultRow": {
+            "id": "absent"
+          }
+        }
+      },
+      {
+        "id": "01a0a452-0a5e-7399-a197-29cff0698783",
+        "after": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:07:15.145772Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:07:15.145772Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:07:15.145772Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "input": {},
+        "before": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:07:15.145772Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:07:15.145772Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:07:15.145772Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "domain": "policy",
+            "rowExists": false,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:07:57.285150Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:07:57.285150Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:07:57.285150Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000012"
+          },
+          "before": {
+            "domain": "policy",
+            "rowExists": true,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:07:57.285150Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:07:57.285150Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:07:57.285150Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "turnId": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+          "affects": "future_eligible_reviews",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T09:07:59.062Z",
+          "operation": "clear_location_override",
+          "ownerText": "Clear the current auto-approval override for Cafe and use the current account defaults.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "retainedVeto": {
+            "asOf": "2026-09-15T09:07:58.913469Z",
+            "count": 0
+          },
+          "versionToken": {
+            "after": {
+              "locationRow": {
+                "id": "absent"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            },
+            "before": {
+              "locationRow": {
+                "id": "019f43e0-0000-7000-8000-000000000014",
+                "updatedAt": "2026-09-15 08:59:19.793454+00"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            }
+          },
+          "remainingBlocked": [
+            "auto_approval_disabled",
+            "autopilot_unavailable"
+          ],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "operation": "clear_location_override",
+        "rationale": "You asked to clear the current auto-approval override for Cafe and use the current account defaults.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T09:07:59.062+00:00",
+        "created_at": "2026-09-15T09:07:15.173266+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T09:07:56.576756+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "019f43e0-0000-7000-8000-000000000014",
+            "updatedAt": "2026-09-15 08:59:19.793454+00"
+          },
+          "accountDefaultRow": {
+            "id": "019f43e0-0000-7000-8000-000000000015",
+            "updatedAt": "2026-09-15 09:06:34.722232+00"
+          }
+        }
+      },
+      {
+        "id": "0e879dbc-a085-40c5-8e77-8fa429b2af45",
+        "after": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": 5,
+          "consequence": {
+            "asOf": "2026-09-15T08:57:31.854242Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T08:57:31.854242Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T08:57:31.854242Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "expansionBlockedBy": [
+            "auto_approval_disabled",
+            "autopilot_unavailable"
+          ],
+          "affectedLocationCount": 1
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "01a0a448-58b8-724e-b57c-5575f99bce29"
+          }
+        },
+        "before": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T08:57:31.854242Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T08:57:31.854242Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T08:57:31.854242Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": null,
+          "effectiveDailyCap": 10,
+          "vetoWindowMinutes": 15,
+          "affectedLocationCount": 1
+        },
+        "status": "rejected",
+        "receipt": null,
+        "turn_id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+        "operation": "clear_location_override",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": null,
+        "created_at": "2026-09-15T08:57:30.856123+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T08:58:33.132829+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": true,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "absent"
+          },
+          "accountDefaultRow": {
+            "id": "absent"
+          }
+        }
+      },
+      {
+        "id": "3a7d4587-3bcc-4d14-be74-50c8c991ce30",
+        "after": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:09:25.491146Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:09:25.491146Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:09:25.491146Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "01a0a452-0a5e-7399-a197-29cff0698783"
+          }
+        },
+        "before": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:09:25.491146Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:09:25.491146Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:09:25.491146Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "domain": "policy",
+            "rowExists": true,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:10:23.023880Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:10:23.023880Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:10:23.023880Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000012"
+          },
+          "before": {
+            "domain": "policy",
+            "rowExists": false,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:10:23.023880Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:10:23.023880Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:10:23.023880Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "turnId": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+          "affects": "future_eligible_reviews",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T09:10:24.990Z",
+          "operation": "clear_location_override",
+          "ownerText": "Clear the current auto-approval override for Cafe and use the current account defaults.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "retainedVeto": {
+            "asOf": "2026-09-15T09:10:24.833959Z",
+            "count": 0
+          },
+          "versionToken": {
+            "after": {
+              "locationRow": {
+                "id": "01a0a454-eb23-7344-99e4-484f98834f53",
+                "updatedAt": "2026-09-15 09:10:22.184891+00"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            },
+            "before": {
+              "locationRow": {
+                "id": "absent"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            }
+          },
+          "remainingBlocked": [
+            "auto_approval_disabled",
+            "autopilot_unavailable"
+          ],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "operation": "clear_location_override",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T09:10:24.99+00:00",
+        "created_at": "2026-09-15T09:09:24.423637+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T09:10:22.184891+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "absent"
+          },
+          "accountDefaultRow": {
+            "id": "019f43e0-0000-7000-8000-000000000015",
+            "updatedAt": "2026-09-15 09:06:34.722232+00"
+          }
+        }
+      },
+      {
+        "id": "3e5bc49a-10de-433f-893f-61b51c4eb031",
+        "after": {
+          "tone": "warm and concise",
+          "updatedAt": "2026-09-15 09:20:07.162306+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "cd6545b9-8311-4a30-87de-902c14de773d"
+          }
+        },
+        "before": {
+          "tone": "calm and precise",
+          "updatedAt": "2026-09-15 09:20:07.162306+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "tone": "warm and concise",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000011"
+          },
+          "before": {
+            "tone": "calm and precise",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "turnId": "01a0a443-7a8b-721f-8628-463813414ecd",
+          "affects": "future_drafts",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T09:21:32.085Z",
+          "operation": "set_tone",
+          "ownerText": "Change the reply tone for Salon to warm and concise.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "versionToken": {
+            "after": {
+              "updatedAt": "2026-09-15 09:21:30.633751+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            },
+            "before": {
+              "updatedAt": "2026-09-15 09:20:07.162306+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            }
+          },
+          "remainingBlocked": [],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "operation": "set_tone",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T09:21:32.085+00:00",
+        "created_at": "2026-09-15T09:21:11.948433+00:00",
+        "label_kind": "fact",
+        "updated_at": "2026-09-15T09:21:30.633751+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "updatedAt": "2026-09-15 09:20:07.162306+00",
+          "businessId": "019f43e0-0000-7000-8000-000000000011"
+        }
+      },
+      {
+        "id": "4b094a8f-2b1e-491e-a20f-1fa6c614915d",
+        "after": {
+          "domain": "policy",
+          "rowExists": false,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:12:28.131976Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:12:28.131976Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:12:28.131976Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "3a7d4587-3bcc-4d14-be74-50c8c991ce30"
+          }
+        },
+        "before": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-15T09:12:28.131976Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [],
+            "total": 0,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-15T09:12:28.131976Z",
+            "busiestDay": 0,
+            "windowStart": "2026-08-16T09:12:28.131976Z",
+            "excludedUnknown": 0,
+            "excludedImported": 0
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 30,
+          "affectedLocationCount": 1
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "domain": "policy",
+            "rowExists": false,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:18:05.261124Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:18:05.261124Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:18:05.261124Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000012"
+          },
+          "before": {
+            "domain": "policy",
+            "rowExists": true,
+            "threshold": null,
+            "consequence": {
+              "asOf": "2026-09-15T09:18:05.261124Z",
+              "held": {
+                "manual": 0,
+                "cap_reached": 0,
+                "below_threshold": 0
+              },
+              "byDay": [],
+              "total": 0,
+              "source": "reviews_received_30d",
+              "eligible": 0,
+              "windowEnd": "2026-09-15T09:18:05.261124Z",
+              "busiestDay": 0,
+              "windowStart": "2026-08-16T09:18:05.261124Z",
+              "excludedUnknown": 0,
+              "excludedImported": 0
+            },
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30,
+            "affectedLocationCount": 1
+          },
+          "turnId": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+          "affects": "future_eligible_reviews",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T09:18:07.547Z",
+          "operation": "clear_location_override",
+          "ownerText": "Clear the current auto-approval override for Cafe and use the current account defaults.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "retainedVeto": {
+            "asOf": "2026-09-15T09:18:07.368686Z",
+            "count": 0
+          },
+          "versionToken": {
+            "after": {
+              "locationRow": {
+                "id": "absent"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            },
+            "before": {
+              "locationRow": {
+                "id": "01a0a454-eb23-7344-99e4-484f98834f53",
+                "updatedAt": "2026-09-15 09:10:22.184891+00"
+              },
+              "accountDefaultRow": {
+                "id": "019f43e0-0000-7000-8000-000000000015",
+                "updatedAt": "2026-09-15 09:06:34.722232+00"
+              }
+            }
+          },
+          "remainingBlocked": [
+            "auto_approval_disabled",
+            "autopilot_unavailable"
+          ],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "operation": "clear_location_override",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T09:18:07.547+00:00",
+        "created_at": "2026-09-15T09:12:27.145517+00:00",
+        "label_kind": "rule",
+        "updated_at": "2026-09-15T09:18:04.280959+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "locationRow": {
+            "id": "01a0a454-eb23-7344-99e4-484f98834f53",
+            "updatedAt": "2026-09-15 09:10:22.184891+00"
+          },
+          "accountDefaultRow": {
+            "id": "019f43e0-0000-7000-8000-000000000015",
+            "updatedAt": "2026-09-15 09:06:34.722232+00"
+          }
+        }
+      },
+      {
+        "id": "cd6545b9-8311-4a30-87de-902c14de773d",
+        "after": {
+          "tone": "formal and factual",
+          "updatedAt": "2026-09-15 08:53:06.127144+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "01a0a443-8b57-710c-ae30-d2c869e266b7"
+          }
+        },
+        "before": {
+          "tone": "warm and concise",
+          "updatedAt": "2026-09-15 08:53:06.127144+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "status": "applied",
+        "receipt": {
+          "after": {
+            "tone": "formal and factual",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "scope": {
+            "accountId": "019f43e0-0000-7000-8000-000000000001",
+            "locationId": "019f43e0-0000-7000-8000-000000000011"
+          },
+          "before": {
+            "tone": "warm and concise",
+            "avoidFacts": [],
+            "highlightFacts": [],
+            "sampleResponses": [],
+            "productsServices": null
+          },
+          "turnId": "01a0a443-7a8b-721f-8628-463813414ecd",
+          "affects": "future_drafts",
+          "version": 1,
+          "actorName": "Run E Synthetic Owner",
+          "appliedAt": "2026-09-15T08:54:58.941Z",
+          "operation": "set_tone",
+          "ownerText": "Change the reply tone for Salon to warm and concise.",
+          "actorUserId": "019f43e0-0000-7000-8000-000000000002",
+          "effectiveNow": true,
+          "versionToken": {
+            "after": {
+              "updatedAt": "2026-09-15 08:54:57.635488+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            },
+            "before": {
+              "updatedAt": "2026-09-15 08:53:06.127144+00",
+              "businessId": "019f43e0-0000-7000-8000-000000000011"
+            }
+          },
+          "remainingBlocked": [],
+          "differsFromPreview": false
+        },
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "operation": "set_tone",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": "2026-09-15T08:54:58.941+00:00",
+        "created_at": "2026-09-15T08:53:19.824679+00:00",
+        "label_kind": "fact",
+        "updated_at": "2026-09-15T08:54:57.635488+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": null,
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "updatedAt": "2026-09-15 08:53:06.127144+00",
+          "businessId": "019f43e0-0000-7000-8000-000000000011"
+        }
+      },
+      {
+        "id": "d6df12b3-4d5b-4604-95d3-4f14d78c2ddd",
+        "after": {
+          "tone": "warm and concise",
+          "updatedAt": "2026-09-15 08:54:57.635488+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "input": {
+          "restore": {
+            "sourceProposalId": "cd6545b9-8311-4a30-87de-902c14de773d"
+          }
+        },
+        "before": {
+          "tone": "formal and factual",
+          "updatedAt": "2026-09-15 08:54:57.635488+00",
+          "avoidFacts": [],
+          "highlightFacts": [],
+          "sampleResponses": [],
+          "productsServices": null
+        },
+        "status": "stale",
+        "receipt": null,
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "operation": "set_tone",
+        "rationale": "Restore the setting from this applied receipt.",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "applied_at": null,
+        "created_at": "2026-09-15T09:19:32.227429+00:00",
+        "label_kind": "fact",
+        "updated_at": "2026-09-15T09:20:21.361336+00:00",
+        "location_id": "019f43e0-0000-7000-8000-000000000011",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "superseded_by": null,
+        "failure_reason": "version_mismatch",
+        "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "contract_version": 1,
+        "decided_by_user_id": "019f43e0-0000-7000-8000-000000000002",
+        "requires_confirmation": false,
+        "prepared_version_token": {
+          "updatedAt": "2026-09-15 08:54:57.635488+00",
+          "businessId": "019f43e0-0000-7000-8000-000000000011"
+        }
+      }
+    ],
+    "analytics_events": [],
+    "account_audit_log": [
+      {
+        "id": "01a0a448-a471-7590-86b2-d46b315036b3",
+        "ip": null,
+        "payload": {
+          "scope": "location_override",
+          "afterRow": {
+            "exists": false,
+            "policyId": null,
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": null,
+            "effectiveDailyCap": 10,
+            "vetoWindowMinutes": 15
+          },
+          "beforeRow": {
+            "exists": true,
+            "policyId": "019f43e0-0000-7000-8000-000000000013",
+            "suspended": false,
+            "threshold": 5,
+            "suspendedReason": null,
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30
+          },
+          "expansion": false,
+          "operation": "delete_location_override",
+          "readiness": {
+            "canExpand": false,
+            "blockReasons": [
+              "auto_approval_disabled",
+              "autopilot_unavailable"
+            ],
+            "runtimeEnabled": false,
+            "accountWritable": true,
+            "providerModerationEnabled": true,
+            "providerModerationValidated": true
+          },
+          "clearedVia": "delete",
+          "locationId": "019f43e0-0000-7000-8000-000000000012",
+          "afterExposureRank": 0,
+          "beforeExposureRank": 1,
+          "afterEffectiveSource": "none",
+          "futureDefaultApplies": false,
+          "beforeEffectiveSource": "location_override",
+          "afterEffectiveDailyCap": 10,
+          "exposureClassification": "contraction",
+          "afterEffectiveThreshold": null,
+          "beforeEffectiveDailyCap": 2,
+          "beforeEffectiveThreshold": 5,
+          "requiredConfirmationLevel": null,
+          "submittedConfirmationLevel": null,
+          "affectedActiveLocationCount": 1,
+          "afterEffectiveDailyAutoPostCap": null,
+          "afterEffectiveVetoWindowMinutes": 15,
+          "beforeEffectiveDailyAutoPostCap": 2,
+          "beforeEffectiveVetoWindowMinutes": 30
+        },
+        "entity_id": "019f43e0-0000-7000-8000-000000000013",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:56:57.602687+00:00",
+        "event_type": "auto_approval_policy_changed",
+        "request_id": null,
+        "user_agent": null,
+        "entity_type": "auto_approval_policy",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002"
+      },
+      {
+        "id": "01a0a452-b22c-716d-9cab-361e12ac91df",
+        "ip": null,
+        "payload": {
+          "scope": "location_override",
+          "afterRow": {
+            "exists": false,
+            "policyId": null,
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": null,
+            "effectiveDailyCap": 10,
+            "vetoWindowMinutes": 15
+          },
+          "beforeRow": {
+            "exists": true,
+            "policyId": "019f43e0-0000-7000-8000-000000000014",
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30
+          },
+          "expansion": false,
+          "operation": "delete_location_override",
+          "readiness": {
+            "canExpand": false,
+            "blockReasons": [
+              "auto_approval_disabled",
+              "autopilot_unavailable"
+            ],
+            "runtimeEnabled": false,
+            "accountWritable": true,
+            "providerModerationEnabled": true,
+            "providerModerationValidated": true
+          },
+          "clearedVia": "delete",
+          "locationId": "019f43e0-0000-7000-8000-000000000012",
+          "afterExposureRank": 0,
+          "beforeExposureRank": 0,
+          "afterEffectiveSource": "account_default",
+          "futureDefaultApplies": false,
+          "beforeEffectiveSource": "location_override",
+          "afterEffectiveDailyCap": 2,
+          "exposureClassification": "no_change",
+          "afterEffectiveThreshold": null,
+          "beforeEffectiveDailyCap": 2,
+          "beforeEffectiveThreshold": null,
+          "requiredConfirmationLevel": null,
+          "submittedConfirmationLevel": null,
+          "affectedActiveLocationCount": 1,
+          "afterEffectiveDailyAutoPostCap": 2,
+          "afterEffectiveVetoWindowMinutes": 30,
+          "beforeEffectiveDailyAutoPostCap": 2,
+          "beforeEffectiveVetoWindowMinutes": 30
+        },
+        "entity_id": "019f43e0-0000-7000-8000-000000000014",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:07:56.576756+00:00",
+        "event_type": "auto_approval_policy_changed",
+        "request_id": null,
+        "user_agent": null,
+        "entity_type": "auto_approval_policy",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002"
+      },
+      {
+        "id": "01a0a454-ec1a-7436-8da5-b33f29d54a98",
+        "ip": null,
+        "payload": {
+          "scope": "location_override",
+          "afterRow": {
+            "exists": true,
+            "policyId": "01a0a454-eb23-7344-99e4-484f98834f53",
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30
+          },
+          "beforeRow": {
+            "exists": false,
+            "policyId": null,
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": null,
+            "effectiveDailyCap": 10,
+            "vetoWindowMinutes": 15
+          },
+          "expansion": false,
+          "operation": "restore_reply_policy",
+          "readiness": {
+            "canExpand": false,
+            "blockReasons": [
+              "auto_approval_disabled",
+              "autopilot_unavailable"
+            ],
+            "runtimeEnabled": false,
+            "accountWritable": true,
+            "providerModerationEnabled": true,
+            "providerModerationValidated": true
+          },
+          "clearedVia": null,
+          "locationId": "019f43e0-0000-7000-8000-000000000012",
+          "afterExposureRank": 0,
+          "beforeExposureRank": 0,
+          "afterEffectiveSource": "location_override",
+          "futureDefaultApplies": false,
+          "beforeEffectiveSource": "account_default",
+          "afterEffectiveDailyCap": 2,
+          "exposureClassification": "no_change",
+          "afterEffectiveThreshold": null,
+          "beforeEffectiveDailyCap": 2,
+          "beforeEffectiveThreshold": null,
+          "requiredConfirmationLevel": null,
+          "submittedConfirmationLevel": null,
+          "affectedActiveLocationCount": 1,
+          "afterEffectiveDailyAutoPostCap": 2,
+          "afterEffectiveVetoWindowMinutes": 30,
+          "beforeEffectiveDailyAutoPostCap": 2,
+          "beforeEffectiveVetoWindowMinutes": 30
+        },
+        "entity_id": "01a0a454-eb23-7344-99e4-484f98834f53",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:10:22.184891+00:00",
+        "event_type": "auto_approval_policy_changed",
+        "request_id": null,
+        "user_agent": null,
+        "entity_type": "auto_approval_policy",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002"
+      },
+      {
+        "id": "01a0a45b-fa54-72f1-94a0-01be85f76fb8",
+        "ip": null,
+        "payload": {
+          "scope": "location_override",
+          "afterRow": {
+            "exists": false,
+            "policyId": null,
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": null,
+            "effectiveDailyCap": 10,
+            "vetoWindowMinutes": 15
+          },
+          "beforeRow": {
+            "exists": true,
+            "policyId": "01a0a454-eb23-7344-99e4-484f98834f53",
+            "suspended": false,
+            "threshold": null,
+            "suspendedReason": null,
+            "dailyAutoPostCap": 2,
+            "effectiveDailyCap": 2,
+            "vetoWindowMinutes": 30
+          },
+          "expansion": false,
+          "operation": "delete_location_override",
+          "readiness": {
+            "canExpand": false,
+            "blockReasons": [
+              "auto_approval_disabled",
+              "autopilot_unavailable"
+            ],
+            "runtimeEnabled": false,
+            "accountWritable": true,
+            "providerModerationEnabled": true,
+            "providerModerationValidated": true
+          },
+          "clearedVia": "delete",
+          "locationId": "019f43e0-0000-7000-8000-000000000012",
+          "afterExposureRank": 0,
+          "beforeExposureRank": 0,
+          "afterEffectiveSource": "account_default",
+          "futureDefaultApplies": false,
+          "beforeEffectiveSource": "location_override",
+          "afterEffectiveDailyCap": 2,
+          "exposureClassification": "no_change",
+          "afterEffectiveThreshold": null,
+          "beforeEffectiveDailyCap": 2,
+          "beforeEffectiveThreshold": null,
+          "requiredConfirmationLevel": null,
+          "submittedConfirmationLevel": null,
+          "affectedActiveLocationCount": 1,
+          "afterEffectiveDailyAutoPostCap": 2,
+          "afterEffectiveVetoWindowMinutes": 30,
+          "beforeEffectiveDailyAutoPostCap": 2,
+          "beforeEffectiveVetoWindowMinutes": 30
+        },
+        "entity_id": "01a0a454-eb23-7344-99e4-484f98834f53",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:18:04.280959+00:00",
+        "event_type": "auto_approval_policy_changed",
+        "request_id": null,
+        "user_agent": null,
+        "entity_type": "auto_approval_policy",
+        "location_id": "019f43e0-0000-7000-8000-000000000012",
+        "actor_user_id": "019f43e0-0000-7000-8000-000000000002"
+      }
+    ],
+    "agent_conversations": [
+      {
+        "id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T08:51:20.148547+00:00",
+        "last_turn_at": "2026-09-15T09:24:50.629265+00:00",
+        "created_by_user_id": "019f43e0-0000-7000-8000-000000000002"
+      }
+    ],
+    "auto_approval_policies": [
+      {
+        "id": "019f43e0-0000-7000-8000-000000000015",
+        "persona": "reply",
+        "account_id": "019f43e0-0000-7000-8000-000000000001",
+        "created_at": "2026-09-15T09:06:34.722232+00:00",
+        "updated_at": "2026-09-15T09:06:34.722232+00:00",
+        "location_id": null,
+        "action_class": "posting",
+        "suspended_at": null,
+        "daily_send_cap": null,
+        "suspended_reason": null,
+        "daily_auto_post_cap": 2,
+        "veto_window_minutes": 30,
+        "auto_approve_min_star": null
+      }
+    ],
+    "agent_unsupported_requests": []
+  }
+}

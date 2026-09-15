@@ -1,0 +1,78 @@
+{
+  "capturedAt": "2026-09-15 06:31:51 UTC",
+  "railway": {
+    "deployments": [
+      {
+        "createdAt": "2026-09-14T20:38:00.717Z",
+        "environmentId": "58c06358-8cbe-497f-bec0-df3b47769a10",
+        "id": "6d488074-ae0d-4511-b2ce-338020ef5cf9",
+        "meta": {
+          "branch": "staging",
+          "commitHash": "30896acbcb2ee127131504e531f230fcfc7e4409",
+          "commitMessage": "docs(operator): close Run D and archive staging evidence scripts (#1292)",
+          "reason": "deploy"
+        },
+        "serviceId": "fb413c72-29b6-4cd1-90c2-26002491e301",
+        "snapshotId": "eef876b5-f3da-4661-accc-3a8d71e78ed0",
+        "status": "SUCCESS",
+        "updatedAt": "2026-09-14T20:40:19.381Z",
+        "url": null
+      }
+    ]
+  },
+  "vercel": {
+    "deployment": {
+      "id": "dpl_GPYZHa9yboFedrmP2MDUrsmGRFT2",
+      "name": "rep-worth",
+      "url": "rep-worth-ooxmyrie6-norbert-esekiels-projects.vercel.app",
+      "type": "LAMBDAS",
+      "state": "READY",
+      "createdAt": 1789418281824,
+      "creator": {
+        "uid": "3Vpxp0Tda70IkdZubfuxhoK9",
+        "username": "norbertesekiel-6415"
+      },
+      "project": {
+        "id": "prj_wIMnzHKefoQRdzCeMZesg2mIgNc0",
+        "name": "rep-worth",
+        "framework": "nextjs"
+      },
+      "meta": {
+        "githubCommitAuthorName": "Norbert Esekiel Sunn",
+        "githubCommitAuthorEmail": "norbertesekiel@gmail.com",
+        "githubCommitMessage": "docs(operator): close Run D and archive staging evidence scripts (#1292)",
+        "githubCommitOrg": "RepWorth",
+        "githubCommitRef": "staging",
+        "githubCommitRepo": "ai-review-responder",
+        "githubCommitSha": "30896acbcb2ee127131504e531f230fcfc7e4409",
+        "githubDeployment": "1",
+        "githubOrg": "RepWorth",
+        "githubRepo": "ai-review-responder",
+        "githubRepoOwnerType": "Organization",
+        "githubCommitRepoId": "1202359628",
+        "githubRepoId": "1202359628",
+        "githubRepoVisibility": "private",
+        "githubHost": "github.com",
+        "githubCommitAuthorLogin": "norbertesekiel47",
+        "githubCommitVerification": "verified",
+        "repoPushedAt": "1789418279000",
+        "lambdaRuntimeStats": "{\"nodejs\":3}",
+        "bundler": "turbopack"
+      },
+      "alias": [
+        "staging.repworth.net",
+        "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+      ],
+      "target": null,
+      "regions": [
+        "iad1"
+      ],
+      "buildingAt": 1789418294567,
+      "ready": 1789418357185,
+      "readyState": "READY",
+      "source": "git",
+      "aliasError": null
+    }
+  },
+  "github": "{\"id\":283402242,\"state\":\"disabled_manually\"}\n30896acbcb2ee127131504e531f230fcfc7e4409\trefs/heads/main\n30896acbcb2ee127131504e531f230fcfc7e4409\trefs/heads/staging\n"
+}

@@ -1,0 +1,248 @@
+Browser tab: 5, Title: "RepWorth", URL: "https://staging.repworth.net/dashboard/operator?conversationId=4ce54711-a9eb-4b3d-82d0-be8ddff3d574".
+1 AXWebArea RepWorth, URL: staging.repworth.net/dashboard/operator?conversationId=4ce54711-a9eb-4b3d-82d0-be8ddff3d574
+	2 link Description: Skip to main content, Value: staging.repworth.net/dashboard/operator?conversationId=4ce54711-a9eb-4b3d-82d0-be8ddff3d574#main-content
+	3 container
+		4 pop up button (collapsed) Run E Synthetic Owner Owner, ID: account-menu-trigger-_R_2b6ivb_, Secondary Actions: Expand
+		5 pop up button (expanded) Cafe, ID: location-picker-trigger-_R_kb6ivb_, Secondary Actions: Collapse
+		36 menu Cafe, ID: location-picker-menu-_R_kb6ivb_
+			37 All Locations, Value: 0
+			38 Salon, Value: 0
+			39 Cafe, Value: 1
+			40 Add location
+		6 container Main
+			7 link Description: Dashboard, Value: staging.repworth.net/dashboard
+			8 link Description: Reviews, Value: staging.repworth.net/dashboard/reviews
+			9 link Description: Operator, Value: staging.repworth.net/dashboard/operator
+			10 link Description: Requests, Value: staging.repworth.net/dashboard/requests
+			11 link Description: Analytics, Value: staging.repworth.net/dashboard/analytics
+		12 container Utility
+			13 link Description: Settings, Value: staging.repworth.net/settings
+			14 link Description: Help, Value: staging.repworth.net/help/contact
+		15 text RepWorth
+	16 container main-content
+		17 container
+			18 heading Operator, Value: 1
+				19 text Operator
+			20 text Tell RepWorth what to change. Nothing happens until you approve it.
+		21 container Operator views
+			22 checkbox Conversation, Value: 0
+			23 checkbox Rules timeline, Value: 1
+		41 container Applied changes timeline
+			42 container
+				43 heading Rules timeline, Value: 2
+					44 text Rules timeline
+				45 text Applied changes for  Cafe . Restore prepares a new proposal for you to review.
+			60 container Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default.
+				61 heading Value: 2, ID: op-proposal-4b094a8f-2b1e-491e-a20f-1fa6c614915d-_r_8_, Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default.
+					62 text Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default.
+				63 text THIS LOCATION Cafe NOW AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER THIS CHANGE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default
+				64 container
+					65 text Under this rule,  0  of your  0  reviews since  2026-08-16  would have been eligible to auto-post.  0  would have waited for you.
+				66 container
+					67 text Waiting for you:  0  below the rating threshold,  0  over the daily limit,  0  under manual approval.
+				68 container
+					69 text Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				70 container
+					71 text Reviews received  2026-08-16  to  2026-09-15 . As of  9/15/2026, 2:12:28 AM .
+				72 text Future eligible reviews. Drafts already granted a veto window keep it.
+				73 text Active rule
+				74 container
+					75 text Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+				76 text BEFORE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default
+				77 container
+					78 text Old rule:  0  of  0  eligible; new rule:  0  of  0  eligible.
+				79 container
+					80 text Reviews received  2026-08-16  to  2026-09-15 . Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				81 container
+					82 text 0  drafts keep their granted veto window.
+				83 container
+					84 text Counted as of  9/15/2026, 2:18:07 AM .
+				85 content list
+					86 text Auto-reply is not enabled yet.
+					87 text Autopilot must be available on this account before auto-reply can expand.
+				88 definition list
+					89 container CHANGE
+						90 text CHANGE
+					91 text Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default.
+					92 container LOCATION
+						93 text LOCATION
+					94 text Cafe
+					95 container APPLIED AT
+						96 text APPLIED AT
+					97 text 9/15/2026, 2:18:07 AM
+					98 container APPLIED BY
+						99 text APPLIED BY
+					100 text Run E Synthetic Owner
+					101 container YOU ASKED
+						102 text YOU ASKED
+					103 text Clear the current auto-approval override for Cafe and use the current account defaults.
+					104 container REFERENCE
+						105 text REFERENCE
+					106 text 01a0a451-eefd-71ad-8956-20ed0cd5b994
+				107 button Restore
+				108 text Prepare a change to review before applying.
+			109 container Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings.
+				110 heading Value: 2, ID: op-proposal-3a7d4587-3bcc-4d14-be74-50c8c991ce30-_r_9_, Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings.
+					111 text Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings.
+				112 text THIS LOCATION Cafe NOW AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default AFTER THIS CHANGE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule
+				113 text This creates a location rule. It stops inheriting the account default and uses all the settings shown above.
+				114 container
+					115 text Under this rule,  0  of your  0  reviews since  2026-08-16  would have been eligible to auto-post.  0  would have waited for you.
+				116 container
+					117 text Waiting for you:  0  below the rating threshold,  0  over the daily limit,  0  under manual approval.
+				118 container
+					119 text Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				120 container
+					121 text Reviews received  2026-08-16  to  2026-09-15 . As of  9/15/2026, 2:09:25 AM .
+				122 text Future eligible reviews. Drafts already granted a veto window keep it.
+				123 text Active rule
+				124 container
+					125 text Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+				126 text BEFORE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default AFTER AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule
+				127 container
+					128 text Old rule:  0  of  0  eligible; new rule:  0  of  0  eligible.
+				129 container
+					130 text Reviews received  2026-08-16  to  2026-09-15 . Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				131 container
+					132 text 0  drafts keep their granted veto window.
+				133 container
+					134 text Counted as of  9/15/2026, 2:10:24 AM .
+				135 content list
+					136 text Auto-reply is not enabled yet.
+					137 text Autopilot must be available on this account before auto-reply can expand.
+				138 definition list
+					139 container CHANGE
+						140 text CHANGE
+					141 text Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings.
+					142 container LOCATION
+						143 text LOCATION
+					144 text Cafe
+					145 container APPLIED AT
+						146 text APPLIED AT
+					147 text 9/15/2026, 2:10:24 AM
+					148 container APPLIED BY
+						149 text APPLIED BY
+					150 text Run E Synthetic Owner
+					151 container YOU ASKED
+						152 text YOU ASKED
+					153 text Clear the current auto-approval override for Cafe and use the current account defaults.
+					154 container REFERENCE
+						155 text REFERENCE
+					156 text 01a0a451-eefd-71ad-8956-20ed0cd5b994
+				157 button Restore
+				158 text Prepare a change to review before applying.
+			159 container Use the account default for auto-reply
+				160 heading Use the account default for auto-reply, Value: 2, ID: op-proposal-01a0a452-0a5e-7399-a197-29cff0698783-_r_a_
+					161 text Use the account default for auto-reply
+				162 text THIS LOCATION Cafe NOW AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER THIS CHANGE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default
+				163 container
+					164 text Under this rule,  0  of your  0  reviews since  2026-08-16  would have been eligible to auto-post.  0  would have waited for you.
+				165 container
+					166 text Waiting for you:  0  below the rating threshold,  0  over the daily limit,  0  under manual approval.
+				167 container
+					168 text Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				169 container
+					170 text Reviews received  2026-08-16  to  2026-09-15 . As of  9/15/2026, 2:07:15 AM .
+				171 text Future eligible reviews. Drafts already granted a veto window keep it.
+				172 text Active rule
+				173 container
+					174 text Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+				175 text BEFORE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Inherits account default
+				176 container
+					177 text Old rule:  0  of  0  eligible; new rule:  0  of  0  eligible.
+				178 container
+					179 text Reviews received  2026-08-16  to  2026-09-15 . Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				180 container
+					181 text 0  drafts keep their granted veto window.
+				182 container
+					183 text Counted as of  9/15/2026, 2:07:58 AM .
+				184 content list
+					185 text Auto-reply is not enabled yet.
+					186 text Autopilot must be available on this account before auto-reply can expand.
+				187 definition list
+					188 container CHANGE
+						189 text CHANGE
+					190 text This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After this change: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location now uses the account default.
+					191 container LOCATION
+						192 text LOCATION
+					193 text Cafe
+					194 container APPLIED AT
+						195 text APPLIED AT
+					196 text 9/15/2026, 2:07:59 AM
+					197 container APPLIED BY
+						198 text APPLIED BY
+					199 text Run E Synthetic Owner
+					200 container YOU ASKED
+						201 text YOU ASKED
+					202 text Clear the current auto-approval override for Cafe and use the current account defaults.
+					203 container REFERENCE
+						204 text REFERENCE
+					205 text 01a0a451-eefd-71ad-8956-20ed0cd5b994
+				206 button Restore
+				207 text Prepare a change to review before applying.
+			208 container Use the account default for auto-reply
+				209 heading Use the account default for auto-reply, Value: 2, ID: op-proposal-01a0a448-58b8-724e-b57c-5575f99bce29-_r_b_
+					210 text Use the account default for auto-reply
+				211 text THIS LOCATION Cafe NOW AUTO-REPLY 5 star reviews TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER THIS CHANGE AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 15 minutes DAILY LIMIT Platform default (10 per day) RULE SOURCE Inherits account default
+				212 container
+					213 text Under this rule,  0  of your  0  reviews since  2026-08-16  would have been eligible to auto-post.  0  would have waited for you.
+				214 container
+					215 text Waiting for you:  0  below the rating threshold,  0  over the daily limit,  0  under manual approval.
+				216 container
+					217 text Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				218 container
+					219 text Reviews received  2026-08-16  to  2026-09-15 . As of  9/15/2026, 1:56:39 AM .
+				220 text Future eligible reviews. Drafts already granted a veto window keep it.
+				221 text Active rule
+				222 container
+					223 text Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+				224 text BEFORE AUTO-REPLY 5 star reviews TIME TO STOP A REPLY 30 minutes DAILY LIMIT 2 per day RULE SOURCE Location rule AFTER AUTO-REPLY Off — you approve every reply TIME TO STOP A REPLY 15 minutes DAILY LIMIT Platform default (10 per day) RULE SOURCE Inherits account default
+				225 container
+					226 text Old rule:  0  of  0  eligible; new rule:  0  of  0  eligible.
+				227 container
+					228 text Reviews received  2026-08-16  to  2026-09-15 . Excluded  0  imported reviews and  0  reviews whose origin is unknown.
+				229 container
+					230 text 0  drafts keep their granted veto window.
+				231 container
+					232 text Counted as of  9/15/2026, 1:57:00 AM .
+				233 content list
+					234 text Auto-reply is not enabled yet.
+					235 text Autopilot must be available on this account before auto-reply can expand.
+				236 definition list
+					237 container CHANGE
+						238 text CHANGE
+					239 text This location now: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. After this change: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). This location now uses the account default.
+					240 container LOCATION
+						241 text LOCATION
+					242 text Cafe
+					243 container APPLIED AT
+						244 text APPLIED AT
+					245 text 9/15/2026, 1:57:00 AM
+					246 container APPLIED BY
+						247 text APPLIED BY
+					248 text Run E Synthetic Owner
+					249 container YOU ASKED
+						250 text YOU ASKED
+					251 text Clear the location auto-approval override for Cafe so it inherits the account defaults.
+					252 container REFERENCE
+						253 text REFERENCE
+					254 text 01a0a448-41da-71cb-98f0-9c850ada3f95
+				255 button Restore
+				256 text Prepare a change to review before applying.
+			257 button Refresh timeline
+		35 container Summary
+			47 text GOOGLE
+			48 container
+				49 text Cafe  is not connected to Google, so nothing can be posted yet.
+			50 link Description: Connect Google Business, Value: staging.repworth.net/dashboard/connect?locationId=019f43e0-0000-7000-8000-000000000012
+			51 container Waiting for you
+				52 text WAITING FOR YOU 0 drafts waiting at  Cafe , of  0  across every location As of 
+				53 text 2:19:05 AM
+			54 container Recently completed
+				55 text RECENTLY COMPLETED 0 replies posted in the last  7  days As of 
+				56 text 2:19:05 AM
+			57 container Current operating rules
+				58 text CURRENT OPERATING RULES Auto-posting is off — you approve every reply. You get  30  minutes to stop a reply, up to  2  a day. These come from the account default. Replies are written formal and factual. 0 things to mention, 0 to avoid. As of 
+				59 text 2:19:05 AM
+
+The focused UI element is 39 Cafe, Value: 1

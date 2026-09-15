@@ -1,0 +1,732 @@
+{
+  "schema": 1,
+  "status": "independent-cumulative-causal-review-after-root-finalization",
+  "head": "ba0c65bb3a3665ed10a6441d27917802819ad4c1",
+  "scope": "Read-only cumulative review of recorded launches777-802; 13 pairs across12 identities. Original review and all measurement evidence preserved. No tests or worktree edits executed by reviewer.",
+  "plan": "/private/tmp/run-e-staging-executable-plan.json",
+  "planSha256": "98e880f1d0092724b3317ea7c12ad5ca5b0e074800da9bacae40014d1f8fdb80",
+  "state": "/private/tmp/run-e-finalized-802/measurements.json",
+  "stateSha256AtRead": "f7f2877be84dad1655ea0d243fac8e4efb8226916608f5a401bf8556e65e934c",
+  "stateStoppedAtRead": null,
+  "controller": "/private/tmp/run-e-round2-staging-controller.mjs",
+  "controllerSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+  "controllerByteIdenticalToCommittedSource": true,
+  "counts": {
+    "pairs": 13,
+    "launches": 26,
+    "uniqueIdentities": 12,
+    "baselinePassed": 13,
+    "mutantFailed": 12,
+    "mutantPassed": 1,
+    "assertionKills": 12,
+    "targetSelectionMisses": 1
+  },
+  "records": [
+    {
+      "number": 389,
+      "identity": "src/lib/agents/operator/__tests__/render.test.ts:staging:73",
+      "attempt": 1,
+      "sourceTestFileSha256": "ce3ab42342a7bff6fd558a0da0a9b517844dc7e6893842adfc8c47af93a5737c",
+      "sourceCaseSha256": "422c416235437f1b7ad7ff52da721c6778e70e5d357a3435bda37ffeca213a42",
+      "sourceSha256": "3714e050f0e8d87270fa5648a997ecf54953876dc95e90d0410e6df275406827",
+      "mutation": {
+        "file": "src/lib/agents/operator/render.ts",
+        "from": "['a text segment claims a completion;', 'completion_claim'],",
+        "to": "['a text segment claims a completion;', 'invented_count'],",
+        "reason": "Misclassifies an actual completion rejection as an invented count; the real-validator closed-code array assertion changes."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/389.mutant-source",
+      "mutantSha256": "8b919f7a81b926690e8e9889b4f3cfa06ce06c3519399dede95aa52835d2552c",
+      "evidence": {
+        "baseline": {
+          "launch": 777,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/389.baseline.json",
+          "reportSha256": "0567124f01fa3b81ac06d99a86b4d971a8941edef2d03c8d45750638ef3a58a1",
+          "log": "/private/tmp/run-e-round2-measure/389.baseline.log",
+          "logSha256": "d5dbf7117b8922371eec7e296a716caca3ac9e094f51bbcc9af07d9401b56d99",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 778,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/389.mutant.json",
+          "reportSha256": "5396a0838fa6e5ca8571f2a90a4765564763309c662f9fbf0a8dc749b9fe6500",
+          "log": "/private/tmp/run-e-round2-measure/389.mutant.log",
+          "logSha256": "ea18fbeec76a5d17f61e04995615bb1d1f440bef58d99ff195db8213935da3ee",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected [ 'invented_count', \u2026(2) ] to deeply equal [ 'completion_claim', \u2026(2) ]\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/render.test.ts:83:52\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Fixed completion classification is changed to invented_count; the exact ordered closed-code equality fails.",
+      "assertionSource": "src/lib/agents/operator/__tests__/render.test.ts:83",
+      "qualification": "The failure is the classification equality, not a later logging assertion."
+    },
+    {
+      "number": 390,
+      "identity": "src/lib/agents/operator/__tests__/render.test.ts:staging:88",
+      "attempt": 1,
+      "sourceTestFileSha256": "ce3ab42342a7bff6fd558a0da0a9b517844dc7e6893842adfc8c47af93a5737c",
+      "sourceCaseSha256": "d7de080648dbaf1223e4d26d57e9a9069cdd59be59d1e201d21dffed92a5dae9",
+      "sourceSha256": "3714e050f0e8d87270fa5648a997ecf54953876dc95e90d0410e6df275406827",
+      "mutation": {
+        "file": "src/lib/agents/operator/render.ts",
+        "from": "?? 'unknown_semantic_rejection'",
+        "to": "?? (reason as SemanticRejectionCode)",
+        "reason": "Returns unknown raw model-controlled text instead of the fixed fallback code; the private sentinel/unknown-code assertions detect leakage."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/390.mutant-source",
+      "mutantSha256": "d4ff4855d3044c56b7170211c9d6aea35f336ff2b4cd757f645813e5835300f9",
+      "evidence": {
+        "baseline": {
+          "launch": 779,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/390.baseline.json",
+          "reportSha256": "610cd69b296f543773a67073f441a1ae996d2b05d90441d7e01ebfaaea082ab4",
+          "log": "/private/tmp/run-e-round2-measure/390.baseline.log",
+          "logSha256": "2500acb32517afca2a2134923f43361491f4c26b0d1bb144e4f2e497156a0304",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 780,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/390.mutant.json",
+          "reportSha256": "262f5bd7b38cd918bd46d28faf1e51ff957767356cbc7e5714c04a4b1793be48",
+          "log": "/private/tmp/run-e-round2-measure/390.mutant.log",
+          "logSha256": "8eace9056f526eedab7c2576a4e418480612bfe53d315dc885e3ed060dc656f4",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected [ 'unknown_status_metric', \u2026(6) ] to deeply equal [ 'unknown_status_metric', \u2026(6) ]\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/render.test.ts:99:19\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "The fallback echoes the supplied reason instead of unknown_semantic_rejection; the expected closed-code array differs, including the synthetic private reason and __proto__ inputs.",
+      "assertionSource": "src/lib/agents/operator/__tests__/render.test.ts:99",
+      "qualification": "Equality fails before the later not-to-contain assertions. The inspected test uses synthetic strings."
+    },
+    {
+      "number": 391,
+      "identity": "src/lib/agents/operator/__tests__/model-call.test.ts:staging:102",
+      "attempt": 1,
+      "sourceTestFileSha256": "b7e567549f7e381b1dae344b4b31c82fa7603f9c455c1046db8e2bddc3bebe6a",
+      "sourceCaseSha256": "49165c7dbc6d7eab5f354be13ee42756250e7a7305fad87fef9d86f2f9b95c13",
+      "sourceSha256": "2809cc81957d02a16d79dce4efb073d7f331df814f9192d99129e4ae32b759de",
+      "mutation": {
+        "file": "src/lib/agents/operator/model-call.ts",
+        "from": "rejection_codes: semanticRejectionCodes(validated.reasons).join(','),",
+        "to": "rejection_codes: semanticRejectionCodes(validated.reasons),",
+        "reason": "Reintroduces the reviewed array serialization defect: the real logger sanitizer drops the array, and emitted JSON lacks the asserted scalar codes."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/391.mutant-source",
+      "mutantSha256": "2c1a94ea25b0c531b4f5850e0582e841ed9db07a43f0dd701fdf317caff0e4d2",
+      "evidence": {
+        "baseline": {
+          "launch": 781,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/391.baseline.json",
+          "reportSha256": "241b796e6f9ef1b7e47dd9b022faef579d9a44aa7f16c565469e134c72b8e2ef",
+          "log": "/private/tmp/run-e-round2-measure/391.baseline.log",
+          "logSha256": "8e84a1bbcf1fa79c6a6141cc72cca4cdbdcaa6c75120bd247f7d37cc20972cdb",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 782,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/391.mutant.json",
+          "reportSha256": "f2981b7983027c3b065bcd3f1bf8508bd246ee00889b5f607c869e179185f88d",
+          "log": "/private/tmp/run-e-round2-measure/391.mutant.log",
+          "logSha256": "aaf1f12d61639b51aa5758f5c7736c767096b280fb0be0defead8c9854af3830",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected [ { \u2026(6) }, { \u2026(6) } ] to deeply equal [ ObjectContaining{\u2026}, \u2026(1) ]\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/model-call.test.ts:116:71\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Removing join converts warning codes from the accepted scalar to an array; the real logger sanitizer drops that array, so parsed emitted warnings lack the required codes.",
+      "assertionSource": "src/lib/agents/operator/__tests__/model-call.test.ts:116",
+      "qualification": "This is a real serialization assertion, not a mock-only warning call assertion."
+    },
+    {
+      "number": 392,
+      "identity": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133",
+      "attempt": 1,
+      "sourceTestFileSha256": "97bbb248b73ddc425d62bcc9673562eb7c05c9b9d46fcb1d73a2ccc6a7153041",
+      "sourceCaseSha256": "3c6df3dc46bb1899ec7e491411475849dc9fed6694cc77bb86cdc28b306494e2",
+      "sourceSha256": "2809cc81957d02a16d79dce4efb073d7f331df814f9192d99129e4ae32b759de",
+      "mutation": {
+        "file": "src/lib/agents/operator/model-call.ts",
+        "from": "rejection_codes: semanticRejectionCodes(validated.reasons).join(','),",
+        "to": "rejection_codes: (attempt += 1, semanticRejectionCodes(validated.reasons).join(',')),",
+        "reason": "Makes the newly added diagnostic expression consume a retry number. The real worker fixture then calls the model once instead of the asserted twice; diagnostic computation must preserve retry/billing behavior."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/392.mutant-source",
+      "mutantSha256": "e3d59468dd22aa02d56e031647e6f44b1e7a40a28175b74d4a64b9e8b89a672b",
+      "evidence": {
+        "baseline": {
+          "launch": 783,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/392.baseline.json",
+          "reportSha256": "983a1f18d83647eaae4bc65f1f437ca7ef5cc988f9ddcdc7aeeeec3d9dd502f8",
+          "log": "/private/tmp/run-e-round2-measure/392.baseline.log",
+          "logSha256": "69257412058c095e220af372997f71a1e5e2c1afd0ffdbb3b97fd03e9db76212",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 784,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/392.mutant.json",
+          "reportSha256": "8912393b87b1d1a33f00e9d4a3abbf3493d6cbc8234963966400d6f1aa895365",
+          "log": "/private/tmp/run-e-round2-measure/392.mutant.log",
+          "logSha256": "7bd16940e45cc2e783a484f0a36674b0590822093a8e8f2bfc6d9390bd66ed0d",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected \"vi.fn()\" to be called 2 times, but got 1 times\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1149:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Incrementing the retry counter inside diagnostic formatting consumes the remaining attempt; the mock model is called once instead of the explicitly required two times.",
+      "assertionSource": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1149",
+      "qualification": "The database baseline passed and the failure is the retry count assertion, with the provider mocked."
+    },
+    {
+      "number": 393,
+      "identity": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1047",
+      "attempt": 1,
+      "sourceTestFileSha256": "580dbb10cd60dd3cdd415a5cf8c7b334ec6bb357dc1f32fb0903049abed94651",
+      "sourceCaseSha256": "84de97c371e5e002c60c082d1b9ed5995c0a534a2b3745c66fe22b902091953d",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "journal.stagingCorrectionAdmission = authorization.stagingCorrectionAdmission;",
+        "to": "void authorization.stagingCorrectionAdmission;",
+        "reason": "Omits the new durable pin before child release; the child-observed journal has no staging pin."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/393.mutant-source",
+      "mutantSha256": "5a35859c723f6c6483ce9686979738b1daca1414ce6a46e6e010ade47cd35c92",
+      "evidence": {
+        "baseline": {
+          "launch": 785,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/393.baseline.json",
+          "reportSha256": "4aac12ff7a3e27f88bbf8f15ba7a2d6d56ce037a3af58c2ed8e6e4521ce88e58",
+          "log": "/private/tmp/run-e-round2-measure/393.baseline.log",
+          "logSha256": "0b93f43881a03df99c4bab400c6d28c66f3cb48f7f98bf83961afabda88e99b2",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 786,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/393.mutant.json",
+          "reportSha256": "8fc0be4d4ef2abc95691014ab8fd65b91ca77599d87c81961b76b7651fa75b5a",
+          "log": "/private/tmp/run-e-round2-measure/393.mutant.log",
+          "logSha256": "edceb29db964e2524c6a30c8a216db9fd39e6325fb1a414ce33449fc428ee271",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected undefined to deeply equal { \u2026(4) }\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1057:55\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Omitting assignment of stagingCorrectionAdmission leaves the child-observed journal pin undefined; the public child-observer pin equality fails.",
+      "assertionSource": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1057",
+      "qualification": "This proves the first pin must be persisted before child execution."
+    },
+    {
+      "number": 394,
+      "identity": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1067",
+      "attempt": 1,
+      "sourceTestFileSha256": "580dbb10cd60dd3cdd415a5cf8c7b334ec6bb357dc1f32fb0903049abed94651",
+      "sourceCaseSha256": "bb7a33c218ca46a7891294c0288ebc97f72080f0bd52f3f125bef786fd4c1b6e",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "if (journal.stagingCorrectionAdmission === undefined) {\n      if (!allowUnpinned || journal.runs !== checkpoint.runs\n        || Object.keys(journal).sort().join(',') !== keys\n        || JSON.stringify(journal) !== JSON.stringify(checkpoint)\n        || git(root, ['diff', '--name-only', 'HEAD'])\n        || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;",
+        "to": "if (journal.stagingCorrectionAdmission === undefined) {\n      if (!allowUnpinned || journal.runs !== checkpoint.runs\n        || Object.keys(journal).sort().join(',') !== keys) return null;",
+        "reason": "Drops exact first-checkpoint and clean-tree conditions while retaining ordinary round/shape admission. A matching journaled mutant can become the first baseline; the public refusal witness observes an executed child."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/394.mutant-source",
+      "mutantSha256": "017a5dd2185dbec1c1a6e245fe7cb2ab9548b272f16dd64939ee29fec9702600",
+      "evidence": {
+        "baseline": {
+          "launch": 787,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/394.baseline.json",
+          "reportSha256": "ade6d39c01440b1b80f1a7f9a34781682358011f92cc317611add3bd6639d741",
+          "log": "/private/tmp/run-e-round2-measure/394.baseline.log",
+          "logSha256": "05f21c966462c1d291de6328c8419e202a2c5307df55181c6350788d9a4deec6",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 788,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/394.mutant.json",
+          "reportSha256": "a59a95b0cb930b0ee9a3660b57a8aa371635415217a5d716bfde3aa023fc34b5",
+          "log": "/private/tmp/run-e-round2-measure/394.mutant.log",
+          "logSha256": "596244b6cc92602bd9e265b111892574f37a56f99afcac9d5242bd74c81853a7",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: journaled dirty first staging baseline: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1071:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Removing exact first-checkpoint and clean-tree checks admits the journaled dirty first staging baseline; the selected refusal helper observes child exit zero instead of one.",
+      "assertionSource": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1071",
+      "qualification": "Actual failing variant is journaled dirty first staging baseline; helper assertion is line970."
+    },
+    {
+      "number": 395,
+      "identity": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1089",
+      "attempt": 1,
+      "sourceTestFileSha256": "580dbb10cd60dd3cdd415a5cf8c7b334ec6bb357dc1f32fb0903049abed94651",
+      "sourceCaseSha256": "efe13937c969ff40bfac8438d6cdfcfd40f31bb7baa9a54d7e6f81aaf00c6134",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "for (const [path, blob] of blobs) {\n      if (git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\\t${path}`) return null;",
+        "to": "for (const [path, blob] of blobs) {\n      if (false && git(root, ['ls-tree', headSha, '--', path]) !== `100644 blob ${blob}\\t${path}`) return null;",
+        "reason": "Disables the exact diagnostic blob comparison. The first altered-content variant still has approved ancestry/path but now executes a child."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/395.mutant-source",
+      "mutantSha256": "f62b77dfe4f30fb69c6da4ddeff2476b6ff17a212911190d394b3d209c6cdbc0",
+      "evidence": {
+        "baseline": {
+          "launch": 789,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/395.baseline.json",
+          "reportSha256": "12c702346de1b0c1ad85c0c5d55711a074a06b2241235f2cbe94e69b6fcc1360",
+          "log": "/private/tmp/run-e-round2-measure/395.baseline.log",
+          "logSha256": "6aee24d3061a1057ce6087c0fae5537af9052a8665ad089d344a84cdc54c39f7",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 790,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/395.mutant.json",
+          "reportSha256": "a8eb99c460e34c344fcab7c20beac4571cc0faee98016cd7cf2ef73f852e5d93",
+          "log": "/private/tmp/run-e-round2-measure/395.mutant.log",
+          "logSha256": "0456f48dd7a5f6f9988ca65c6661ecb2b675b2d7313fbb65c04fbebbcb3b0d46",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: staging evidence 0: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1099:13\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Disabling exact diagnostic blob equality admits the first altered diagnostic-content fixture; its explicit refusal assertion receives exit zero.",
+      "assertionSource": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1099",
+      "qualification": "Actual failing variant is staging evidence 0, not all later variants; helper assertion is line970."
+    },
+    {
+      "number": 396,
+      "identity": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1105",
+      "attempt": 1,
+      "sourceTestFileSha256": "580dbb10cd60dd3cdd415a5cf8c7b334ec6bb357dc1f32fb0903049abed94651",
+      "sourceCaseSha256": "15588fdb9f702c4d1a9101894dad31fa75c52b854f70a7d50a32f09d9ad05ae6",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "|| ['budgetAuthorization', 'continuationAdmission', 'correctiveAdmission']\n        .some((key) => JSON.stringify(journal[key]) !== JSON.stringify(checkpoint[key]))",
+        "to": "|| ['budgetAuthorization', 'continuationAdmission']\n        .some((key) => JSON.stringify(journal[key]) !== JSON.stringify(checkpoint[key]))",
+        "reason": "Stops preserving the live correctiveAdmission pin. The explicit changed-corrective-firstRun witness becomes accepted while the frozen historical proof itself stays valid."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/396.mutant-source",
+      "mutantSha256": "8a2045da7a4978231fba5c5ee3475e6d6b0f6592c9fefbb045cf74e437d7e0d4",
+      "evidence": {
+        "baseline": {
+          "launch": 791,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/396.baseline.json",
+          "reportSha256": "daf0e7e5aa8ac016a477d4468ef435a5ac4c2c770a6f81b6d94573509456dcdd",
+          "log": "/private/tmp/run-e-round2-measure/396.baseline.log",
+          "logSha256": "6f44ebccb48418acaa5e8879d8a5eb756bb5d75fbb051a78a4be6d5e6762e4f1",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 792,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/396.mutant.json",
+          "reportSha256": "27edbfb2ba297cc9d0853fa2443e5c250f4d9e5cfa7a3045b51d7a9a98dee436",
+          "log": "/private/tmp/run-e-round2-measure/396.mutant.log",
+          "logSha256": "de9f9f5a7c6f65585df1e87ac12eafed3699cd604a544f82b4270a6f5ac0e95f",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: corrective pin changed: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1124:13\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Omitting correctiveAdmission from preserved live pins admits the changed corrective pin fixture; the refusal status assertion receives zero.",
+      "assertionSource": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1124",
+      "qualification": "Actual failing variant is corrective pin changed; helper assertion is line970."
+    },
+    {
+      "number": 397,
+      "identity": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:staging:1136",
+      "attempt": 1,
+      "sourceTestFileSha256": "580dbb10cd60dd3cdd415a5cf8c7b334ec6bb357dc1f32fb0903049abed94651",
+      "sourceCaseSha256": "e3003f77ed3d91149d50675bab7dfbf8dbb9888feb89afe506aa1e9316fe6da2",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "|| JSON.stringify(journal.stagingCorrectionAdmission) !== JSON.stringify(stagingCorrectionAdmission)",
+        "to": "|| false",
+        "reason": "Disables exact staging-pin equality. The final within-cap second-candidate witness executes, even though earlier cap/third-round checks still reject their inputs."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/397.mutant-source",
+      "mutantSha256": "c19d23bb26a9a08fbee48f491dc68474f5edd2e0006320d60d922cbeb5d95b7e",
+      "evidence": {
+        "baseline": {
+          "launch": 793,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/397.baseline.json",
+          "reportSha256": "da546f0eab59ed5e27193014d9be409237da9522e99666c5001369ba0795bc4c",
+          "log": "/private/tmp/run-e-round2-measure/397.baseline.log",
+          "logSha256": "0050efe492a2d208a925e42d18157dd3bfd262c3ac045a170e1784c2150bbae7",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 794,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/397.mutant.json",
+          "reportSha256": "2d6a683897b9b29133be9950c7b276c98f0e2e3ce7a133183faada3e2919d65c",
+          "log": "/private/tmp/run-e-round2-measure/397.mutant.log",
+          "logSha256": "3d0b485b3647a8de7ed39cc1e1b296cff804193818346ab6039d8417a757df9f",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: second staging candidate: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRefused (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:970:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-mutation-runner.test.ts:1161:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Removing staging pin equality admits the final later candidate below the cap; the public refusal status assertion receives zero.",
+      "assertionSource": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1161",
+      "qualification": "This is the second staging candidate boundary, not the preceding launch1600/1601 checks. The same mutation survived record400 under a different fixture path."
+    },
+    {
+      "number": 398,
+      "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:887",
+      "attempt": 1,
+      "sourceTestFileSha256": "cbe6826158dc3507b66f13c00856a69970bca7fd8d9b01954d7513916ba3efa4",
+      "sourceCaseSha256": "94e08bddac68146fb56af467da53e6d5f34df9747a2c3a0af8fedad1097fad78",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "} else if (journal.runs <= checkpoint.runs\n      || Object.keys(journal).sort().join(',') !== keys.replace('supervisors,', 'stagingCorrectionAdmission,supervisors,')",
+        "to": "} else if (journal.runs <= checkpoint.runs + 1\n      || Object.keys(journal).sort().join(',') !== keys.replace('supervisors,', 'stagingCorrectionAdmission,supervisors,')",
+        "reason": "Off-by-one proof rejects the first legitimately pinned added launch; the positive public checker expects successful certification."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/398.mutant-source",
+      "mutantSha256": "aa9e33ed8317f0ce890a41e34412aa2eabe6a5c459bd1c73ea449aa94b684d5a",
+      "evidence": {
+        "baseline": {
+          "launch": 795,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/398.baseline.json",
+          "reportSha256": "f1c0ca6c0c301361c81ea85278078e016d5f7b71e02ba6084c33574e75f090d5",
+          "log": "/private/tmp/run-e-round2-measure/398.baseline.log",
+          "logSha256": "a75c8ae8d95e41e2e670720d67112ed05934d9214a5e3217b45fa485bbbf1fc5",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 796,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/398.mutant.json",
+          "reportSha256": "ec535f9db026f02af4d00dbc36d34af3c26b760d02f67553edd0188f95134be6",
+          "log": "/private/tmp/run-e-round2-measure/398.mutant.log",
+          "logSha256": "667d9c1c4d6e032c3f9a1b9f5abaaab9b59e4731548ae0dd1266124c752a214f",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: expected { status: 1, stdout: '', \u2026(1) } to match object { status: +0, stderr: '' }\n(1 matching property omitted from actual)\n    at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1283:10)\n    at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/chai@6.2.2/node_modules/chai/index.js:1700:25)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:892:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Changing the pinned lower-bound check to checkpoint plus one rejects the first valid staged report; the positive certification assertion expects exit zero and empty stderr but receives exit one.",
+      "assertionSource": "scripts/ci/__tests__/red-team-status.test.ts:892",
+      "qualification": "This is false rejection of valid certification, not evidence that a cap attack was admitted."
+    },
+    {
+      "number": 399,
+      "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:911",
+      "attempt": 1,
+      "sourceTestFileSha256": "cbe6826158dc3507b66f13c00856a69970bca7fd8d9b01954d7513916ba3efa4",
+      "sourceCaseSha256": "ff36ee755f63dbc8f907e708b649cef9341071d00fa534d4d18d344214b7cb80",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "const proof = validateRunECorrectiveAdmission(root, checkpoint, RUN_E_STAGING_PREDECESSOR);\n    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2\n      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600\n      || !Array.isArray(journal.supervisors) || journal.supervisors.length !== journal.runs",
+        "to": "const proof = validateRunECorrectiveAdmission(root, checkpoint, RUN_E_STAGING_PREDECESSOR);\n    if (!proof || journal?.version !== checkpoint.version || journal.round !== 2\n      || !Number.isInteger(journal.runs) || journal.runs < checkpoint.runs || journal.runs > 1600\n      || !Array.isArray(journal.supervisors) || false",
+        "reason": "Removes only the new live supervisor-count check. The counter-without-supervisor witness preserves all frozen prefixes and pins, so public certification incorrectly succeeds."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/399.mutant-source",
+      "mutantSha256": "23f7c375df64cd490615690f4c5d2a94bc52800efc6b480592c30f207fe4c92f",
+      "evidence": {
+        "baseline": {
+          "launch": 797,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/399.baseline.json",
+          "reportSha256": "01496723b6de7f37ec2a8da094d61e629ff21061a4e904a9d1ade754798fa80f",
+          "log": "/private/tmp/run-e-round2-measure/399.baseline.log",
+          "logSha256": "3895a76a0872bfb0de9f444a5b4a3dc24a3bdd034fe26c17edc3226b1825a30e",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 798,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/399.mutant.json",
+          "reportSha256": "b7b0ac87e7df7cf2806afd459dff7b5baf4dad739d3d8e94620fec2d7dfe6930",
+          "log": "/private/tmp/run-e-round2-measure/399.mutant.log",
+          "logSha256": "61a964defa3fc04907f1d14154017a9319de80812c385733d1825fc59dac663c",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: counter lacks supervisor: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRejected (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:797:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:926:13\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "Removing the supervisor-count equality lets the counter-lacks-supervisor fixture certify successfully; the explicit refusal status assertion receives zero.",
+      "assertionSource": "scripts/ci/__tests__/red-team-status.test.ts:926",
+      "qualification": "Actual failure is counter lacks supervisor; helper assertion is line797."
+    },
+    {
+      "number": 400,
+      "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:955",
+      "attempt": 1,
+      "sourceTestFileSha256": "cbe6826158dc3507b66f13c00856a69970bca7fd8d9b01954d7513916ba3efa4",
+      "sourceCaseSha256": "69f9fcaf8c32152274848af3837639a6e47df0ea5bca76d3d67d59f64a55a7ef",
+      "sourceSha256": "8b3885f0e0100fb51cbfd4addd4f0afd5a5674fc00dca71351aefbe4b2318b7c",
+      "mutation": {
+        "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+        "from": "|| JSON.stringify(journal.stagingCorrectionAdmission) !== JSON.stringify(stagingCorrectionAdmission)",
+        "to": "|| false",
+        "reason": "The final later-report-head witness shows certification cannot move the staging pin. Removing equality wrongly certifies that later candidate; this independently tests the checker interface, not only the runner."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/400.mutant-source",
+      "mutantSha256": "c19d23bb26a9a08fbee48f491dc68474f5edd2e0006320d60d922cbeb5d95b7e",
+      "evidence": {
+        "baseline": {
+          "launch": 799,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/400.baseline.json",
+          "reportSha256": "05218c53e878a55cea5d2271c9b5bd129df12854afdcc44261ba43b43322b861",
+          "log": "/private/tmp/run-e-round2-measure/400.baseline.log",
+          "logSha256": "a8061f6b266d80f87047f59c964aeb66327ab86bcda34592d6b2e8f039a77195",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 800,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/400.mutant.json",
+          "reportSha256": "a0853c2af1afd496b4cef328e11075a2ef2809fa35cac810bf1b3cf3d65af09d",
+          "log": "/private/tmp/run-e-round2-measure/400.mutant.log",
+          "logSha256": "8d1e32d753b6ed94f39f39d2f9ac5adccd622ac998fb869a7f5fe11c172a05bf",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        }
+      },
+      "classification": "inconclusive-target-selection",
+      "classificationStatus": "provisional independent review; root adjudication required",
+      "causalProof": "The later-head checker witness includes the post-admission report publication commit. The candidate changed-path allowlist rejects those report artifact paths before the mutated staging pin equality. Missing-report and downgraded-round legs also reject independently of that equality.",
+      "sourceProof": [
+        "scripts/ci/__tests__/red-team-status.test.ts:875-882 binds the report to the support head, then commits final JSON and Markdown as a separate publication.",
+        "scripts/ci/__tests__/red-team-status.test.ts:975-980 commits the later document change after that publication and sets report.head_sha to this later commit.",
+        ".agents/skills/red-team/scripts/mutation-runner.mjs:559-561 computes publication-to-supplied-head changed paths and rejects paths outside support paths and exact diagnostic blobs. The final report JSON and Markdown are not allowed candidate paths.",
+        ".agents/skills/red-team/scripts/mutation-runner.mjs:608 is the later staging pin equality removed by this mutant; the changed-path rejection prevents this witness reaching it.",
+        "Record397 uses the same equality deletion and fails the actual later-candidate public runner refusal assertion. The mutation is not globally equivalent."
+      ],
+      "disposition": "Preserve baseline PASS and mutant PASS unchanged; one attempt consumed. The original plan rationale wrongly predicted certification of this checker fixture. This review does not establish a new product defect or global equivalence."
+    },
+    {
+      "number": 401,
+      "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:955",
+      "attempt": 2,
+      "sourceTestFileSha256": "cbe6826158dc3507b66f13c00856a69970bca7fd8d9b01954d7513916ba3efa4",
+      "sourceCaseSha256": "69f9fcaf8c32152274848af3837639a6e47df0ea5bca76d3d67d59f64a55a7ef",
+      "sourceSha256": "83f290e23fa6eb70e6ba4178fbbd2e5975cc095b49f9b1ea467b5984ed51723b",
+      "mutation": {
+        "file": ".agents/skills/feature/scripts/red-team-status.mjs",
+        "from": "fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);",
+        "to": "process.exit(0);",
+        "reason": "Turn the exact mandatory missing-report denial into false process success. This case explicitly removes the report and strips the journal before requiring denial; it directly tests the existing missing-report contract."
+      },
+      "mutantSource": "/private/tmp/run-e-round2-measure/401.mutant-source",
+      "mutantSha256": "17f97d1dd18ef051e04b355cfa41d22b1a91287f083313702757cfc4afff1ff1",
+      "evidence": {
+        "baseline": {
+          "launch": 801,
+          "status": "passed",
+          "exit": 0,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/401.baseline.json",
+          "reportSha256": "984ead7dd306dd9cde1eb9a978b34a0c41797985e424b843af9a62920920efb8",
+          "log": "/private/tmp/run-e-round2-measure/401.baseline.log",
+          "logSha256": "eddc90e760d27efef07978943af3ab4559b10b8511f655c5aed317fe34b29b0f",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": ""
+        },
+        "mutant": {
+          "launch": 802,
+          "status": "failed",
+          "exit": 1,
+          "exactlyOneExecutedCase": true,
+          "report": "/private/tmp/run-e-round2-measure/401.mutant.json",
+          "reportSha256": "8594af81e622c33fa058edb2563e95d100bebb97e362ac99604c7da535e259f0",
+          "log": "/private/tmp/run-e-round2-measure/401.mutant.log",
+          "logSha256": "34c264b53ff45c32f4afec2621fc11ca575d081a798819a3723960c665022a07",
+          "supervisorSignal": "none",
+          "groupReaped": true,
+          "failure": "AssertionError: missing report cannot use a low-risk or stripped-journal fallback: expected +0 to be 1 // Object.is equality\n    at expectCorrectiveRejected (/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:797:38)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/scripts/ci/__tests__/red-team-status.test.ts:962:13\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        }
+      },
+      "classification": "killed-assertion",
+      "classificationStatus": "independently confirmed after root-finalized802 evidence",
+      "causalProof": "The first missing-report witness removes the report and strips the journal to round1/runs0. The mutated mandatory denial branch exits successfully; the public refusal helper explicitly requires exit1 and fails on actual0. This is the intended missing-report contract assertion.",
+      "assertionSource": "scripts/ci/__tests__/red-team-status.test.ts:962; helper797",
+      "qualification": "The failure occurs on the first missing-report witness, before renamed-branch, downgraded-report and later-candidate legs. It does not convert record400 into a kill or prove its later-candidate fixture detects pin equality loss. Record397 separately killed that equality deletion."
+    }
+  ],
+  "proposedSecondTarget": {
+    "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:955",
+    "priorRecord": 400,
+    "attempt": 2,
+    "status": "source proposal only; not executed; root approval required",
+    "file": ".agents/skills/feature/scripts/red-team-status.mjs",
+    "sourceSha256": "83f290e23fa6eb70e6ba4178fbbd2e5975cc095b49f9b1ea467b5984ed51723b",
+    "line": 760,
+    "from": "fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);",
+    "to": "process.exit(0);",
+    "occurrences": 1,
+    "mutantSha256": "17f97d1dd18ef051e04b355cfa41d22b1a91287f083313702757cfc4afff1ff1",
+    "reason": "Turn the exact mandatory missing-report denial into false process success. This case explicitly removes the report and strips the journal before requiring denial; it directly tests the existing missing-report contract.",
+    "reachProof": "Pinned checker757-760 enters the absent-sidecar branch and staging/corrective ancestry denial. Selected test955-962 removes the sidecar, writes round1/runs0 journal and calls the refusal helper; helper797 asserts exit1. The mutant exits0 at that very denial point.",
+    "expectedFailure": "The first missing-report witness should fail helper797 with expected exit1 but actual exit0, before subsequent round and later-candidate legs.",
+    "limitations": "Prediction by source inspection only. This would measure missing-report denial, not independently prove the selected checker later-head leg detects loss of pin equality. Record397 supplies the existing public runner equality kill."
+  },
+  "originalReview": {
+    "path": "/private/tmp/run-e-staging-failure-review.json",
+    "sha256": "3be04ce80378802e72e6d52d4b281f330124e93408797e9af07f8b0d9a407f32",
+    "recordsPreserved": [
+      389,
+      390,
+      391,
+      392,
+      393,
+      394,
+      395,
+      396,
+      397,
+      398,
+      399,
+      400
+    ]
+  },
+  "rootFinalization": {
+    "directory": "/private/tmp/run-e-finalized-802",
+    "files": {
+      "journal.json": "2f717c1dffe6ae926418b76025314ef242b40781ad123140cdc1a14818f3c160",
+      "measurements.json": "f7f2877be84dad1655ea0d243fac8e4efb8226916608f5a401bf8556e65e934c",
+      "root-finalization.json": "0f129fa1e08fd7da2012dc0013d610b07bbe0faec7e7e5079433d89304a20a4e"
+    },
+    "at": "2026-09-15T10:49:14.252Z",
+    "all2005EvidenceHashesVerified": true,
+    "frozen800MeasurementAndJournalPrefixesVerified": true
+  },
+  "amendment": {
+    "path": "/private/tmp/run-e-staging-target-amendment-400.json",
+    "sha256": "c3a1f8a56bf1081c75ff5233589f9125be809f69d60ba53b9f9a3a7695ed6058",
+    "stateMetadata": {
+      "id": "staging-target-amendment-400",
+      "at": "2026-09-15T10:48:47.276Z",
+      "path": "/private/tmp/run-e-staging-target-amendment-400.json",
+      "sha256": "c3a1f8a56bf1081c75ff5233589f9125be809f69d60ba53b9f9a3a7695ed6058",
+      "record": 400,
+      "nextRecord": 401,
+      "identity": "scripts/ci/__tests__/red-team-status.test.ts:staging:955",
+      "priorRuns": 800
+    },
+    "record": 401,
+    "attempt": 2
+  },
+  "originalClassificationsDisposition": "Root accepted records389-399 as causal assertion kills and400 as target-selection miss. Their original review objects remain unchanged, including provisional wording and the historical second-target proposal; this cumulative audit adds actual401 evidence."
+}

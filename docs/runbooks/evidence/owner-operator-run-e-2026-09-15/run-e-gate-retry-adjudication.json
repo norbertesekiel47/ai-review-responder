@@ -1,0 +1,32 @@
+{
+  "candidate": "ac487bde9ce2d54022f02375901500abf0edf3a7",
+  "failedGate": "/private/tmp/run-e-corrective-single-lane-gate.log",
+  "preservedGateDirectory": "/private/tmp/run-e-corrective-gate-ac487-timeout-preserved",
+  "failure": {
+    "row": "extra-pnpm-test-c150e4",
+    "test": "the owner-approved Run E second pass Run E same-round continuation refuses rewriting the original Run E budget pin when admitting continuation",
+    "reason": "Test timed out in 5000ms",
+    "passedTests": 16206,
+    "failedTests": 1,
+    "skippedTests": 11
+  },
+  "focused": {
+    "log": "/private/tmp/run-e-budget-pin-timeout-focused.log",
+    "passed": 1,
+    "skipped": 210,
+    "testDurationSeconds": 1.97,
+    "unchangedTimeoutMilliseconds": 5000
+  },
+  "rootDiagnosis": "The gate bounds only its full-suite coverage row with VITEST_WORKERS. Intake extra pnpm test runs via bash -c without that flag. Installed Vitest 4.1.7 resolves VITEST_MAX_WORKERS to the worker limit; the failed test passes alone without any source or assertion change. Load-related timeout is the current diagnosis, pending complete bounded rerun.",
+  "retry": {
+    "MAX_PARALLEL": 1,
+    "VITEST_WORKERS": 2,
+    "VITEST_MAX_WORKERS": 2,
+    "log": "/private/tmp/run-e-corrective-bounded-workers-gate.log",
+    "status": "RUNNING"
+  },
+  "sourceChanges": false,
+  "adversarialLaunchesSpent": 594,
+  "rawCheckpointSha256": "6f0c9b37b57aa42c8c3a7ec177f20cf81de83931fd95e300407dce420146ff38",
+  "correctivePinCreated": false
+}

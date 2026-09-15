@@ -1,0 +1,121 @@
+{
+  "logs": [
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"warn\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-15T09:22:04.944Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"owner-operator\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"208c298e-d980-41f6-9a00-2f07fb65097d\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43e0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a45f-8573-70ff-b748-c7f0f1372bea_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a45f-8470-752a-8e23-1c43e9486596\",\"attempt\":1,\"reason_count\":1}"
+        }
+      ],
+      "message": "owner_operator output rejected by validator",
+      "severity": "warn",
+      "timestamp": "2026-09-15T09:22:10.388942587Z"
+    },
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"warn\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-15T09:22:07.370Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"owner-operator\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"208c298e-d980-41f6-9a00-2f07fb65097d\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43e0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a45f-8573-70ff-b748-c7f0f1372bea_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a45f-8470-752a-8e23-1c43e9486596\",\"attempt\":2,\"reason_count\":1}"
+        }
+      ],
+      "message": "owner_operator output rejected by validator",
+      "severity": "warn",
+      "timestamp": "2026-09-15T09:22:10.388946897Z"
+    },
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"warn\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-15T09:22:07.541Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"208c298e-d980-41f6-9a00-2f07fb65097d\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43e0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a45f-8573-70ff-b748-c7f0f1372bea_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a45f-8470-752a-8e23-1c43e9486596\",\"attempts\":2}"
+        }
+      ],
+      "message": "agent_turn model output invalid",
+      "severity": "warn",
+      "timestamp": "2026-09-15T09:22:10.388950297Z"
+    }
+  ]
+}
