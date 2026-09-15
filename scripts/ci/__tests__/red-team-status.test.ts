@@ -713,6 +713,204 @@ describe('the committed Run E second-pass proof', () => {
         expectContinuationRejected(extraChange.path);
       }
     }, 20_000);
+    describe('finite corrective admission certification', () => {
+      const settingsPath = 'src/lib/auto-approval/__tests__/settings.test.ts';
+      const deviationsPath = 'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md';
+      const correctedSettings = "export const locationId = 'bbbbbbbb-0000-4000-8000-000000000001';\n";
+      const checkpointRuns = 126;
+      type CorrectivePin = { headSha: string; predecessorHeadSha: string; checkpointSha256: string; firstRun: number };
+      type CorrectiveJournal = ContinuationJournal & { correctiveAdmission?: CorrectivePin };
+
+      function committedText(revision: string, path: string): string {
+        const result = spawnSync('git', ['show', `${revision}:${path}`], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+        if (result.status !== 0) throw new Error(`missing committed fixture evidence: ${revision}:${path}`);
+        return result.stdout;
+      }
+
+      function prepareCorrective(options: {
+        changeDocument?: (document: string) => string;
+        settingsContents?: string;
+        extraChange?: { path: string; contents: string };
+      } = {}) {
+        const fixture = prepareContinuation();
+        // The old helper publishes a report after admission. Restore its exact
+        // archived admission bytes before freezing the synthetic predecessor.
+        write(report, committedText(fixture.successorHead, report));
+        write(markdown, committedText(fixture.successorHead, markdown));
+        write(deviationsPath, '# Preserved predecessor deviations\n');
+        git('add', report, markdown, deviationsPath);
+        git('commit', '-qm', 'freeze corrective predecessor with original admission evidence');
+        const predecessorHead = git('rev-parse', 'HEAD');
+        const checkpoint: CorrectiveJournal = {
+          ...structuredClone(fixture.journal), runs: checkpointRuns,
+          mutations: [...fixture.journal.mutations, { path: 'src/thing.ts', state: 'restored' }],
+          supervisors: [...fixture.journal.supervisors, { pgid: Number.MAX_SAFE_INTEGER - 125, active: false }],
+          continuationAdmission: { ...fixture.journal.continuationAdmission!, headSha: predecessorHead },
+        };
+        const checkpointSha256 = sha256(JSON.stringify(checkpoint));
+        const blob = createHash('sha1').update(`blob ${Buffer.byteLength(correctedSettings)}\0${correctedSettings}`).digest('hex');
+        const runnerPath = join(repo, 'fixture-e-runner.mjs');
+        let source = readFileSync(runnerPath, 'utf8');
+        for (const [name, value] of Object.entries({
+          RUN_E_CORRECTIVE_PREDECESSOR: predecessorHead,
+          RUN_E_CORRECTIVE_CHECKPOINT_SHA256: checkpointSha256,
+        })) {
+          const anchor = new RegExp(`const ${name} = '[^']*';`, 'g');
+          expect(source.match(anchor)).toHaveLength(1);
+          source = source.replace(anchor, `const ${name} = '${value}';`);
+        }
+        const runsAnchor = /const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = -?\d+;/g;
+        const blobsAnchor = /const RUN_E_CORRECTIVE_TEST_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+        expect(source.match(runsAnchor)).toHaveLength(1);
+        expect(source.match(blobsAnchor)).toHaveLength(1);
+        source = source.replace(runsAnchor, `const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = ${checkpointRuns};`)
+          .replace(blobsAnchor, `const RUN_E_CORRECTIVE_TEST_BLOBS = Object.freeze(${JSON.stringify({ [settingsPath]: blob })});`);
+        writeFileSync(runnerPath, source);
+        const document = `${readFileSync(join(repo, scopePath), 'utf8')}${section('CORRECTIVE_CHECKPOINT', checkpoint)}`;
+        write(scopePath, options.changeDocument?.(document) ?? document);
+        write(settingsPath, options.settingsContents ?? correctedSettings);
+        git('add', scopePath, settingsPath);
+        if (options.extraChange) {
+          write(options.extraChange.path, options.extraChange.contents);
+          git('add', options.extraChange.path);
+        }
+        git('commit', '-qm', 'commit exact corrective candidate before final report');
+        const headSha = git('rev-parse', 'HEAD');
+        const pin: CorrectivePin = { headSha, predecessorHeadSha: predecessorHead, checkpointSha256, firstRun: checkpointRuns + 1 };
+        const journal: CorrectiveJournal = {
+          ...structuredClone(checkpoint), runs: checkpointRuns + 1,
+          supervisors: [...checkpoint.supervisors, { pgid: Number.MAX_SAFE_INTEGER - checkpointRuns, active: false }],
+          correctiveAdmission: pin,
+        };
+        fixture.final.head_sha = headSha;
+        write(report, JSON.stringify(fixture.final));
+        write(markdown, `${fixture.admissionMarkdown}\n# Corrective final result\nAll prior evidence and scope reasons retained.\n`);
+        git('add', report, markdown);
+        git('commit', '-qm', 'publish corrective results separately');
+        write(journalPath, JSON.stringify(journal));
+        return { ...fixture, journal, checkpoint, predecessorHead, pin, document };
+      }
+
+      function expectCorrectiveRejected(label: string): void {
+        const before = readFileSync(join(repo, journalPath), 'utf8');
+        const result = check();
+        expect(result.status, label).toBe(1);
+        expect(result.stderr, label).toContain('Run E');
+        expect(readFileSync(join(repo, journalPath), 'utf8'), label).toBe(before);
+      }
+
+      it('certifies an empty-waiver corrective report with all three pins while preserving quiet original admission', () => {
+        // Original fixtures do not bind the new corrective predecessor: its
+        // missing-object probe must preserve the public clean-stderr contract.
+        prepareE();
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        recreateFixture();
+        const fixture = prepareCorrective();
+        expect(fixture.final.authorizations).toEqual([]);
+        expect(git('rev-parse', 'HEAD^')).toBe(fixture.pin.headSha);
+        expect(fixture.journal.budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+        expect(fixture.journal.continuationAdmission).toEqual(fixture.checkpoint.continuationAdmission);
+        expect(fixture.journal.correctiveAdmission).toEqual(fixture.pin);
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        const capped = structuredClone(fixture.journal);
+        capped.runs = 1600;
+        capped.supervisors.push(...Array.from({ length: 1600 - capped.supervisors.length }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - checkpointRuns - 1 - index, active: false })));
+        write(journalPath, JSON.stringify(capped));
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+      }, 20_000);
+
+      it('rejects corrective report forgery across candidate blobs, checkpoints, prior pins, closure, and historical evidence', () => {
+        const fixture = prepareCorrective();
+        expect(check()).toMatchObject({ status: 0, stderr: '' });
+        const journalChanges: Array<[string, (value: CorrectiveJournal) => void]> = [
+          ['missing corrective pin', (value) => { delete value.correctiveAdmission; }],
+          ['missing original pin', (value) => { Reflect.deleteProperty(value, 'budgetAuthorization'); }],
+          ['missing continuation pin', (value) => { delete value.continuationAdmission; }],
+          ['altered corrective checkpoint pin', (value) => { value.correctiveAdmission!.checkpointSha256 = '0'.repeat(64); }],
+          ['altered old admission', (value) => { value.budgetAuthorization.headSha = fixture.predecessorHead; }],
+          ['altered mutation prefix', (value) => { value.mutations[0]!.path = 'src/replacement.ts'; }],
+          ['altered supervisor prefix', (value) => { value.supervisors[0]!.pgid -= 1; }],
+          ['open mutation', (value) => { value.mutations.push({ path: settingsPath, state: 'applied' }); }],
+          ['active supervisor', (value) => { value.supervisors[checkpointRuns]!.active = true; }],
+          ['open dotenv', (value) => { value.dotenv.open = true; }],
+          ['counter rollback', (value) => { value.runs = checkpointRuns; value.supervisors.pop(); }],
+          ['cap exceeded', (value) => { value.runs = 1601; value.supervisors.push(...Array.from({ length: 1601 - value.supervisors.length }, (_, index) => ({ pgid: Number.MAX_SAFE_INTEGER - 1000 - index, active: false }))); }],
+        ];
+        for (const [label, change] of journalChanges) {
+          const value = structuredClone(fixture.journal);
+          change(value);
+          write(journalPath, JSON.stringify(value));
+          expectCorrectiveRejected(label);
+        }
+        write(journalPath, JSON.stringify(fixture.journal));
+        const reportChanges: Array<[string, (value: Sidecar) => void]> = [
+          ['old reported candidate', (value) => { value.head_sha = fixture.predecessorHead; }],
+          ['changed original identity', (value) => { value.inventory[0]!.test = 'Replacement identity'; }],
+          ['changed original finding', (value) => { value.findings[0]!.title = 'Replacement finding'; }],
+          ['changed original exclusion', (value) => { value.inventory[2]!.reason = 'Replacement exclusion'; }],
+          ['changed continuation scope reason', (value) => { value.inventory.find((row) => row.id === 'E-DISCOVERY-DELTA')!.reason = 'Unreviewed scope waiver'; }],
+          ['risk waiver', (value) => { value.authorizations = [{ ...approval, finding_ids: ['E-P1'] }]; value.findings[0]!.disposition = 'accepted-risk'; value.findings[0]!.authorization = approval.id; }],
+        ];
+        for (const [label, change] of reportChanges) {
+          const value = structuredClone(fixture.final);
+          change(value);
+          value.counts = countsFor(value);
+          write(report, JSON.stringify(value));
+          expectCorrectiveRejected(label);
+        }
+        write(report, JSON.stringify(fixture.final));
+        const finalMarkdown = readFileSync(join(repo, markdown), 'utf8');
+        write(markdown, finalMarkdown.replace('Exact historical duties.', 'Rewritten historical duties.'));
+        expectCorrectiveRejected('rewritten admission markdown');
+        const variants: Array<{ label: string; options: Parameters<typeof prepareCorrective>[0] }> = [
+          { label: 'missing committed checkpoint', options: { changeDocument: (document) => document.replace(/<!-- RUN_E_CORRECTIVE_CHECKPOINT_START -->[\s\S]*?<!-- RUN_E_CORRECTIVE_CHECKPOINT_END -->\n/, '') } },
+          { label: 'altered committed checkpoint', options: { changeDocument: (document) => document.replace('"runs":126', '"runs":125') } },
+          { label: 'wrong exact settings blob', options: { settingsContents: `${correctedSettings}// unreviewed addition\n` } },
+          { label: 'extra corrective path', options: { extraChange: { path: 'src/thing.ts', contents: 'export const thing = 3;\n' } } },
+        ];
+        for (const variant of variants) {
+          recreateFixture();
+          prepareCorrective(variant.options);
+          expectCorrectiveRejected(variant.label);
+        }
+      }, 60_000);
+
+      it('rejects renamed or stripped corrective reports and missing-report waivers without opening a third round', () => {
+        for (const currentBranch of [branch, 'codex/renamed-corrective-report']) {
+          recreateFixture();
+          const fixture = prepareCorrective();
+          expect(check()).toMatchObject({ status: 0, stderr: '' });
+          git('branch', '-m', currentBranch);
+          const runtimeIntake = JSON.stringify({ risk: 'normal' });
+          write('.feature/intake.json', runtimeIntake);
+          write(journalPath, JSON.stringify({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } }));
+          rmSync(join(repo, report));
+          const missing = check();
+          expect(missing.status, currentBranch).toBe(1);
+          expect(missing.stderr).toContain('Run E corrective admission requires its report at');
+          expect(missing.stdout).not.toContain('WAIVED');
+          const match = missing.stderr.match(/requires its report at (\S+);/);
+          expect(match?.[1]).toBeTruthy();
+          const expectedReport = match![1]!;
+          const forged = { ...structuredClone(fixture.final), branch: currentBranch, head_sha: fixture.originalHead,
+            risk: 'normal', intake_sha256: sha256(runtimeIntake), round: 1 };
+          write(expectedReport, JSON.stringify(forged));
+          write(expectedReport.replace(/\.json$/, '.md'), '# Forged downgraded report\n');
+          const downgraded = check();
+          expect(downgraded.status).toBe(1);
+          expect(downgraded.stderr).toContain('Run E corrective admission retains round 2');
+          for (const text of ['third round authorized', 'no third round']) {
+            write(expectedReport, JSON.stringify({ ...forged, round: 3, authorizations: [{ ...approval, text }] }));
+            const third = check();
+            expect(third.status, text).toBe(1);
+            expect(third.stderr, text).toContain('Run E corrective admission retains round 2');
+          }
+          write(expectedReport, JSON.stringify({ ...forged, round: 2 }));
+          expectCorrectiveRejected('round two cannot certify with stripped admissions');
+        }
+      }, 30_000);
+    });
+
   });
 
   it('certifies Run E round 2 only with intact admission history and a closed capped launch journal', () => {

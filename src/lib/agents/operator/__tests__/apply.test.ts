@@ -238,6 +238,7 @@ describe('applyProposal', () => {
     primeHappyPath();
     await applyProposal(sql, input());
 
+    expect(writes()[0]).toBeDefined();
     const appliedWrite = writes()[0]!;
     expect(appliedWrite.text).toContain('SET status = ?');
     const receipt = appliedWrite.values.find(
@@ -269,6 +270,7 @@ describe('applyProposal', () => {
       mkTaggedResult([]),
     );
     await applyProposal(sql, input());
+    expect(writes()[0]).toBeDefined();
     const fallback = writes()[0]!.values.find(
       (value): value is { actorName: unknown } =>
         typeof value === 'object' && value !== null && 'actorName' in value,

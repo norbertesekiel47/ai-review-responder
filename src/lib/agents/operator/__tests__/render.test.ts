@@ -410,6 +410,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
     const result = validateModelOutput(output({ proposals: [capProposal] }), policySnapshot);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.proposals).toHaveLength(1);
     expect(result.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
     expect('locationId' in result.proposals[0]!.scope).toBe(false);
     expect(result.proposals[0]!.operation.domain).toBe('policy');
@@ -419,6 +420,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
       output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT } }] }),
       policySnapshot,
     );
+    expect(absent.ok && absent.proposals).toHaveLength(1);
     expect(absent.ok && absent.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
 
     // An account-default proposal does not target the stored location, so it
@@ -433,6 +435,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
       output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT, locationId: LOCATION } }] }),
       policySnapshot,
     );
+    expect(located.ok && located.proposals).toHaveLength(1);
     expect(located.ok && located.proposals[0]!.scope).toEqual({ accountId: ACCOUNT, locationId: LOCATION });
   });
 
@@ -490,6 +493,11 @@ describe('operator output validator — auto-approval policy proposals', () => {
       policySnapshot,
     );
     expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    expect(off.proposals).toHaveLength(1);
+    expect(off.proposals[0]!.operation.id).toBe('set_auto_reply_scope');
+    expect(off.proposals[0]!.scope).toEqual({ accountId: ACCOUNT, locationId: LOCATION });
+    expect(off.proposals[0]!.input).toEqual({ threshold: null });
   });
 });
 

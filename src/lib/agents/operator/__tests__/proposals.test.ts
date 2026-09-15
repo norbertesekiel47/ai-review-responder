@@ -293,6 +293,7 @@ describe('proposal view', () => {
       { turnId: TURN, accountId: ACCOUNT },
     );
 
+    expect(view).toBeDefined();
     expect(view!.turnId).toBe(TURN);
     expect(view!.preparedVersionToken).toEqual({
       businessId: LOCATION,

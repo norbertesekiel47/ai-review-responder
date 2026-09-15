@@ -894,6 +894,223 @@ describe('the owner-approved Run E second pass', () => {
         expectContinuationRefused();
       }
     });
+    describe('Run E finite corrective admission', () => {
+      const settingsPath = 'src/lib/auto-approval/__tests__/settings.test.ts';
+      const deviationsPath = 'docs/superpowers/plans/codex-owner-operator-run-e-deviations.md';
+      const correctedSettings = "export const locationId = 'bbbbbbbb-0000-4000-8000-000000000001';\n";
+      const checkpointRuns = 126;
+      type CorrectivePin = { headSha: string; predecessorHeadSha: string; checkpointSha256: string; firstRun: number };
+      type CorrectiveJournal = ContinuationJournal & { correctiveAdmission?: CorrectivePin };
+
+      function correctiveJournal(): CorrectiveJournal {
+        return JSON.parse(read('.feature/red-team-journal.json')) as CorrectiveJournal;
+      }
+
+      function resetCorrectiveFixture(): void {
+        rmSync(repo, { recursive: true, force: true });
+        mkdirSync(repo, { recursive: true });
+        git('init', '-q', '-b', 'fixture');
+        git('config', 'user.email', 'red-team@example.test');
+        git('config', 'user.name', 'red team');
+        write('src/gate.ts', 'export const allow = (n: number) => n > 0;\n');
+        git('add', 'src/gate.ts');
+        git('commit', '-qm', 'independent corrective fixture baseline');
+      }
+
+      function prepareCorrective(options: {
+        changeDocument?: (document: string) => string;
+        settingsContents?: string;
+        extraChange?: { path: string; contents: string };
+      } = {}) {
+        const continuation = prepareContinuation();
+        write(deviationsPath, '# Preserved predecessor deviations\n');
+        git('add', deviationsPath);
+        git('commit', '-qm', 'freeze synthetic continuation predecessor');
+        const predecessorHead = git('rev-parse', 'HEAD');
+        const checkpoint: CorrectiveJournal = {
+          ...structuredClone(continuation.checkpoint), runs: checkpointRuns,
+          mutations: [...continuation.checkpoint.mutations, {
+            path: 'src/gate.ts', originalOid: git('rev-parse', 'HEAD:src/gate.ts'),
+            mutantOid: git('rev-parse', 'HEAD:src/gate.ts'), state: 'restored',
+          }],
+          supervisors: [...continuation.checkpoint.supervisors, inactiveSupervisor(124), inactiveSupervisor(125)],
+          continuationAdmission: { headSha: predecessorHead, checkpointSha256: continuation.checkpointSha256, firstRun: 125 },
+        };
+        const checkpointSha256 = digest(checkpoint);
+        const blob = createHash('sha1').update(`blob ${Buffer.byteLength(correctedSettings)}\0${correctedSettings}`).digest('hex');
+        replaceContinuationAnchor('RUN_E_CORRECTIVE_PREDECESSOR', predecessorHead);
+        replaceContinuationAnchor('RUN_E_CORRECTIVE_CHECKPOINT_SHA256', checkpointSha256);
+        let source = readFileSync(runner, 'utf8');
+        const runsAnchor = /const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = -?\d+;/g;
+        const blobsAnchor = /const RUN_E_CORRECTIVE_TEST_BLOBS = Object\.freeze\(\{[\s\S]*?\}\);/g;
+        expect(source.match(runsAnchor)).toHaveLength(1);
+        expect(source.match(blobsAnchor)).toHaveLength(1);
+        source = source.replace(runsAnchor, `const RUN_E_CORRECTIVE_CHECKPOINT_RUNS = ${checkpointRuns};`)
+          .replace(blobsAnchor, `const RUN_E_CORRECTIVE_TEST_BLOBS = Object.freeze(${JSON.stringify({ [settingsPath]: blob })});`);
+        writeFileSync(runner, source);
+        const document = `${read(reviewDocument)}${section('CORRECTIVE_CHECKPOINT', checkpoint)}`;
+        write(reviewDocument, options.changeDocument?.(document) ?? document);
+        write(settingsPath, options.settingsContents ?? correctedSettings);
+        git('add', reviewDocument, settingsPath);
+        if (options.extraChange) {
+          write(options.extraChange.path, options.extraChange.contents);
+          git('add', options.extraChange.path);
+        }
+        git('commit', '-qm', 'exact finite corrective candidate');
+        const headSha = git('rev-parse', 'HEAD');
+        const pin: CorrectivePin = { headSha, predecessorHeadSha: predecessorHead, checkpointSha256, firstRun: checkpointRuns + 1 };
+        writeJournal(checkpoint);
+        return { checkpoint, pin, predecessorHead, document };
+      }
+
+      function expectCorrectiveRefused(label: string): void {
+        const before = read('.feature/red-team-journal.json');
+        const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+          'require("node:fs").writeFileSync(".feature/corrective-child-launched","yes")');
+        expect(result.status, label).toBe(1);
+        expect(read('.feature/red-team-journal.json'), label).toBe(before);
+        expect(existsSync(join(repo, '.feature/corrective-child-launched')), label).toBe(false);
+      }
+
+      it('pins the finite Run E correction before launch N+1 and preserves both earlier admissions', () => {
+        // Exercise the real missing-predecessor probe before rebinding its anchor.
+        prepareContinuation();
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true')).toMatchObject({ status: 0, stderr: '' });
+        resetCorrectiveFixture();
+        const fixture = prepareCorrective();
+        const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+          'const fs=require("node:fs");fs.writeFileSync(".feature/corrective-observed.json",fs.readFileSync(".feature/red-team-journal.json"))');
+        expect(result).toMatchObject({ status: 0, stderr: '' });
+        const observed = JSON.parse(read('.feature/corrective-observed.json')) as CorrectiveJournal;
+        expect(observed.runs).toBe(checkpointRuns + 1);
+        expect(observed.budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+        expect(observed.continuationAdmission).toEqual(fixture.checkpoint.continuationAdmission);
+        expect(observed.correctiveAdmission).toEqual(fixture.pin);
+        expect(observed.mutations).toEqual(fixture.checkpoint.mutations);
+        expect(observed.supervisors.slice(0, checkpointRuns)).toEqual(fixture.checkpoint.supervisors);
+        expect(observed.supervisors[checkpointRuns]?.active).toBe(true);
+        expect(correctiveJournal().supervisors[checkpointRuns]?.active).toBe(false);
+      }, 20_000);
+
+      it('runs and restores a later corrective journaled mutant while refusing a dirty first baseline', () => {
+        const fixture = prepareCorrective();
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+        write('.feature/corrective-mutant.ts', `${correctedSettings}// journaled corrective mutant\n`);
+        expect(run('mutate', '--file', settingsPath, '--mutant', join(repo, '.feature/corrective-mutant.ts')).status).toBe(0);
+        expect(run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+          `process.exit(require("node:fs").readFileSync(${JSON.stringify(settingsPath)},"utf8").includes("journaled corrective mutant")?0:7)`).status).toBe(0);
+        expect(correctiveJournal().runs).toBe(checkpointRuns + 2);
+        expect(correctiveJournal().budgetAuthorization).toEqual(fixture.checkpoint.budgetAuthorization);
+        expect(correctiveJournal().continuationAdmission).toEqual(fixture.checkpoint.continuationAdmission);
+        expect(correctiveJournal().correctiveAdmission).toEqual(fixture.pin);
+        expect(correctiveJournal().mutations.slice(0, fixture.checkpoint.mutations.length)).toEqual(fixture.checkpoint.mutations);
+        expect(run('finalize').status).toBe(0);
+        expect(read(settingsPath)).toBe(correctedSettings);
+        expect(correctiveJournal().mutations.at(-1)?.state).toBe('restored');
+        resetCorrectiveFixture();
+        prepareCorrective();
+        write('.feature/corrective-mutant.ts', `${correctedSettings}// dirty first candidate\n`);
+        expect(run('mutate', '--file', settingsPath, '--mutant', join(repo, '.feature/corrective-mutant.ts')).status).toBe(0);
+        expectCorrectiveRefused('journaled mutation before first corrective baseline');
+        expect(correctiveJournal().correctiveAdmission).toBeUndefined();
+        expect(run('finalize').status).toBe(0);
+        expectCorrectiveRefused('restoration cannot erase the extra pre-admission mutation');
+      }, 30_000);
+
+      it('rejects uncommitted or altered corrective checkpoint evidence, exact test blobs, and extra paths', () => {
+        const variants: Array<{ label: string; options: Parameters<typeof prepareCorrective>[0] }> = [
+          { label: 'missing checkpoint', options: { changeDocument: (document) => document.replace(/<!-- RUN_E_CORRECTIVE_CHECKPOINT_START -->[\s\S]*?<!-- RUN_E_CORRECTIVE_CHECKPOINT_END -->\n/, '') } },
+          { label: 'changed checkpoint', options: { changeDocument: (document) => document.replace('"runs":126', '"runs":125') } },
+          { label: 'changed predecessor review prefix', options: { changeDocument: (document) => `replacement prefix\n${document}` } },
+          { label: 'wrong settings blob', options: { settingsContents: `${correctedSettings}// unreviewed addition\n` } },
+          { label: 'extra product path', options: { extraChange: { path: 'src/gate.ts', contents: 'export const allow = () => true;\n' } } },
+          { label: 'rewritten predecessor deviations', options: { extraChange: { path: deviationsPath, contents: '# Replacement deviations\n' } } },
+        ];
+        for (const variant of variants) {
+          resetCorrectiveFixture();
+          const fixture = prepareCorrective(variant.options);
+          expectCorrectiveRefused(variant.label);
+          // A repaired live document cannot replace the committed checkpoint.
+          if (variant.label.includes('checkpoint')) {
+            write(reviewDocument, fixture.document);
+            expectCorrectiveRefused(`${variant.label} with a repaired live document`);
+          }
+        }
+      }, 45_000);
+
+      it('refuses corrective pin stripping, prefix changes, counter rollback, and renamed round downgrades', () => {
+        const fixture = prepareCorrective();
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+        const pinned = correctiveJournal();
+        const changes: Array<[string, (value: CorrectiveJournal) => void]> = [
+          ['missing corrective pin', (value) => { delete value.correctiveAdmission; }],
+          ['missing original pin', (value) => { Reflect.deleteProperty(value, 'budgetAuthorization'); }],
+          ['missing continuation pin', (value) => { delete value.continuationAdmission; }],
+          ['changed corrective head', (value) => { value.correctiveAdmission!.headSha = fixture.predecessorHead; }],
+          ['changed predecessor pin', (value) => { value.correctiveAdmission!.predecessorHeadSha = fixture.checkpoint.budgetAuthorization.headSha; }],
+          ['changed checkpoint pin', (value) => { value.correctiveAdmission!.checkpointSha256 = '0'.repeat(64); }],
+          ['changed first run', (value) => { value.correctiveAdmission!.firstRun = checkpointRuns; }],
+          ['changed old pin', (value) => { value.continuationAdmission!.firstRun = checkpointRuns + 1; }],
+          ['mutation prefix', (value) => { value.mutations[0]!.originalOid = '0'.repeat(40); }],
+          ['supervisor prefix', (value) => { value.supervisors[0]!.startedAt = 'replacement'; }],
+          ['counter rollback', (value) => { value.runs = checkpointRuns; value.supervisors.pop(); }],
+          ['counter without supervisor', (value) => { value.runs += 1; }],
+          ['negative counter', (value) => { value.runs = -1; }],
+          ['fractional counter', (value) => { value.runs = checkpointRuns + 0.5; }],
+          ['string counter', (value) => { Reflect.set(value, 'runs', String(checkpointRuns)); }],
+          ['null counter', (value) => { Reflect.set(value, 'runs', null); }],
+          ['third round', (value) => { value.round = 3; }],
+        ];
+        for (const [label, change] of changes) {
+          const value = structuredClone(pinned);
+          change(value);
+          writeJournal(value);
+          expectCorrectiveRefused(label);
+        }
+        writeJournal(pinned);
+        git('branch', '-m', 'codex/renamed-pinned-corrective');
+        expectCorrectiveRefused('renamed branch with round two and all pins intact');
+        for (const branch of ['codex/owner-operator-run-e', 'codex/renamed-corrective-fixture']) {
+          git('branch', '-m', branch);
+          writeJournal({ version: 1, round: 1, runs: 0, mutations: [], supervisors: [], dotenv: { open: false, files: [] } });
+          expectCorrectiveRefused(`stripped round-one ${branch}`);
+          const before = read('.feature/red-team-journal.json');
+          expect(run('round-start').status, branch).toBe(1);
+          expect(read('.feature/red-team-journal.json')).toBe(before);
+        }
+      }, 30_000);
+
+      it('allows corrective launch 1600 but refuses 1601, third-round prose, and another candidate', () => {
+        const fixture = prepareCorrective();
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+        const pinned = correctiveJournal();
+        writeJournal({ ...pinned, runs: 1599, supervisors: [
+          ...pinned.supervisors,
+          ...Array.from({ length: 1599 - pinned.supervisors.length }, (_, index) => inactiveSupervisor(1000 + index)),
+        ] });
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+        expect(correctiveJournal().runs).toBe(1600);
+        expect(correctiveJournal().correctiveAdmission).toEqual(fixture.pin);
+        expectCorrectiveRefused('launch 1601');
+        for (const text of ['third round authorized', 'no third round']) {
+          const evidence = JSON.parse(read(report));
+          evidence.authorizations[0].text = text;
+          write(report, JSON.stringify(evidence));
+          const before = read('.feature/red-team-journal.json');
+          expect(run('round-start').status, text).toBe(1);
+          expect(read('.feature/red-team-journal.json')).toBe(before);
+        }
+        // Test successor refusal below the cap so budget exhaustion cannot mask it.
+        resetCorrectiveFixture();
+        prepareCorrective();
+        expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+        write(reviewDocument, `${read(reviewDocument)}\nUnadmitted additional candidate.\n`);
+        git('add', reviewDocument);
+        git('commit', '-qm', 'additional candidate after corrective pin');
+        expectCorrectiveRefused('additional candidate below the cap');
+      }, 30_000);
+    });
+
   });
 
   it('refuses E third-round opening for both positive and negated prose and a renamed pinned branch', () => {

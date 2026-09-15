@@ -298,7 +298,8 @@ from `b6ee3973b3e0ad9f6749f02c5428e6b4980cf837`, all original attempts and the
 unchanged `budgetAuthorization` pin. Before launch 125, the runner records one
 successor HEAD and checkpoint digest; subsequent launches require that same pin
 and the exact historical journal prefixes. No counter reset, second successor,
-third round, product change or intake/history rewrite is admitted. The finite
+third round, product change or intake/history rewrite is admitted by that
+discovery continuation. The finite
 source-correction manifest and checkpoint live in the existing budget-extension
 review document. Original discovery evidence remains intact. Only independently
 reviewed cases outside the changed behavioral contract may be reclassified;
@@ -308,6 +309,24 @@ pins, and changed verifier cases need fresh successor measurements. Migration
 the SQL during its body; its existing finally restores the five constraints,
 and readback must confirm restoration. This does not change the general
 exclusion for migrations provisioned before a test.
+
+**Run E finite corrective admission.** The same owner-approved post-admission
+correction clause permits the root-adjudicated fixture correction after the
+`9f20dbecd2ce302494088a49cc3147bca96a3f27` continuation. It requires a new frozen,
+closed checkpoint and the exact corrected test blobs, six existing verifier
+support paths and two append-only review/deviation documents. Both earlier pins,
+all journal prefixes, original evidence and the existing grant remain unchanged.
+A separate `correctiveAdmission` pins the candidate before checkpoint launch
+N+1. Its first baseline is clean; later launches require that exact candidate and
+matching journaled mutations. No further successor is admitted. Ancestry and
+pin checks prevent stripped journals, branch renames and report-round downgrades
+from reaching a generic allowance or a report waiver. Round 2, 1,600 cumulative
+launches and at most two mutants per original case remain the limits across all
+pins. Changed contracts need fresh measurements within those limits; exhausted
+or unresolved cases remain incomplete. New safeguard identities are appended,
+never aliases for exhausted existing cases. The checkpoint constants must stay
+fail-closed until the root freezes the pass, reviews the exact final correction
+set and admits the verified committed candidate.
 
 ## Duty 2 — fragile assertions
 

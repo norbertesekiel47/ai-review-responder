@@ -41,6 +41,7 @@ import { pathToFileURL } from 'node:url';
 import {
   runCFourthAuthorization, validRunCFourthReport,
   runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
+  requiresRunECorrectiveAdmission, validateRunECorrectiveAdmission,
 } from '../../red-team/scripts/mutation-runner.mjs';
 
 const RUN_E_BRANCH = 'codex/owner-operator-run-e';
@@ -534,10 +535,12 @@ function validRunEReport(root, sidecar, sidecarPath, journal) {
   const pin = journal.budgetAuthorization;
   if (!isPlainObject(pin) || pin.id !== RUN_E_GRANT || pin.maxRuns !== 1600
     || pin.firstRun !== 1) return false;
-  const continuing = requiresRunEContinuation(root, journal, sidecar.head_sha);
-  const proof = continuing
-    ? validateRunEContinuation(root, journal, sidecar.head_sha)
-    : validateRunEAdmission(root, pin.headSha);
+  const correcting = requiresRunECorrectiveAdmission(root, journal, sidecar.head_sha);
+  const continuing = correcting || requiresRunEContinuation(root, journal, sidecar.head_sha);
+  const proof = correcting
+    ? validateRunECorrectiveAdmission(root, journal, sidecar.head_sha)
+    : continuing ? validateRunEContinuation(root, journal, sidecar.head_sha)
+      : validateRunEAdmission(root, pin.headSha);
   if (!proof || (!continuing && (pin.headSha !== sidecar.head_sha
     || ['id', 'maxRuns', 'sha256', 'headSha'].some((key) => pin[key] !== proof.grant[key])))) return false;
   let scopeCorrections;
@@ -729,6 +732,9 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
+    if (requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
+      fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);
+    }
     // The risk-scoped waiver (2026-08-31). A feature-lane run requires the
     // sidecar when the SIGNED-OFF intake declares `risk: high`. A normal-risk
     // run may omit the pass: the deterministic gate plus the review axes are
@@ -787,12 +793,17 @@ function main(argv) {
   }
 
   const journal = readJournal(root);
+  // Checkout ancestry survives a forged report branch/round and stripped pins.
+  const correctiveProofRequired = requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);
+  if (correctiveProofRequired && sidecar?.round !== 2) {
+    fail([...errors, 'Run E corrective admission retains round 2 regardless of report or journal labels']);
+  }
   if (runEThirdRoundForbidden(branch, journal?.budgetAuthorization?.id, sidecar?.round)) {
     fail([...errors, 'Run E grants round 2 only; the checkout or launch grant forbids third and higher reports']);
   }
   const shapeErrors = validateShape(sidecar);
   if (shapeErrors.length > 0) fail([...errors, ...shapeErrors]);
-  const requiresRunEProof = journal?.budgetAuthorization?.id === RUN_E_GRANT
+  const requiresRunEProof = correctiveProofRequired || journal?.budgetAuthorization?.id === RUN_E_GRANT
     || (branch === RUN_E_BRANCH && journal?.round === 2)
     || (sidecar.round === 2 && (branch === RUN_E_BRANCH
       || sidecar.authorizations.some((authorization) => authorization.id === RUN_E_GRANT)));

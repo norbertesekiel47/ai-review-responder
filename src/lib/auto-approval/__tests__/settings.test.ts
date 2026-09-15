@@ -2089,12 +2089,13 @@ describe('internal Reply policy restore validation', () => {
 
   it('the public settings schema rejects an internal restore and full-row state on ordinary operations', async () => {
     const { AutoApprovalPatchSchema } = await import('../types');
+    const locationId = 'bbbbbbbb-0000-4000-8000-000000000001';
+    const ordinaryPatch = { operation: 'set_location_override', locationId, threshold: 5 } as const;
+    expect(AutoApprovalPatchSchema.safeParse(ordinaryPatch).success).toBe(true);
     expect(AutoApprovalPatchSchema.safeParse({
-      operation: 'restore_reply_policy', locationId: LOCATION_1, state,
+      operation: 'restore_reply_policy', locationId, state,
     }).success).toBe(false);
-    expect(AutoApprovalPatchSchema.safeParse({
-      operation: 'set_location_override', locationId: LOCATION_1, threshold: 5, state,
-    }).success).toBe(false);
+    expect(AutoApprovalPatchSchema.safeParse({ ...ordinaryPatch, state }).success).toBe(false);
   });
 
   it.each([
@@ -2108,7 +2109,7 @@ describe('internal Reply policy restore validation', () => {
   ])('rejects invalid or historical suspension fields before any database statement: %j', async (invalidState) => {
     const { patchAutoApprovalSettingsInTransaction } = await import('../settings');
     await expect(patchAutoApprovalSettingsInTransaction(mockSql, {
-      ...SEAM_BASE, operation: 'restore_reply_policy', locationId: LOCATION_1,
+      ...SEAM_BASE, operation: 'restore_reply_policy', locationId: 'bbbbbbbb-0000-4000-8000-000000000001',
       state: invalidState as unknown as import('../types').RestoreReplyPolicyRequest['state'],
     })).rejects.toMatchObject({ code: 'invalid_policy_restore' });
     expect(sqlCalls).toHaveLength(0);
