@@ -9,7 +9,46 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-14 (Owner Operator Run D #1291 merged; recovery and checkpoint evidence recorded).
+Last updated: 2026-09-15 (Owner Operator Run E #1293 merged; post-merge deployment/readiness PASS).
+
+## Quick summary — Owner Operator Run E: Restore and policy refusals (2026-09-15, #1293)
+
+Merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z, owners can prepare receipt-derived
+Restore proposals and inspect Rules timeline; explicit Apply uses current
+authorization, readiness, confirmation and freshness checks. Clear override
+and server-only inverse state preserve row absence and exact prior policy dials.
+Closed refusal reasons persist with the winning turn and render separately from
+proposals and requested capabilities. Existing settings and refusal writers
+remain authoritative; no new agent framework is introduced.
+
+**The new shape:** `src/lib/agents/operator/restore.ts` prepares inverses;
+`restore-inputs.ts` validates receipt-derived state; `proposals.ts` reads
+paged history; `refusals.ts` owns the closed refusal map. Existing `turns.ts`
+fences completion, and the existing settings/refusal writers own mutations.
+
+The [E evidence](runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md)
+records qualified J1–J7 PASS, matched staging UI/worker deployments and completed
+SQL/Auth/queue/browser cleanup. Parent ba0c65bb full-gate PASS is historical. Closed
+semantic-warning diagnostics retain privacy without changing model behavior.
+The original J5 failure, uncaptured J6 GET key and invalid blank J7 captures
+remain disclosed. Migration 121 lockstep and alert 3993328 configuration are
+verified; alert delivery is unproven. Report commit fb66d15d changes only two
+reports (195 insertions / 7 deletions), with final certification CLEAR:
+2,437 identities; 361 killed / 2,076 excluded; all 12 findings fixed, zero open/waived.
+Round2 finalized 802 launches / 401 pairs, preserving400's target miss and401's
+same-ID second-attempt kill. Required CI34962247726 passed; deploy-install
+validly skipped. Optional Fallow failed on eight complexity findings/two clones.
+E2E34962247838 passed 30 / 54 skipped; Doctor34962247896 passed.
+The local post-report wrapper is **NOT GREEN**: four timeouts, then ten
+(14,893 passed / 1,316 skipped in 1,280.09s); remaining checks stopped.
+The owner [approved the bounded verification exception](reviews/codex-owner-operator-run-e/release-verification-approval.md).
+Feature #1293 is merged; matched staging deployment/readiness [post-merge readback](runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed on d4a96f3. `/ready` returned HTTP200 at16:49:55.515Z with PostgreSQL and both Redis connections OK; named flags are unchanged and production Operator remains UNSET. This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
+Architecture records this feature once, 2→3; the separate docs merge does not count.
+D docs #1292 merged as `30896acbcb2ee127131504e531f230fcfc7e4409`, closing the
+sequencing dependency. Its shortened observation remains unchanged; the pilot
+owner/window remains BLOCKED-human and production Operator enablement remains
+a separate human decision. The [spec §15](roadmap/2026-09-11-owner-operator/README.md#15-review-log)
+owns the feature merge and the remaining documentation/deployment status.
 
 ## Quick summary — Owner Operator Run D: recoverable turns and checkpoint closure (2026-09-14, #1291)
 

@@ -1,0 +1,56 @@
+2026-09-15T10:20:35.997Z
+- alert: Sign in to RepWorth
+- link "Skip to content":
+  - /url: "#main-content"
+- main:
+  - generic: ★★★★★
+  - generic: ★★★★☆
+  - generic: ★★★★★
+  - generic: ★★★★★
+  - generic: New 5★ from Marisol B.
+  - generic: Reply posted to Google
+  - generic: RepWorth
+  - generic: Welcome back
+  - heading "Welcome back. Your inbox is quiet ." [level=2]:
+    - text: Welcome back. Your
+    - emphasis: inbox is quiet
+    - text: .
+  - paragraph: Sign in to review the replies waiting for you.
+  - generic: Marisol B.
+  - generic: ★★★★★
+  - paragraph: “Best haircut I've had in years. Sofia really listened.”
+  - generic: Drafted · 12s ago
+  - text: Marisol, thank you so much! Sofia will be thrilled. We'd love to see you again soon.
+  - generic: Daniel K.
+  - generic: ★★★★☆
+  - paragraph: “Friendly staff, great vibe. Coffee a little slow today.”
+  - generic: Every review
+  - generic: gets a drafted reply
+  - generic: You approve
+  - generic: before anything posts
+  - generic: Your voice
+  - generic: learned from your edits
+  - generic: ★★★★★ replied!
+  - navigation "Sign in or create an account":
+    - button "Sign in"
+    - button "Create account"
+  - heading "Sign in to RepWorth" [level=1]
+  - paragraph: Pick up where you left off.
+  - button "Continue with Google":
+    - text: Continue with Google
+  - generic: or with email
+  - generic: Email
+  - textbox "Email":
+    - /placeholder: you@yourshop.com
+  - generic: Password
+  - textbox "Password":
+    - /placeholder: ••••••••
+  - button "Show password":
+  - link "Forgot password?":
+    - /url: /forgot-password
+  - button "Sign in":
+    - text: Sign in
+  - paragraph:
+    - text: New to RepWorth?
+    - link "Create an account":
+      - /url: /signup

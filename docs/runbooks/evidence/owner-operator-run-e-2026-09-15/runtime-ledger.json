@@ -1,0 +1,455 @@
+{
+  "startedAt": {
+    "current_time": "2026-09-15 08:48:57 UTC"
+  },
+  "account": "019f43e0-0000-7000-8000-000000000001",
+  "auth": {
+    "id": "ac02a2a9-98b7-4fdf-9957-560d387759e1",
+    "email": "run-e-019f43e0@e2e.repworth.net",
+    "state": "COMPLETE; removed and independently absent at 2026-09-15T10:30:34.132786Z"
+  },
+  "seed": "COMPLETE; independent final scope readback zero at 2026-09-15T10:30:34.132786Z. Historical creation: public owner ...0002; Salon ...0011; Cafe ...0012; initial Cafe policy ...0013; all under account prefix019f43e0-0000-7000-8000. Created 2026-09-15 around08:49UTC via guarded seed.",
+  "manualPolicy": {"id":"019f43e0-0000-7000-8000-000000000014","state":"COMPLETE; deleted during J3 and absent from final scoped closure; created2026-09-15T08:59:19.793454Z","purpose":"J3 manual/null threshold,30 minute veto,2 daily cap; synthetic setup only"},
+  "manualAccountDefault": {"id":"019f43e0-0000-7000-8000-000000000015","accountId":"019f43e0-0000-7000-8000-000000000001","locationId":null,"state":"COMPLETE; exact deletion and independent absence verified2026-09-15T10:30:34.132786Z; created2026-09-15T09:06:34.722232Z","purpose":"J3 equal manual/null,30,2 inherited dials isolate row restoration without expansion"},
+  "settingsBrowser": {"tab":"6","url":"https://staging.repworth.net/settings/voice","state":"CLOSED; unused, no edit; closed during D-4 viewport target correction before J3 inverse Apply"},
+  "settingsBrowserJ4": {"tab":"7","url":"https://staging.repworth.net/settings/voice","state":"CLOSED after existing form Save; Salon tone calm and precise saved2026-09-15T09:20:07.162306Z"},
+  "j4": {
+    "state": "PASS; runtime rows cleanup COMPLETE; independent final readback zero2026-09-15T10:30:34.132786Z",
+    "locationId": "019f43e0-0000-7000-8000-000000000011",
+    "sourceProposalId": "cd6545b9-8311-4a30-87de-902c14de773d",
+    "staleProposalId": "d6df12b3-4d5b-4604-95d3-4f14d78c2ddd",
+    "settingsSave": {"tone":"calm and precise","updatedAt":"2026-09-15T09:20:07.162306Z","method":"existing voice settings form in tab7"},
+    "staleResult": {"status":"stale","failureReason":"version_mismatch","receipt":null,"appliedAt":null,"accountAuditCount":4},
+    "refreshedProposalId": "3e5bc49a-10de-433f-893f-61b51c4eb031",
+    "refreshedApply": {"beforeTone":"calm and precise","afterTone":"warm and concise","appliedAt":"2026-09-15T09:21:32.085Z","receiptPersisted":true,"differsFromPreview":false},
+    "evidence": ["snapshot10-stale-restore.json","snapshot11-model-undo-pending.json","run-e-j4-settings-saved.txt","run-e-j4-refreshed-plan.txt","run-e-j4-stale-1440.png","run-e-j4-stale-390.png"]
+  },
+  "j5": {
+    "state": "ORIGINAL TURN FAILED, preserved; runtime rows cleanup COMPLETE; independent final readback zero2026-09-15T10:30:34.132786Z. Subsequent complete journey passed in j5Retry; behavioral release blocker resolved by root/spec adjudication, not a model or diagnostic fix. Original semantic reason remains unknown.",
+    "turnId": "01a0a45f-8470-752a-8e23-1c43e9486596",
+    "clientTurnKey": "19d28ba6-f83e-4def-b224-be343aaa8737",
+    "ownerText": "Undo my last change for Salon.",
+    "locationId": "019f43e0-0000-7000-8000-000000000011",
+    "completedAt": "2026-09-15T09:22:07.379987Z",
+    "failureReason": "model_output_invalid",
+    "modelAttempts": 2,
+    "semanticReasonCounts": [1,1],
+    "outboxId": "01a0a45f-8573-70ff-b748-c7f0f1372bea",
+    "outboxStatus": "completed",
+    "loggedWorkerJobId": "01a0a45f-8573-70ff-b748-c7f0f1372bea_1",
+    "costIds": ["01a0a45f-9dba-73bb-abdb-d6073d2d73eb","01a0a45f-a726-76f9-9a03-104b98aaeb2a"],
+    "provider": "openai",
+    "endpoint": "owner-operator",
+    "totalCostUsd": 0.001355,
+    "proposalIds": [],
+    "evidence": ["snapshot11-model-undo-pending.json","j5-model-undo-validation-failure.json","run-e-j5-undo-error-390.png","run-e-j5-error-readback.txt"]
+  },
+  "j5Retry": {
+    "state": "PASS for subsequent complete journey; original j5 failure retained separately; runtime rows cleanup COMPLETE; independent final readback zero2026-09-15T10:30:34.132786Z",
+    "candidate": "690a8792efebc2f0f791653d4f73fdaa9bb660da",
+    "turnId": "01a0a476-18ef-761f-a0ef-eeef13791e81",
+    "clientTurnKey": "1271cb6d-0492-4bdf-b93c-7c360400c679",
+    "ownerText": "Undo my last change for Salon.",
+    "comparisonLimit": "Same owner text, different snapshot/history after intervening genuine Restore Applies; original semantic reason unknown; no model reliability fix inferred",
+    "completedAt": "2026-09-15T09:46:46.762672Z",
+    "attempt": 1,
+    "modelCostRows": 1,
+    "proposalId": "d78176b0-8630-4893-988f-88a7d62c4edd",
+    "sourceProposalId": "42db9740-347b-4941-bc35-807388a8a3cc",
+    "locationId": "019f43e0-0000-7000-8000-000000000011",
+    "appliedAt": "2026-09-15T09:48:59.014Z",
+    "beforeTone": "warm and concise",
+    "afterTone": "calm and precise",
+    "finalMobileReloadAt": "2026-09-15T09:50:35Z",
+    "costId": "01a0a476-39d5-7245-b62b-9a580bccca90",
+    "costUsd": 0.000691,
+    "provider": "openai",
+    "endpoint": "owner-operator",
+    "outboxId": "01a0a476-1a0c-7267-853b-87ae694c3bac",
+    "outboxStatus": "completed",
+    "redisJobId": "01a0a476-1a0c-7267-853b-87ae694c3bac_1",
+    "evidence": ["snapshot13-diagnostic-undo.json","snapshot14-diagnostic-undo-applied.json","diagnostic-deployments-690a8792.json","run-e-j5-retry-pending-1440.png","run-e-j5-retry-card-1440.png","run-e-j5-retry-card-390.png","run-e-j5-applied-reload-readback.txt"]
+  },
+  "j7KnownReceipts": {
+    "state": "PASS pagination/location/reload in j7; earlier evidence retained; row cleanup COMPLETE",
+    "locationId": "019f43e0-0000-7000-8000-000000000011",
+    "turnId": "01a0a443-7a8b-721f-8628-463813414ecd",
+    "rows": [
+      {"id":"f1bcd746-2a1a-4e19-a8e4-5d40beeb938f","sourceProposalId":"3e5bc49a-10de-433f-893f-61b51c4eb031","appliedAt":"2026-09-15T09:37:57.410Z"},
+      {"id":"2b3b4da3-25b9-494f-9c05-f379ed0dcb8a","sourceProposalId":"f1bcd746-2a1a-4e19-a8e4-5d40beeb938f","appliedAt":"2026-09-15T09:41:39.100Z"},
+      {"id":"39ef1401-2c22-4de0-9a7f-29bc53ded26f","sourceProposalId":"2b3b4da3-25b9-494f-9c05-f379ed0dcb8a","appliedAt":"2026-09-15T09:43:11.481Z"},
+      {"id":"42db9740-347b-4941-bc35-807388a8a3cc","sourceProposalId":"39ef1401-2c22-4de0-9a7f-29bc53ded26f","appliedAt":"2026-09-15T09:45:43.005Z"}
+    ],
+    "evidence": "snapshot14-diagnostic-undo-applied.json"
+  },
+  "j6": {
+    "state": "PASS for durable refusal, no writer mutation, reload and Restraint projection; direct GET refused key not independently network-captured; runtime rows cleanup COMPLETE; independent final readback zero2026-09-15T10:30:34.132786Z",
+    "turnId": "01a0a462-0724-759a-9632-fa904ab8f4e4",
+    "clientTurnKey": "9f675da1-7f8e-4793-839b-c354697dad49",
+    "ownerText": "say we are licensed",
+    "locationId": "019f43e0-0000-7000-8000-000000000011",
+    "completedAt": "2026-09-15T09:24:50.629265+00:00",
+    "refusalSubjectId": "ba6d3f83-e9c3-4366-a745-845eee37525c",
+    "refusalEventId": "01a0a462-2584-76c9-8f26-e64e3ac14b6d",
+    "refusalCode": "invented_business_fact",
+    "refusalSource": "operator_content_refused",
+    "refusalCategory": "request_not_allowed",
+    "subjectType": "operator_refusal",
+    "occurredAt": "2026-09-15T09:24:50.629265+00:00",
+    "refusalCreatedAt": "2026-09-15T09:24:50.629265+00:00",
+    "proposalCountBeforeAfter": [10,10],
+    "unsupportedRequestCount": 0,
+    "accountAuditCount": 4,
+    "costId": "01a0a462-24b8-7115-bc2d-0d220dc7f1ec",
+    "provider": "openai",
+    "endpoint": "owner-operator",
+    "costUsd": 0.000638,
+    "outboxId": "01a0a462-0840-742f-b1ee-ab162defbe36",
+    "outboxStatus": "completed",
+    "redisJobId": "01a0a462-0840-742f-b1ee-ab162defbe36_1",
+    "evidence": ["snapshot12-licensed-refusal.json","run-e-j6-refusal-390.png","run-e-j6-refusal-reload-1440.png","run-e-j6-reload-readback.txt","run-e-j6-restraint-1440.png","run-e-j6-restraint-390.png","run-e-j6-restraint-readback.txt"]
+  },
+  "j7": {"state": "PASS; cleanup COMPLETE; full gate GREEN at ba0c65bb; 802-launch measurement finalized; canonical checker CLEAR; feature merged under owner approval; post-merge/docs PENDING", "snapshot": "snapshot-15-history-complete.json", "salonFirstPageCount": 25, "salonLoadedCount": 26, "uniqueLoadedCount": 26, "firstAndLoadedMatchSqlOrder": true, "cafeCount": 4, "returnAndReloadSameFirst25": true, "reloadAt": "2026-09-15T10:08:56.193Z", "loadOlderButtonCountAfterReload": 1, "reconciliation": "run-e-j7-browser-pairs-reconciled.json"},
+  "snapshot15RuntimeManifest": {"state": "COMPLETE; observed snapshot IDs preserved; final FK closure, exact deletion and independent zero readback recorded in cleanup", "source": "snapshot-15-history-complete.json", "counts": {"api_costs": 8, "businesses": 2, "job_outbox": 7, "agent_turns": 7, "refusal_events": 1, "agent_proposals": 33, "analytics_events": 0, "account_audit_log": 4, "agent_conversations": 1, "auto_approval_policies": 1, "agent_unsupported_requests": 0}, "proposalStatusCounts": {"applied": 30, "rejected": 2, "stale": 1}, "tableIds": {"api_costs": ["01a0a443-8ad7-743e-84d0-b12119ebed41", "01a0a448-56f9-7319-8157-764eff1dc836", "01a0a44c-77cb-72b4-9708-e6cf352a9dae", "01a0a452-08c2-7523-ad24-3e153b0137f9", "01a0a45f-9dba-73bb-abdb-d6073d2d73eb", "01a0a45f-a726-76f9-9a03-104b98aaeb2a", "01a0a462-24b8-7115-bc2d-0d220dc7f1ec", "01a0a476-39d5-7245-b62b-9a580bccca90"], "businesses": ["019f43e0-0000-7000-8000-000000000011", "019f43e0-0000-7000-8000-000000000012"], "job_outbox": ["01a0a443-7b8f-747d-8853-4f2147dd1a28", "01a0a448-42bf-728f-aaa1-d7e39a3631f7", "01a0a44c-5ea1-714b-92f4-fee2f6987dac", "01a0a451-efea-769b-b547-df6c6752e002", "01a0a45f-8573-70ff-b748-c7f0f1372bea", "01a0a462-0840-742f-b1ee-ab162defbe36", "01a0a476-1a0c-7267-853b-87ae694c3bac"], "agent_turns": ["01a0a443-7a8b-721f-8628-463813414ecd", "01a0a448-41da-71cb-98f0-9c850ada3f95", "01a0a44c-5db9-7589-9d12-4186c84417c8", "01a0a451-eefd-71ad-8956-20ed0cd5b994", "01a0a45f-8470-752a-8e23-1c43e9486596", "01a0a462-0724-759a-9632-fa904ab8f4e4", "01a0a476-18ef-761f-a0ef-eeef13791e81"], "refusal_events": ["01a0a462-2584-76c9-8f26-e64e3ac14b6d"], "agent_proposals": ["01a0a443-8b57-710c-ae30-d2c869e266b7", "01a0a448-58b8-724e-b57c-5575f99bce29", "01a0a44c-796b-775c-ae39-3d2b0d513585", "01a0a452-0a5e-7399-a197-29cff0698783", "0833faa0-1095-4dd4-be14-77ea158f5394", "09e8c862-23e5-4f66-9c6d-7c8cf4421311", "0e879dbc-a085-40c5-8e77-8fa429b2af45", "285e1ea4-5d3d-43f1-87c8-a2bf74774a61", "2a72d1ee-696a-4e76-a1f1-47612b76f9d5", "2b3b4da3-25b9-494f-9c05-f379ed0dcb8a", "2ecfa539-13b7-4b82-bde4-57d9e01e851b", "2fe763fd-383e-4e8e-b7ca-60e8fa982cdc", "39ef1401-2c22-4de0-9a7f-29bc53ded26f", "3a7d4587-3bcc-4d14-be74-50c8c991ce30", "3e5bc49a-10de-433f-893f-61b51c4eb031", "42db9740-347b-4941-bc35-807388a8a3cc", "439416bd-2263-46be-bd06-fdfed11a5f70", "4b094a8f-2b1e-491e-a20f-1fa6c614915d", "64c9c0fb-f33d-4d37-a271-ff3d6e8ffab8", "67e42bdd-099e-44ab-80a0-56729e4c2985", "733b9d90-1bcd-4a68-970e-ee6fb4a0dd6a", "75619271-fec4-48fb-9d42-3612e100484c", "8ec4e166-fd5e-4234-9e7f-7dfd579dfb72", "96fa1d05-13c7-4e84-b6ae-900ab31ecc3b", "9f201565-ae40-414f-ad07-54ca2cfcecab", "cd6545b9-8311-4a30-87de-902c14de773d", "d11f2b68-20cd-46cd-81fe-39aaf2c8ec87", "d4215329-6e11-441c-a9eb-594f72d83e41", "d6df12b3-4d5b-4604-95d3-4f14d78c2ddd", "d78176b0-8630-4893-988f-88a7d62c4edd", "d94539a4-225e-4755-87f5-532f97de3c34", "ec2e94b0-8b1d-4414-a1bd-1d231737e229", "f1bcd746-2a1a-4e19-a8e4-5d40beeb938f"], "analytics_events": [], "account_audit_log": ["01a0a448-a471-7590-86b2-d46b315036b3", "01a0a452-b22c-716d-9cab-361e12ac91df", "01a0a454-ec1a-7436-8da5-b33f29d54a98", "01a0a45b-fa54-72f1-94a0-01be85f76fb8"], "agent_conversations": ["4ce54711-a9eb-4b3d-82d0-be8ddff3d574"], "auto_approval_policies": ["019f43e0-0000-7000-8000-000000000015"], "agent_unsupported_requests": []}, "proposalStates": [{"id": "01a0a443-8b57-710c-ae30-d2c869e266b7", "status": "applied", "appliedAt": "2026-09-15T08:53:07.333+00:00", "sourceProposalId": null, "supersededBy": null}, {"id": "01a0a448-58b8-724e-b57c-5575f99bce29", "status": "applied", "appliedAt": "2026-09-15T08:57:00.253+00:00", "sourceProposalId": null, "supersededBy": null}, {"id": "01a0a44c-796b-775c-ae39-3d2b0d513585", "status": "rejected", "appliedAt": null, "sourceProposalId": null, "supersededBy": null}, {"id": "01a0a452-0a5e-7399-a197-29cff0698783", "status": "applied", "appliedAt": "2026-09-15T09:07:59.062+00:00", "sourceProposalId": null, "supersededBy": null}, {"id": "0833faa0-1095-4dd4-be14-77ea158f5394", "status": "applied", "appliedAt": "2026-09-15T09:55:43.067+00:00", "sourceProposalId": "d11f2b68-20cd-46cd-81fe-39aaf2c8ec87", "supersededBy": null}, {"id": "09e8c862-23e5-4f66-9c6d-7c8cf4421311", "status": "applied", "appliedAt": "2026-09-15T09:55:02.101+00:00", "sourceProposalId": "285e1ea4-5d3d-43f1-87c8-a2bf74774a61", "supersededBy": null}, {"id": "0e879dbc-a085-40c5-8e77-8fa429b2af45", "status": "rejected", "appliedAt": null, "sourceProposalId": "01a0a448-58b8-724e-b57c-5575f99bce29", "supersededBy": null}, {"id": "285e1ea4-5d3d-43f1-87c8-a2bf74774a61", "status": "applied", "appliedAt": "2026-09-15T09:54:54.616+00:00", "sourceProposalId": "2fe763fd-383e-4e8e-b7ca-60e8fa982cdc", "supersededBy": null}, {"id": "2a72d1ee-696a-4e76-a1f1-47612b76f9d5", "status": "applied", "appliedAt": "2026-09-15T09:52:40.032+00:00", "sourceProposalId": "733b9d90-1bcd-4a68-970e-ee6fb4a0dd6a", "supersededBy": null}, {"id": "2b3b4da3-25b9-494f-9c05-f379ed0dcb8a", "status": "applied", "appliedAt": "2026-09-15T09:41:39.1+00:00", "sourceProposalId": "f1bcd746-2a1a-4e19-a8e4-5d40beeb938f", "supersededBy": null}, {"id": "2ecfa539-13b7-4b82-bde4-57d9e01e851b", "status": "applied", "appliedAt": "2026-09-15T09:55:50.773+00:00", "sourceProposalId": "0833faa0-1095-4dd4-be14-77ea158f5394", "supersededBy": null}, {"id": "2fe763fd-383e-4e8e-b7ca-60e8fa982cdc", "status": "applied", "appliedAt": "2026-09-15T09:53:43.794+00:00", "sourceProposalId": "439416bd-2263-46be-bd06-fdfed11a5f70", "supersededBy": null}, {"id": "39ef1401-2c22-4de0-9a7f-29bc53ded26f", "status": "applied", "appliedAt": "2026-09-15T09:43:11.481+00:00", "sourceProposalId": "2b3b4da3-25b9-494f-9c05-f379ed0dcb8a", "supersededBy": null}, {"id": "3a7d4587-3bcc-4d14-be74-50c8c991ce30", "status": "applied", "appliedAt": "2026-09-15T09:10:24.99+00:00", "sourceProposalId": "01a0a452-0a5e-7399-a197-29cff0698783", "supersededBy": null}, {"id": "3e5bc49a-10de-433f-893f-61b51c4eb031", "status": "applied", "appliedAt": "2026-09-15T09:21:32.085+00:00", "sourceProposalId": "cd6545b9-8311-4a30-87de-902c14de773d", "supersededBy": null}, {"id": "42db9740-347b-4941-bc35-807388a8a3cc", "status": "applied", "appliedAt": "2026-09-15T09:45:43.005+00:00", "sourceProposalId": "39ef1401-2c22-4de0-9a7f-29bc53ded26f", "supersededBy": null}, {"id": "439416bd-2263-46be-bd06-fdfed11a5f70", "status": "applied", "appliedAt": "2026-09-15T09:53:36.533+00:00", "sourceProposalId": "d94539a4-225e-4755-87f5-532f97de3c34", "supersededBy": null}, {"id": "4b094a8f-2b1e-491e-a20f-1fa6c614915d", "status": "applied", "appliedAt": "2026-09-15T09:18:07.547+00:00", "sourceProposalId": "3a7d4587-3bcc-4d14-be74-50c8c991ce30", "supersededBy": null}, {"id": "64c9c0fb-f33d-4d37-a271-ff3d6e8ffab8", "status": "applied", "appliedAt": "2026-09-15T09:56:14.534+00:00", "sourceProposalId": "2ecfa539-13b7-4b82-bde4-57d9e01e851b", "supersededBy": null}, {"id": "67e42bdd-099e-44ab-80a0-56729e4c2985", "status": "applied", "appliedAt": "2026-09-15T09:56:49.121+00:00", "sourceProposalId": "96fa1d05-13c7-4e84-b6ae-900ab31ecc3b", "supersededBy": null}, {"id": "733b9d90-1bcd-4a68-970e-ee6fb4a0dd6a", "status": "applied", "appliedAt": "2026-09-15T09:52:10.022+00:00", "sourceProposalId": "d78176b0-8630-4893-988f-88a7d62c4edd", "supersededBy": null}, {"id": "75619271-fec4-48fb-9d42-3612e100484c", "status": "applied", "appliedAt": "2026-09-15T09:57:27.039+00:00", "sourceProposalId": "67e42bdd-099e-44ab-80a0-56729e4c2985", "supersededBy": null}, {"id": "8ec4e166-fd5e-4234-9e7f-7dfd579dfb72", "status": "applied", "appliedAt": "2026-09-15T09:57:34.832+00:00", "sourceProposalId": "75619271-fec4-48fb-9d42-3612e100484c", "supersededBy": null}, {"id": "96fa1d05-13c7-4e84-b6ae-900ab31ecc3b", "status": "applied", "appliedAt": "2026-09-15T09:56:41.785+00:00", "sourceProposalId": "ec2e94b0-8b1d-4414-a1bd-1d231737e229", "supersededBy": null}, {"id": "9f201565-ae40-414f-ad07-54ca2cfcecab", "status": "applied", "appliedAt": "2026-09-15T09:58:08.184+00:00", "sourceProposalId": "d4215329-6e11-441c-a9eb-594f72d83e41", "supersededBy": null}, {"id": "cd6545b9-8311-4a30-87de-902c14de773d", "status": "applied", "appliedAt": "2026-09-15T08:54:58.941+00:00", "sourceProposalId": "01a0a443-8b57-710c-ae30-d2c869e266b7", "supersededBy": null}, {"id": "d11f2b68-20cd-46cd-81fe-39aaf2c8ec87", "status": "applied", "appliedAt": "2026-09-15T09:55:10.159+00:00", "sourceProposalId": "09e8c862-23e5-4f66-9c6d-7c8cf4421311", "supersededBy": null}, {"id": "d4215329-6e11-441c-a9eb-594f72d83e41", "status": "applied", "appliedAt": "2026-09-15T09:58:00.217+00:00", "sourceProposalId": "8ec4e166-fd5e-4234-9e7f-7dfd579dfb72", "supersededBy": null}, {"id": "d6df12b3-4d5b-4604-95d3-4f14d78c2ddd", "status": "stale", "appliedAt": null, "sourceProposalId": "cd6545b9-8311-4a30-87de-902c14de773d", "supersededBy": null}, {"id": "d78176b0-8630-4893-988f-88a7d62c4edd", "status": "applied", "appliedAt": "2026-09-15T09:48:59.014+00:00", "sourceProposalId": "42db9740-347b-4941-bc35-807388a8a3cc", "supersededBy": null}, {"id": "d94539a4-225e-4755-87f5-532f97de3c34", "status": "applied", "appliedAt": "2026-09-15T09:52:47.414+00:00", "sourceProposalId": "2a72d1ee-696a-4e76-a1f1-47612b76f9d5", "supersededBy": null}, {"id": "ec2e94b0-8b1d-4414-a1bd-1d231737e229", "status": "applied", "appliedAt": "2026-09-15T09:56:23.514+00:00", "sourceProposalId": "64c9c0fb-f33d-4d37-a271-ff3d6e8ffab8", "supersededBy": null}, {"id": "f1bcd746-2a1a-4e19-a8e4-5d40beeb938f", "status": "applied", "appliedAt": "2026-09-15T09:37:57.41+00:00", "sourceProposalId": "3e5bc49a-10de-433f-893f-61b51c4eb031", "supersededBy": null}], "clientKeys": ["a7c52bd2-3790-4959-8718-0115953376c6", "5b51b9b4-24d8-4877-995a-2a51e50155f8", "847d7926-18b8-45ce-9946-138312bc34b2", "087ba488-3b86-4c83-9c19-3a845fa5b308", "19d28ba6-f83e-4def-b224-be343aaa8737", "9f675da1-7f8e-4793-839b-c354697dad49", "1271cb6d-0492-4bdf-b93c-7c360400c679"], "refusalSubjects": ["ba6d3f83-e9c3-4366-a745-845eee37525c"], "outboxReferences": [{"id": "01a0a443-7b8f-747d-8853-4f2147dd1a28", "aggregateId": "01a0a443-7a8b-721f-8628-463813414ecd", "payload": {"turn_id": "01a0a443-7a8b-721f-8628-463813414ecd", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a448-42bf-728f-aaa1-d7e39a3631f7", "aggregateId": "01a0a448-41da-71cb-98f0-9c850ada3f95", "payload": {"turn_id": "01a0a448-41da-71cb-98f0-9c850ada3f95", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a44c-5ea1-714b-92f4-fee2f6987dac", "aggregateId": "01a0a44c-5db9-7589-9d12-4186c84417c8", "payload": {"turn_id": "01a0a44c-5db9-7589-9d12-4186c84417c8", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a451-efea-769b-b547-df6c6752e002", "aggregateId": "01a0a451-eefd-71ad-8956-20ed0cd5b994", "payload": {"turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a45f-8573-70ff-b748-c7f0f1372bea", "aggregateId": "01a0a45f-8470-752a-8e23-1c43e9486596", "payload": {"turn_id": "01a0a45f-8470-752a-8e23-1c43e9486596", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a462-0840-742f-b1ee-ab162defbe36", "aggregateId": "01a0a462-0724-759a-9632-fa904ab8f4e4", "payload": {"turn_id": "01a0a462-0724-759a-9632-fa904ab8f4e4", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}, {"id": "01a0a476-1a0c-7267-853b-87ae694c3bac", "aggregateId": "01a0a476-18ef-761f-a0ef-eeef13791e81", "payload": {"turn_id": "01a0a476-18ef-761f-a0ef-eeef13791e81", "account_id": "019f43e0-0000-7000-8000-000000000001", "conversation_id": "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"}, "status": "completed"}]},
+  "cleanup": {
+    "state": "COMPLETE",
+    "independentDatabaseReadbackAt": "2026-09-15T10:30:34.132786+00:00",
+    "runtimeEndedAtApprox": "2026-09-15T10:34:00Z",
+    "project": "kubdiqdhqbhwmqfditeg",
+    "scope": "Exact Run E synthetic fixture only; production never a fixture target",
+    "publicRowsDeleted": 67,
+    "publicTables": 12,
+    "publicDeletionManifest": [
+      {
+        "table_name": "public.account_audit_log",
+        "deleted_count": 4,
+        "deleted_ids": [
+          "01a0a448-a471-7590-86b2-d46b315036b3",
+          "01a0a452-b22c-716d-9cab-361e12ac91df",
+          "01a0a454-ec1a-7436-8da5-b33f29d54a98",
+          "01a0a45b-fa54-72f1-94a0-01be85f76fb8"
+        ]
+      },
+      {
+        "table_name": "public.accounts",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "019f43e0-0000-7000-8000-000000000001"
+        ]
+      },
+      {
+        "table_name": "public.agent_conversations",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "4ce54711-a9eb-4b3d-82d0-be8ddff3d574"
+        ]
+      },
+      {
+        "table_name": "public.agent_proposals",
+        "deleted_count": 33,
+        "deleted_ids": [
+          "01a0a443-8b57-710c-ae30-d2c869e266b7",
+          "01a0a448-58b8-724e-b57c-5575f99bce29",
+          "01a0a44c-796b-775c-ae39-3d2b0d513585",
+          "01a0a452-0a5e-7399-a197-29cff0698783",
+          "0833faa0-1095-4dd4-be14-77ea158f5394",
+          "09e8c862-23e5-4f66-9c6d-7c8cf4421311",
+          "0e879dbc-a085-40c5-8e77-8fa429b2af45",
+          "285e1ea4-5d3d-43f1-87c8-a2bf74774a61",
+          "2a72d1ee-696a-4e76-a1f1-47612b76f9d5",
+          "2b3b4da3-25b9-494f-9c05-f379ed0dcb8a",
+          "2ecfa539-13b7-4b82-bde4-57d9e01e851b",
+          "2fe763fd-383e-4e8e-b7ca-60e8fa982cdc",
+          "39ef1401-2c22-4de0-9a7f-29bc53ded26f",
+          "3a7d4587-3bcc-4d14-be74-50c8c991ce30",
+          "3e5bc49a-10de-433f-893f-61b51c4eb031",
+          "42db9740-347b-4941-bc35-807388a8a3cc",
+          "439416bd-2263-46be-bd06-fdfed11a5f70",
+          "4b094a8f-2b1e-491e-a20f-1fa6c614915d",
+          "64c9c0fb-f33d-4d37-a271-ff3d6e8ffab8",
+          "67e42bdd-099e-44ab-80a0-56729e4c2985",
+          "733b9d90-1bcd-4a68-970e-ee6fb4a0dd6a",
+          "75619271-fec4-48fb-9d42-3612e100484c",
+          "8ec4e166-fd5e-4234-9e7f-7dfd579dfb72",
+          "96fa1d05-13c7-4e84-b6ae-900ab31ecc3b",
+          "9f201565-ae40-414f-ad07-54ca2cfcecab",
+          "cd6545b9-8311-4a30-87de-902c14de773d",
+          "d11f2b68-20cd-46cd-81fe-39aaf2c8ec87",
+          "d4215329-6e11-441c-a9eb-594f72d83e41",
+          "d6df12b3-4d5b-4604-95d3-4f14d78c2ddd",
+          "d78176b0-8630-4893-988f-88a7d62c4edd",
+          "d94539a4-225e-4755-87f5-532f97de3c34",
+          "ec2e94b0-8b1d-4414-a1bd-1d231737e229",
+          "f1bcd746-2a1a-4e19-a8e4-5d40beeb938f"
+        ]
+      },
+      {
+        "table_name": "public.agent_turns",
+        "deleted_count": 7,
+        "deleted_ids": [
+          "01a0a443-7a8b-721f-8628-463813414ecd",
+          "01a0a448-41da-71cb-98f0-9c850ada3f95",
+          "01a0a44c-5db9-7589-9d12-4186c84417c8",
+          "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+          "01a0a45f-8470-752a-8e23-1c43e9486596",
+          "01a0a462-0724-759a-9632-fa904ab8f4e4",
+          "01a0a476-18ef-761f-a0ef-eeef13791e81"
+        ]
+      },
+      {
+        "table_name": "public.api_costs",
+        "deleted_count": 8,
+        "deleted_ids": [
+          "01a0a443-8ad7-743e-84d0-b12119ebed41",
+          "01a0a448-56f9-7319-8157-764eff1dc836",
+          "01a0a44c-77cb-72b4-9708-e6cf352a9dae",
+          "01a0a452-08c2-7523-ad24-3e153b0137f9",
+          "01a0a45f-9dba-73bb-abdb-d6073d2d73eb",
+          "01a0a45f-a726-76f9-9a03-104b98aaeb2a",
+          "01a0a462-24b8-7115-bc2d-0d220dc7f1ec",
+          "01a0a476-39d5-7245-b62b-9a580bccca90"
+        ]
+      },
+      {
+        "table_name": "public.auto_approval_policies",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "019f43e0-0000-7000-8000-000000000015"
+        ]
+      },
+      {
+        "table_name": "public.businesses",
+        "deleted_count": 2,
+        "deleted_ids": [
+          "019f43e0-0000-7000-8000-000000000011",
+          "019f43e0-0000-7000-8000-000000000012"
+        ]
+      },
+      {
+        "table_name": "public.channel_enrollments",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "01a0a448-dcea-737b-9d05-286deff8efbe"
+        ]
+      },
+      {
+        "table_name": "public.job_outbox",
+        "deleted_count": 7,
+        "deleted_ids": [
+          "01a0a443-7b8f-747d-8853-4f2147dd1a28",
+          "01a0a448-42bf-728f-aaa1-d7e39a3631f7",
+          "01a0a44c-5ea1-714b-92f4-fee2f6987dac",
+          "01a0a451-efea-769b-b547-df6c6752e002",
+          "01a0a45f-8573-70ff-b748-c7f0f1372bea",
+          "01a0a462-0840-742f-b1ee-ab162defbe36",
+          "01a0a476-1a0c-7267-853b-87ae694c3bac"
+        ]
+      },
+      {
+        "table_name": "public.refusal_events",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "01a0a462-2584-76c9-8f26-e64e3ac14b6d"
+        ]
+      },
+      {
+        "table_name": "public.users",
+        "deleted_count": 1,
+        "deleted_ids": [
+          "019f43e0-0000-7000-8000-000000000002"
+        ]
+      }
+    ],
+    "authId": "ac02a2a9-98b7-4fdf-9957-560d387759e1",
+    "authIdentityId": "571ad316-f7ef-4727-b51c-27addbb89331",
+    "authReadback": {
+      "users": 0,
+      "sessions": 0,
+      "identities": 0,
+      "refresh_tokens": 0,
+      "old_session_amr_claims": 0
+    },
+    "logicalReferenceTablesRemaining": [],
+    "queueJobs": [
+      {
+        "id": "01a0a476-1a0c-7267-853b-87ae694c3bac_1",
+        "turn_id": "01a0a476-18ef-761f-a0ef-eeef13791e81",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a462-0840-742f-b1ee-ab162defbe36_1",
+        "turn_id": "01a0a462-0724-759a-9632-fa904ab8f4e4",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a45f-8573-70ff-b748-c7f0f1372bea_1",
+        "turn_id": "01a0a45f-8470-752a-8e23-1c43e9486596",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a451-efea-769b-b547-df6c6752e002_1",
+        "turn_id": "01a0a451-eefd-71ad-8956-20ed0cd5b994",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a44c-5ea1-714b-92f4-fee2f6987dac_1",
+        "turn_id": "01a0a44c-5db9-7589-9d12-4186c84417c8",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a448-42bf-728f-aaa1-d7e39a3631f7_1",
+        "turn_id": "01a0a448-41da-71cb-98f0-9c850ada3f95",
+        "previously_missing": true,
+        "absent": true
+      },
+      {
+        "id": "01a0a443-7b8f-747d-8853-4f2147dd1a28_1",
+        "turn_id": "01a0a443-7a8b-721f-8628-463813414ecd",
+        "previously_missing": true,
+        "absent": true
+      }
+    ],
+    "queueIndependentReadbackAt": "2026-09-15T10:26:07.230Z",
+    "browser": "Root reset viewport and closed tab5 at approximately10:34Z; tab list contains only pre-existing3/4; tabs6/7 already closed",
+    "workerFlags": "Named baseline unchanged; cleanup-final-worker-flags.json at10:33:18.935894Z; UI auto-approval value remains unavailable",
+    "discoveryCorrection": "Shared nil UUID was excluded from logical roots before reviewed cleanup; unrelated discovered rows were never deletion candidates; only final scoped69-row inventory retained",
+    "evidence": [
+      "run-e-queue-before-cleanup.json",
+      "run-e-queue-cleanup-result.json",
+      "run-e-queue-cleanup-readback.json",
+      "run-e-signed-out.txt",
+      "run-e-cleanup-final-closure.json",
+      "run-e-public-cleanup-rehearsal-result.json",
+      "run-e-public-cleanup-commit-result.json",
+      "run-e-auth-cleanup-result.json",
+      "run-e-cleanup-final-readback.json",
+      "cleanup-final-worker-flags.json"
+    ],
+    "hashManifest": "run-e-cleanup-artifact-sha256.json",
+    "remainingReleaseWork": [
+      "matched post-merge deployment verification",
+      "post-merge deployment verification",
+      "docs closeout"
+    ]
+  },
+  "adversarialFinalization": {
+    "state": "MEASUREMENT FINALIZED; canonical checker CLEAR; feature merged under owner local-verification approval",
+    "head": "ba0c65bb3a3665ed10a6441d27917802819ad4c1",
+    "finalizedAt": "2026-09-15T10:49:14.252Z",
+    "round": 2,
+    "launches": 802,
+    "pairs": 401,
+    "deltaIdentities": 12,
+    "deltaPairs": 13,
+    "deltaLaunches": 26,
+    "record400": "Preserved baseline799 PASS / mutant800 PASS; target-selection miss, not relabeled as kill",
+    "record401": "Same identity attempt2: baseline801 PASS / mutant802 assertion FAIL on missing-report false-success; does not prove the later-head pin-equality leg",
+    "totalInventory": 2437,
+    "killed": 361,
+    "excluded": 2076,
+    "fixedFindings": 12,
+    "openFindings": 0,
+    "riskWaivers": 0,
+    "countsStatus": "Canonical checker CLEAR; report commit fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4",
+    "processGroupsEmpty": 802,
+    "unrestored": 0,
+    "dotenvClosed": true,
+    "trackedClean": true,
+    "frozen800PrefixPreserved": true,
+    "summary": "run-e-root-finalization-802-summary.json",
+    "independentAudit": "run-e-staging-failure-review-final.json",
+    "independentAuditSha256": "0b8fa0a949fe99597685ceaada164e3c81931b506f30e95f3d5dc6ccbde095d0",
+    "remaining": [
+      "matched post-merge deployment verification",
+      "documentation PR/merge",
+      "post-merge verification"
+    ]
+  },
+  "releaseVerification": {
+    "reportCommit": "fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4",
+    "canonicalChecker": "CLEAR",
+    "currentGate": "Second primary coverage suite FAILED with10 explicit timeouts; remaining wrapper stopped exit143, no completed GREEN",
+    "focusedUnchangedTests": "27PASS/2files with coverage and one worker,26.18s; no source/assertion/timeout change",
+    "summary": "run-e-release-gate-timeout-summary.json",
+    "finalOneWorkerGate": "FAILED primary suite; wrapper interrupted after its completion",
+    "requiredPrCi": "PASS at exact fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4",
+    "featureDocsMerges": "Feature#1293 MERGED; this documentation closeout publishes the remaining records and GitHub retains its merge identity",
+    "interimFailedTestsByFile": {
+      "red-team-mutation-runner.test.ts": 5,
+      "red-team-status.test.ts": 1,
+      "admin-contract-types.test.ts": 2,
+      "review-qr.test.ts": 2
+    },
+    "githubCi": {
+      "run": 34962247726,
+      "passed": [
+        "changes",
+        "lint",
+        "test",
+        "llm-eval",
+        "build"
+      ],
+      "validSkip": [
+        "deploy-install"
+      ],
+      "optionalFallow": "FAIL;8complexity findings/2clone groups; overall workflow not entirely green"
+    },
+    "githubE2e": {
+      "run": 34962247838,
+      "state": "PASS",
+      "passed": 30,
+      "skipped": 54
+    },
+    "githubDoctor": {
+      "run": 34962247896,
+      "state": "PASS"
+    },
+    "prePush": {
+      "state": "All normal hooks PASS",
+      "guardsPassed": 1693,
+      "guardsSkipped": 6,
+      "affectedTestsPassed": 3594,
+      "log": "/private/tmp/run-e-final-feature-push.log",
+      "sha256": "a2a7ce9270a425dcc51fea33efe92845af054f75f5deaf963537a01c3e03ac7c"
+    },
+    "secondPrimarySuite": {
+      "failedTests": 10,
+      "passedTests": 14893,
+      "skippedTests": 1316,
+      "failedFiles": 4,
+      "passedFiles": 1076,
+      "skippedFiles": 110,
+      "durationSeconds": 1280.09,
+      "testExit": 1,
+      "wrapperExit": 143,
+      "identifiedProcessesAbsent": true,
+      "archive": "/private/tmp/run-e-release-gate-one-worker-fb66d15d",
+      "testLogSha256": "19e20b46316064d6735e8576340eb1f51250a892c972aadfe897e2ee34c1d51d",
+      "interruptionCorrection": "Preserved interruption.json says primary incomplete; completed test.log and test.rc1 prove primary completion before remaining wrapper was stopped"
+    },
+    "thirdRerun": "NONE",
+    "ownerException": "APPROVED explicitly2026-09-15; existing passing GitHub checks and prior full local pass on identical application/test code accepted; failed local gates unchanged, no product-risk waiver",
+    "approvalDocument": "../../reviews/codex-owner-operator-run-e/release-verification-approval.md",
+    "originalProposalDocument": "../../reviews/codex-owner-operator-run-e/release-verification-exception-proposal.md",
+    "originalProposalStatus": "PROPOSED ONLY preserved as historical text; separate approval active",
+    "featureMerge": {
+      "pr": 1293,
+      "squashSha": "d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf",
+      "mergedAt": "2026-09-15T16:39:27Z",
+      "requiredCheckReadback": "PASS",
+      "privateRepositoryVerified": true
+    },
+    "postMergeDeployments": "PASS; postmerge-deployments.json pins Railway SUCCESS and Vercel READY to d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf; postmerge-readback.json records readiness200 and unchanged named worker flags",
+    "localVerificationDisposition": "Owner-approved final report-commit gate exception; no failed result/fingerprint rewritten"
+  },
+  "browser": {
+    "tab": "5",
+    "viewport": "RESET to prior viewport by root",
+    "state": "CLOSED; synthetic session signed out10:20:35.997Z; root reset viewport and closed tab5 approximately10:34Z, only unrelated tabs3/4 remain"
+  }
+}

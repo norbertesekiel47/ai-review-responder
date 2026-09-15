@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUNS A + B + T8 + C + D MERGED (#1270 `d8e3f334f`; #1273 `34857b73b`; #1276 `099409ae2`; #1278 `280d1b013`; #1291 `fb91cd2f4a3769f5ac35227cf58751720d83b381`); migration120 on staging and production.** The §12.2 checkboxes identify established implementation, integration and browser evidence. Run D's §12.1 next-draft and secondary-location checks PASS; latency observation is satisfied under the owner's September 14 early-close amendment, with `full_24_hours_elapsed=false`. D's final gate and independent reviews passed; corrected staging recovery and teardown are complete. The campaign ran with the Operator enabled in staging. No production enablement or flag change was made. Naming the pilot owner/window remains BLOCKED-human, and production enablement remains a human decision. Run E stays paused until D's separate documentation closeout merges. The §13 T8 estimate is historical; see §15 and the [Run D acceptance and release evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md). · written 2026-09-11 · revised 2026-09-14_
+_Status: **RUNS A + B + T8 + C + D + E MERGED** (#1270 `d8e3f334f`; #1273 `34857b73b`; #1276 `099409ae2`; #1278 `280d1b013`; #1291 `fb91cd2f4a3769f5ac35227cf58751720d83b381`). D docs #1292 merged as `30896acbcb2ee127131504e531f230fcfc7e4409`; E's sequencing dependency is closed. **Run E #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z.** Reviewed report head: `fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4`. Restore, Rules timeline, clear override and durable policy refusals are implemented. The existing [E evidence](../../runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md) owns the historical ba0c65bb full-gate PASS, matched staging deployments, qualified J1–J7 PASS, completed cleanup, migration lockstep and alert configuration proof. Final adversarial certification is CLEAR (2,437 identities: 361 killed / 2,076 excluded; all 12 findings fixed, zero open/waived), with 802 round-two launches / 401 pairs. Required current-head CI and E2E/Doctor passed; optional Fallow failed. The local post-report wrapper did not pass; the owner [approved the bounded verification exception](../../reviews/codex-owner-operator-run-e/release-verification-approval.md), preserving the failed runs and historical fingerprint. Matched staging deployment and readiness [post-merge readback](../../runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed on the feature squash. This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity. D's §12.1 items 2/6 PASS; item 10 is satisfied under the owner's shortened observation, `full_24_hours_elapsed=false`. Item 9 remains **BLOCKED-human**; production Operator enablement remains a separate human decision. §13's T8 estimate is historical. · written 2026-09-11 · revised 2026-09-15_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -224,24 +224,32 @@ cohort. An account-default change preserves each location's own override.
 
 ### 3.6 Policy-refused card (post-checkpoint)
 
-A third non-proposal card, distinct from "requested capability": "RepWorth
-will not do this. Nothing changed." It covers a closed set of reasons:
-inventing a business fact, incentivizing reviews, pressuring a reviewer to
-edit or delete, replying to a competitor's reviews, exposing customer data,
-disparaging a reviewer. The model emits a `refusal_ref` segment with one of
-those codes; the server owns the wording and names the Google policy clause
-or the RepWorth rule. Each refusal is written through the existing Refusal
-ledger writer as a new lane in the fenced-completion transaction and
-appears on the Restraint tab. Design note for the builder: split into a
-location-scoped content lane and an account-wide policy lane so migration
-116's `business_id` constraint is extended, not rewritten. Estimated 8 to
-10 hours. Not in the first 30.
+The merged Run E implementation renders a distinct **Policy refused** card:
+"RepWorth will not do this" and "Nothing changed", with no Apply, Decline or
+Restore action. A requested capability remains separate from a refusal.
+
+The model supplies `refusal_ref` with one of six closed reasons, never wording,
+ledger identifiers or scope. The server's map assigns invented business facts,
+customer-data exposure and reviewer disparagement to the stored-turn location;
+review incentives, edit/delete pressure and competitor replies are account-wide.
+The server explains the applicable RepWorth rule. Both turn and conversation
+reads return durable refusals separately as `refused`, preserving them on reload.
+
+After winning the completion fence, the worker mints one subject UUID per refusal,
+writes through the existing Refusal ledger writer, and stores the corresponding
+reply segment in the same transaction. Ledger failure rolls completion back;
+lost ownership writes nothing. The existing ledger flag still controls recording.
+The Restraint tab presents the new category as decisions, with account-wide rows
+counted once in the account total. ADR 0023 owns the projection and schema
+extension; migration deployment status belongs to the migration inventory.
+The original 8–10-hour estimate is historical, not verification evidence.
 
 ## 4. Operation catalog, v1
 
-Module: `src/lib/agents/operator/catalog.ts`. Four kinds, separated by
-TypeScript type so a write cannot be registered as immediately executable.
-Runtime zod schemas validate model output and incoming requests regardless.
+Module: `src/lib/agents/operator/catalog.ts`. Four model-visible kinds — read,
+proposable, prepare and capture — are separated by TypeScript type. Apply and
+Decline remain owner commands outside that model-visible catalog. Runtime Zod
+schemas validate model output and incoming requests regardless.
 
 | Operation | Kind | Executes through (v1) | Notes |
 |---|---|---|---|
@@ -255,6 +263,8 @@ Runtime zod schemas validate model output and incoming requests regardless.
 | `set_auto_reply_scope` | proposable | auto-approval tx writer with `set_account_default` / `set_account_manual` / `set_location_override` / `set_location_manual` | Values: 4–5★, 5★ only, or off. Expansion requires the existing `confirmationLevel`; the card collects it. Readiness blocks only expansions; contractions and dial changes stay allowed (`settings.ts` `assertExpansionReady`). |
 | `set_veto_window` | proposable | auto-approval tx writer with `set_account_veto_window` / `set_location_veto_window` | 15 or 30 minutes. |
 | `set_daily_cap` | proposable | auto-approval tx writer with `set_account_daily_cap` / `set_location_daily_cap` | 1–50 or platform default. |
+| `clear_location_override` | proposable | shared policy writer `delete_location_override` | Location only, strict empty input. Inherits account defaults after physical deletion; a suspended override retains its row/dials and becomes manual. |
+| `restore_last` | prepare | `createRestoreProposal` | Scope and strict empty input only. Selects latest eligible applied Receipt under locks; prepares an inverse and never applies settings. |
 | `record_unsupported_request` | capture | `agent_unsupported_requests` rows | Normalized request text, context, account. Frequency alone does not decide the roadmap. |
 | `apply_proposal` | command | `applyProposal` (§6.4) | **Not in the model-visible list.** |
 | `decline_proposal` | command | `declineProposal` (§6.3) | **Not in the model-visible list.** |
@@ -284,10 +294,12 @@ identity and subscription checks only; it does not validate Origin.
 | Route | Does |
 |---|---|
 | `POST /api/operator/turns` | `withSameOrigin` → `requireWritableOwner`. Body `{ conversationId, clientTurnKey, locationId, text }`, all required. Validate `locationId` belongs to the account and is active. In one transaction: upsert `agent_conversations` (id from the client, `account_id`, `created_by_user_id`), insert `agent_turns` with `actor_user_id`, `location_id`, `sequence` (next in conversation), `status='accepted'`; insert the outbox row for topic `agent_turn` keyed on the turn ID via `enqueueAgentTurn`. Return `{ conversationId, turnId }`. Idempotency: unique `(account_id, client_turn_key)`; a repeat with the same payload returns the existing ids; a repeat with a different payload returns 409. |
-| `GET /api/operator/turns/:id` | Owner read scoped by account. Returns status, reply segments (rendered), `proposals`, `unsupported`. |
+| `GET /api/operator/turns/:id` | Owner read scoped by account. Returns status, rendered reply segments, `proposals`, `unsupported` and durable `refused`; hydrates referenced Restore proposals even outside the transcript window. |
 | `GET /api/operator/conversation?id=` | Owner read scoped by account. Without `id`, returns the actor's most recent conversation for this account. Returns the transcript and the summary-panel reads with timestamps. |
 | `POST /api/operator/proposals/:id/apply` | `withSameOrigin` → `requireWritableOwner`. Body `{ expectedVersionToken, confirmationLevel? }`. Calls `applyProposal`. Returns the receipt. Impersonated sessions are rejected exactly as `patchAutoApprovalSettings` rejects them today. |
 | `POST /api/operator/proposals/:id/decline` | `withSameOrigin` → `requireWritableOwner`. Calls `declineProposal`. |
+| `POST /api/operator/proposals/:id/restore` | Existing Operator writer/Origin/impersonation gates; strict empty body. Validates the same-account source Receipt and prepares or reuses a pending Restore with no settings write. |
+| `GET /api/operator/rules-timeline` | Authorized account-scoped applied Receipts, optional location and opaque cursor; hydrates pending Restores for the visible source page. |
 
 Registration: topic constant in `src/lib/shared/worker-types.ts`; queue
 name in `src/lib/shared/queue-names.ts`; queue and `topicToQueue` entry in
@@ -442,24 +454,39 @@ after the account lock. The reply may reference the receipt through a
 
 ### 6.6 Undo from receipts (post-checkpoint)
 
-Every `applied` receipt in the transcript offers **Restore**. It calls
-`createRestoreProposal`, which maps the receipt's `before` back to a catalog
-input through a per-operation `restoreInputFromState`, computes a fresh
-version token from the current rows, and inserts a normal `pending`
-proposal labeled "Restore: <describer of before>". Apply runs unchanged:
-lock, revalidate, exposure classification (a restore that widens autonomy
-needs the same typed confirmation), receipt. Undo of an undo falls out. The
-"operating rules timeline" is the list of applied proposals in order. A
-typed "put it back how it was" maps to a model-visible `restore_last`
-operation whose executor is the same function on the most recent applied
-receipt for the stated scope; the model never fabricates the restore input.
+The merged Run E implementation offers **Restore** on applied receipts in the
+conversation and **Rules timeline**. The button posts only the source proposal
+ID to `createRestoreProposal`; the body is strictly empty. Typed "put it back
+how it was" uses model-visible `restore_last` with scope and empty input. Both
+paths use the same preparation function; the model never supplies prior values
+or a receipt ID. The latter selects the latest applied receipt for the exact
+scope under the domain locks, ordered by `applied_at DESC, id DESC`.
 
-Known gap: a dial-only change that created a location override has
-`before.locationRow = 'absent'`, and no v1 operation deletes an override.
-`restoreInputFromState` returns null there and the card says "cannot be
-restored automatically: the override did not exist before". Adding
-`clear_location_override` (§2) closes it. Estimated 8 hours plus 3 for the
-eighth operation. Not in the first 30.
+Preparation locks location before account when applicable, then validates current
+authority, selects and locks the source receipt, validates provenance and catalog contract, and reads current state.
+Per-operation `restoreInputFromState` derives the inverse, while a fresh token,
+preview and consequence describe today's state. It creates a normal pending
+proposal labeled "Restore: …" without changing settings. A retry for the same
+source and current token reuses that pending proposal; changed state prepares a
+new one and stales the older restore. Reuse preserves the original owning turn,
+including across transcript windows. Invalid or unavailable history yields no
+restorable proposal.
+
+Apply revalidates provenance, locks and freshness through the existing protocol.
+Expansion requires the same typed phrase and readiness checks as any policy
+change; changing an account default after preparation makes a location restore
+stale. Voice inverses change only the original field and may restore a historical
+null tone. `clear_location_override`, the eighth ordinary operation, closes the
+previous absent-override gap. Undo of an actual policy-row deletion restores all
+three prior dials atomically through a server-only writer request; an originally
+absent row is cleared again. Current Governor suspension remains authoritative
+and is never restored from history. An applied Restore earns its own receipt,
+so undoing that receipt prepares the next inverse.
+
+The timeline pages applied receipts using opaque `(applied_at, id)` cursors with
+PostgreSQL microseconds preserved, and hydrates pending restores for each page.
+Reload and scope changes retain account isolation. The original 8+3-hour estimate
+is historical; integrated, browser and release evidence is recorded separately.
 
 ## 7. Authorization at every boundary
 
@@ -628,7 +655,7 @@ five-turn sample with p50 just under 10 s.
 
 Item **10 is satisfied under the owner's explicit duration amendment**, recorded September 14: “Hm actually everything looks good so far, you can stop the observability and proceed, go ahead”. The [final observation and timing decision](../../runbooks/evidence/owner-operator-run-d-2026-09-13/timing-decision-preparation.md) covers `2026-09-13T21:46:17Z` to `2026-09-14T17:36:31.857381Z` (**19 hours, 50 minutes, 14.857381 seconds**), with **24/24 turns completed**, p50 **6.838317 seconds**, p95 **16.10373645 seconds**, zero recorded submission/outbox/binding anomalies and **238 healthy readiness samples**. Slots 20–24 were cancelled. **`full_24_hours_elapsed=false`; no full-day PASS is claimed.** The 180-second lease, 1,200-second stall limit and 10,000-millisecond recheck delay are retained. Historical samples and the original full-day requirement remain in the evidence.
 
-Item **9 remains BLOCKED-human**, with the [blank COO observation template](../../runbooks/owner-operator-pilot-observation-template.md) prepared. Browser dispatch-failure recovery and scoped fixture teardown are complete. Run D's final gate and independent reviews passed; feature #1291 merged as `fb91cd2f4a3769f5ac35227cf58751720d83b381`. Its separate documentation closeout must merge before E resumes. No production enablement or flag change was made.
+Item **9 remains BLOCKED-human**, with the [blank COO observation template](../../runbooks/owner-operator-pilot-observation-template.md) prepared. Browser dispatch-failure recovery and scoped fixture teardown are complete. Run D's final gate and independent reviews passed; feature #1291 merged as `fb91cd2f4a3769f5ac35227cf58751720d83b381`. Its separate documentation closeout #1292 merged as `30896acbcb2ee127131504e531f230fcfc7e4409` at 2026-09-14T20:37:05Z, so E's sequencing dependency is satisfied. No production enablement or flag change was made.
 
 ### 12.2 Full v1
 
@@ -876,3 +903,51 @@ not in that row.
   Operator enablement remains prohibited.
 
 - 2026-09-14, **Run D final verification and feature merge** (#1291, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`). CA1/CA4 and review correction D-A1 are implemented and verified; final native Codex spec/standards/async reviews approved. The final local gate at `f2586bd101c22fecbce09c3f1ed64d9740d1a465` passed 15,978 tests / 11 skipped and 60 E2E / 108 skipped. Round2 adversarial verification is CLEAR (278 identities; 102 killed; 176 excluded; zero findings/waived risk), with 92 cases measured under 191/200 launches and every mutation restored. The unchanged checker accepted the owner-approved final record format; execution authority remains in permanent admission history. [Run D evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) records corrected deployed rollback recovery and independent cleanup separately from the original campaign. §12.1 items 2/6 pass; item 10 is satisfied under the owner's 19h50m14.857381s duration amendment, explicitly not 24 hours. Item 9 remains BLOCKED-human. The separate documentation closeout must merge before E resumes; no production enablement or flag change was made.
+
+- 2026-09-14, **Run D documentation closeout merged** (#1292, squash
+  `30896acbcb2ee127131504e531f230fcfc7e4409`, merged at 20:37:05Z).
+  [Docs-only CI](https://github.com/RepWorth/ai-review-responder/actions/runs/34893671409)
+  concluded SUCCESS; heavy jobs were skipped. This closes the dependency on D's
+  separate documentation merge and adds no new feature-test or observation claim.
+
+- 2026-09-15, **Run E feature merged; post-merge deployment/readiness PASS**. Reviewed report head
+  `fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4` retains the ba0c65bb implementation of receipt-derived Restore,
+  clear override, durable refusals and closed semantic-warning diagnostics.
+  The [E evidence](../../runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md)
+  records matched staging UI/worker deployments, J1–J7 PASS with qualifications,
+  and complete scoped SQL/Auth/queue/browser cleanup by approximately 10:34Z.
+  J5's original failed turn remains distinct from its successful later journey;
+  no model fix is claimed. J6's GET key was not network-captured; blank J7
+  overscroll images are excluded from visual proof, with settled captures retained.
+  Migration 121 applied staging-first/production-second, with final catalog
+  readback 08:35:19Z; five definitions changed, eleven constraints validated and
+  access unchanged. Alert 3993328 is configured; delivery remains unproven.
+  Parent ba0c65bb's full gate passed: 16,218 DB tests / 11 skipped and 14,903
+  ordinary / 1,316 skipped, with build/E2E/checks PASS. Its fingerprint
+  `cef4cbfc3fbe9ec3440193a17bdefecfe9f70dfd7357a025a56758f380a5b29c`
+  is historical. fb66d15d changes only two final report files (195 insertions /
+  7 deletions); application/test/configuration bytes are unchanged.
+  Final canonical certification is CLEAR: 2,437 identities, 361 killed,
+  2,076 excluded; all 12 findings fixed, zero open findings or waivers.
+  Round2 finalized 802 launches / 401 pairs within 1,600; at most two mutants
+  per identity. Record400's target-selection miss is preserved, and its same-ID
+  second attempt401 killed the missing-report denial mutant. The earlier
+  388-record / 776-launch checkpoint and every prior finding remain history.
+  [Current-head CI34962247726](https://github.com/RepWorth/ai-review-responder/actions/runs/34962247726)
+  passed required changes/lint/test/llm-eval/build; deploy-install validly skipped.
+  Optional Fallow failed on eight complexity findings and two clone groups.
+  [E2E34962247838](https://github.com/RepWorth/ai-review-responder/actions/runs/34962247838)
+  passed 30 tests / 54 skipped; [Doctor34962247896](https://github.com/RepWorth/ai-review-responder/actions/runs/34962247896) passed.
+  The current local post-report wrapper is **NOT GREEN**: its first suite had
+  four timeouts; the second had ten, with 14,893 passed / 1,316 skipped in
+  1,280.09 seconds. Remaining wrapper checks were stopped. The narrowly scoped
+  release-verification exception was explicitly [approved by the owner](../../reviews/codex-owner-operator-run-e/release-verification-approval.md).
+  The approved substitution accepts passing GitHub checks and the earlier full
+  local pass on identical application code; it never declares these failed runs green.
+  Feature PR [#1293](https://github.com/RepWorth/ai-review-responder/pull/1293)
+  merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z.
+  [Post-merge deployments](../../runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-deployments.json) match squash d4a96f3: Railway `bcb3cdaa-c679-4f0f-a72c-b0b22664f1df` SUCCESS at 16:49:36.554Z and Vercel `dpl_FZWKdR8unGM8NZRuB4mrX8YF3qp9` READY at 16:42:55.421Z with the staging alias.
+  The [post-merge readback](../../runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) records `/ready` HTTP200 at 16:49:55.515Z, PostgreSQL and both Redis connections OK, and named flags unchanged; production Operator remains UNSET. This is deployment/readiness proof, not a replay of J1–J7.
+  This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
+  Architecture is recorded 2→3 once for this feature merge; docs do not count.
+  D's shortened duration and ordered human decisions stand.

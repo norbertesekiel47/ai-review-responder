@@ -1,0 +1,59 @@
+{
+  "note": "Hashes establish retained bytes; blank overscroll captures remain invalid visual proof as qualified in narrative.",
+  "files": {
+    "run-e-j7-load-older-settled-390.png": {
+      "sha256": "abea86d2f0546556673e31022907176df38ad4943b82ae91ed8517e8c15b5aa8",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-load-older-settled-1440.png": {
+      "sha256": "dce6a3cf480756e896a782f9ab15d579b3e5fa2b8dc27d19905048a40c05883c",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-loaded-390.png": {
+      "sha256": "c86e5ed12bd8edc009023552437cdae7dc0d375296a535fd3466d0bb49056932",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-load-older-390.png": {
+      "sha256": "d2d2123ac2416ad4994731d78e290314002df39dd818966db2a3812ce01a9fd4",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-load-older-1440.png": {
+      "sha256": "76761863f9c5adca50ec76e189a3c5e99bcc9519ef66bc937b2da64e53795c32",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-first-page.json": {
+      "sha256": "7af264b8c387901d00263449bf450fc97d4446be664007e3ad6bbc1748cec756",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-loaded-page.json": {
+      "sha256": "f99a923181472516c687e99d55a54ccfefbeea912cf2a5f9d66eaa7ced5f2478",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-pagination-comparison.json": {
+      "sha256": "062733d8df13605eb73eafb1fb01c9f65bff5f896ec920621b4f17a6c7f5f6d2",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-cafe-filter.json": {
+      "sha256": "5d8690efe4c1c72ec26a156d39262fba1b16184dd2eba6d45b40350a7a27f08f",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-salon-filter-return.json": {
+      "sha256": "51cbf392a86facda1af71810ad38da6b4930ab1aec7e80fe1da0bbd4a3ffd441",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-reload.json": {
+      "sha256": "8a18a8b57d7b092d4460bfddcc6f4470aab35cad9aede783b90e3bb8de0d2234",
+      "sourceCopyMatches": true
+    },
+    "run-e-j7-browser-pairs.json": {
+      "sha256": "4fb9bada1d98fc6747022afba20e8b95813d04ff72942b834cfdbe3233a53904",
+      "sourceCopyMatches": true
+    },
+    "snapshot-15-history-complete.json": {
+      "sha256": "8e6fe26f599c66e69d9c9b913f6c672bf7f8a6fa202ba2fdc362d4c424c37a0f"
+    },
+    "run-e-j7-browser-pairs-reconciled.json": {
+      "sha256": "f56c2f19e5af5ff4ca4d28b8f8b8c621488dead3d4c86799fbd40e595806e211"
+    }
+  }
+}

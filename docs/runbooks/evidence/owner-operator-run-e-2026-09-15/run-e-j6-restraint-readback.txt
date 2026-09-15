@@ -1,0 +1,54 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- main:
+  - heading "Analytics" [level=1]
+  - button "Salon":
+    - generic: Salon
+  - 'button "Account: Run E Synthetic Owner"':
+    - generic: RO
+  - group "Analytics time range":
+    - button "7 days"
+    - button "30 days" [pressed]
+    - button "90 days"
+    - button "12 weeks"
+  - navigation "Analytics views":
+    - link "Metrics":
+      - /url: /dashboard/analytics
+    - link "Restraint":
+      - /url: /dashboard/analytics/restraint
+  - status: 1 thing held back in this window.
+  - region "What we held back":
+    - heading "What we held back" [level=2]
+    - paragraph:
+      - generic: "1"
+      - generic: thing we chose not to do between Sep 15, 2026 and Sep 15, 2026
+    - paragraph: Grouped by what stopped us, newest first.
+    - paragraph: This is one location. A decision that affects the whole account is counted here, and again under every other location you have.
+    - paragraph: We have been watching since Sep 15, 2026.
+    - paragraph: One kind of decision, a reply that an automatic policy check holds, is only recorded once automatic posting is switched on. It is off for your account today.
+  - region "Request not allowed":
+    - heading "Request not allowed" [level=2]
+    - generic: 1 time
+    - paragraph: We did not carry out a request that conflicts with our operating rules.
+    - list:
+      - time: Sep 15, 2026
+- navigation "Dashboard":
+  - link "Home":
+    - /url: /dashboard
+    - text: Home
+  - link "Reviews":
+    - /url: /dashboard/reviews
+    - text: Reviews
+  - link "Requests":
+    - /url: /dashboard/requests
+    - text: Requests
+  - link "Analytics":
+    - /url: /dashboard/analytics
+    - text: Analytics
+  - link "Operator":
+    - /url: /dashboard/operator
+    - text: Operator
+  - link "Settings":
+    - /url: /settings
+    - text: Settings
+- alert

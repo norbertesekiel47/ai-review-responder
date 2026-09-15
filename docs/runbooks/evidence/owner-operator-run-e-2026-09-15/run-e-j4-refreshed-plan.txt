@@ -1,0 +1,222 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- main:
+  - heading "Operator" [level=1]
+  - paragraph: Tell RepWorth what to change. Nothing happens until you approve it.
+  - navigation "Operator views":
+    - button "Conversation"
+    - button "Rules timeline" [pressed]
+  - region "Applied changes timeline":
+    - heading "Rules timeline" [level=2]
+    - paragraph: Applied changes for Salon. Restore prepares a new proposal for you to review.
+    - group "Prepared restores":
+      - paragraph: Review the prepared restore below. Nothing changes until you apply it.
+      - 'region "Restore: Set the reply tone to \"warm and concise\""':
+        - generic: Fact to remember
+        - 'heading "Restore: Set the reply tone to \"warm and concise\"" [level=2]'
+        - generic: This location
+        - generic: Salon
+        - generic: Now
+        - generic: Tone
+        - generic: calm and precise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - generic: After this change
+        - generic: Tone
+        - generic: warm and concise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - button "Apply"
+        - button "Not now"
+    - 'region "Restore: Set the reply tone to \"formal and factual\""':
+      - 'heading "Restore: Set the reply tone to \"formal and factual\"" [level=2]'
+      - generic: This location
+      - generic: Salon
+      - generic: Now
+      - generic: Tone
+      - generic: warm and concise
+      - generic: Products and services
+      - generic: Not set
+      - generic: Keep out of replies
+      - generic: Nothing
+      - generic: Highlight when it fits
+      - generic: Nothing
+      - generic: Sample replies
+      - generic: Nothing
+      - generic: After this change
+      - generic: Tone
+      - generic: formal and factual
+      - generic: Products and services
+      - generic: Not set
+      - generic: Keep out of replies
+      - generic: Nothing
+      - generic: Highlight when it fits
+      - generic: Nothing
+      - generic: Sample replies
+      - generic: Nothing
+      - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+      - paragraph: Remembered fact
+      - paragraph: Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+      - generic: Before
+      - generic: "Tone:"
+      - text: warm and concise
+      - generic: "Products and services:"
+      - text: Not set
+      - generic: "Keep out of replies:"
+      - text: Nothing
+      - generic: "Highlight when it fits:"
+      - text: Nothing
+      - generic: "Sample replies:"
+      - text: Nothing
+      - generic: After
+      - generic: "Tone:"
+      - text: formal and factual
+      - generic: "Products and services:"
+      - text: Not set
+      - generic: "Keep out of replies:"
+      - text: Nothing
+      - generic: "Highlight when it fits:"
+      - text: Nothing
+      - generic: "Sample replies:"
+      - text: Nothing
+      - term: Change
+      - definition: "Restore: Set the reply tone to \"formal and factual\""
+      - term: Location
+      - definition: Salon
+      - term: Applied at
+      - definition:
+        - time: 9/15/2026, 1:54:58 AM
+      - term: Applied by
+      - definition: Run E Synthetic Owner
+      - term: You asked
+      - definition: Change the reply tone for Salon to warm and concise.
+      - term: Reference
+      - definition: 01a0a443-7a8b-721f-8628-463813414ecd
+      - button "Restore"
+      - generic: Prepare a change to review before applying.
+    - region "Set the reply tone to \"warm and concise\"":
+      - heading "Set the reply tone to \"warm and concise\"" [level=2]
+      - generic: This location
+      - generic: Salon
+      - generic: Now
+      - generic: Tone
+      - generic: formal and factual
+      - generic: Products and services
+      - generic: Not set
+      - generic: Keep out of replies
+      - generic: Nothing
+      - generic: Highlight when it fits
+      - generic: Nothing
+      - generic: Sample replies
+      - generic: Nothing
+      - generic: After this change
+      - generic: Tone
+      - generic: warm and concise
+      - generic: Products and services
+      - generic: Not set
+      - generic: Keep out of replies
+      - generic: Nothing
+      - generic: Highlight when it fits
+      - generic: Nothing
+      - generic: Sample replies
+      - generic: Nothing
+      - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+      - paragraph: Remembered fact
+      - paragraph: Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+      - generic: Before
+      - generic: "Tone:"
+      - text: formal and factual
+      - generic: "Products and services:"
+      - text: Not set
+      - generic: "Keep out of replies:"
+      - text: Nothing
+      - generic: "Highlight when it fits:"
+      - text: Nothing
+      - generic: "Sample replies:"
+      - text: Nothing
+      - generic: After
+      - generic: "Tone:"
+      - text: warm and concise
+      - generic: "Products and services:"
+      - text: Not set
+      - generic: "Keep out of replies:"
+      - text: Nothing
+      - generic: "Highlight when it fits:"
+      - text: Nothing
+      - generic: "Sample replies:"
+      - text: Nothing
+      - term: Change
+      - definition: Set the reply tone to "warm and concise"
+      - term: Location
+      - definition: Salon
+      - term: Applied at
+      - definition:
+        - time: 9/15/2026, 1:53:07 AM
+      - term: Applied by
+      - definition: Run E Synthetic Owner
+      - term: You asked
+      - definition: Change the reply tone for Salon to warm and concise.
+      - term: Reference
+      - definition: 01a0a443-7a8b-721f-8628-463813414ecd
+      - button "Restore"
+      - generic: Prepare a change to review before applying.
+    - button "Refresh timeline"
+  - complementary "Summary":
+    - generic: Google
+    - paragraph: Cafe is not connected to Google, so nothing can be posted yet.
+    - link "Connect Google Business":
+      - /url: /dashboard/connect?locationId=019f43e0-0000-7000-8000-000000000012
+    - region "Waiting for you":
+      - generic: Waiting for you
+      - generic: "0"
+      - generic: drafts waiting at Cafe, of 0 across every location
+      - text: As of
+      - time: 2:21:17 AM
+    - region "Recently completed":
+      - generic: Recently completed
+      - generic: "0"
+      - generic: replies posted in the last 7 days
+      - text: As of
+      - time: 2:21:17 AM
+    - region "Current operating rules":
+      - generic: Current operating rules
+      - generic: Auto-posting is off — you approve every reply.
+      - generic: You get 30 minutes to stop a reply, up to 2 a day.
+      - generic: These come from the account default.
+      - generic: Replies are written formal and factual.
+      - generic: 0 things to mention, 0 to avoid.
+      - text: As of
+      - time: 2:21:17 AM
+- navigation "Dashboard":
+  - link "Home":
+    - /url: /dashboard
+    - text: Home
+  - link "Reviews":
+    - /url: /dashboard/reviews
+    - text: Reviews
+  - link "Requests":
+    - /url: /dashboard/requests
+    - text: Requests
+  - link "Analytics":
+    - /url: /dashboard/analytics
+    - text: Analytics
+  - link "Operator":
+    - /url: /dashboard/operator
+    - text: Operator
+  - link "Settings":
+    - /url: /settings
+    - text: Settings
+- alert

@@ -2843,8 +2843,14 @@ Revisit triggers:
   situation exactly, and `schema-ready.ts` records that 097 gets no requirement
   and inspects the migration SQL text instead.
 
-- **121** — Owner Operator Run E refusal vocabulary. **LOCAL-ONLY**; remote
-  application waits until Run D and its separate documentation closeout finish.
+- **121** — Owner Operator Run E refusal vocabulary. **Applied to STAGING
+  2026-09-15T08:34:09Z / PRODUCTION 2026-09-15T08:34:49Z**, with confirming
+  readbacks at 08:34:36Z / 08:35:19Z respectively. The
+  [before](../../docs/runbooks/evidence/owner-operator-run-e-2026-09-15/migration121-before.json)
+  and [after](../../docs/runbooks/evidence/owner-operator-run-e-2026-09-15/migration121-after.json)
+  snapshots prove exactly five changed definitions, all eleven constraints
+  validated and identical between projects, and unchanged recorded RLS/FORCE,
+  policies, grants and indexes. No longer LOCAL-ONLY; the migration is immutable.
   Replaces five CHECKs on `refusal_events`: sources gain `operator_content_refused`
   and `operator_policy_refused`, category gains `request_not_allowed`, subject
   type gains `operator_refusal`, C1 maps both new sources to that subject, and

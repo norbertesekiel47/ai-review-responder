@@ -1,0 +1,154 @@
+Skip to main content
+Operator
+
+Tell RepWorth what to change. Nothing happens until you approve it.
+
+Conversation
+Rules timeline
+
+Change the reply tone for Salon to warm and concise.
+
+Set the reply tone to "warm and concise"
+THIS LOCATION
+Salon
+NOW
+TONE
+formal and factual
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+AFTER THIS CHANGE
+TONE
+warm and concise
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+
+Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+Remembered fact
+
+Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+BEFORE
+TONE: formal and factual
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+AFTER
+TONE: warm and concise
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+CHANGE
+Set the reply tone to "warm and concise"
+LOCATION
+Salon
+APPLIED AT
+9/15/2026, 1:53:07 AM
+APPLIED BY
+Run E Synthetic Owner
+YOU ASKED
+Change the reply tone for Salon to warm and concise.
+REFERENCE
+01a0a443-7a8b-721f-8628-463813414ecd
+Restore
+Prepare a change to review before applying.
+Restore: Set the reply tone to "formal and factual"
+THIS LOCATION
+Salon
+NOW
+TONE
+warm and concise
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+AFTER THIS CHANGE
+TONE
+formal and factual
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+
+Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+Remembered fact
+
+Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+BEFORE
+TONE: warm and concise
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+AFTER
+TONE: formal and factual
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+CHANGE
+Restore: Set the reply tone to "formal and factual"
+LOCATION
+Salon
+APPLIED AT
+9/15/2026, 1:54:58 AM
+APPLIED BY
+Run E Synthetic Owner
+YOU ASKED
+Change the reply tone for Salon to warm and concise.
+REFERENCE
+01a0a443-7a8b-721f-8628-463813414ecd
+Restore
+Prepare a change to review before applying.
+Message
+Send
+GOOGLE
+
+Salon is not connected to Google, so nothing can be posted yet.
+
+Connect Google Business
+WAITING FOR YOU
+0
+drafts waiting at Salon, of 0 across every location
+As of 1:55:33 AM
+RECENTLY COMPLETED
+0
+replies posted in the last 7 days
+As of 1:55:33 AM
+CURRENT OPERATING RULES
+Auto-posting is off — you approve every reply.
+You get 15 minutes to stop a reply, up to 10 a day.
+These come from the account default.
+Replies are written formal and factual.
+0 things to mention, 0 to avoid.
+As of 1:55:33 AM
+Home
+Reviews
+Requests
+Analytics
+Operator
+Settings
