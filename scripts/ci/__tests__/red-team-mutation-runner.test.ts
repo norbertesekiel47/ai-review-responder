@@ -68,7 +68,7 @@ function journal(): Journal {
   return JSON.parse(read('.feature/red-team-journal.json')) as Journal;
 }
 
-function writeJournal(value: Journal): void {
+function writeJournal(value: unknown): void {
   write('.feature/red-team-journal.json', JSON.stringify(value, null, 2));
 }
 

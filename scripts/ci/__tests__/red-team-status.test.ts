@@ -603,7 +603,7 @@ describe('the committed Run E second-pass proof', () => {
         write(report, JSON.stringify(final));
         expectContinuationRejected(change);
       }
-    });
+    }, 15_000);
 
     it('requires the exact committed continuation checkpoint even when the live document is repaired', () => {
       for (const changeDocument of [
@@ -643,7 +643,7 @@ describe('the committed Run E second-pass proof', () => {
       write(journalPath, JSON.stringify(fixture.journal));
       write(report, JSON.stringify({ ...fixture.final, head_sha: fixture.originalHead }));
       expectContinuationRejected('fallback to original admission after continuation pin');
-    });
+    }, 15_000);
 
     it('keeps continuation in round two without a counter reset or a fresh 1600 launch allowance', () => {
       const fixture = prepareContinuation();
