@@ -9,7 +9,15 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-16 (beta tester one live in production: $0 checkout on the new $49 founding price, 31-review import, first owner-approved reply posted to Google).
+Last updated: 2026-09-16 (alerting gaps closed: both dead-man drills pass, the admin-mfa-gate rule exists; beta tester one live).
+
+## Quick summary — The alerting gaps are closed: paging is proven, not assumed (2026-09-16)
+
+Four open items from the G.3 campaign are done. **§4.8 (stopped probe) passes on production and organically:** four missed check-ins since 09-06, the latest at 09-13T05:20Z, created `REPWORTH-PRODUCTION-3` and fired rule `3925256` 49 s later, with the Discord message owner-confirmed. The 2026-09-01 "Sentry creates no issue" verdict was true for **staging only** — and the two monitors differ in one place: staging carries a hand-set `failure_issue_threshold` and `max_runtime: 5`, production has both `null`. The rig that was edited is the broken one, so no Sentry support ticket is needed.
+
+**§4.7 (killed worker) is unblocked and passes.** D-6 blocked it because Sentry refuses `*.railway.app`; the staging worker now answers at `worker.staging.repworth.net`, and uptime monitor `10354501` mirrors production `8341697` exactly. Stopping the worker produced failures at 14:29/14:34/14:39Z, issue `REPWORTH-STAGING-1E` at 14:39:44Z, a Discord page, and auto-recovery at 14:54:42Z after a `--from-source` restore verified at commit `35b7e8c7f`. **Measured detection budget: 13 minutes**, identical in production.
+
+The **`endpoint:admin-mfa-gate` → Discord rule** exists as `3999385`, verified by API readback. Its documented "5 events in 10 minutes" threshold was deliberately dropped: the only available frequency filter is a cumulative counter with no interval, which would silence the first occurrences forever; the 60-minute throttle is the volume control, as on every sibling rule. **U1's server half is an accepted risk** by owner decision, and the earlier claim that the U1 probe "paged nobody" is corrected — rule `3920752` fired. Evidence: [`runbooks/evidence/2026-09-16-alerting-gap-closure-evidence.md`](runbooks/evidence/2026-09-16-alerting-gap-closure-evidence.md).
 
 ## Quick summary — Beta tester one is live in production (2026-09-16)
 

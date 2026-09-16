@@ -26,8 +26,9 @@
 > list price (#1290). Both environments were emptied first, so no account is grandfathered on the
 > retired prices.
 >
-> **Still open before a wider cohort:** lawyer review of the legal documents, insurance binding,
-> alerting drills §4.7/§4.8, the `endpoint:admin-mfa-gate` Discord rule, and U1's server half.
+> **Still open before a wider cohort:** lawyer review of the legal documents and insurance
+> binding. The alerting gaps closed on 2026-09-16 (drills §4.7 and §4.8, the
+> `endpoint:admin-mfa-gate` rule `3999385`); U1's server half is an accepted risk, not a gap.
 > Record: `docs/runbooks/evidence/2026-09-16-beta-tester-one-evidence.md`.
 
 ---
@@ -156,7 +157,11 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   condition, not on "a new issue is created"; alerting runbook §1).
 - [ ] **Sentry Cron monitor `health-alert-poller`** + **external `/ready`
   synthetic check** (worker + Next.js) configured.
-- [ ] **Alerting acceptance drills** run on staging (runbook §4).
+- [x] **DONE 2026-09-16 — 10 of 10.** The last two closed: §4.7 killed worker (staging uptime
+  monitor `10354501`, page in 13 min, owner-confirmed in Discord) and §4.8 stopped probe
+  (production's dead-man switch proven organically — miss → `REPWORTH-PRODUCTION-3` → rule
+  `3925256` in 49 s → Discord). Evidence:
+  `docs/runbooks/evidence/2026-09-16-alerting-gap-closure-evidence.md`.
 - [ ] **Operating constraint — subscription invoices only.** During beta, do NOT
   create one-off/manual Stripe invoices for live accounts: `invoice.payment_failed`
   is not yet scoped to the current subscription (worker-scaling backlog P4 #11), so
