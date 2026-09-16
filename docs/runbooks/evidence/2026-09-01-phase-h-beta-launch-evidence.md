@@ -574,7 +574,7 @@ page to `repworth.net/admin/impersonate`, which asks for password + TOTP again.
 |---|---|---|---|
 | **R0** | Sign in at `https://admin.repworth.net/login`, pass TOTP, open `/admin/overview` and see data | owner | First authenticated production Admin app journey. A 401/403/CORS error here stops the campaign |
 | — | Re-read the four P16 flags in the Vercel dashboard (R6) | owner | |
-| **H.0b** | `https://admin.repworth.net/admin/businesses/new` — `norbertliverpool+beta1@gmail.com` · `Norbert Sunn` · `Tanicia Resort` | owner | D-6: the address without `+beta1` 409s |
+| **H.0b** | `https://admin.repworth.net/admin/businesses/new` — `norbertliverpool@gmail.com` · `Norbert Sunn` · `Tanicia Resort` | owner | **D-6 no longer applies** — the F.4 account and its Auth login were deleted on 2026-09-14, so the plain address is free. The `+beta1` alias is not needed. |
 | H.0c–H.0d | invite → password → location+demo → Copilot → **checkout MUST read $0.00** | owner | Stop on any other amount |
 | H.0e | **both digest flags OFF on the new business before §8** (D-4) | agent SQL, owner approves | |
 | §8 | owner connects Google; verify `status='active'` | owner | |
@@ -585,3 +585,35 @@ page to `repworth.net/admin/impersonate`, which asks for password + TOTP again.
 **Still open outside this campaign** (`launch-checklist.md`): lawyer review of the legal docs,
 insurance binding, alerting drills §4.7/§4.8, and the `endpoint:admin-mfa-gate` Discord rule
 (`beta-launch-alerting.md` §1, #1212).
+
+---
+
+## Amendment — 2026-09-16: both environments emptied, tiers repriced
+
+Owner decisions, executed and verified after "Resume 2" was written. They change three
+rows above.
+
+- **Production holds no customer data.** The F.4 account, its business, owner login and
+  Supabase Auth user were deleted on 2026-09-14T17:44Z; the live Stripe customer
+  `cus_VAxn9cbOQJGzz2` was deleted the same day (`deleted: true`, live mode holds 0
+  customers). Only the two admin logins remain. **This retires the 2026-09-01 decision to
+  keep F.4 as the restore-drill anchor, and it retires D-6:** tester one uses
+  `norbertliverpool@gmail.com` with no alias.
+- **Staging holds no customer data** (2026-09-16T07:14Z): 7 accounts, their businesses,
+  owner logins and 6 Auth users deleted; 4 test subscriptions cancelled and their Stripe
+  test customers deleted; the Zernio profile removed by the owner in Zernio's dashboard.
+  The 6 admin logins and the Gate A non-admin login stay.
+- **New prices are live** (#1290, `103d38043`): Copilot **$79** list / **$49** founding,
+  Autopilot **$149** list / **$99** founding, and every extra location at the list price.
+  Six new Stripe Prices per mode; the six `STRIPE_PRICE_*` values were rotated in the
+  Infisical `prod` vault and on both staging surfaces, each readback verified, and all
+  twelve Prices verified for amount, currency, monthly interval and active state. The
+  Beta comp coupon is unchanged, so tester one still checks out at **$0.00** and converts
+  at **$49** in month four — the co-founder guide now says $49.
+- **`OWNER_OPERATOR_ENABLED` is ON in production** since 2026-09-15 (#1296), with Tanicia
+  Resort named as the pilot owner. Tester one therefore lands on a dashboard where the
+  Operator screen is live.
+
+**Unchanged by this amendment:** R0 (first authenticated production Admin app sign-in)
+still comes before H.0b, U1's server half is still unproven (R11), and §9.6 still needs
+the GBP owner to name the specific review.
