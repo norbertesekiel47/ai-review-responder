@@ -62,6 +62,18 @@ export function TurnBody({
     );
   };
 
+  const renderProposalReference = (proposalId: string) => {
+    const proposal = byId.get(proposalId);
+    // Missing references are skipped; the card list still shows returned rows.
+    if (proposal === undefined || placed.has(proposal.id)) return null;
+    if (proposal.requiresConfirmation) {
+      placed.add(proposal.id);
+      expansions.push(proposal);
+      return null;
+    }
+    return card(proposal);
+  };
+
   const rendered = turn.segments.map((segment, index) => {
     const key = `${turn.id}-${index}`;
     switch (segment.type) {
@@ -108,19 +120,7 @@ export function TurnBody({
             </div>
           </div>
         );
-      case 'proposal': {
-        const proposal = byId.get(segment.proposalId);
-        // A reference whose row is not in this turn's list is a transcript the
-        // reader cannot act on; it is skipped rather than throwing, and the
-        // card list below still shows anything that WAS returned.
-        if (proposal === undefined || placed.has(proposal.id)) return null;
-        if (proposal.requiresConfirmation) {
-          placed.add(proposal.id);
-          expansions.push(proposal);
-          return null;
-        }
-        return card(proposal);
-      }
+      case 'proposal': return renderProposalReference(segment.proposalId);
       default: {
         // Exhaustiveness guard: a new RenderedSegment member fails typecheck
         // here rather than disappearing from the screen.

@@ -2229,3 +2229,498 @@ describe('the mutation budget', () => {
     expect(third.stderr).toContain('needs a recorded owner authorization');
   });
 });
+
+describe('Operator same-round continuation safeguards', () => {
+  const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+
+  async function helpers() {
+    return import(/* @vite-ignore */ RUNNER) as Promise<{
+      validateOperatorHistory: (manifest: unknown, historical: unknown, journal: unknown) => unknown;
+      operatorLaunchAllowed: (runs: number, timeout: number) => boolean;
+      operatorCorrectionHistory: (checkpoint: unknown, journal: unknown) => boolean;
+      operatorSelectionHistory: (checkpoint: unknown, journal: unknown) => boolean;
+      operatorCandidateSelector: (candidate: { id: string; test: string }, correctionId?: string) => string;
+      operatorLegacyReconstruction: (id: string, original: string, from: string, to: string, mutant: string) => boolean;
+      operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
+      escapeTestName: (test: string) => string;
+    }>;
+  }
+
+  function historyFixture() {
+    const inventory = Array.from({ length: 501 }, (_, index) => ({
+      id: `candidate-${index}`, file: 'src/gate.test.ts', test: `case ${index} [exact]`,
+    }));
+    const checkpoint = {
+      version: 1, round: 1, runs: 30, dotenv: { open: false, files: [] },
+      mutations: Array.from({ length: 15 }, () => ({ path: 'src/gate.ts', state: 'restored' })),
+      supervisors: Array.from({ length: 30 }, (_, index) => ({ pid: 900000 + index, active: false })),
+    };
+    const logPath = join(repo, 'retained.log');
+    writeFileSync(logPath, 'retained original supervisor output\n');
+    const artifact = { resultPath: null, resultSha256: null, logPath, logSha256: digest(readFileSync(logPath, 'utf8')) };
+    const manifest = {
+      checkpointJournal: checkpoint, journalSha256: digest(JSON.stringify(checkpoint)),
+      inventorySha256: digest(JSON.stringify(inventory)), suffix: [] as typeof inventory,
+      legacyAttempts: Array.from({ length: 15 }, (_, index) => ({
+        mutationIndex: index, candidateId: inventory[index]!.id,
+        selector: `case ${index} \\[exact\\]`, attempt: 1,
+        baseline: { ...artifact, launch: index * 2 + 1 }, mutant: { ...artifact, launch: index * 2 + 2 },
+      })),
+    };
+    return { manifest, historical: { inventory }, checkpoint: structuredClone(checkpoint) };
+  }
+
+  it('continues at launch 31 and shares the finite ceiling through launch 1500', async () => {
+    const { operatorLaunchAllowed } = await helpers();
+    expect(operatorLaunchAllowed(30, 120000)).toBe(true);
+    expect(operatorLaunchAllowed(1499, 120000)).toBe(true);
+    expect(operatorLaunchAllowed(1500, 120000)).toBe(false);
+    expect(operatorLaunchAllowed(29, 120000)).toBe(false);
+    expect(operatorLaunchAllowed(Number.NaN, 120000)).toBe(false);
+    const { operatorCandidateSelector } = await helpers();
+    const exact = { id: 'rt-0103', test: 'GET Rules timeline cursor?cursorId=0003' };
+    const ordinary = operatorCandidateSelector(exact);
+    const anchored = operatorCandidateSelector(exact, 'operator-fallow-round-1-selection-and-resolves');
+    expect(anchored).toBe(`^${ordinary}$`);
+    expect(new RegExp(anchored).test(exact.test)).toBe(true);
+    expect(new RegExp(anchored).test(`${exact.test}&cursorAppliedAt=not-a-date`)).toBe(false);
+    expect(new RegExp(ordinary).test(`${exact.test}&cursorAppliedAt=not-a-date`)).toBe(true);
+    expect(operatorCandidateSelector(exact, 'other')).toBe(ordinary);
+    expect(operatorCandidateSelector({ ...exact, id: 'rt-0104' }, 'operator-fallow-round-1-selection-and-resolves')).toBe(ordinary);
+    const metadataPath = join(repo, 'metadata-fixture.mjs');
+    writeFileSync(metadataPath, `${readFileSync(RUNNER, 'utf8')}\nexport { operatorRunMetadata };\n`);
+    const metadata = await import(/* @vite-ignore */ metadataPath) as {
+      operatorRunMetadata: (root: string, parsed: unknown, proof: unknown, journal: unknown, phase: string) => unknown;
+    };
+    const fixtureHead = git('rev-parse', 'HEAD');
+    const row = { ...exact, file: 'src/gate.test.ts' };
+    const parsed = { candidate: row.id, 'test-file': row.file, selector: anchored, attempt: '1',
+      target: 'src/gate.ts', 'mutant-sha256': 'c'.repeat(64) };
+    const proof = { inventory: [row], controlHead: fixtureHead, admissionHead: 'a'.repeat(40),
+      correction: {}, selectionCorrection: { id: 'operator-fallow-round-1-selection-and-resolves' }, attempts: new Map() };
+    const prior = { mutations: [], supervisors: [{ candidateId: row.id, phase: 'baseline', attempt: 1,
+      selector: ordinary, controlHead: 'e3bd968ae9fca8e0d787291cf067c266e67d89f9', code: 0 }] };
+    const before = JSON.stringify(prior);
+    expect(metadata.operatorRunMetadata(repo, parsed, proof, prior, 'baseline')).toMatchObject({
+      candidateId: row.id, attempt: 1, selector: anchored, selectorCorrection: 'operator-fallow-round-1-selection-and-resolves' });
+    expect(JSON.stringify(prior)).toBe(before);
+    expect(metadata.operatorRunMetadata(repo, { ...parsed, selector: ordinary }, proof, prior, 'baseline')).toBeNull();
+    expect(metadata.operatorRunMetadata(repo, parsed, { ...proof, selectionCorrection: { id: 'other' } }, prior, 'baseline')).toBeNull();
+  });
+
+  it('rejects invalid and over-ceiling continuation timeouts', async () => {
+    const { operatorLaunchAllowed } = await helpers();
+    for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 120001]) {
+      expect(operatorLaunchAllowed(30, timeout)).toBe(false);
+    }
+    expect(operatorLaunchAllowed(30, 1)).toBe(true);
+  });
+
+  it('preserves every original mutation and supervisor in the checkpoint prefix', async () => {
+    const { validateOperatorHistory } = await helpers();
+    const fixture = historyFixture();
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, fixture.checkpoint)).not.toBeNull();
+    fixture.checkpoint.mutations[0]!.path = 'src/foreign.ts';
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, fixture.checkpoint)).toBeNull();
+    const second = historyFixture();
+    second.checkpoint.supervisors[0]!.pid += 1;
+    expect(validateOperatorHistory(second.manifest, second.historical, second.checkpoint)).toBeNull();
+    const { operatorLegacyReconstruction: reconstruct } = await helpers();
+    const first = 'actorName: facts.actorName,';
+    const firstMutant = 'actorName: null,';
+    const secondToken = 'if (!write.ok) return write.result;';
+    const secondMutant = "if (!write.ok) return { kind: 'not_found' } as ApplyResult;";
+    expect(reconstruct('rt-0127', `${first}\n${first}`, first, firstMutant, `${firstMutant}\n${first}`)).toBe(true);
+    expect(reconstruct('rt-0127', `${first}\n${first}`, first, firstMutant, `${first}\n${firstMutant}`)).toBe(false);
+    expect(reconstruct('rt-0142', `${secondToken}\n${secondToken}`, secondToken, secondMutant, `${secondToken}\n${secondMutant}`)).toBe(true);
+    expect(reconstruct('rt-0142', `${secondToken}\n${secondToken}`, secondToken, secondMutant, `${secondMutant}\n${secondToken}`)).toBe(false);
+    expect(reconstruct('rt-0127', `${first}\n${first}`, first, firstMutant, `${firstMutant}\n${firstMutant}`)).toBe(false);
+    expect(reconstruct('rt-0142', `${secondToken}\n${secondToken}`, secondToken, secondMutant, `${secondMutant}\n${secondMutant}`)).toBe(false);
+    expect(reconstruct('rt-0001', `${first}\n${first}`, first, firstMutant, `${firstMutant}\n${first}`)).toBe(false);
+    expect(reconstruct('rt-0127', `${first}\n${first}\n${first}`, first, firstMutant, `${firstMutant}\n${first}\n${first}`)).toBe(false);
+    expect(reconstruct('rt-0127', 'x\nx', 'x', 'y', 'y\nx')).toBe(false);
+    expect(reconstruct('rt-0001', 'before x after', 'x', 'y', 'before y after')).toBe(true);
+    expect(reconstruct('rt-0001', 'before x after', '', 'y', 'before x after')).toBe(false);
+    const { operatorCorrectionHistory } = await helpers();
+    const used = { version: 1, round: 1, runs: 42, dotenv: { open: false },
+      budgetAuthorization: { firstRun: 31, headSha: 'original', maxRuns: 1500 },
+      mutations: Array.from({ length: 21 }, (_, index) => ({ state: 'restored', path: `retained-${index}` })),
+      supervisors: Array.from({ length: 42 }, (_, index) => ({ active: false, pid: index, resultSha256: 'original' })) };
+    expect(operatorCorrectionHistory(used, structuredClone(used))).toBe(true);
+    for (const change of ['round', 'runs', 'mutation', 'launch', 'artifact', 'budget', 'reset']) {
+      const current = structuredClone(used);
+      if (change === 'round') current.round = 2;
+      if (change === 'runs') current.runs = 41;
+      if (change === 'mutation') current.mutations[20]!.path = 'rewritten';
+      if (change === 'launch') current.supervisors[41]!.pid += 1;
+      if (change === 'artifact') current.supervisors[41]!.resultSha256 = 'rewritten';
+      if (change === 'budget') current.budgetAuthorization.firstRun = 43;
+      if (change === 'reset') current.mutations = [];
+      expect(operatorCorrectionHistory(used, current)).toBe(false);
+    }
+    const { operatorSelectionHistory } = await helpers();
+    const completed = { ...structuredClone(used), runs: 43,
+      supervisors: [...structuredClone(used.supervisors), { active: false, pid: 43, resultSha256: 'two-test-baseline' }] };
+    expect(operatorSelectionHistory(completed, structuredClone(completed))).toBe(true);
+    const appended = { ...structuredClone(completed), runs: 44,
+      supervisors: [...structuredClone(completed.supervisors), { active: false, pid: 44, resultSha256: 'exact-baseline' }] };
+    expect(operatorSelectionHistory(completed, appended)).toBe(true);
+    for (const change of ['old-baseline', 'reset', 'budget', 'round', 'mutation']) {
+      const current = structuredClone(appended);
+      if (change === 'old-baseline') current.supervisors[42]!.resultSha256 = 'rewritten';
+      if (change === 'reset') current.runs = 42;
+      if (change === 'budget') current.budgetAuthorization.firstRun = 44;
+      if (change === 'round') current.round = 2;
+      if (change === 'mutation') current.mutations[0]!.path = 'changed';
+      expect(operatorSelectionHistory(completed, current)).toBe(false);
+    }
+
+
+  });
+
+  it('rejects missing swapped or reset legacy candidate launch mappings', async () => {
+    const { validateOperatorHistory } = await helpers();
+    for (const change of ['missing', 'phase', 'attempt', 'selector']) {
+      const fixture = historyFixture();
+      if (change === 'missing') fixture.manifest.legacyAttempts.pop();
+      if (change === 'phase') fixture.manifest.legacyAttempts[0]!.baseline.launch = 2;
+      if (change === 'attempt') fixture.manifest.legacyAttempts[0]!.attempt = 0;
+      if (change === 'selector') fixture.manifest.legacyAttempts[0]!.selector = 'case.*';
+      expect(validateOperatorHistory(fixture.manifest, fixture.historical, fixture.checkpoint)).toBeNull();
+    }
+  });
+
+  it('rejects changed inventory identities duplicate selectors and unapproved suffix files', async () => {
+    const { validateOperatorHistory } = await helpers();
+    for (const change of ['identity', 'duplicate', 'path', 'alias']) {
+      const fixture = historyFixture();
+      if (change === 'identity') fixture.historical.inventory[0]!.id = 'replacement';
+      if (change === 'duplicate') fixture.manifest.suffix.push({ ...fixture.historical.inventory[0]! });
+      if (change === 'path') fixture.manifest.suffix.push({ id: 'new', file: 'src/new.test.ts', test: 'new' });
+      if (change === 'alias') fixture.manifest.suffix.push({ id: 'new', file: './scripts/ci/__tests__/red-team-status.test.ts', test: 'new' });
+      expect(validateOperatorHistory(fixture.manifest, fixture.historical, fixture.checkpoint)).toBeNull();
+    }
+  });
+
+  it('counts retained attempts and refuses a third semantic mutant', async () => {
+    const { validateOperatorHistory } = await helpers();
+    const fixture = historyFixture();
+    const mutation = { path: 'src/gate.ts', target: 'src/gate.ts', state: 'restored', candidateId: 'candidate-0',
+      selector: 'case 0 \\[exact\\]', attempt: 2, originalOid: 'a'.repeat(40), mutantSha256: 'b'.repeat(64) };
+    const extended = { ...fixture.checkpoint,
+      mutations: [...fixture.checkpoint.mutations, mutation] as (typeof fixture.checkpoint.mutations[number] | typeof mutation)[] };
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, extended)).not.toBeNull();
+    extended.mutations.push({ ...mutation, attempt: 3 });
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, extended)).toBeNull();
+    extended.mutations.pop();
+    extended.mutations[15] = { ...mutation, attempt: 1 };
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, extended)).toBeNull();
+  });
+
+  it('rejects reset counters lower rounds and missing candidate metadata', async () => {
+    const { validateOperatorHistory } = await helpers();
+    const fixture = historyFixture();
+    for (const journalValue of [{ ...fixture.checkpoint, runs: 0 }, { ...fixture.checkpoint, round: 0 },
+      { ...fixture.checkpoint, runs: 31 }, { ...fixture.checkpoint, mutations: [...fixture.checkpoint.mutations, { state: 'restored' }] }]) {
+      expect(validateOperatorHistory(fixture.manifest, fixture.historical, journalValue)).toBeNull();
+    }
+  });
+
+  it('retains lineage after branch rename and journal deletion without generic fallback', () => {
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    write(review, 'not an admission');
+    git('add', review);
+    git('commit', '-qm', 'remember attempted continuation');
+    git('branch', '-m', 'renamed-continuation');
+    expect(run('round-start').status).toBe(1);
+    expect(run('run', '--', 'node', '-e', 'process.exit(0)').status).toBe(1);
+    expect(existsSync(join(repo, '.feature/red-team-journal.json'))).toBe(false);
+  });
+
+  it('refuses mutation and launch before immutable admission even on the exact branch', () => {
+    git('branch', '-m', 'codex/operator-fallow-refactor');
+    write('mutant.txt', 'changed');
+    expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, 'mutant.txt')).status).toBe(1);
+    expect(run('run', '--', 'node', '-e', 'process.exit(0)').status).toBe(1);
+    expect(read('src/gate.ts')).toContain('n > 0');
+    expect(existsSync(join(repo, '.feature/red-team-journal.json'))).toBe(false);
+  });
+
+  it('rejects altered retained result digests instead of trusting legacy mapping prose', async () => {
+    const { validateOperatorHistory } = await helpers();
+    const fixture = historyFixture();
+    writeFileSync(fixture.manifest.legacyAttempts[0]!.baseline.logPath, 'rewritten');
+    expect(validateOperatorHistory(fixture.manifest, fixture.historical, fixture.checkpoint)).toBeNull();
+  });
+
+  it('runs an admitted baseline mutant and restoration with corroborated report evidence', async () => {
+    const { symlinkSync } = await import('node:fs');
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    const reportPath = 'docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.json';
+    const markdownPath = reportPath.replace('.json', '.md');
+    const intakePath = 'docs/superpowers/plans/codex-operator-fallow-refactor-intake.json';
+    const runnerTest = 'scripts/ci/__tests__/red-team-mutation-runner.test.ts';
+    const statusTest = 'scripts/ci/__tests__/red-team-status.test.ts';
+    const axes = ['spec-correctness', 'security', 'database', 'standards-maintainability']
+      .map((axis) => `docs/reviews/codex-operator-fallow-refactor/${axis}.md`);
+    git('branch', '-m', 'codex/operator-fallow-refactor');
+    write('.gitignore', '.feature/\nnode_modules/\n.env*\n');
+    write('package.json', '{"type":"module"}\n');
+    write('vitest.config.mjs', "export default { root: '.', test: { include: ['src/gate.test.ts'], environment: 'node', setupFiles: [] } };\n");
+    write('src/gate.test.ts', 'import { it, expect } from "vitest"; import { allow } from "./gate"; it("fixture candidate 1", () => expect(allow(1)).toBe(true));\n');
+    write(runnerTest, '// original runner assertions retained\n');
+    write(statusTest, '// original status assertions retained\n');
+    const initialIntake = JSON.stringify({ command: 'pnpm test --maxWorkers=2 --coverage --coverage.reportsDirectory=.feature/operator-live-coverage/full && merge .feature/operator-live-coverage' });
+    write(intakePath, initialIntake);
+    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\n');
+    git('add', '.');
+    git('commit', '-qm', 'fixture product baseline');
+    const baselineHead = git('rev-parse', 'HEAD');
+    const originalOid = git('rev-parse', 'HEAD:src/gate.ts');
+    const mutantSource = read('src/gate.ts').replace('n > 0', 'n < 0');
+    write('.feature/mutant.ts', mutantSource);
+    const mutantOid = git('hash-object', '-w', '--', '.feature/mutant.ts');
+    const inventory = Array.from({ length: 501 }, (_, index) => ({ id: `rt-${String(index + 1).padStart(4, '0')}`,
+      file: 'src/gate.test.ts', test: `fixture candidate ${index + 1}`, outcome: index >= 55 && index <= 58 ? 'excluded' : 'skipped-budget',
+      reason: index >= 55 && index <= 58 ? 'original exclusion' : 'original budget exhausted' }));
+    const historical = { inventory, branch: 'codex/operator-fallow-refactor', round: 1, head_sha: baselineHead };
+    const historicalRaw = JSON.stringify(historical);
+    const historicalMarkdown = 'Original measured narrative remains byte-identical.\n';
+    write(reportPath, historicalRaw);
+    write(markdownPath, historicalMarkdown);
+    for (const axis of axes) write(axis, `Pinned ${axis}\n`);
+    git('add', '.');
+    git('commit', '-qm', 'fixture restored checkpoint reports');
+    const checkpointHead = git('rev-parse', 'HEAD');
+    const jsonBlob = git('rev-parse', `HEAD:${reportPath}`);
+    const markdownBlob = git('rev-parse', `HEAD:${markdownPath}`);
+    write(intakePath, initialIntake.replace('--maxWorkers=2', '--maxWorkers=1'));
+    git('add', intakePath);
+    git('commit', '-qm', 'fixture schedule one');
+    const scheduleOne = git('rev-parse', 'HEAD');
+    write(intakePath, read(intakePath).replace('pnpm test --maxWorkers=1 --coverage', 'pnpm test --project=integration --maxWorkers=1 --coverage')
+      .replaceAll('.feature/operator-live-coverage', '.feature/operator-integration-coverage'));
+    git('add', intakePath);
+    git('commit', '-qm', 'fixture schedule two');
+    const scheduleTwo = git('rev-parse', 'HEAD');
+    const checkpoint = { version: 1, round: 1, runs: 30, dotenv: { open: false, files: [] },
+      mutations: Array.from({ length: 15 }, () => ({ path: 'src/gate.ts', originalOid, mutantOid,
+        patchSha256: digest(mutantSource), state: 'restored' })),
+      supervisors: Array.from({ length: 30 }, (_, index) => ({ pid: 900000 + index, pgid: 900000 + index, active: false })) };
+    const legacyCandidateNumbers = [126, 127, 137, 138, 139, 140, 142, 117, 118, 120, 122, 155, 156, 261, 262];
+    const legacyAttempts = Array.from({ length: 15 }, (_, index) => {
+      const legacyResult = join(repo, `.feature/legacy-${index}.json`);
+      const legacyLog = join(repo, `.feature/legacy-${index}.log`);
+      writeFileSync(legacyResult, '{}');
+      writeFileSync(legacyLog, 'retained supervisor result\n');
+      const artifact = { resultPath: legacyResult, resultSha256: digest('{}'), logPath: legacyLog,
+        logSha256: digest('retained supervisor result\n') };
+      const candidate = inventory[legacyCandidateNumbers[index]! - 1]!;
+      return { mutationIndex: index, candidateId: candidate.id, selector: candidate.test,
+        attempt: 1, baseline: { ...artifact, launch: index * 2 + 1 }, mutant: { ...artifact, launch: index * 2 + 2 } };
+    });
+    const measurements = legacyAttempts.map((mapping, index) => ({ ...inventory[legacyCandidateNumbers[index]! - 1],
+      mutation: { file: 'src/gate.ts', from: 'n > 0', to: 'n < 0' },
+      baseline: { report: mapping.baseline.resultPath }, mutant: { report: mapping.mutant.resultPath } }));
+    const measurementsPath = join(repo, '.feature/measurements.json');
+    const measurementsRaw = JSON.stringify(measurements);
+    writeFileSync(measurementsPath, measurementsRaw);
+    const corrections = ([[46, 46], [55, 55], [63, 65], [73, 79], [81, 87], [109, 116],
+      [125, 125], [128, 128], [132, 133], [136, 136], [145, 154], [172, 172], [175, 190],
+      [192, 193], [195, 195], [201, 201], [208, 208], [210, 246], [276, 279], [310, 332],
+      [334, 334], [342, 343], [346, 501]] as const)
+      .flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => ({
+        id: `rt-${String(first + index).padStart(4, '0')}`, reason: 'Direction B discovery correction: fixture call path',
+        proof: 'Independent fixture proof: no changed production hunk is reachable.',
+      })));
+    const additionalCorrections = [8, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 42, 43, 47, 48, 49, 50, 51, 52, 53, 54, 119, 131, 135, 143, 163, 171, 194, 196, 197, 199, 202, 207, 209, 257, 272, 282, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 338, 339, 340]
+      .map((id) => ({ id: `rt-${String(id).padStart(4, '0')}`,
+        reason: 'Direction B additional discovery correction: fixture contract scope',
+        proof: 'Fixture assertions target a different unchanged contract despite incidental changed-code execution.',
+        category: 'B', evidence: ['src/gate.test.ts:1'] }));
+    const inventoryHash = digest(JSON.stringify(inventory.map(({ id, file, test }) => ({ id, file, test }))));
+    const journalHash = digest(JSON.stringify(checkpoint));
+    const manifest = { schema: 1, id: 'operator-fallow-round-1-continuation-2026-09-15', branch: 'codex/operator-fallow-refactor',
+      round: 1, maxRuns: 1500, maxTimeoutMs: 120000, maxMutantsPerCandidate: 2,
+      ownerApproval: '[@Computer](plugin://computer-use@openai-bundled) you can proceed and finish the remaining work please',
+      productBaseline: baselineHead, checkpointHead, schedulingHeads: [scheduleOne, scheduleTwo],
+      historicalReportSha256: digest(historicalRaw), historicalMarkdownSha256: digest(historicalMarkdown),
+      inventorySha256: inventoryHash, journalSha256: journalHash, checkpointJournal: checkpoint,
+      axisBlobs: Object.fromEntries(axes.map((axis) => [axis, git('rev-parse', `HEAD:${axis}`)])), suffix: [], legacyAttempts,
+      measurements: { path: measurementsPath, sha256: digest(measurementsRaw) }, discoveryCorrections: [...corrections, ...additionalCorrections],
+      discoveryAdjudication: { arbiter: 'inventory_scope_audit', decision: 'exclude-never-measured',
+        idsSha256: digest(JSON.stringify(corrections.map(({ id }) => id))),
+        ownerApproval: 'Approve the exact 287 documented discovery corrections',
+        proposalSha256: 'f8b5181724be926ee0d6a732d56b40a2c62678d824e76ca161176e12e81de637' },
+      additionalDiscoveryAdjudication: { arbiter: 'root-and-independent-discovery-review', decision: 'exclude-never-measured-contract-scope',
+        idsSha256: digest(JSON.stringify(additionalCorrections.map(({ id }) => id))),
+        ownerApproval: 'Approve the exact 68 additional documented discovery corrections',
+        proposalSha256: '47a86bfaeaf00295109a950da50d6ab3dfa540fb547b440f586ca5889ef96440' } };
+    write(review, `## Operator continuation manifest\n\n\x60\x60\x60json\n${JSON.stringify(manifest)}\n\x60\x60\x60\n`);
+    git('add', review);
+    git('commit', '-qm', 'fixture immutable admission');
+    const admissionHead = git('rev-parse', 'HEAD');
+    write('.feature/intake.json', read(intakePath));
+    writeJournal(checkpoint);
+    // Never expose the real node_modules directory to a fixture package manager:
+    // pnpm 11 performs an implicit install before exec and rewrites its metadata.
+    mkdirSync(join(repo, 'node_modules'), { recursive: true });
+    symlinkSync(resolve(process.cwd(), 'node_modules/vitest'), join(repo, 'node_modules/vitest'), 'dir');
+    const shimDirectory = join(repo, '.feature/bin');
+    mkdirSync(shimDirectory, { recursive: true });
+    writeFileSync(join(shimDirectory, 'pnpm'), `#!${process.execPath}\nimport { spawnSync } from 'node:child_process';\nconst r=spawnSync(process.execPath,[${JSON.stringify(resolve(process.cwd(), 'node_modules/vitest/vitest.mjs'))},...process.argv.slice(5)],{stdio:'inherit',env:process.env});\nprocess.exit(r.status??1);\n`, { mode: 0o755 });
+    const fixtureRun = (...args: string[]): RunResult => {
+      const result = spawnSync(process.execPath, [runner, ...args], { cwd: repo, encoding: 'utf8',
+        env: { ...GIT_FREE_ENV, PATH: `${shimDirectory}:${GIT_FREE_ENV.PATH}` } });
+      return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
+    };
+    runner = join(repo, '.feature/operator-runner.mjs');
+    let source = readFileSync(RUNNER, 'utf8');
+    const replacements = new Map([
+      ['2ac6ff871b4496f996c37aaaaade9bdc7eee9a62', baselineHead], ['8660fd1d01e35c22b9142b4fc2a020c05946f1c5', checkpointHead],
+      ['15a5f447f9c415be5671ddd432917f472f939b9f', scheduleOne], ['8ea2ac28f49724dd6df65435fe956d781dd72638', scheduleTwo],
+      ['08cdc7ea5f3d566993ff1deba8246f04340121ef', jsonBlob], ['e8c8f894ee43ad34519e5c7d34211c5be276e39c', markdownBlob],
+      ['9b1f54e102b0badf1a7c515084984e8c92f997971d381f78bc241b0b614a6073', journalHash],
+      ['378cb2ba55fafec04566cda2b201631143432d3f34c5d71ac4fd1ca1bc353972', inventoryHash],
+      ['cb2c6819986e93c46e4a9c928c83974429696e00044404b78ac50a67e22c6c60', digest(JSON.stringify(corrections))],
+      ['5ef86e871b2f321bdd70694555205a2098a9c549f66dd57f10f624651dd70482', digest(JSON.stringify(additionalCorrections))],
+    ]);
+    for (const [original, replacement] of replacements) source = source.replaceAll(original, replacement);
+    writeFileSync(runner, source);
+    const metadata = ['--candidate', 'rt-0001', '--attempt', '1', '--test-file', 'src/gate.test.ts',
+      '--selector', 'fixture candidate 1', '--target', 'src/gate.ts', '--mutant-sha256', digest(mutantSource)];
+    const launch = (phase: string, runnerFlags: string[] = [], commandFlags: string[] = []) => {
+      const result = join(repo, `.feature/${phase}.json`);
+      return fixtureRun('run', ...metadata, '--phase', phase, '--result', result, ...runnerFlags, '--', 'pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run',
+        'src/gate.test.ts', '--testNamePattern', 'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1', ...commandFlags);
+    };
+    expect(launch('baseline', [], ['--reporter=default']).status).toBe(1);
+    write('.env.local', 'MOCK_EXTERNAL_APIS=false\n');
+    expect(launch('baseline').status).toBe(1);
+    rmSync(join(repo, '.env.local'));
+    expect(journal().runs).toBe(30);
+    const baseline = launch('baseline');
+    expect(baseline, baseline.stderr + git('status', '--porcelain')).toMatchObject({ status: 0 });
+    expect(journal().runs).toBe(31);
+    expect(fixtureRun('mutate', ...metadata, '--file', 'src/gate.test.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(1);
+    const mutation = fixtureRun('mutate', ...metadata, '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts'));
+    expect(mutation, mutation.stderr + git('status', '--porcelain')).toMatchObject({ status: 0 });
+    expect(launch('mutant', ['--mock-external', 'false']).status).toBe(1);
+    write('src/gate.ts', 'export const allow = (n: number) => n > 0;\n');
+    expect(launch('mutant').status).toBe(1);
+    expect(journal().runs).toBe(31);
+    write('src/gate.ts', mutantSource);
+    expect(launch('mutant').status).toBe(1);
+    expect(journal().runs).toBe(32);
+    expect(fixtureRun('finalize').status).toBe(0);
+    expect(read('src/gate.ts')).toContain('n > 0');
+    const sidecar = { ...historical, head_sha: admissionHead, intake_sha256: digest(read(intakePath)), authorizations: [],
+      inventory: inventory.map((row, index) => index === 0 ? { ...row, outcome: 'killed' } : row) };
+    write(reportPath, JSON.stringify(sidecar));
+    const validation = spawnSync('node', ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");console.log(m.validOperatorReport(process.cwd(),JSON.parse(fs.readFileSync(process.argv[3])),JSON.parse(fs.readFileSync(".feature/red-team-journal.json"))));',
+      'fixture-check', runner, reportPath], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    expect(validation.status, validation.stderr).toBe(0);
+    expect(validation.stdout.trim()).toBe('true');
+    // A used admission stays immutable: exercise its one corrective child in this disposable repo.
+    write(reportPath, historicalRaw);
+    const used = JSON.parse(read('.feature/red-team-journal.json')) as {
+      version: number; round: number; runs: number; dotenv: { open: boolean; files: unknown[] };
+      budgetAuthorization: Record<string, unknown>; mutations: Record<string, unknown>[]; supervisors: Record<string, unknown>[];
+    };
+    const makeReceipt = (entry: Record<string, unknown>, number: number, candidateNumber: number) => {
+      const phase = entry.phase as string;
+      const resultPath = join(repo, `.feature/correction-${number}.json`);
+      const result = JSON.stringify({ numFailedTestSuites: phase === 'mutant' ? 2 : 0,
+        testResults: [{ name: join(repo, 'src/gate.test.ts'), status: phase === 'mutant' ? 'failed' : 'passed', message: '',
+          assertionResults: [{ fullName: `fixture candidate ${candidateNumber}`, status: phase === 'mutant' ? 'failed' : 'passed',
+            failureMessages: phase === 'mutant' ? ['AssertionError: expected true to be false'] : [] }] }] });
+      writeFileSync(resultPath, result);
+      const { supervisorPath: _path, supervisorSha256: _sha, ...prior } = entry;
+      const row = { ...prior, candidateId: `rt-${String(candidateNumber).padStart(4, '0')}`,
+        selector: `fixture candidate ${candidateNumber}`, resultPath, resultSha256: digest(result) };
+      const supervisorPath = `${resultPath}.receipt.json`;
+      const raw = JSON.stringify(row);
+      writeFileSync(supervisorPath, raw);
+      return { ...row, supervisorPath, supervisorSha256: digest(raw) };
+    };
+    for (let candidateNumber = 2; candidateNumber <= 6; candidateNumber += 1) {
+      used.mutations.push({ ...used.mutations[15]!, candidateId: `rt-${String(candidateNumber).padStart(4, '0')}`,
+        selector: `fixture candidate ${candidateNumber}` });
+      used.supervisors.push(makeReceipt(used.supervisors[30]!, used.supervisors.length + 1, candidateNumber));
+      used.supervisors.push(makeReceipt(used.supervisors[31]!, used.supervisors.length + 1, candidateNumber));
+    }
+    used.runs = 42;
+    const usedSha = digest(JSON.stringify(used));
+    const recordsPath = join(repo, '.feature/original-pilot-records.json');
+    writeFileSync(recordsPath, '[]');
+    const correctionEvidence = { records: { path: recordsPath, sha256: digest('[]') },
+      pairs: Array.from({ length: 6 }, (_, index) => ({ id: `rt-${String(index + 1).padStart(4, '0')}`,
+        measurementPath: recordsPath, measurementSha256: digest('[]') })) };
+    const correctionEvidenceSha = digest(JSON.stringify(correctionEvidence));
+    source = source.replaceAll('03502fdcee60e61b891636a625c95c6a9dadec9b', admissionHead)
+      .replaceAll('91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b', usedSha)
+      .replaceAll('e66e50ea3da81d9057d823f25e9870f61ebe10e296a10504f811a83ceecde359', correctionEvidenceSha);
+    writeFileSync(runner, source);
+    write('.agents/skills/red-team/scripts/mutation-runner.mjs', source);
+    write('.agents/skills/feature/scripts/red-team-status.mjs', '// fixture status verifier\n');
+    const controlPaths = ['.agents/skills/red-team/scripts/mutation-runner.mjs',
+      '.agents/skills/feature/scripts/red-team-status.mjs', runnerTest, statusTest];
+    const correction = { schema: 1, id: 'operator-fallow-round-1-file-accounting-42', admission: admissionHead,
+      authority: 'existing-approved-verifier-support-scope', checkpoint: used, evidence: correctionEvidence,
+      sourceBlobs: Object.fromEntries(controlPaths.map((path) => [path, git('hash-object', '--', path)])) };
+    const originalReview = read(review);
+    const correctionSuffix = `\n## Operator failed-file accounting correction\n\n\x60\x60\x60json\n${JSON.stringify(correction)}\n\x60\x60\x60\n`;
+    write(review, originalReview + correctionSuffix);
+    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\ncorrective appendix\n');
+    writeJournal(used);
+    git('add', '.');
+    git('commit', '-qm', 'one finite used-admission correction');
+    const controlHead = git('rev-parse', 'HEAD');
+    const admissionCheck = () => spawnSync('node', ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");const p=m.validateOperatorAdmission(process.cwd(),JSON.parse(fs.readFileSync(".feature/red-team-journal.json")));console.log(p?JSON.stringify({head:p.admissionHead,control:p.controlHead}):"null");',
+      'fixture-check', runner], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    expect(admissionCheck().stdout.trim()).toBe(JSON.stringify({ head: admissionHead, control: controlHead }));
+    const grantBefore = JSON.stringify(used.budgetAuthorization);
+    const continuedMetadata = [...metadata];
+    continuedMetadata[continuedMetadata.indexOf('--attempt') + 1] = '2';
+    const correctedLaunch = (phase: string) => {
+      const result = join(repo, `.feature/corrected-${phase}.json`);
+      return fixtureRun('run', ...continuedMetadata, '--phase', phase, '--result', result, '--', 'pnpm',
+        '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run', 'src/gate.test.ts', '--testNamePattern',
+        'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1');
+    };
+    expect(correctedLaunch('baseline').status).toBe(0);
+    expect(journal().runs).toBe(43);
+    expect(fixtureRun('mutate', ...continuedMetadata, '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(0);
+    expect(correctedLaunch('mutant').status).toBe(1);
+    expect(fixtureRun('finalize').status).toBe(0);
+    const continued = JSON.parse(read('.feature/red-team-journal.json')) as typeof used;
+    expect(continued.runs).toBe(44);
+    expect(JSON.stringify(continued.budgetAuthorization)).toBe(grantBefore);
+    expect(continued.supervisors.slice(0, 42)).toEqual(used.supervisors);
+    expect(continued.mutations.slice(0, 21)).toEqual(used.mutations);
+    expect(continued.supervisors.slice(42).every((row) => row.controlHead === controlHead && row.admission === admissionHead)).toBe(true);
+    expect(continued.mutations[21]!.controlHead).toBe(controlHead);
+    const correctedSidecar = { ...sidecar, head_sha: controlHead, operatorVerifierCorrection: {
+      id: correction.id, controlHead, checkpointSha256: usedSha,
+      reevaluations: correctionEvidence.pairs.map((pair) => ({ candidateId: pair.id, measurementSha256: pair.measurementSha256,
+        originalSuggestion: 'inconclusive', outcome: sidecar.inventory.find((row) => row.id === pair.id)!.outcome })) } };
+    write(reportPath, JSON.stringify(correctedSidecar));
+    const correctedReport = () => spawnSync('node', ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");console.log(m.validOperatorReport(process.cwd(),JSON.parse(fs.readFileSync(process.argv[3])),JSON.parse(fs.readFileSync(".feature/red-team-journal.json"))));',
+      'fixture-check', runner, reportPath], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    expect(correctedReport().stdout.trim()).toBe('true');
+    write(reportPath, JSON.stringify({ ...correctedSidecar, operatorVerifierCorrection: undefined }));
+    expect(correctedReport().stdout.trim()).toBe('false');
+    write(reportPath, historicalRaw);
+    write(review, 'changed original prefix\n' + originalReview + correctionSuffix);
+    expect(admissionCheck().stdout.trim()).toBe('null');
+    write(review, originalReview + correctionSuffix);
+    write('.agents/skills/feature/scripts/red-team-status.mjs', '// forbidden later verifier change\n');
+    git('add', '.');
+    git('commit', '-qm', 'forbidden second control revision');
+    expect(admissionCheck().stdout.trim()).toBe('null');
+
+  }, 30000);
+});

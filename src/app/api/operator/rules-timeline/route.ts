@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { listAppliedProposals } from '@/lib/agents/operator/proposals';
-import { errorResponse, jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
+import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { requireOperatorReader } from '../gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +20,7 @@ const TimelineQuerySchema = z.strictObject({
 }).refine((value) => (value.cursorAppliedAt === undefined) === (value.cursorId === undefined));
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (!ownerOperatorEnabled()) return errorResponse('operator_disabled', 404);
-  const owner = await requireOwnerWithAccount(request);
+  const owner = await requireOperatorReader(request);
   if (!owner.ok) return owner.response;
 
   const params = request.nextUrl.searchParams;

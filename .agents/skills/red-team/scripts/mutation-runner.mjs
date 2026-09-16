@@ -62,6 +62,645 @@ import { pathToFileURL } from 'node:url';
 export const MAX_RUNS_PER_ROUND = 30;
 export const RUN_TIMEOUT_MS = 120_000;
 
+// This is a continuation of the restored thirty-launch checkpoint, not a new
+// round. The first committed manifest is immutable, including on renamed branches.
+export const OPERATOR_CONTINUATION_ID = 'operator-fallow-round-1-continuation-2026-09-15';
+const OPERATOR_BRANCH = 'codex/operator-fallow-refactor';
+const OPERATOR_BASELINE = '2ac6ff871b4496f996c37aaaaade9bdc7eee9a62';
+const OPERATOR_CHECKPOINT = '8660fd1d01e35c22b9142b4fc2a020c05946f1c5';
+const OPERATOR_SCHEDULE = ['15a5f447f9c415be5671ddd432917f472f939b9f', '8ea2ac28f49724dd6df65435fe956d781dd72638'];
+const OPERATOR_REVIEW = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+const OPERATOR_REPORT = 'docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.json';
+const OPERATOR_MARKDOWN = OPERATOR_REPORT.replace('.json', '.md');
+const OPERATOR_INTAKE = 'docs/superpowers/plans/codex-operator-fallow-refactor-intake.json';
+const OPERATOR_APPROVAL = '[@Computer](plugin://computer-use@openai-bundled) you can proceed and finish the remaining work please';
+const OPERATOR_VERIFIER_TESTS = ['scripts/ci/__tests__/red-team-mutation-runner.test.ts', 'scripts/ci/__tests__/red-team-status.test.ts'];
+const OPERATOR_AXES = ['spec-correctness', 'security', 'database', 'standards-maintainability']
+  .map((axis) => `docs/reviews/codex-operator-fallow-refactor/${axis}.md`);
+const OPERATOR_BROWSER_PATHS = ['docs/reviews/codex-operator-fallow-refactor/browser-verification.md',
+  ...['before', 'after'].flatMap((state) => ['proposal', 'receipt'].flatMap((view) => [390, 1440]
+    .map((width) => `docs/reviews/codex-operator-fallow-refactor/browser-${state}-${view}-${width}.png`)))];
+const OPERATOR_DISCOVERY_IDS = [[46, 46], [55, 55], [63, 65], [73, 79], [81, 87], [109, 116],
+  [125, 125], [128, 128], [132, 133], [136, 136], [145, 154], [172, 172], [175, 190],
+  [192, 193], [195, 195], [201, 201], [208, 208], [210, 246], [276, 279], [310, 332],
+  [334, 334], [342, 343], [346, 501]]
+  .flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => `rt-${String(first + index).padStart(4, '0')}`));
+const OPERATOR_DISCOVERY_CORRECTIONS_SHA256 = 'cb2c6819986e93c46e4a9c928c83974429696e00044404b78ac50a67e22c6c60';
+const OPERATOR_DISCOVERY_PROPOSAL_SHA256 = 'f8b5181724be926ee0d6a732d56b40a2c62678d824e76ca161176e12e81de637';
+const OPERATOR_ADDITIONAL_DISCOVERY_IDS = [8, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 42, 43, 47, 48, 49, 50, 51, 52, 53, 54, 119, 131, 135, 143, 163, 171, 194, 196, 197, 199, 202, 207, 209, 257, 272, 282, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 338, 339, 340]
+  .map((id) => `rt-${String(id).padStart(4, '0')}`);
+const OPERATOR_ADDITIONAL_CORRECTIONS_SHA256 = '5ef86e871b2f321bdd70694555205a2098a9c549f66dd57f10f624651dd70482';
+const OPERATOR_ADDITIONAL_PROPOSAL_SHA256 = '47a86bfaeaf00295109a950da50d6ab3dfa540fb547b440f586ca5889ef96440';
+const OPERATOR_PATHS = new Set([
+  '.agents/skills/red-team/scripts/mutation-runner.mjs', '.agents/skills/feature/scripts/red-team-status.mjs',
+  ...OPERATOR_VERIFIER_TESTS, '.agents/skills/red-team/SKILL.md', '.claude/skills/red-team/SKILL.md',
+  OPERATOR_REVIEW, OPERATOR_REPORT, OPERATOR_MARKDOWN, OPERATOR_INTAKE,
+  OPERATOR_INTAKE.replace('-intake.json', '-deviations.md'), ...OPERATOR_AXES, ...OPERATOR_BROWSER_PATHS,
+]);
+
+function operatorBlob(root, revision, path) {
+  return execFileSync('git', ['show', `${revision}:${path}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
+}
+
+function operatorAdmissionHead(root) {
+  return git(root, ['log', '--first-parent', '--diff-filter=A', '--format=%H', 'HEAD', '--', OPERATOR_REVIEW])
+    .split('\n').filter(Boolean).at(-1) ?? null;
+}
+
+export function requiresOperatorContinuation(root, journal) {
+  if (journal?.budgetAuthorization?.id === OPERATOR_CONTINUATION_ID) return true;
+  try {
+    return git(root, ['branch', '--show-current']) === OPERATOR_BRANCH
+      || operatorAdmissionHead(root) !== null;
+  } catch { return false; }
+}
+
+function operatorIdentity(row) {
+  return { id: row.id, file: row.file, test: row.test };
+}
+
+function operatorArtifact(reference, prefix = '') {
+  const path = reference?.[`${prefix}Path`];
+  const digest = reference?.[`${prefix}Sha256`];
+  if (typeof path !== 'string' || !/^[a-f0-9]{64}$/.test(digest ?? '')) return null;
+  try {
+    const bytes = readFileSync(path);
+    return sha256(bytes) === digest ? bytes : null;
+  } catch { return null; }
+}
+
+/** Pure checkpoint validation is also exercised against synthetic, isolated fixtures. */
+export function validateOperatorHistory(manifest, historical, journal) {
+  const checkpoint = manifest.checkpointJournal;
+  if (checkpoint?.version !== 1 || checkpoint.round !== 1 || checkpoint.runs !== 30
+    || checkpoint.mutations?.length !== 15 || checkpoint.supervisors?.length !== 30
+    || checkpoint.dotenv?.open !== false || checkpoint.mutations.some((entry) => entry.state !== 'restored')
+    || checkpoint.supervisors.some((entry) => entry.active !== false)
+    || sha256(JSON.stringify(checkpoint)) !== manifest.journalSha256
+    || historical.inventory?.length !== 501
+    || sha256(JSON.stringify(historical.inventory.map(operatorIdentity))) !== manifest.inventorySha256
+    || !Array.isArray(manifest.suffix) || manifest.suffix.some((row) => !OPERATOR_VERIFIER_TESTS.includes(row.file))
+    || !Array.isArray(manifest.legacyAttempts) || manifest.legacyAttempts.length !== 15) return null;
+  const inventory = [...historical.inventory.map(operatorIdentity), ...manifest.suffix];
+  const ids = new Set();
+  const selectors = new Set();
+  for (const row of inventory) {
+    if (typeof row.id !== 'string' || !row.id || typeof row.test !== 'string' || !row.test
+      || typeof row.file !== 'string' || row.file !== row.file.replace(/\\/g, '/')
+      || row.file.split('/').some((part) => !part || part === '.' || part === '..')
+      || Object.keys(operatorIdentity(row)).some((key) => typeof row[key] !== 'string')
+      || ids.has(row.id) || selectors.has(`${row.file}\0${escapeTestName(row.test)}`)) return null;
+    ids.add(row.id);
+    selectors.add(`${row.file}\0${escapeTestName(row.test)}`);
+  }
+  const attempts = new Map();
+  const launches = new Set();
+  for (const [index, mapping] of manifest.legacyAttempts.entries()) {
+    const candidate = inventory.find((row) => row.id === mapping.candidateId);
+    const nextAttempt = (attempts.get(mapping.candidateId) ?? 0) + 1;
+    if (!candidate || mapping.mutationIndex !== index || mapping.selector !== escapeTestName(candidate.test)
+      || mapping.attempt !== nextAttempt || nextAttempt > 2) return null;
+    attempts.set(candidate.id, nextAttempt);
+    for (const phase of ['baseline', 'mutant']) {
+      const result = mapping[phase];
+      if (!Number.isInteger(result?.launch) || result.launch < 1 || result.launch > 30
+        || launches.has(result.launch) || result.launch !== index * 2 + (phase === 'baseline' ? 1 : 2)
+        || !operatorArtifact(result, 'log')
+        || ((result.resultPath !== null || result.resultSha256 !== null) && !operatorArtifact(result, 'result'))) return null;
+      launches.add(result.launch);
+    }
+  }
+  if (journal?.version !== 1 || journal.round !== 1 || !Number.isInteger(journal.runs)
+    || journal.runs < 30 || journal.runs > 1500 || journal.supervisors?.length !== journal.runs
+    || !unchangedPrefix(checkpoint.mutations, journal.mutations)
+    || !unchangedPrefix(checkpoint.supervisors, journal.supervisors)) return null;
+  for (const mutation of journal.mutations.slice(15)) {
+    const candidate = inventory.find((row) => row.id === mutation.candidateId);
+    const nextAttempt = (attempts.get(mutation.candidateId) ?? 0) + 1;
+    if (!candidate || mutation.selector !== operatorCandidateSelector(candidate, mutation.selectorCorrection) || mutation.attempt !== nextAttempt
+      || nextAttempt > 2 || mutation.target !== mutation.path
+      || !/^[a-f0-9]{40}$/.test(mutation.originalOid ?? '')
+      || !/^[a-f0-9]{64}$/.test(mutation.mutantSha256 ?? '')) return null;
+    attempts.set(candidate.id, nextAttempt);
+  }
+  return { inventory, attempts };
+}
+
+/** Reconstruct the two retained duplicate-token edits without changing their immutable blob pins. */
+export function operatorLegacyReconstruction(id, original, from, to, mutant) {
+  if (typeof from !== 'string' || !from || typeof to !== 'string') return false;
+  const parts = original.split(from);
+  if (parts.length === 2) return original.replace(from, to) === mutant;
+  if (parts.length !== 3) return false;
+  if (id === 'rt-0127' && from === 'actorName: facts.actorName,' && to === 'actorName: null,') {
+    return `${parts[0]}${to}${parts[1]}${from}${parts[2]}` === mutant;
+  }
+  if (id === 'rt-0142' && from === 'if (!write.ok) return write.result;'
+    && to === "if (!write.ok) return { kind: 'not_found' } as ApplyResult;") {
+    return `${parts[0]}${from}${parts[1]}${to}${parts[2]}` === mutant;
+  }
+  return false;
+}
+
+const OPERATOR_USED_ADMISSION = '03502fdcee60e61b891636a625c95c6a9dadec9b';
+const OPERATOR_FILE_CORRECTION = 'operator-fallow-round-1-file-accounting-42';
+const OPERATOR_FILE_CHECKPOINT_SHA256 = '91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b';
+const OPERATOR_FILE_EVIDENCE_SHA256 = 'e66e50ea3da81d9057d823f25e9870f61ebe10e296a10504f811a83ceecde359';
+const OPERATOR_CONTROL_PATHS = ['.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/feature/scripts/red-team-status.mjs', ...OPERATOR_VERIFIER_TESTS];
+
+/** The used checkpoint is retained in full; only later mutation/launch rows may append. */
+export function operatorCorrectionHistory(checkpoint, journal) {
+  return checkpoint?.version === 1 && checkpoint.round === 1 && checkpoint.runs === 42
+    && checkpoint.mutations?.length === 21 && checkpoint.supervisors?.length === 42
+    && checkpoint.dotenv?.open === false && checkpoint.mutations.every((row) => row.state === 'restored')
+    && checkpoint.supervisors.every((row) => row.active === false)
+    && journal?.version === 1 && journal.round === 1 && Number.isInteger(journal.runs)
+    && journal.runs >= 42 && journal.runs <= 1500 && journal.supervisors?.length === journal.runs
+    && JSON.stringify(journal.budgetAuthorization) === JSON.stringify(checkpoint.budgetAuthorization)
+    && unchangedPrefix(checkpoint.mutations, journal.mutations)
+    && unchangedPrefix(checkpoint.supervisors, journal.supervisors);
+}
+
+const OPERATOR_USED_FILE_CONTROL = 'e3bd968ae9fca8e0d787291cf067c266e67d89f9';
+const OPERATOR_SELECTION_CORRECTION = 'operator-fallow-round-1-selection-and-resolves';
+// Replaced only after the completed, restored campaign checkpoint is frozen and reviewed.
+const OPERATOR_SELECTION_CHECKPOINT_SHA256 = '0942d85131597e501bf50f38d0f4868d02d007e8f0e37ee9efc051ba227a4d6e';
+
+/** Only the identified prefix collision receives an anchored selector. */
+export function operatorCandidateSelector(candidate, correctionId) {
+  const selector = escapeTestName(candidate.test);
+  return candidate.id === 'rt-0103' && correctionId === OPERATOR_SELECTION_CORRECTION ? `^${selector}$` : selector;
+}
+
+export function operatorSelectionHistory(checkpoint, journal) {
+  return checkpoint?.version === 1 && checkpoint.round === 1 && Number.isInteger(checkpoint.runs)
+    && checkpoint.runs > 42 && checkpoint.runs <= 1500 && checkpoint.supervisors?.length === checkpoint.runs
+    && checkpoint.dotenv?.open === false && checkpoint.mutations?.every((row) => row.state === 'restored')
+    && checkpoint.supervisors.every((row) => row.active === false)
+    && journal?.version === 1 && journal.round === 1 && Number.isInteger(journal.runs)
+    && journal.runs >= checkpoint.runs && journal.runs <= 1500 && journal.supervisors?.length === journal.runs
+    && JSON.stringify(journal.budgetAuthorization) === JSON.stringify(checkpoint.budgetAuthorization)
+    && unchangedPrefix(checkpoint.mutations, journal.mutations)
+    && unchangedPrefix(checkpoint.supervisors, journal.supervisors);
+}
+
+function operatorSelectionControl(root, prior, descendants, journal) {
+  const controlHead = descendants[0];
+  if (prior.controlHead !== OPERATOR_USED_FILE_CONTROL || !controlHead
+    || git(root, ['show', '-s', '--format=%P', controlHead]) !== OPERATOR_USED_FILE_CONTROL) return null;
+  const document = operatorBlob(root, controlHead, OPERATOR_REVIEW);
+  if (!document.subarray(0, prior.document.length).equals(prior.document)) return null;
+  const matches = [...document.subarray(prior.document.length).toString('utf8')
+    .matchAll(/## Operator exact-selection and resolves correction\r?\n+```json\r?\n([\s\S]*?)\r?\n```/g)];
+  if (matches.length !== 1) return null;
+  const correction = JSON.parse(matches[0][1]);
+  if (correction.schema !== 1 || correction.id !== OPERATOR_SELECTION_CORRECTION
+    || correction.admission !== OPERATOR_USED_ADMISSION || correction.priorControl !== OPERATOR_USED_FILE_CONTROL
+    || correction.authority !== 'existing-approved-verifier-support-scope'
+    || sha256(JSON.stringify(correction.checkpoint)) !== OPERATOR_SELECTION_CHECKPOINT_SHA256
+    || !operatorSelectionHistory(correction.checkpoint, journal)
+    || JSON.stringify(Object.keys(correction.sourceBlobs ?? {}).sort()) !== JSON.stringify([...OPERATOR_CONTROL_PATHS].sort())
+    || correction.failedSelection?.candidateId !== 'rt-0103'
+    || correction.failedSelection.measurementSha256 !== '4366858d241421e1482fec183be29e25247aca86f40c6ca18b07767a0d542fd7'
+    || correction.failedFixture?.candidateId !== 'rt-0516'
+    || correction.failedFixture.measurementSha256 !== '77eb90a39e53da98aa61020e3d5ae864aa73ee1c4e1ea9b97917466d51806a01'
+    || correction.reevaluation?.candidateId !== 'rt-0144'
+    || correction.reevaluation.measurementSha256 !== '468489f392cedd75a85b6b13892b12eae10028389e6e56223aedc3fedd874f13') return null;
+  for (const path of OPERATOR_CONTROL_PATHS) {
+    if (git(root, ['rev-parse', `${controlHead}:${path}`]) !== correction.sourceBlobs[path]) return null;
+  }
+  const deviations = OPERATOR_INTAKE.replace('-intake.json', '-deviations.md');
+  const before = operatorBlob(root, OPERATOR_USED_FILE_CONTROL, deviations);
+  if (!operatorBlob(root, controlHead, deviations).subarray(0, before.length).equals(before)) return null;
+  const allowed = new Set([...OPERATOR_CONTROL_PATHS, OPERATOR_REVIEW, deviations]);
+  if (git(root, ['diff', '--name-only', '--no-renames', OPERATOR_USED_FILE_CONTROL, controlHead])
+    .split('\n').filter(Boolean).some((path) => !allowed.has(path))) return null;
+  for (const revision of descendants.slice(1)) {
+    if (git(root, ['show', '-s', '--format=%P', revision]).split(' ').length !== 1
+      || git(root, ['diff', '--name-only', '--no-renames', `${revision}^`, revision]).split('\n').filter(Boolean)
+        .some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) return null;
+  }
+  for (const entry of [correction.failedSelection, correction.failedFixture, correction.reevaluation]) {
+    const raw = operatorArtifact({ resultPath: entry.measurementPath, resultSha256: entry.measurementSha256 }, 'result');
+    if (!raw) return null;
+    const measurement = JSON.parse(raw);
+    if (measurement.candidateId !== entry.candidateId || measurement.controlHead !== OPERATOR_USED_FILE_CONTROL
+      || measurement.admission !== OPERATOR_USED_ADMISSION || measurement.outcome !== 'inconclusive') return null;
+  }
+  for (const launch of correction.checkpoint.supervisors.slice(42)) {
+    const raw = operatorArtifact(launch, 'supervisor');
+    const { supervisorPath, supervisorSha256, ...receipt } = launch;
+    if (!raw || JSON.stringify(JSON.parse(raw)) !== JSON.stringify(receipt)
+      || (launch.resultSha256 !== null && !operatorArtifact(launch, 'result'))) return null;
+  }
+  return { ...prior, fileControlHead: prior.controlHead, controlHead, document, selectionCorrection: correction };
+}
+
+function operatorSelectionProvenance(proof, inventory) {
+  if (!proof.selectionCorrection) return undefined;
+  return { id: OPERATOR_SELECTION_CORRECTION, priorControl: OPERATOR_USED_FILE_CONTROL,
+    controlHead: proof.controlHead, checkpointSha256: OPERATOR_SELECTION_CHECKPOINT_SHA256,
+    failedSelection: { candidateId: 'rt-0103', measurementSha256: proof.selectionCorrection.failedSelection.measurementSha256,
+      originalSuggestion: 'inconclusive', retained: true },
+    failedFixture: { candidateId: 'rt-0516', measurementSha256: proof.selectionCorrection.failedFixture.measurementSha256,
+      originalSuggestion: 'inconclusive', retained: true },
+    reevaluation: { candidateId: 'rt-0144', measurementSha256: proof.selectionCorrection.reevaluation.measurementSha256,
+      originalSuggestion: 'inconclusive', outcome: inventory.find((row) => row.id === 'rt-0144')?.outcome } };
+}
+
+function operatorControlRevision(root, admissionHead, document, journal) {
+  if (admissionHead !== OPERATOR_USED_ADMISSION) return { controlHead: admissionHead, correction: null, document };
+  const descendants = git(root, ['rev-list', '--reverse', '--first-parent', `${admissionHead}..HEAD`]).split('\n').filter(Boolean);
+  const controlHead = descendants[0];
+  if (!controlHead || git(root, ['show', '-s', '--format=%P', controlHead]) !== admissionHead) return null;
+  const controlDocument = operatorBlob(root, controlHead, OPERATOR_REVIEW);
+  if (!controlDocument.subarray(0, document.length).equals(document)) return null;
+  const suffix = controlDocument.subarray(document.length).toString('utf8');
+  const matches = [...suffix.matchAll(/## Operator failed-file accounting correction\r?\n+```json\r?\n([\s\S]*?)\r?\n```/g)];
+  if (matches.length !== 1) return null;
+  const correction = JSON.parse(matches[0][1]);
+  if (correction.schema !== 1 || correction.id !== OPERATOR_FILE_CORRECTION
+    || correction.admission !== OPERATOR_USED_ADMISSION || correction.authority !== 'existing-approved-verifier-support-scope'
+    || sha256(JSON.stringify(correction.checkpoint)) !== OPERATOR_FILE_CHECKPOINT_SHA256
+    || sha256(JSON.stringify(correction.evidence)) !== OPERATOR_FILE_EVIDENCE_SHA256
+    || !operatorCorrectionHistory(correction.checkpoint, journal)
+    || JSON.stringify(Object.keys(correction.sourceBlobs ?? {}).sort()) !== JSON.stringify([...OPERATOR_CONTROL_PATHS].sort())) return null;
+  for (const path of OPERATOR_CONTROL_PATHS) {
+    if (git(root, ['rev-parse', `${controlHead}:${path}`]) !== correction.sourceBlobs[path]) return null;
+  }
+  const deviations = OPERATOR_INTAKE.replace('-intake.json', '-deviations.md');
+  const before = operatorBlob(root, admissionHead, deviations);
+  if (!operatorBlob(root, controlHead, deviations).subarray(0, before.length).equals(before)) return null;
+  const allowed = new Set([...OPERATOR_CONTROL_PATHS, OPERATOR_REVIEW, deviations]);
+  if (git(root, ['diff', '--name-only', '--no-renames', admissionHead, controlHead]).split('\n').filter(Boolean)
+    .some((path) => !allowed.has(path))) return null;
+  if (controlHead === OPERATOR_USED_FILE_CONTROL && descendants.length > 1
+    && git(root, ['diff', '--name-only', '--no-renames', controlHead, descendants[1]]).split('\n').filter(Boolean)
+      .some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) {
+    const evidence = correction.evidence;
+    if (!operatorArtifact({ resultPath: evidence.records.path, resultSha256: evidence.records.sha256 }, 'result')) return null;
+    for (const pair of evidence.pairs) {
+      if (!operatorArtifact({ resultPath: pair.measurementPath, resultSha256: pair.measurementSha256 }, 'result')) return null;
+    }
+    for (const launch of correction.checkpoint.supervisors.slice(30)) {
+      const raw = operatorArtifact(launch, 'supervisor');
+      const { supervisorPath, supervisorSha256, ...receipt } = launch;
+      if (!operatorArtifact(launch, 'result') || !raw || JSON.stringify(JSON.parse(raw)) !== JSON.stringify(receipt)) return null;
+    }
+    return operatorSelectionControl(root, { controlHead, correction, document: controlDocument }, descendants.slice(1), journal);
+  }
+  for (const revision of descendants.slice(1)) {
+    if (git(root, ['show', '-s', '--format=%P', revision]).split(' ').length !== 1
+      || git(root, ['diff', '--name-only', '--no-renames', `${revision}^`, revision]).split('\n').filter(Boolean)
+        .some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) return null;
+  }
+  const evidence = correction.evidence;
+  if (!operatorArtifact({ resultPath: evidence.records.path, resultSha256: evidence.records.sha256 }, 'result')) return null;
+  for (const pair of evidence.pairs) {
+    if (!operatorArtifact({ resultPath: pair.measurementPath, resultSha256: pair.measurementSha256 }, 'result')) return null;
+  }
+  for (const launch of correction.checkpoint.supervisors.slice(30)) {
+    const receiptRaw = operatorArtifact(launch, 'supervisor');
+    const { supervisorPath, supervisorSha256, ...receipt } = launch;
+    if (!operatorArtifact(launch, 'result') || !receiptRaw || JSON.stringify(JSON.parse(receiptRaw)) !== JSON.stringify(receipt)) return null;
+  }
+  return { controlHead, correction, document: controlDocument };
+}
+
+function operatorCorrectionProvenance(proof, inventory) {
+  if (!proof.correction) return undefined;
+  return { id: OPERATOR_FILE_CORRECTION, controlHead: proof.fileControlHead ?? proof.controlHead, checkpointSha256: OPERATOR_FILE_CHECKPOINT_SHA256,
+    reevaluations: proof.correction.evidence.pairs.map((pair) => ({ candidateId: pair.id,
+      measurementSha256: pair.measurementSha256, originalSuggestion: 'inconclusive',
+      outcome: inventory.find((row) => row.id === pair.id)?.outcome })) };
+}
+
+/** Validate the first immutable admission, the historical pins and cumulative journal. */
+export function validateOperatorAdmission(root, journal, { report = false } = {}) {
+  try {
+    if (git(root, ['branch', '--show-current']) !== OPERATOR_BRANCH) return null;
+    const admissionHead = operatorAdmissionHead(root);
+    if (!admissionHead || git(root, ['merge-base', OPERATOR_SCHEDULE[1], admissionHead]) !== OPERATOR_SCHEDULE[1]) return null;
+    const document = operatorBlob(root, admissionHead, OPERATOR_REVIEW);
+    const match = document.toString('utf8').match(/## Operator continuation manifest\r?\n+```json\r?\n([\s\S]*?)\r?\n```/);
+    if (!match) return null;
+    const manifest = JSON.parse(match[1]);
+    if (manifest.schema !== 1 || manifest.id !== OPERATOR_CONTINUATION_ID || manifest.branch !== OPERATOR_BRANCH
+      || manifest.round !== 1 || manifest.maxRuns !== 1500 || manifest.maxTimeoutMs !== RUN_TIMEOUT_MS
+      || manifest.maxMutantsPerCandidate !== 2 || manifest.ownerApproval !== OPERATOR_APPROVAL
+      || manifest.productBaseline !== OPERATOR_BASELINE || manifest.checkpointHead !== OPERATOR_CHECKPOINT
+      || JSON.stringify(manifest.schedulingHeads) !== JSON.stringify(OPERATOR_SCHEDULE)
+      || manifest.journalSha256 !== '9b1f54e102b0badf1a7c515084984e8c92f997971d381f78bc241b0b614a6073'
+      || manifest.inventorySha256 !== '378cb2ba55fafec04566cda2b201631143432d3f34c5d71ac4fd1ca1bc353972') return null;
+    const control = operatorControlRevision(root, admissionHead, document, journal);
+    if (!control || !operatorBlob(root, 'HEAD', OPERATOR_REVIEW).equals(control.document)
+      || !readFileSync(join(root, OPERATOR_REVIEW)).equals(control.document)
+      || !readFileSync(join(root, '.feature/intake.json')).equals(operatorBlob(root, admissionHead, OPERATOR_INTAKE))) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', OPERATOR_BASELINE, admissionHead]).split('\n').filter(Boolean);
+    if (changed.some((path) => !OPERATOR_PATHS.has(path))) return null;
+    const later = git(root, ['diff', '--name-only', '--no-renames', control.controlHead, 'HEAD']).split('\n').filter(Boolean);
+    if (later.some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) return null;
+    // Scheduling exceptions are byte-level substitutions at the two pinned commits.
+    for (const [index, revision] of OPERATOR_SCHEDULE.entries()) {
+      if (git(root, ['diff', '--name-only', `${revision}^`, revision]) !== OPERATOR_INTAKE) return null;
+      const prior = operatorBlob(root, `${revision}^`, OPERATOR_INTAKE).toString('utf8');
+      const expected = index === 0 ? prior.replace('--maxWorkers=2', '--maxWorkers=1')
+        : prior.replace('pnpm test --maxWorkers=1 --coverage', 'pnpm test --project=integration --maxWorkers=1 --coverage')
+          .replaceAll('.feature/operator-live-coverage', '.feature/operator-integration-coverage');
+      if (expected === prior || operatorBlob(root, revision, OPERATOR_INTAKE).toString('utf8') !== expected) return null;
+    }
+    for (const path of OPERATOR_AXES) {
+      const oid = git(root, ['rev-parse', `${OPERATOR_CHECKPOINT}:${path}`]);
+      if (manifest.axisBlobs?.[path] !== oid || git(root, ['rev-parse', `HEAD:${path}`]) !== oid
+        || git(root, ['hash-object', '--', path]) !== oid) return null;
+    }
+    const oldJson = operatorBlob(root, OPERATOR_CHECKPOINT, OPERATOR_REPORT);
+    const oldMarkdown = operatorBlob(root, OPERATOR_CHECKPOINT, OPERATOR_MARKDOWN);
+    if (git(root, ['rev-parse', `${OPERATOR_CHECKPOINT}:${OPERATOR_REPORT}`]) !== '08cdc7ea5f3d566993ff1deba8246f04340121ef'
+      || git(root, ['rev-parse', `${OPERATOR_CHECKPOINT}:${OPERATOR_MARKDOWN}`]) !== 'e8c8f894ee43ad34519e5c7d34211c5be276e39c'
+      || sha256(oldJson) !== manifest.historicalReportSha256 || sha256(oldMarkdown) !== manifest.historicalMarkdownSha256
+      || !readFileSync(join(root, OPERATOR_MARKDOWN)).subarray(0, oldMarkdown.length).equals(oldMarkdown)) return null;
+    const historical = JSON.parse(oldJson);
+    const history = validateOperatorHistory(manifest, historical, journal);
+    if (!history) return null;
+    if (!Array.isArray(manifest.discoveryCorrections) || manifest.discoveryCorrections.length !== 355) return null;
+    const originalCorrections = manifest.discoveryCorrections.slice(0, 287);
+    const additionalCorrections = manifest.discoveryCorrections.slice(287);
+    if (JSON.stringify(originalCorrections.map((row) => row.id)) !== JSON.stringify(OPERATOR_DISCOVERY_IDS)
+      || sha256(JSON.stringify(originalCorrections)) !== OPERATOR_DISCOVERY_CORRECTIONS_SHA256
+      || manifest.discoveryAdjudication?.arbiter !== 'inventory_scope_audit'
+      || manifest.discoveryAdjudication.decision !== 'exclude-never-measured'
+      || manifest.discoveryAdjudication.idsSha256 !== sha256(JSON.stringify(OPERATOR_DISCOVERY_IDS))
+      || manifest.discoveryAdjudication.ownerApproval !== 'Approve the exact 287 documented discovery corrections'
+      || manifest.discoveryAdjudication.proposalSha256 !== OPERATOR_DISCOVERY_PROPOSAL_SHA256
+      || originalCorrections.some((row) => historical.inventory.find((old) => old.id === row.id)?.outcome !== 'skipped-budget'
+        || manifest.legacyAttempts.some((attempt) => attempt.candidateId === row.id)
+        || !row.reason?.startsWith('Direction B discovery correction: ') || typeof row.proof !== 'string' || !row.proof.trim())) return null;
+    if (JSON.stringify(additionalCorrections.map((row) => row.id)) !== JSON.stringify(OPERATOR_ADDITIONAL_DISCOVERY_IDS)
+      || sha256(JSON.stringify(additionalCorrections)) !== OPERATOR_ADDITIONAL_CORRECTIONS_SHA256
+      || manifest.additionalDiscoveryAdjudication?.arbiter !== 'root-and-independent-discovery-review'
+      || manifest.additionalDiscoveryAdjudication.decision !== 'exclude-never-measured-contract-scope'
+      || manifest.additionalDiscoveryAdjudication.idsSha256 !== sha256(JSON.stringify(OPERATOR_ADDITIONAL_DISCOVERY_IDS))
+      || manifest.additionalDiscoveryAdjudication.ownerApproval !== 'Approve the exact 68 additional documented discovery corrections'
+      || manifest.additionalDiscoveryAdjudication.proposalSha256 !== OPERATOR_ADDITIONAL_PROPOSAL_SHA256
+      || additionalCorrections.some((row) => OPERATOR_DISCOVERY_IDS.includes(row.id)
+        || historical.inventory.find((old) => old.id === row.id)?.outcome !== 'skipped-budget'
+        || manifest.legacyAttempts.some((attempt) => attempt.candidateId === row.id)
+        || !row.reason?.startsWith('Direction B additional discovery correction: ')
+        || typeof row.proof !== 'string' || !row.proof.trim()
+        || !['A', 'B'].includes(row.category) || !Array.isArray(row.evidence) || row.evidence.length === 0)) return null;
+    const measurementsRaw = operatorArtifact({ resultPath: manifest.measurements?.path,
+      resultSha256: manifest.measurements?.sha256 }, 'result');
+    if (!measurementsRaw) return null;
+    const measurements = JSON.parse(measurementsRaw);
+    if (!Array.isArray(measurements) || measurements.length !== 15) return null;
+    for (const [index, mapping] of manifest.legacyAttempts.entries()) {
+      const measured = measurements[index];
+      const candidate = history.inventory.find((row) => row.id === mapping.candidateId);
+      const mutation = manifest.checkpointJournal.mutations[index];
+      if (measured.id !== candidate.id || measured.file !== candidate.file || measured.test !== candidate.test
+        || measured.mutation?.file !== mutation.path) return null;
+      const original = execFileSync('git', ['cat-file', 'blob', mutation.originalOid], { cwd: root });
+      const mutant = execFileSync('git', ['cat-file', 'blob', mutation.mutantOid], { cwd: root });
+      if (!operatorLegacyReconstruction(measured.id, original.toString('utf8'), measured.mutation.from,
+        measured.mutation.to, mutant.toString('utf8'))
+        || sha256(mutant) !== mutation.patchSha256) return null;
+      for (const phase of ['baseline', 'mutant']) {
+        if (measured[phase]?.report !== mapping[phase].resultPath) return null;
+      }
+    }
+    // Existing verifier assertions are immutable too: safeguards are an append-only suffix.
+    for (const path of OPERATOR_VERIFIER_TESTS) {
+      const original = operatorBlob(root, OPERATOR_BASELINE, path);
+      if (!operatorBlob(root, control.controlHead, path).subarray(0, original.length).equals(original)) return null;
+      const labels = (bytes) => [...bytes.toString('utf8').matchAll(/^\s*(?:describe|it)\(\s*(['"`])([^\n]*?)\1/gm)].map((match) => match[0].trimStart());
+      if (JSON.stringify(labels(operatorBlob(root, admissionHead, path)))
+        !== JSON.stringify(labels(operatorBlob(root, control.controlHead, path)))) return null;
+    }
+    const grant = { id: OPERATOR_CONTINUATION_ID, maxRuns: 1500, sha256: sha256(document), headSha: admissionHead };
+    if ((journal.runs > 30 && !journal.budgetAuthorization)
+      || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, grant)
+        || journal.budgetAuthorization.firstRun !== 31))) return null;
+    for (const [index, mutation] of journal.mutations.entries()) {
+      if (index < 15) continue;
+      const sourceHead = control.selectionCorrection && index >= control.selectionCorrection.checkpoint.mutations.length
+        ? control.controlHead : control.correction && index >= 21 ? (control.fileControlHead ?? control.controlHead) : admissionHead;
+      const selectorCorrection = control.selectionCorrection && sourceHead === control.controlHead && mutation.candidateId === 'rt-0103'
+        ? OPERATOR_SELECTION_CORRECTION : undefined;
+      if (mutation.selectorCorrection !== selectorCorrection) return null;
+      if (mutation.admission !== admissionHead || (index >= 21 && control.correction && mutation.controlHead !== sourceHead)
+        || mutation.originalOid !== git(root, ['rev-parse', `${sourceHead}:${mutation.path}`])) return null;
+    }
+    const usedResults = new Set();
+    for (const [index, launch] of journal.supervisors.entries()) {
+      if (index < 30) continue;
+      const sourceHead = control.selectionCorrection && index >= control.selectionCorrection.checkpoint.runs
+        ? control.controlHead : control.correction && index >= 42 ? (control.fileControlHead ?? control.controlHead) : admissionHead;
+      const selectorCorrection = control.selectionCorrection && sourceHead === control.controlHead && launch.candidateId === 'rt-0103'
+        ? OPERATOR_SELECTION_CORRECTION : undefined;
+      if (launch.selectorCorrection !== selectorCorrection) return null;
+      if (control.correction && index >= 42 && launch.controlHead !== sourceHead) return null;
+      const candidate = history.inventory.find((row) => row.id === launch.candidateId);
+      if (!candidate || launch.admission !== admissionHead || launch.selector !== operatorCandidateSelector(candidate, selectorCorrection)
+        || !['baseline', 'mutant'].includes(launch.phase) || !Number.isInteger(launch.attempt)
+        || launch.attempt < 1 || launch.attempt > 2 || !launch.target
+        || launch.originalOid !== git(root, ['rev-parse', `${sourceHead}:${launch.target}`])
+        || !/^[a-f0-9]{64}$/.test(launch.mutantSha256 ?? '')
+        || !/^[a-f0-9]{64}$/.test(launch.envSha256 ?? '')
+        || typeof launch.resultPath !== 'string' || usedResults.has(launch.resultPath)) return null;
+      usedResults.add(launch.resultPath);
+      if (launch.phase === 'mutant' && !journal.mutations.slice(15).some((mutation) =>
+        mutation.candidateId === launch.candidateId && mutation.attempt === launch.attempt
+        && mutation.path === launch.target && mutation.mutantSha256 === launch.mutantSha256)) return null;
+      if (report && (launch.active !== false || (launch.resultSha256 !== null && !operatorArtifact(launch, 'result'))
+        || !operatorArtifact(launch, 'supervisor'))) return null;
+    }
+    const changedWorking = git(root, ['diff', '--name-only', 'HEAD']).split('\n').filter(Boolean);
+    if (git(root, ['diff', '--cached', '--name-only']) || changedWorking.some((path) => {
+      if (path === OPERATOR_REPORT || path === OPERATOR_MARKDOWN) return !report;
+      const mutation = journal.mutations.findLast((entry) => entry.path === path);
+      return report || mutation?.state !== 'applied' || mutation.mutantOid !== git(root, ['hash-object', '--', path]);
+    }) || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    if (report && (journal.dotenv?.open !== false || journal.mutations.some((entry) => entry.state !== 'restored')
+      || journal.supervisors.some((entry) => entry.active !== false))) return null;
+    const processes = spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' });
+    if (processes.status !== 0 || findWatchers(processes.stdout, selfAncestry()).length > 0) return null;
+    return { ...history, manifest, historical, grant, admissionHead, controlHead: control.controlHead, correction: control.correction,
+      fileControlHead: control.fileControlHead, selectionCorrection: control.selectionCorrection };
+  } catch { return null; }
+}
+
+function operatorRunMetadata(root, parsed, proof, journal, phase) {
+  const candidate = proof.inventory.find((row) => row.id === parsed.candidate);
+  const attempt = Number(parsed.attempt);
+  const target = parsed.target ?? parsed.file;
+  if (!candidate || candidate.file !== parsed['test-file'] || operatorCandidateSelector(candidate, proof.selectionCorrection?.id) !== parsed.selector
+    || !Number.isInteger(attempt) || attempt < 1 || attempt > 2 || typeof target !== 'string'
+    || target.split('/').some((part) => !part || part === '.' || part === '..')
+    || !/^[a-f0-9]{64}$/.test(parsed['mutant-sha256'] ?? '')) return null;
+  const originalOid = git(root, ['rev-parse', `${proof.controlHead}:${target}`]);
+  const previous = journal.mutations.findLast((entry) => entry.candidateId === candidate.id && entry.attempt === attempt);
+  if (phase === 'mutation' || phase === 'baseline') {
+    if (attempt !== (proof.attempts.get(candidate.id) ?? 0) + 1
+      || journal.mutations.some((entry) => entry.state !== 'restored')
+      || git(root, ['hash-object', '--', target]) !== originalOid) return null;
+  } else if (!previous || previous.state !== 'applied' || previous.path !== target
+    || previous.mutantSha256 !== parsed['mutant-sha256']
+    || git(root, ['hash-object', '--', target]) !== previous.mutantOid
+    || sha256(readFileSync(join(root, target))) !== previous.mutantSha256) return null;
+  return { candidateId: candidate.id, selector: parsed.selector, attempt, target,
+    originalOid, mutantSha256: parsed['mutant-sha256'], admission: proof.admissionHead,
+    ...(proof.correction ? { controlHead: proof.controlHead } : {}),
+    ...(proof.selectionCorrection && candidate.id === 'rt-0103' ? { selectorCorrection: OPERATOR_SELECTION_CORRECTION } : {}) };
+}
+
+const OPERATOR_FRONTEND_ASSERTION_SITES = [
+  {"id": "rt-0144", "file": "src/lib/agents/operator/__tests__/completion-materialization.test.ts", "test": "fenced reply materialization boundaries locks location requests before account requests while preserving model order and stored ownership", "testSha256": "d451764285ccdc077f62c059459e68338aeb770b2cec63d462676961ebc4a24b", "line": 57, "sourceLine": "    await expect(completeTurnFenced(sql as never, input())).resolves.toEqual({ fenced: true });", "target": "src/lib/agents/operator/turns.ts", "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c", "mutantSha256": "3366bc3c3d8e20136cf859b54eb4bc93de31fd677eca04383d3de526d8f01962", "family": "resolves", "header": "Error: promise rejected \"Error: agents/operator: restore request d…\" instead of resolving"},
+  {"id": "rt-0009","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 330,"sourceLine": "    expect(await screen.findByText(/not available right now/i)).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "fc44b7818ebc025c4cfe7ea594830cbf90491683880d06322b1b2765b212077a","family": "query","query": "findByText","header": "Error","messagePrefix": "Unable to find an element with the text: /not available right now/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."},
+  {"id": "rt-0011","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient retry after a lost POST response resumes the original turn","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 390,"sourceLine": "    const retryButton = await screen.findByRole('button', { name: RETRY_SEND });","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"button\" and name \"Try again\""},
+  {"id": "rt-0012","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient a POST that never settles releases the composer and offers the same retry","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 459,"sourceLine": "    const retryButton = await screen.findByRole('button', { name: RETRY_SEND });","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"button\" and name \"Try again\""},
+  {"id": "rt-0013","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient a refusal the server answered offers no retry and an unusable location says so","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 489,"sourceLine": "    expect(await screen.findByText(ROUTE_ERROR_WORDING.unauthorized!)).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b","family": "query","query": "findByText","header": "Error","messagePrefix": "Unable to find an element with the text: Your account can no longer make this change. Nothing was applied.. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."},
+  {"id": "rt-0016","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient terminal failures and requested capabilities survive reload and subsequent turns","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 697,"sourceLine": "    expect(screen.getByText(TURN_FAILURE_WORDING.exhausted!)).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "9670b21a4e5ee3d5e8f296675fe2ef7efcdb21ec19e99342316416f67e75e996","family": "query","query": "getByText","header": "TestingLibraryElementError","messagePrefix": "Unable to find an element with the text: We tried several times and could not finish this message. Nothing was changed. Start a new conversation to try again.. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."},
+  {"id": "rt-0017","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient loaded conversations retain identity and starting over stays empty","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 722,"sourceLine": "    expect(await screen.findByText(PREPARING)).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "7fbfb44e8d2c7dca2865f25ca0f367ed23520e2a6edc5913cd074357bca179ba","family": "query","query": "findByText","header": "Error","messagePrefix": "Unable to find an element with the text: Preparing your plan. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."},
+  {"id": "rt-0022","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient Refresh plan preserves the original instruction and location after scope changes","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 1097,"sourceLine": "    const button = await screen.findByRole('button', { name: 'Refresh plan' });","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "0d0c893cd91ab3e1fff5bc8d7552b44033dce3deb074f10dbe3ccb20a89e178c","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"button\" and name \"Refresh plan\""},
+  {"id": "rt-0035","file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx","test": "Operator Restore workflow refused cards and the operating rules timeline survive reload","testSha256": "4a50c840717fee831c2b86b147f4d3db5bdd0ed3772f7b1028dff238e01b90bb","line": 81,"sourceLine": "      const refusal = await screen.findByRole('group', { name: 'Policy refused' });","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "2ba3dcac4aab92e8fb59893a5f7d2bd82fe3d9e7465a01636a11f4043990a60c","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"group\" and name \"Policy refused\""},
+  {"id": "rt-0039","file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx","test": "Operator Restore workflow keeps an out-of-window prepared restore actionable immediately and after loading persisted timeline history","testSha256": "4a50c840717fee831c2b86b147f4d3db5bdd0ed3772f7b1028dff238e01b90bb","line": 175,"sourceLine": "    expect(await screen.findByRole('button', { name: 'Apply' })).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx","originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e","mutantSha256": "bac4f0615c272ef3ad934026fc372aedf08d1283b502b87acbe22e5aaaa74905","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"button\" and name \"Apply\""},
+  {"id": "rt-0044","file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx","test": "Operator Restore workflow discards a slow previous-scope timeline page after the owner changes location","testSha256": "4a50c840717fee831c2b86b147f4d3db5bdd0ed3772f7b1028dff238e01b90bb","line": 266,"sourceLine": "    expect(await screen.findByRole('heading', { name: 'Current scope history' })).toBeInTheDocument();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "31f157b11041735feeec5165a4f2ebf75c8fa7130478655f5f0ca3b74179db89","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"heading\" and name \"Current scope history\""},
+  {"id": "rt-0045","file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx","test": "Operator Restore workflow retries a failed timeline read without treating it as empty history","testSha256": "4a50c840717fee831c2b86b147f4d3db5bdd0ed3772f7b1028dff238e01b90bb","line": 283,"sourceLine": "    expect(await screen.findByRole('alert')).toHaveTextContent('We could not load your rules timeline. Try again.');","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "c5c4045ef07a3bb912bb4f993618893bc80722527ab467bb5d1c70322fa99b34","family": "query","query": "findByRole","header": "Error","messagePrefix": "Unable to find role=\"alert\""},
+  {"id": "rt-0010","file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx","test": "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen","testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563","line": 347,"sourceLine": "    expect(screen.getByRole('textbox', { name: /message/i })).toBeDisabled();","target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts","originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df","mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852","family": "jest-dom","header": "Error","matcher": "toBeDisabled","messageLines": ["expect(element).toBeDisabled()","Received element is not disabled:"]},
+  {"id": "rt-0041","file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx","test": "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button","testSha256": "4a50c840717fee831c2b86b147f4d3db5bdd0ed3772f7b1028dff238e01b90bb","line": 217,"sourceLine": "    expect(screen.getByRole('button', { name: 'Preparing restore…' })).toBeDisabled();","target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx","originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e","mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c","family": "jest-dom","header": "Error","matcher": "toBeDisabled","messageLines": ["expect(element).toBeDisabled()","Received element is not disabled:"]},
+];
+
+/** Each reviewed site observes expected behavior at its pinned test line. */
+export function operatorFrontendAssertion(message, launch, candidate) {
+  if (typeof message !== 'string'
+    || /Cannot find module|Failed to load|SyntaxError|ReferenceError|TypeError|beforeAll|beforeEach|afterAll|afterEach/.test(message)) return false;
+  const site = OPERATOR_FRONTEND_ASSERTION_SITES.find((row) => row.id === candidate.id
+    && row.file === candidate.file && row.test === candidate.test && row.target === launch.target
+    && row.originalOid === launch.originalOid && row.mutantSha256 === launch.mutantSha256);
+  if (!site) return false;
+  try {
+    const root = repoRoot();
+    const source = readFileSync(join(root, site.file));
+    if (sha256(source) !== site.testSha256 || source.toString('utf8').split(/\r?\n/)[site.line - 1] !== site.sourceLine) return false;
+    const text = message.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '');
+    const lines = text.trimEnd().split('\n');
+    let start = lines.length;
+    while (start > 0 && /^    at /.test(lines[start - 1])) start -= 1;
+    const stack = lines.slice(start)
+      .map((line) => ({ line, location: line.match(/(?:\(|\s)(?:file:\/\/)?(\/.*):(\d+):(\d+)\)?$/) }));
+    if (stack.some((frame) => !frame.location && frame.line !== '    at new Promise (<anonymous>)'
+      && !(site.family === 'resolves' && frame.line === '    at Reflect.get (<anonymous>)'))) return false;
+    const frames = stack.filter((frame) => frame.location !== null);
+    const projectFrames = frames.filter((frame) => !frame.location[1].includes('/node_modules/'));
+    const direct = projectFrames[0];
+    if (projectFrames.length !== 1 || !direct || direct.location[1] !== join(root, site.file) || Number(direct.location[2]) !== site.line) return false;
+    const dependencies = frames.slice(0, frames.indexOf(direct));
+    if (site.family === 'resolves') {
+      return text.startsWith(`${site.header}\n`)
+        && dependencies.some((frame) => frame.line.includes('__VITEST_RESOLVES__')
+          && frame.location[1].endsWith('/node_modules/@vitest/expect/dist/index.js'));
+    }
+    if (site.family === 'jest-dom') {
+      return text.startsWith(`Error: ${site.messageLines[0]}\n`)
+        && text.split('\n').includes(site.messageLines[1])
+        && dependencies.some((frame) => frame.line.includes('__VITEST_EXTEND_ASSERTION__')
+          && frame.location[1].endsWith('/node_modules/@vitest/expect/dist/index.js'));
+    }
+    if (!text.startsWith(`${site.header}: ${site.messagePrefix}\n`)
+      || !dependencies.some((frame) => frame.location[1].endsWith('/node_modules/@testing-library/dom/dist/query-helpers.js'))) return false;
+    return !site.query.startsWith('findBy') || dependencies.some((frame) => frame.line.includes('waitForWrapper')
+      && frame.location[1].endsWith('/node_modules/@testing-library/dom/dist/wait-for.js'));
+  } catch { return false; }
+}
+
+/** Evidence must identify one executed assertion; setup/import errors never kill. */
+export function operatorMeasuredAssertion(launch, candidate, expectedStatus) {
+  const raw = operatorArtifact(launch, 'result');
+  const supervisor = operatorArtifact(launch, 'supervisor');
+  if (!raw || !supervisor) return false;
+  try {
+    const result = JSON.parse(raw);
+    const receipt = JSON.parse(supervisor);
+    const { supervisorPath, supervisorSha256, ...record } = launch;
+    if (JSON.stringify(receipt) !== JSON.stringify(record) || launch.active !== false || launch.timedOut !== false
+      || launch.code !== (expectedStatus === 'passed' ? 0 : 1) || launch.signal !== null
+      || result.numRuntimeErrorTestSuites > 0) return false;
+    const files = result.testResults ?? [];
+    if (!Array.isArray(files)
+      || files.filter((file) => file.status === 'failed').length > (expectedStatus === 'failed' ? 1 : 0)
+      || files.some((file) => typeof file.message === 'string' && file.message.trim())) return false;
+    const assertions = files.flatMap((file) => (file.assertionResults ?? [])
+      .filter((assertion) => ['passed', 'failed'].includes(assertion.status)).map((assertion) => ({ file, assertion })));
+    if (assertions.length !== 1) return false;
+    const { file, assertion } = assertions[0];
+    if (!(file.name === candidate.file || file.name?.endsWith(`/${candidate.file}`))
+      || (assertion.fullName ?? assertion.title) !== candidate.test || assertion.status !== expectedStatus
+      || file.status !== expectedStatus) return false;
+    return expectedStatus === 'passed' || (assertion.failureMessages?.length > 0
+      && assertion.failureMessages.every((message) => (/AssertionError|expected .* to /s.test(message)
+        || operatorFrontendAssertion(message, launch, candidate))
+        && !/Cannot find module|Failed to load|SyntaxError|ReferenceError|TypeError|beforeAll|beforeEach|afterAll|afterEach/.test(message)));
+  } catch { return false; }
+}
+
+export function operatorLaunchAllowed(runs, timeout) {
+  return Number.isInteger(runs) && runs >= 30 && runs < 1500
+    && Number.isFinite(timeout) && timeout > 0 && timeout <= RUN_TIMEOUT_MS;
+}
+
+export function operatorOutcomeCorroborated(candidate, launches, admissionHead) {
+  if (candidate.outcome !== 'killed') return false;
+  const bound = launches.filter((entry) => entry.candidateId === candidate.id
+    && entry.selector === operatorCandidateSelector(candidate, entry.selectorCorrection) && entry.admission === admissionHead);
+  return bound.some((baseline) => baseline.phase === 'baseline'
+    && operatorMeasuredAssertion(baseline, candidate, 'passed')
+    && bound.some((mutant) => mutant.phase === 'mutant' && mutant.attempt === baseline.attempt
+      && mutant.target === baseline.target && mutant.originalOid === baseline.originalOid
+      && mutant.mutantSha256 === baseline.mutantSha256
+      && mutant.envSha256 === baseline.envSha256 && mutant.controlHead === baseline.controlHead
+      && mutant.selectorCorrection === baseline.selectorCorrection
+      && operatorMeasuredAssertion(mutant, candidate, 'failed')));
+}
+
+export function validOperatorReport(root, sidecar, journal) {
+  const proof = validateOperatorAdmission(root, journal, { report: true });
+  if (!proof || sidecar.branch !== OPERATOR_BRANCH || sidecar.round !== 1
+    || sidecar.head_sha !== proof.controlHead || sidecar.authorizations?.length !== 0
+    || JSON.stringify(sidecar.operatorVerifierCorrection) !== JSON.stringify(operatorCorrectionProvenance(proof, sidecar.inventory ?? []))
+    || JSON.stringify(sidecar.operatorSelectionCorrection) !== JSON.stringify(operatorSelectionProvenance(proof, sidecar.inventory ?? []))
+    || ['mode', 'run_id', 'fork_sha', 'merge_base_sha', 'risk'].some((key) => sidecar[key] !== proof.historical[key])
+    || !unchangedPrefix(proof.historical.findings ?? [], sidecar.findings ?? [])
+    || !unchangedPrefix(proof.historical.authorizations ?? [], sidecar.authorizations)
+    || sidecar.intake_sha256 !== sha256(operatorBlob(root, proof.admissionHead, OPERATOR_INTAKE))
+    || JSON.stringify(sidecar.inventory?.map(operatorIdentity)) !== JSON.stringify(proof.inventory)) return false;
+  for (const [index, candidate] of sidecar.inventory.entries()) {
+    const old = proof.historical.inventory[index];
+    if (old?.outcome === 'excluded') {
+      if (JSON.stringify(candidate) !== JSON.stringify(old)) return false;
+      continue;
+    }
+    const discoveryCorrection = proof.manifest.discoveryCorrections.find((row) => row.id === candidate.id);
+    if (discoveryCorrection && candidate.outcome === 'excluded') {
+      if (candidate.reason !== discoveryCorrection.reason) return false;
+      continue;
+    }
+    if (candidate.outcome === 'excluded') return false;
+    if (old?.outcome === 'killed') {
+      if (JSON.stringify(candidate) !== JSON.stringify(old)) return false;
+      continue;
+    }
+    if (candidate.outcome !== 'killed' && candidate.outcome !== 'equivalent') continue;
+    const launches = proof.selectionCorrection && index >= 501
+      ? journal.supervisors.filter((row) => row.controlHead === proof.controlHead
+        && row.attempt === (candidate.id === 'rt-0516' ? 1 : 2))
+      : journal.supervisors.slice(30);
+    if (!operatorOutcomeCorroborated(candidate, launches, proof.admissionHead)) return false;
+  }
+  return true;
+}
+
 // One owner-approved ticket continuation, not a general CLI/env override.
 // Original pin/inventory stay immutable until completion; see #1185 D3.
 const CONTINUATION_AUTHORIZATION = 'owner-1185-budget-continuation';
@@ -789,6 +1428,7 @@ function authorizedRunCBudget(root, journal) {
 }
 
 function authorizedBudget(root, journal) {
+  if (requiresOperatorContinuation(root, journal)) return validateOperatorAdmission(root, journal)?.grant ?? null;
   if (journal.round === 4) return authorizedRunCFourthBudget(root, journal);
   if (journal.round === 2) return authorizedRunEBudget(root, journal) ?? authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
   if (journal.round !== 1) return null;
@@ -1180,6 +1820,10 @@ function hasThirdRoundAuthorization(root) {
  */
 function cmdRoundStart(root) {
   const journal = readJournal(root);
+  if (requiresOperatorContinuation(root, journal)) {
+    console.error('round-start: REFUSED — Operator continuation retains round 1 and its thirty-launch checkpoint');
+    return 1;
+  }
   const branch = git(root, ['branch', '--show-current']);
   const headSha = git(root, ['rev-parse', 'HEAD']);
   if (requiresRunEStagingAdmission(root, journal, headSha)
@@ -1315,12 +1959,29 @@ function cmdMutate(root, parsed) {
     return 1;
   }
   const mutantSource = readFileSync(resolve(parsed.mutant));
+  const journal = readJournal(root);
+  let operatorMetadata = null;
+  if (requiresOperatorContinuation(root, journal)) {
+    const proof = validateOperatorAdmission(root, journal);
+    operatorMetadata = proof && operatorRunMetadata(root, parsed, proof, journal, 'mutation');
+    if (!operatorMetadata || operatorMetadata.target !== parsed.file || sha256(mutantSource) !== operatorMetadata.mutantSha256
+      || journal.supervisors.some((entry) => entry.active === true)
+      || journal.mutations.some((entry) => entry.state !== 'restored')
+      || !journal.supervisors.slice(30).some((entry) => entry.candidateId === operatorMetadata.candidateId
+        && entry.attempt === operatorMetadata.attempt && entry.phase === 'baseline'
+        && entry.target === operatorMetadata.target && entry.mutantSha256 === operatorMetadata.mutantSha256
+        && entry.originalOid === operatorMetadata.originalOid && entry.controlHead === operatorMetadata.controlHead
+        && operatorMeasuredAssertion(entry, proof.inventory.find((row) => row.id === entry.candidateId), 'passed'))) {
+      console.error('mutate: Operator admission, candidate attempt or green baseline invalid');
+      return 1;
+    }
+  }
 
   // The original blob is written into the object database BEFORE the mutation,
   // so the finalizer can always restore it even from a fresh process.
   const originalOid = git(root, ['hash-object', '-w', '--', target]);
-  const journal = readJournal(root);
   journal.mutations.push({
+    ...(operatorMetadata ?? {}),
     path: parsed.file,
     originalOid,
     patchSha256: sha256(mutantSource),
@@ -1346,6 +2007,40 @@ async function cmdRun(root, parsed) {
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
+  let operatorMetadata = null;
+  if (requiresOperatorContinuation(root, journal)) {
+    const proof = validateOperatorAdmission(root, journal);
+    const timeout = Number(parsed.timeout ?? RUN_TIMEOUT_MS);
+    operatorMetadata = proof && ['baseline', 'mutant'].includes(parsed.phase)
+      && operatorRunMetadata(root, parsed, proof, journal, parsed.phase);
+    const candidate = proof?.inventory.find((row) => row.id === parsed.candidate);
+    const resultPath = typeof parsed.result === 'string' ? resolve(parsed.result) : null;
+    const expectedArgv = ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run', candidate?.file, '--testNamePattern', parsed.selector,
+      '--reporter=json', `--outputFile=${resultPath}`, '--maxWorkers=1'];
+    const dotenvSafe = ['.env', '.env.local', '.env.test', '.env.test.local'].every((path) => {
+      if (!existsSync(join(root, path))) return true;
+      const entry = journal.dotenv?.files?.find((file) => file.path === path);
+      return journal.dotenv?.open === true && entry && existsSync(join(root, entry.backupPath))
+        && sha256(readFileSync(join(root, path))) === entry.scrubbedSha256;
+    });
+    if (!operatorMetadata || !operatorLaunchAllowed(journal.runs, timeout)
+      || !resultPath || existsSync(resultPath) || existsSync(`${resultPath}.supervisor.json`)
+      || journal.supervisors.some((entry) => entry.active === true || entry.resultPath === resultPath)
+      || JSON.stringify(argv) !== JSON.stringify(expectedArgv) || !dotenvSafe
+      || parsed['no-release'] === true) {
+      console.error('run: Operator continuation admission, candidate metadata, test command, result path or timeout invalid');
+      return 1;
+    }
+    parsed['tmp-home'] = join(root, '.feature', 'operator-continuation-home', parsed.candidate, String(parsed.attempt));
+    const envSha256 = sha256(JSON.stringify(commandEnv(root, parsed)));
+    if (parsed.phase === 'mutant' && !journal.supervisors.slice(30).some((entry) =>
+      entry.candidateId === operatorMetadata.candidateId && entry.attempt === operatorMetadata.attempt
+      && entry.phase === 'baseline' && entry.envSha256 === envSha256)) {
+      console.error('run: Operator baseline and mutant environment differ');
+      return 1;
+    }
+    operatorMetadata = { ...operatorMetadata, phase: parsed.phase, resultPath, argv, timeout, envSha256 };
+  }
   const runEBranch = git(root, ['branch', '--show-current']) === RUN_E_BRANCH;
   const headSha = git(root, ['rev-parse', 'HEAD']);
   const runEAdmittedHead = headSha === RUN_E_ORIGINAL_ADMISSION || afterRunEOriginalAdmission(root, headSha);
@@ -1418,6 +2113,7 @@ async function cmdRun(root, parsed) {
     journal.stagingCorrectionAdmission = authorization.stagingCorrectionAdmission;
   }
   journal.supervisors.push({
+    ...(operatorMetadata ?? {}),
     pid,
     pgid: pid,
     startedAt,
@@ -1449,6 +2145,15 @@ async function cmdRun(root, parsed) {
   const current = readJournal(root);
   const record = current.supervisors.find((entry) => entry.pid === pid);
   if (record) record.active = !reaped.ok;
+  if (record && operatorMetadata) {
+    Object.assign(record, { timedOut: outcome.timedOut, code: outcome.code ?? null, signal: outcome.signal ?? null });
+    record.resultSha256 = existsSync(record.resultPath) ? sha256(readFileSync(record.resultPath)) : null;
+    const receipt = Buffer.from(JSON.stringify(record));
+    const supervisorPath = `${record.resultPath}.supervisor.json`;
+    writeFileSync(supervisorPath, receipt, { flag: 'wx', mode: 0o600 });
+    record.supervisorPath = supervisorPath;
+    record.supervisorSha256 = sha256(receipt);
+  }
   writeJournal(root, current);
 
   if (!reaped.ok) {

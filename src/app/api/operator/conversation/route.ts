@@ -4,26 +4,21 @@
 // the `sql` singleton and passes it down; the module never does.
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import {
   getConversationForOwner,
   readSummaryEntitlement,
   type OwnerConversationResult,
 } from '@/lib/agents/operator/reads';
-import { errorResponse, jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
+import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
+import { requireOperatorReader } from '../gate';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // Flag first, before auth and before any read: off means the surface does
-  // not exist.
-  if (!ownerOperatorEnabled()) return errorResponse('operator_disabled', 404);
-
-  // A READ gate, not the writable-owner gate the POST uses.
-  const owner = await requireOwnerWithAccount(request);
+  const owner = await requireOperatorReader(request);
   if (!owner.ok) return owner.response;
 
   // No `?id` means "the actor's most recent conversation for this account",

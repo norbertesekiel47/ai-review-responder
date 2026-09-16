@@ -5,7 +5,7 @@ import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
-import { previewPolicyRestore, proposableOperation } from './catalog';
+import { previewPolicyRestore, proposableOperation, type PolicyProposableOperation, type ProposableOperation } from './catalog';
 import { readPolicySnapshot } from './policy-state';
 import {
   composeReadinessBlockReasons, insertProposals, lockRestoreSourceForAccount,
@@ -19,6 +19,7 @@ import { computeVoiceVersionToken, versionTokensEqual } from './version-token';
 type Tx = postgres.TransactionSql;
 interface RestoreActor { accountId: string; actorUserId: string }
 interface RestoreOwner { conversationId: string; turnId: string }
+type RestorePreparation = RestoreActor & { locationId: string | null; sourceProposalId?: string; owner?: RestoreOwner };
 
 export type RestoreResult =
   | { kind: 'prepared'; proposal: ProposalView; repeated: boolean }
@@ -87,6 +88,13 @@ async function prepareRestoreFields(
     };
   }
   if (inverse.domain !== 'policy' || operation.domain !== 'policy') return null;
+  return preparePolicyRestoreFields(tx, input, operation, inverse);
+}
+
+async function preparePolicyRestoreFields(
+  tx: Tx, input: RestoreActor & { locationId: string | null },
+  operation: PolicyProposableOperation, inverse: Extract<DerivedRestoreInput, { domain: 'policy' }>,
+): Promise<PreparedFields | null> {
   const snapshot = await readPolicySnapshot(tx, { accountId: input.accountId, locationId: input.locationId });
   if (!snapshot || snapshot.targetArchived) return null;
   const target = policyTargetOf(input.locationId);
@@ -103,14 +111,7 @@ async function prepareRestoreFields(
   };
 }
 
-/** Same function for the button and model, called only after the worker fence. */
-export async function createRestoreProposalInTransaction(
-  tx: Tx,
-  input: RestoreActor & { locationId: string | null; sourceProposalId?: string; owner?: RestoreOwner },
-): Promise<RestoreResult> {
-  if (!await lockRestoreScope(tx, input)) return { kind: 'location_not_found' };
-  if (!await restoreActorWritable(tx, input)) return { kind: 'unauthorized' };
-
+async function selectRestoreSource(tx: Tx, input: RestorePreparation) {
   // No advisory candidate is trusted: latest selection occurs under BOTH
   // settings-domain locks, before source locking and current-state capture.
   const [selected] = await tx<{ id: string; conversation_id: string; turn_id: string }[]>`
@@ -121,22 +122,12 @@ export async function createRestoreProposalInTransaction(
       AND (${input.sourceProposalId === undefined} OR id = ${input.sourceProposalId ?? '00000000-0000-0000-0000-000000000000'}::uuid)
     ORDER BY applied_at DESC NULLS LAST, id DESC LIMIT 1
   `;
-  if (!selected) return { kind: input.sourceProposalId ? 'not_found' : 'no_history' };
-  const source = await lockRestoreSourceForAccount(tx, { accountId: input.accountId, proposalId: selected.id });
-  if (!source || source.locationId !== input.locationId) return { kind: 'not_found' };
-  if (source.status !== PROPOSAL_STATUS.APPLIED) return { kind: 'not_applied' };
-  const inverse = deriveRestoreInput({ ...input, operation: source.operation, contractVersion: source.contractVersion, source });
-  const operation = proposableOperation(source.operation);
-  if (!inverse || !operation) return { kind: 'invalid_source' };
-  const owner = input.owner ?? { conversationId: selected.conversation_id, turnId: selected.turn_id };
-  const [owningTurn] = await tx<{ id: string }[]>`
-    SELECT id FROM agent_turns WHERE account_id = ${input.accountId}::uuid
-      AND id = ${owner.turnId}::uuid AND conversation_id = ${owner.conversationId}::uuid
-  `;
-  if (!owningTurn) return { kind: 'unauthorized' };
-  const fields = await prepareRestoreFields(tx, input, source, inverse);
-  if (!fields) return { kind: 'location_not_found' };
+  return selected;
+}
 
+async function reusableRestoreProposal(
+  tx: Tx, input: RestorePreparation, source: RestoreSource, fields: PreparedFields,
+): Promise<ProposalView | null> {
   const pending = await tx<{ id: string }[]>`
     SELECT id FROM agent_proposals WHERE account_id = ${input.accountId}::uuid
       AND status = ${PROPOSAL_STATUS.PENDING}
@@ -148,9 +139,48 @@ export async function createRestoreProposalInTransaction(
     if (existing?.restoreSourceProposalId === source.id && existing.operation === source.operation
       && existing.locationId === input.locationId && existing.contractVersion === source.contractVersion
       && versionTokensEqual(existing.preparedVersionToken, fields.preparedVersionToken)) {
-      return { kind: 'prepared', proposal: existing, repeated: true };
+      return existing;
     }
   }
+  return null;
+}
+
+async function resolveRestoreSource(tx: Tx, input: RestorePreparation): Promise<
+  | { kind: 'source'; source: RestoreSource; inverse: DerivedRestoreInput; operation: ProposableOperation; owner: RestoreOwner }
+  | Exclude<RestoreResult, { kind: 'prepared' }>
+> {
+  const selected = await selectRestoreSource(tx, input);
+  if (!selected) return { kind: input.sourceProposalId ? 'not_found' : 'no_history' };
+  const source = await lockRestoreSourceForAccount(tx, { accountId: input.accountId, proposalId: selected.id });
+  if (!source || source.locationId !== input.locationId) return { kind: 'not_found' };
+  if (source.status !== PROPOSAL_STATUS.APPLIED) return { kind: 'not_applied' };
+  const inverse = deriveRestoreInput({ ...input, operation: source.operation, contractVersion: source.contractVersion, source });
+  const operation = proposableOperation(source.operation);
+  if (!inverse || !operation) return { kind: 'invalid_source' };
+  const owner = input.owner ?? { conversationId: selected.conversation_id, turnId: selected.turn_id };
+  return { kind: 'source', source, inverse, operation, owner };
+}
+
+/** Same function for the button and model, called only after the worker fence. */
+export async function createRestoreProposalInTransaction(
+  tx: Tx, input: RestorePreparation,
+): Promise<RestoreResult> {
+  if (!await lockRestoreScope(tx, input)) return { kind: 'location_not_found' };
+  if (!await restoreActorWritable(tx, input)) return { kind: 'unauthorized' };
+
+  const resolved = await resolveRestoreSource(tx, input);
+  if (resolved.kind !== 'source') return resolved;
+  const { source, inverse, operation, owner } = resolved;
+  const [owningTurn] = await tx<{ id: string }[]>`
+    SELECT id FROM agent_turns WHERE account_id = ${input.accountId}::uuid
+      AND id = ${owner.turnId}::uuid AND conversation_id = ${owner.conversationId}::uuid
+  `;
+  if (!owningTurn) return { kind: 'unauthorized' };
+  const fields = await prepareRestoreFields(tx, input, source, inverse);
+  if (!fields) return { kind: 'location_not_found' };
+
+  const existing = await reusableRestoreProposal(tx, input, source, fields);
+  if (existing) return { kind: 'prepared', proposal: existing, repeated: true };
   const row: ProposalRow = {
     id: randomUUID(), ...owner, accountId: input.accountId, actorUserId: input.actorUserId,
     locationId: source.locationId,

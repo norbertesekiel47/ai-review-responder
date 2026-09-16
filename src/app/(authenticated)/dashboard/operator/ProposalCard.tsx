@@ -199,14 +199,8 @@ function ProposalState({
       {pending && <PendingProposalActions proposal={proposal} reasonId={reasonId}
         onApply={onApply} onDecline={onDecline} busy={busy} error={error} />}
 
-      {proposal.status === 'applied' && proposal.receipt !== null && onRestore && (
-        <div className="op-actions">
-          <button type="button" className="btn btn-secondary op-action" disabled={busy}
-            aria-describedby={error !== null ? reasonId : undefined}
-            onClick={() => onRestore(proposal)}>{busy ? 'Preparing restore…' : 'Restore'}</button>
-          <span className="op-note">Prepare a change to review before applying.</span>
-        </div>
-      )}
+      <RestoreProposalAction proposal={proposal} onRestore={onRestore}
+        busy={busy} error={error} reasonId={reasonId} />
 
       {!pending && refreshable && (
         <div className="op-actions">
@@ -215,6 +209,20 @@ function ProposalState({
         </div>
       )}
     </>
+  );
+}
+
+/** Restore prepares a new Proposal only when this card has an applied Receipt. */
+function RestoreProposalAction({ proposal, onRestore, busy, error, reasonId }:
+  Pick<ProposalCardProps, 'proposal' | 'onRestore' | 'busy' | 'error'> & { reasonId: string }) {
+  if (proposal.status !== 'applied' || proposal.receipt === null || !onRestore) return null;
+  return (
+    <div className="op-actions">
+      <button type="button" className="btn btn-secondary op-action" disabled={busy}
+        aria-describedby={error !== null ? reasonId : undefined}
+        onClick={() => onRestore(proposal)}>{busy ? 'Preparing restore…' : 'Restore'}</button>
+      <span className="op-note">Prepare a change to review before applying.</span>
+    </div>
   );
 }
 

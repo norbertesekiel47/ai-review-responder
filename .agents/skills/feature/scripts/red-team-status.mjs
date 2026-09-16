@@ -39,6 +39,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  requiresOperatorContinuation, validOperatorReport,
   runCFourthAuthorization, validRunCFourthReport,
   runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
   requiresRunECorrectiveAdmission, validateRunECorrectiveAdmission,
@@ -119,6 +120,8 @@ const TOP_LEVEL_KEYS = new Set([
   'inventory',
   'findings',
   'authorizations',
+  'operatorVerifierCorrection',
+  'operatorSelectionCorrection',
   'counts',
   'status',
 ]);
@@ -282,7 +285,61 @@ export function validateShape(sidecar) {
 
   checkKeys('findings.json', sidecar, TOP_LEVEL_KEYS, errors);
   for (const key of TOP_LEVEL_KEYS) {
-    if (!(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+    if (!['operatorVerifierCorrection', 'operatorSelectionCorrection'].includes(key) && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+  }
+
+  if (sidecar.operatorSelectionCorrection !== undefined) {
+    const correction = sidecar.operatorSelectionCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorSelectionCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorSelectionCorrection', correction,
+        new Set(['id', 'priorControl', 'controlHead', 'checkpointSha256', 'failedSelection', 'failedFixture', 'reevaluation']), errors);
+      if (correction.id !== 'operator-fallow-round-1-selection-and-resolves'
+        || correction.priorControl !== 'e3bd968ae9fca8e0d787291cf067c266e67d89f9'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '0942d85131597e501bf50f38d0f4868d02d007e8f0e37ee9efc051ba227a4d6e') errors.push('operatorSelectionCorrection identity is invalid');
+      for (const [key, id, digest] of [
+        ['failedSelection', 'rt-0103', '4366858d241421e1482fec183be29e25247aca86f40c6ca18b07767a0d542fd7'],
+        ['failedFixture', 'rt-0516', '77eb90a39e53da98aa61020e3d5ae864aa73ee1c4e1ea9b97917466d51806a01'],
+        ['reevaluation', 'rt-0144', '468489f392cedd75a85b6b13892b12eae10028389e6e56223aedc3fedd874f13'],
+      ]) {
+        const row = correction[key];
+        if (!isPlainObject(row)) { errors.push(`operatorSelectionCorrection ${key} must be an object`); continue; }
+        checkKeys(`operatorSelectionCorrection ${key}`, row,
+          new Set(['candidateId', 'measurementSha256', 'originalSuggestion', key !== 'reevaluation' ? 'retained' : 'outcome']), errors);
+        if (row.candidateId !== id || row.measurementSha256 !== digest || row.originalSuggestion !== 'inconclusive'
+          || (key !== 'reevaluation' ? row.retained !== true : !OUTCOMES.has(row.outcome))) {
+          errors.push(`operatorSelectionCorrection ${key} is invalid`);
+        }
+      }
+    }
+  }
+
+  if (sidecar.operatorVerifierCorrection !== undefined) {
+    const correction = sidecar.operatorVerifierCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorVerifierCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorVerifierCorrection', correction, new Set(['id', 'controlHead', 'checkpointSha256', 'reevaluations']), errors);
+      if (correction.id !== 'operator-fallow-round-1-file-accounting-42'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b'
+        || !Array.isArray(correction.reevaluations) || correction.reevaluations.length !== 6) {
+        errors.push('operatorVerifierCorrection has invalid identity, control revision or checkpoint');
+      } else {
+        const seen = new Set();
+        for (const row of correction.reevaluations) {
+          if (!isPlainObject(row)) { errors.push('operatorVerifierCorrection reevaluation must be an object'); continue; }
+          checkKeys('operatorVerifierCorrection reevaluation', row,
+            new Set(['candidateId', 'measurementSha256', 'originalSuggestion', 'outcome']), errors);
+          if (!nonEmptyString(row.candidateId) || seen.has(row.candidateId)
+            || !SHA256_RE.test(String(row.measurementSha256)) || row.originalSuggestion !== 'inconclusive'
+            || !OUTCOMES.has(row.outcome)) errors.push('operatorVerifierCorrection reevaluation is invalid');
+          seen.add(row.candidateId);
+        }
+      }
+    }
   }
 
   if (sidecar.schema !== 1) errors.push('schema must equal 1');
@@ -755,6 +812,9 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
+    if (requiresOperatorContinuation(root, readJournal(root))) {
+      fail(['Operator continuation requires its original report, immutable admission and preserved cumulative journal; no risk waiver applies']);
+    }
     if (requiresRunEStagingAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))
       || requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
       fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);
@@ -817,6 +877,9 @@ function main(argv) {
   }
 
   const journal = readJournal(root);
+  if (requiresOperatorContinuation(root, journal) && !validOperatorReport(root, sidecar, journal)) {
+    errors.push('Operator continuation requires immutable admission/history, exact inventory and exclusions, cumulative journal and corroborated outcome upgrades');
+  }
   // Checkout ancestry survives a forged report branch/round and stripped pins.
   const correctiveProofRequired = requiresRunEStagingAdmission(root, journal, sidecar?.head_sha)
     || requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);
