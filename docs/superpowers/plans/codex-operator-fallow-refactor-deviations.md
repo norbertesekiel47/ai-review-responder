@@ -70,3 +70,12 @@ The focused continuation safeguards passed 15/15 in 10.07 seconds. Independent i
 After the six-case pilot, all 42 launch records and 21 restored mutations are pinned unchanged. The six inconclusive suggestions resulted from treating nested describe-suite counts as failed-file counts. The bounded verifier repair uses `testResults` failed-file statuses and rejects file-level errors, while retaining every existing evidence predicate. It is routine support work under the existing approval to finish; no additional owner approval is asserted.
 
 The used 03502 admission and budget authorization remain immutable. One reviewed direct-child controller revision governs launches 43+ and preserves the entire prior journal prefix, product scope,501 original identities,15 verifier identities,355 approved discovery corrections, original four exclusions,1500 cumulative ceiling, and two attempts per case. The appended manifest in the existing budget-extension review records the full checkpoint, artifact pins and corrected verifier blobs. Any reevaluation cites original unchanged measurements and is recorded separately in the final report.
+
+
+**Verdict:** ACCEPT
+
+## D7 — exact selection and pinned resolves assertion correction
+
+**Verdict:** ACCEPT
+
+The campaign exposed finite verifier gaps: the unanchored `rt-0103` selector also matched `rt-0104`; the existing `rt-0144` resolves assertion used a Vitest diagnostic outside the assertion classifier; and the `rt-0516` disposable fixture inherited the parent Vitest configuration under the campaign temporary directory. The single direct child of used controller `e3bd968ae9fca8e0d787291cf067c266e67d89f9` corrects only these gaps. The full restored checkpoint, unchanged old measurements, exact source and evidence pins, and separate reevaluation are appended to `docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md`. The original grant, round, cumulative budget, identities and exclusions are preserved. All 15 verifier suffix cases require fresh measurement against the corrected controller: 14 use their second attempts and `rt-0516` uses its first, since its old baseline never launched a mutant. No prior failure is relabeled or discarded.

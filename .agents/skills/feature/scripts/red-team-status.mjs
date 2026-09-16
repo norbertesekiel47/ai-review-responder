@@ -121,6 +121,7 @@ const TOP_LEVEL_KEYS = new Set([
   'findings',
   'authorizations',
   'operatorVerifierCorrection',
+  'operatorSelectionCorrection',
   'counts',
   'status',
 ]);
@@ -284,7 +285,35 @@ export function validateShape(sidecar) {
 
   checkKeys('findings.json', sidecar, TOP_LEVEL_KEYS, errors);
   for (const key of TOP_LEVEL_KEYS) {
-    if (key !== 'operatorVerifierCorrection' && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+    if (!['operatorVerifierCorrection', 'operatorSelectionCorrection'].includes(key) && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+  }
+
+  if (sidecar.operatorSelectionCorrection !== undefined) {
+    const correction = sidecar.operatorSelectionCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorSelectionCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorSelectionCorrection', correction,
+        new Set(['id', 'priorControl', 'controlHead', 'checkpointSha256', 'failedSelection', 'failedFixture', 'reevaluation']), errors);
+      if (correction.id !== 'operator-fallow-round-1-selection-and-resolves'
+        || correction.priorControl !== 'e3bd968ae9fca8e0d787291cf067c266e67d89f9'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '0942d85131597e501bf50f38d0f4868d02d007e8f0e37ee9efc051ba227a4d6e') errors.push('operatorSelectionCorrection identity is invalid');
+      for (const [key, id, digest] of [
+        ['failedSelection', 'rt-0103', '4366858d241421e1482fec183be29e25247aca86f40c6ca18b07767a0d542fd7'],
+        ['failedFixture', 'rt-0516', '77eb90a39e53da98aa61020e3d5ae864aa73ee1c4e1ea9b97917466d51806a01'],
+        ['reevaluation', 'rt-0144', '468489f392cedd75a85b6b13892b12eae10028389e6e56223aedc3fedd874f13'],
+      ]) {
+        const row = correction[key];
+        if (!isPlainObject(row)) { errors.push(`operatorSelectionCorrection ${key} must be an object`); continue; }
+        checkKeys(`operatorSelectionCorrection ${key}`, row,
+          new Set(['candidateId', 'measurementSha256', 'originalSuggestion', key !== 'reevaluation' ? 'retained' : 'outcome']), errors);
+        if (row.candidateId !== id || row.measurementSha256 !== digest || row.originalSuggestion !== 'inconclusive'
+          || (key !== 'reevaluation' ? row.retained !== true : !OUTCOMES.has(row.outcome))) {
+          errors.push(`operatorSelectionCorrection ${key} is invalid`);
+        }
+      }
+    }
   }
 
   if (sidecar.operatorVerifierCorrection !== undefined) {

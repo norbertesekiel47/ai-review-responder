@@ -2036,6 +2036,25 @@ describe('Operator continuation evidence corroboration', () => {
     return { message, launch, candidate, line: site.line, recognize: verifier.operatorFrontendAssertion, measure: verifier.operatorMeasuredAssertion };
   }
 
+  async function resolvesFixture() {
+    const verifier = await import(/* @vite-ignore */ runnerPath) as {
+      operatorFrontendAssertion: (message: string, launch: unknown, candidate: unknown) => boolean;
+      operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
+    };
+    const root = process.cwd();
+    const candidate = { id: 'rt-0144', file: 'src/lib/agents/operator/__tests__/completion-materialization.test.ts',
+      test: 'fenced reply materialization boundaries locks location requests before account requests while preserving model order and stored ownership' };
+    const launch = { target: 'src/lib/agents/operator/turns.ts', originalOid: 'f42fbd06ac7ea800b2871a662e5d958abb6ff76c',
+      mutantSha256: '3366bc3c3d8e20136cf859b54eb4bc93de31fd677eca04383d3de526d8f01962' };
+    const message = `Error: promise rejected "Error: agents/operator: restore request d…" instead of resolving\n`
+      + `    at _Assertion.__VITEST_RESOLVES__ (${root}/node_modules/@vitest/expect/dist/index.js:1710:17)\n`
+      + `    at _Assertion.propertyGetter (${root}/node_modules/chai/index.js:1570:27)\n`
+      + '    at Reflect.get (<anonymous>)\n'
+      + `    at Object.proxyGetter [as get] (${root}/node_modules/chai/index.js:1659:22)\n`
+      + `    at ${root}/${candidate.file}:57:60`;
+    return { message, launch, candidate, line: 57, recognize: verifier.operatorFrontendAssertion, measure: verifier.operatorMeasuredAssertion };
+  }
+
   function frontendArtifact(proof: Awaited<ReturnType<typeof frontendFixture>>, failureMessages: string[]) {
     const launch = measured('mutant', { ...proof.launch, candidateId: proof.candidate.id, selector: proof.candidate.test });
     const raw = JSON.stringify({ numRuntimeErrorTestSuites: 0, numFailedTestSuites: 1,
@@ -2053,6 +2072,29 @@ describe('Operator continuation evidence corroboration', () => {
   it('accepts only a digested candidate-bound green baseline and assertion-failing mutant pair', async () => {
     expect(await corroborate(candidate, [measured('baseline'), measured('mutant')])).toBe(true);
     expect(await corroborate(candidate, [])).toBe(false);
+    const resolves = await resolvesFixture();
+    expect(resolves.recognize(resolves.message, resolves.launch, resolves.candidate)).toBe(true);
+    expect(resolves.measure(frontendArtifact(resolves, [resolves.message]), resolves.candidate, 'failed')).toBe(true);
+    expect(resolves.measure(frontendArtifact(resolves, [resolves.message, 'Error: unrelated failure']), resolves.candidate, 'failed')).toBe(false);
+    for (const message of [resolves.message.replace('instead of resolving', 'instead of rejecting'),
+      resolves.message.replace(':57:60', ':58:60'), resolves.message.replace('__VITEST_RESOLVES__', 'other'),
+      resolves.message.replace('Reflect.get', 'Object.get'), `beforeEach: ${resolves.message}`,
+      resolves.message.replace('    at ', '    at helper (src/setup.ts:1:1)\n    at ')]) {
+      expect(resolves.recognize(message, resolves.launch, resolves.candidate)).toBe(false);
+    }
+    for (const launch of [{ ...resolves.launch, target: 'src/other.ts' },
+      { ...resolves.launch, originalOid: '0'.repeat(40) }, { ...resolves.launch, mutantSha256: '0'.repeat(64) }]) {
+      expect(resolves.recognize(resolves.message, launch, resolves.candidate)).toBe(false);
+    }
+    expect(resolves.recognize(resolves.message, resolves.launch, { ...resolves.candidate, id: 'rt-0145' })).toBe(false);
+    const alteredPinPath = join(repo, 'altered-resolves-source-pin.mjs');
+    writeFileSync(alteredPinPath, readFileSync(runnerPath, 'utf8')
+      .replace('d451764285ccdc077f62c059459e68338aeb770b2cec63d462676961ebc4a24b', '0'.repeat(64)));
+    const altered = await import(/* @vite-ignore */ alteredPinPath) as {
+      operatorFrontendAssertion: typeof resolves.recognize;
+    };
+    expect(altered.operatorFrontendAssertion(resolves.message, resolves.launch, resolves.candidate)).toBe(false);
+
     expect(await corroborate({ ...candidate, reason: 'claimed kill' }, [measured('mutant')])).toBe(false);
     expect(await corroborate({ ...candidate, outcome: 'equivalent', reason: 'looks equivalent' },
       [measured('baseline'), measured('mutant')])).toBe(false);
@@ -2082,6 +2124,17 @@ describe('Operator continuation evidence corroboration', () => {
   });
 
   it('rejects another candidate selector admission target or attempt as kill evidence', async () => {
+    const exact = { ...candidate, id: 'rt-0103' };
+    const selected = { candidateId: exact.id, selector: `^${candidate.test}$`,
+      selectorCorrection: 'operator-fallow-round-1-selection-and-resolves', controlHead: 'e'.repeat(40) };
+    expect(await corroborate(exact, [measured('baseline', selected), measured('mutant', selected)])).toBe(true);
+    for (const selectorCorrection of [undefined, 'other']) {
+      expect(await corroborate(exact, [measured('baseline', { ...selected, selectorCorrection }),
+        measured('mutant', { ...selected, selectorCorrection })])).toBe(false);
+    }
+    expect(await corroborate(exact, [measured('baseline', { candidateId: exact.id, controlHead: 'd'.repeat(40) }),
+      measured('mutant', selected)])).toBe(false);
+
     for (const overrides of [{ candidateId: 'other' }, { selector: 'guard.*' }, { admission: 'd'.repeat(40) },
       { target: 'src/other.ts' }, { originalOid: 'e'.repeat(40) }, { mutantSha256: 'f'.repeat(64) }, { attempt: 2 }]) {
       expect(await corroborate(candidate, [measured('baseline'), measured('mutant', overrides)])).toBe(false);

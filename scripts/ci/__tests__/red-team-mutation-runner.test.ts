@@ -2238,6 +2238,8 @@ describe('Operator same-round continuation safeguards', () => {
       validateOperatorHistory: (manifest: unknown, historical: unknown, journal: unknown) => unknown;
       operatorLaunchAllowed: (runs: number, timeout: number) => boolean;
       operatorCorrectionHistory: (checkpoint: unknown, journal: unknown) => boolean;
+      operatorSelectionHistory: (checkpoint: unknown, journal: unknown) => boolean;
+      operatorCandidateSelector: (candidate: { id: string; test: string }, correctionId?: string) => string;
       operatorLegacyReconstruction: (id: string, original: string, from: string, to: string, mutant: string) => boolean;
       operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
       escapeTestName: (test: string) => string;
@@ -2275,6 +2277,35 @@ describe('Operator same-round continuation safeguards', () => {
     expect(operatorLaunchAllowed(1500, 120000)).toBe(false);
     expect(operatorLaunchAllowed(29, 120000)).toBe(false);
     expect(operatorLaunchAllowed(Number.NaN, 120000)).toBe(false);
+    const { operatorCandidateSelector } = await helpers();
+    const exact = { id: 'rt-0103', test: 'GET Rules timeline cursor?cursorId=0003' };
+    const ordinary = operatorCandidateSelector(exact);
+    const anchored = operatorCandidateSelector(exact, 'operator-fallow-round-1-selection-and-resolves');
+    expect(anchored).toBe(`^${ordinary}$`);
+    expect(new RegExp(anchored).test(exact.test)).toBe(true);
+    expect(new RegExp(anchored).test(`${exact.test}&cursorAppliedAt=not-a-date`)).toBe(false);
+    expect(new RegExp(ordinary).test(`${exact.test}&cursorAppliedAt=not-a-date`)).toBe(true);
+    expect(operatorCandidateSelector(exact, 'other')).toBe(ordinary);
+    expect(operatorCandidateSelector({ ...exact, id: 'rt-0104' }, 'operator-fallow-round-1-selection-and-resolves')).toBe(ordinary);
+    const metadataPath = join(repo, 'metadata-fixture.mjs');
+    writeFileSync(metadataPath, `${readFileSync(RUNNER, 'utf8')}\nexport { operatorRunMetadata };\n`);
+    const metadata = await import(/* @vite-ignore */ metadataPath) as {
+      operatorRunMetadata: (root: string, parsed: unknown, proof: unknown, journal: unknown, phase: string) => unknown;
+    };
+    const fixtureHead = git('rev-parse', 'HEAD');
+    const row = { ...exact, file: 'src/gate.test.ts' };
+    const parsed = { candidate: row.id, 'test-file': row.file, selector: anchored, attempt: '1',
+      target: 'src/gate.ts', 'mutant-sha256': 'c'.repeat(64) };
+    const proof = { inventory: [row], controlHead: fixtureHead, admissionHead: 'a'.repeat(40),
+      correction: {}, selectionCorrection: { id: 'operator-fallow-round-1-selection-and-resolves' }, attempts: new Map() };
+    const prior = { mutations: [], supervisors: [{ candidateId: row.id, phase: 'baseline', attempt: 1,
+      selector: ordinary, controlHead: 'e3bd968ae9fca8e0d787291cf067c266e67d89f9', code: 0 }] };
+    const before = JSON.stringify(prior);
+    expect(metadata.operatorRunMetadata(repo, parsed, proof, prior, 'baseline')).toMatchObject({
+      candidateId: row.id, attempt: 1, selector: anchored, selectorCorrection: 'operator-fallow-round-1-selection-and-resolves' });
+    expect(JSON.stringify(prior)).toBe(before);
+    expect(metadata.operatorRunMetadata(repo, { ...parsed, selector: ordinary }, proof, prior, 'baseline')).toBeNull();
+    expect(metadata.operatorRunMetadata(repo, parsed, { ...proof, selectionCorrection: { id: 'other' } }, prior, 'baseline')).toBeNull();
   });
 
   it('rejects invalid and over-ceiling continuation timeouts', async () => {
@@ -2327,6 +2358,23 @@ describe('Operator same-round continuation safeguards', () => {
       if (change === 'reset') current.mutations = [];
       expect(operatorCorrectionHistory(used, current)).toBe(false);
     }
+    const { operatorSelectionHistory } = await helpers();
+    const completed = { ...structuredClone(used), runs: 43,
+      supervisors: [...structuredClone(used.supervisors), { active: false, pid: 43, resultSha256: 'two-test-baseline' }] };
+    expect(operatorSelectionHistory(completed, structuredClone(completed))).toBe(true);
+    const appended = { ...structuredClone(completed), runs: 44,
+      supervisors: [...structuredClone(completed.supervisors), { active: false, pid: 44, resultSha256: 'exact-baseline' }] };
+    expect(operatorSelectionHistory(completed, appended)).toBe(true);
+    for (const change of ['old-baseline', 'reset', 'budget', 'round', 'mutation']) {
+      const current = structuredClone(appended);
+      if (change === 'old-baseline') current.supervisors[42]!.resultSha256 = 'rewritten';
+      if (change === 'reset') current.runs = 42;
+      if (change === 'budget') current.budgetAuthorization.firstRun = 44;
+      if (change === 'round') current.round = 2;
+      if (change === 'mutation') current.mutations[0]!.path = 'changed';
+      expect(operatorSelectionHistory(completed, current)).toBe(false);
+    }
+
 
   });
 
@@ -2418,6 +2466,7 @@ describe('Operator same-round continuation safeguards', () => {
     git('branch', '-m', 'codex/operator-fallow-refactor');
     write('.gitignore', '.feature/\nnode_modules/\n.env*\n');
     write('package.json', '{"type":"module"}\n');
+    write('vitest.config.mjs', "export default { root: '.', test: { include: ['src/gate.test.ts'], environment: 'node', setupFiles: [] } };\n");
     write('src/gate.test.ts', 'import { it, expect } from "vitest"; import { allow } from "./gate"; it("fixture candidate 1", () => expect(allow(1)).toBe(true));\n');
     write(runnerTest, '// original runner assertions retained\n');
     write(statusTest, '// original status assertions retained\n');
