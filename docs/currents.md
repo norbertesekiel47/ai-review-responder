@@ -9,7 +9,7 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-15 (Owner Operator Run E #1293 merged; post-merge deployment/readiness PASS).
+Last updated: 2026-09-16 (tier repricing: Copilot $79/$49, Autopilot $149/$99, extra location = list price; Owner Operator Run E #1293 merged).
 
 ## Quick summary — Owner Operator Run E: Restore and policy refusals (2026-09-15, #1293)
 
@@ -59,6 +59,14 @@ Exhausted dispatches now resolve the exact bound Operator turn and outbox togeth
 Staging proved tone Apply affecting the next worker-generated draft, the stored secondary-location target surviving a selector change, and durable recovery at 390px and 1440px. The corrected deployed watchdog also resolved an exhausted dispatch left by rollback, followed by independent zero-residual cleanup. [Run D evidence](runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) keeps the original campaign separate from that corrected-code check and owns post-merge deployment evidence.
 
 Observation closed under the owner's duration amendment after **19h 50m 14.857381s**, with **24/24 completed turns**, p50 **6.838317s** and p95 **16.10373645s**. This was not a full 24-hour run. The 180s lease, 1,200s predecessor limit and 10s recheck remain. Feature #1291, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`, passed the final local gate and required CI. The campaign ran with the Operator enabled in staging. No production enablement or flag change was made. The named owner/window in spec §12.1 item 9 remains **BLOCKED-human**. Run E may resume only after this separate documentation closeout merges.
+
+## Quick summary — Tier repricing: Copilot $79 / $49, Autopilot $149 / $99 (2026-09-14)
+
+Owner decision 2026-09-14. `TIER_CONFIG` (`src/lib/accounts/tier-config.ts`) now reads Copilot list **$79**, founding **$49**, extra location **$79**; Autopilot list **$149**, founding **$99**, extra location **$149**. An extra location costs the full list price on every account, founding included — deliberate.
+
+Every price surface (pricing page, plan picker, billing panel, checkout snapshot) derives from `TIER_CONFIG`; no copy hardcodes an amount. New Stripe Prices were created in both modes, and the six `STRIPE_PRICE_*` variables point at them per environment; `pnpm verify:stripe-prices` is the parity gate. `RETAINED_STRIPE_PRICE_HISTORY` stays empty on purpose: before the rotation, the owner had every customer account removed from production and staging, so no subscription references an old Price. Invariant #9a still holds for any account created from here on.
+
+The Beta comp coupon is unchanged (100% off for 3 months), so an invited tester still checks out at $0 and moves to $49 (Copilot founding) at month four.
 
 ## Quick summary — Owner Operator Run C: policy proposals and measured consequences (2026-09-13, #1278)
 

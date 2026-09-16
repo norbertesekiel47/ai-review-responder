@@ -43,9 +43,9 @@ function accountData(input?: {
   const variant = input?.variant ?? 'list';
   const basePriceCents = input?.basePriceCents
     ?? (variant === 'founding'
-      ? tier === 'copilot' ? 1900 : 4900
-      : tier === 'copilot' ? 2900 : 6900);
-  const overagePriceCents = tier === 'copilot' ? 1500 : 2000;
+      ? tier === 'copilot' ? 4900 : 9900
+      : tier === 'copilot' ? 7900 : 14900);
+  const overagePriceCents = tier === 'copilot' ? 7900 : 14900;
   return {
     accountId: 'acct_42',
     displayName: 'Acme',
@@ -71,11 +71,11 @@ function accountData(input?: {
 }
 
 const AUTOPILOT_LIST_PREVIEW = {
-  basePriceCents: 6900,
+  basePriceCents: 14900,
   includedLocations: 1,
-  overagePriceCents: 2000,
+  overagePriceCents: 14900,
   overageUnits: 0,
-  totalCents: 6900,
+  totalCents: 14900,
 };
 
 describe('TierChangeModal billing disclosure', () => {
@@ -97,8 +97,8 @@ describe('TierChangeModal billing disclosure', () => {
 
     expect(screen.getByText(/before any applicable taxes/i)).toBeInTheDocument();
     expect(screen.getByText(/continues monthly until cancelled/i)).toBeInTheDocument();
-    expect(screen.getAllByText('$69.00/month')).toHaveLength(2);
-    expect(screen.getByText('$20.00/month each')).toBeInTheDocument();
+    expect(screen.getAllByText('$149.00/month')).toHaveLength(2);
+    expect(screen.getByText('$149.00/month each')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
@@ -109,7 +109,7 @@ describe('TierChangeModal billing disclosure', () => {
         isDowngrade={false}
         priceVariant="founding"
         trialing={false}
-        billingPreview={{ ...AUTOPILOT_LIST_PREVIEW, basePriceCents: 4900, totalCents: 4900 }}
+        billingPreview={{ ...AUTOPILOT_LIST_PREVIEW, basePriceCents: 9900, totalCents: 9900 }}
         previewLoading={false}
         previewError={null}
         onConfirm={() => {}}
@@ -119,8 +119,8 @@ describe('TierChangeModal billing disclosure', () => {
     );
 
     expect(screen.getByText('Founding-for-life')).toBeInTheDocument();
-    expect(screen.getAllByText('$49.00/month')).toHaveLength(2);
-    expect(screen.queryByText('$69.00/month')).not.toBeInTheDocument();
+    expect(screen.getAllByText('$99.00/month')).toHaveLength(2);
+    expect(screen.queryByText('$149.00/month')).not.toBeInTheDocument();
   });
 
   it('keeps mid-trial plan-change copy trial safe', () => {
@@ -176,7 +176,7 @@ describe('BillingPanel tier changes', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Autopilot \(\$69.00\/month\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Autopilot \(\$149.00\/month\)/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
@@ -187,7 +187,7 @@ describe('BillingPanel tier changes', () => {
   });
 
   it('shows founding target price and uses the founder preview returned by the server', async () => {
-    const preview = { ...AUTOPILOT_LIST_PREVIEW, basePriceCents: 4900, totalCents: 4900 };
+    const preview = { ...AUTOPILOT_LIST_PREVIEW, basePriceCents: 9900, totalCents: 9900 };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ newBilling: preview }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -201,11 +201,11 @@ describe('BillingPanel tier changes', () => {
       />,
     );
 
-    const button = screen.getByRole('button', { name: /Upgrade to Autopilot \(\$49.00\/month\)/i });
-    expect(screen.queryByRole('button', { name: /\$69.00\/month/i })).not.toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /Upgrade to Autopilot \(\$99.00\/month\)/i });
+    expect(screen.queryByRole('button', { name: /\$149.00\/month/i })).not.toBeInTheDocument();
     fireEvent.click(button);
     expect(await screen.findByText('Founding-for-life')).toBeInTheDocument();
-    expect(within(screen.getByRole('dialog')).getAllByText('$49.00/month')).toHaveLength(2);
+    expect(within(screen.getByRole('dialog')).getAllByText('$99.00/month')).toHaveLength(2);
   });
 
   it('keeps unavailable Autopilot disabled and does not call preview', () => {

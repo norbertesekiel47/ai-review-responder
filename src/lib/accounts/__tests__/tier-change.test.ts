@@ -61,7 +61,7 @@ function account(overrides: Record<string, unknown> = {}) {
     stripe_subscription_id: SUBSCRIPTION_ID,
     subscription_status: 'active',
     subscription_tier: 'copilot',
-    locations_overage_price_cents: 1500,
+    locations_overage_price_cents: 7900,
     ...overrides,
   };
 }
@@ -116,8 +116,8 @@ function committedAudit(overrides: Partial<Record<
   return {
     new_tier: 'autopilot',
     price_variant: 'founding',
-    base_price_cents: '4900',
-    locations_overage_price_cents: '2000',
+    base_price_cents: '9900',
+    locations_overage_price_cents: '14900',
     locations_included: '1',
     locations_paid: '2',
     ...overrides,
@@ -194,10 +194,10 @@ beforeEach(() => {
 
 describe('validateTierChange', () => {
   it.each([
-    ['list', 'autopilot', 6900, 2000],
-    ['founding', 'autopilot', 4900, 2000],
-    ['list', 'copilot', 2900, 1500],
-    ['founding', 'copilot', 1900, 1500],
+    ['list', 'autopilot', 14900, 14900],
+    ['founding', 'autopilot', 9900, 14900],
+    ['list', 'copilot', 7900, 7900],
+    ['founding', 'copilot', 4900, 7900],
   ] as const)('uses the immutable %s variant for a %s preview', async (
     variant,
     target,
@@ -303,8 +303,8 @@ describe('validateTierChange', () => {
 
 describe('applyTierChange', () => {
   it.each([
-    ['list', 'price_autopilot_list', 6900],
-    ['founding', 'price_autopilot_founding', 4900],
+    ['list', 'price_autopilot_list', 14900],
+    ['founding', 'price_autopilot_founding', 9900],
   ] as const)('executes Autopilot with the stored %s Price and complete cents', async (
     variant,
     expectedPrice,
@@ -328,9 +328,9 @@ describe('applyTierChange', () => {
       newBilling: {
         basePriceCents: expectedBaseCents,
         includedLocations: 1,
-        overagePriceCents: 2000,
+        overagePriceCents: 14900,
         overageUnits: 2,
-        totalCents: expectedBaseCents + 4000,
+        totalCents: expectedBaseCents + 2 * 14900,
       },
     });
     expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
@@ -360,7 +360,7 @@ describe('applyTierChange', () => {
     const snapshotWrite = harness.sqlCalls[6]!;
     expect(snapshotWrite.text).toMatch(/UPDATE\s+accounts/);
     expect(snapshotWrite.values).toEqual(expect.arrayContaining([
-      'autopilot', expectedBaseCents, 2000, 1, 2, ACCOUNT_ID,
+      'autopilot', expectedBaseCents, 14900, 1, 2, ACCOUNT_ID,
     ]));
     expect(snapshotWrite.text).not.toMatch(/SET\s+price_variant/);
     expect(harness.sqlCalls[7]!.text).toMatch(/FROM\s+account_audit_log/);
@@ -376,7 +376,7 @@ describe('applyTierChange', () => {
     queueExecution(account({
       price_variant: 'founding',
       subscription_tier: 'autopilot',
-      locations_overage_price_cents: 2000,
+      locations_overage_price_cents: 14900,
     }), 1);
     mockSubscriptionsRetrieve.mockResolvedValueOnce(subscription([
       baseItem('price_autopilot_founding'),
@@ -393,7 +393,7 @@ describe('applyTierChange', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      newBilling: { basePriceCents: 1900, overageUnits: 0 },
+      newBilling: { basePriceCents: 4900, overageUnits: 0 },
     });
     expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
       BASE_ITEM_ID,
@@ -413,7 +413,7 @@ describe('applyTierChange', () => {
       expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:overage-delete` }),
     );
     expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
-      'copilot', 1900, 1500, 1, 0, ACCOUNT_ID,
+      'copilot', 4900, 7900, 1, 0, ACCOUNT_ID,
     ]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
@@ -421,7 +421,7 @@ describe('applyTierChange', () => {
   it('downgrades list Autopilot to list Copilot with list cents and Price', async () => {
     queueExecution(account({
       subscription_tier: 'autopilot',
-      locations_overage_price_cents: 2000,
+      locations_overage_price_cents: 14900,
     }), 2);
     mockSubscriptionsRetrieve.mockResolvedValueOnce(subscription([
       baseItem('price_autopilot_list'),
@@ -437,7 +437,7 @@ describe('applyTierChange', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      newBilling: { basePriceCents: 2900, overagePriceCents: 1500, overageUnits: 1 },
+      newBilling: { basePriceCents: 7900, overagePriceCents: 7900, overageUnits: 1 },
     });
     expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
       BASE_ITEM_ID,
@@ -452,7 +452,7 @@ describe('applyTierChange', () => {
       expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:list-downgrade:base` }),
     );
     expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
-      'copilot', 2900, 1500, 1, 1, ACCOUNT_ID,
+      'copilot', 7900, 7900, 1, 1, ACCOUNT_ID,
     ]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
@@ -651,8 +651,8 @@ describe('applyTierChange', () => {
     harness.resetMockSql();
     queueExecution(account({
       subscription_tier: 'autopilot',
-      base_price_cents: 6900,
-      locations_overage_price_cents: 2000,
+      base_price_cents: 14900,
+      locations_overage_price_cents: 14900,
     }), 2);
     mockSubscriptionsRetrieve.mockResolvedValueOnce(subscription([
       baseItem('price_autopilot_list', {
@@ -739,7 +739,7 @@ describe('applyTierChange', () => {
       subscription_tier: 'copilot',
       subscription_status: 'cancelled',
       stripe_subscription_id: null,
-      locations_overage_price_cents: 1500,
+      locations_overage_price_cents: 7900,
     }), [committedAudit({
       // Historical operation values deliberately differ from today's
       // Autopilot/founding registry after a simulated Price rotation.

@@ -21,10 +21,10 @@ describe('PlanPickerClient', () => {
 
     expect(screen.getByRole('heading', { name: 'Copilot' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Autopilot' })).toBeInTheDocument();
-    expect(screen.getByText('$29')).toBeInTheDocument();
-    expect(screen.getByText('$69')).toBeInTheDocument();
-    expect(screen.getByText(/\$15\/month per extra location/i)).toBeInTheDocument();
-    expect(screen.getByText(/\$20\/month per extra location/i)).toBeInTheDocument();
+    expect(screen.getByText('$79')).toBeInTheDocument();
+    expect(screen.getByText('$149')).toBeInTheDocument();
+    expect(screen.getByText(/\$79\/month per extra location/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$149\/month per extra location/i)).toBeInTheDocument();
     expect(screen.queryByText(/Basic|Standard|Premium|Founding Member/)).not.toBeInTheDocument();
   });
 
@@ -73,8 +73,8 @@ describe('PlanPickerClient', () => {
     });
     render(<PlanPickerClient cancelled={false} {...founding} />);
 
-    expect(screen.getByText('$19')).toBeInTheDocument();
     expect(screen.getByText('$49')).toBeInTheDocument();
+    expect(screen.getByText('$99')).toBeInTheDocument();
     expect(screen.getAllByText(/Founding rate locked for the account/i)).toHaveLength(2);
     expect(screen.getByText(/30-day trial. Card required up front/i)).toBeInTheDocument();
     expect(screen.queryByText(/14-day|No credit card/i)).not.toBeInTheDocument();

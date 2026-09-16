@@ -322,8 +322,8 @@ missing.
 
 | Tier | Base | Included | Overage / extra | Multi-loc |
 |---|---|---|---|---|
-| Copilot list / founding | $29 / $19 | 1 | $15 | Yes |
-| Autopilot list / founding | $69 / $49 | 1 | $20 | Yes |
+| Copilot list / founding | $79 / $49 | 1 | $79 | Yes |
+| Autopilot list / founding | $149 / $99 | 1 | $149 | Yes |
 
 Source of truth: `src/lib/accounts/tier-config.ts`. New-account and tier-change
 writes resolve `(subscription_tier, price_variant)` once, then persist the

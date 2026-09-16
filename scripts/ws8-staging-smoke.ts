@@ -359,7 +359,7 @@ async function scenarioCheckoutVariant(
   const expectedPriceId = requireEnv(
     variant === 'list' ? 'STRIPE_PRICE_COPILOT_LIST' : 'STRIPE_PRICE_COPILOT_FOUNDING',
   );
-  const expectedCents = variant === 'list' ? 2900 : 1900;
+  const expectedCents = variant === 'list' ? 7900 : 4900;
   const lineItem = provider.line_items?.data[0];
   const priceId =
     typeof lineItem?.price === 'string' ? lineItem.price : lineItem?.price?.id;
@@ -454,7 +454,7 @@ async function scenarioLeaseDriftStability(sql: Sql): Promise<boolean> {
       ['same_session', retry.session.sessionId === first.session.sessionId],
       ['price_id_frozen', priceId === frozen?.checkout_attempt_base_price_id],
       ['price_not_drifted', priceId !== process.env.STRIPE_PRICE_COPILOT_FOUNDING],
-      ['amount_frozen_1900', lineItem?.amount_total === 1900],
+      ['amount_frozen_4900', lineItem?.amount_total === 4900],
       ['tax_flag_frozen', after?.checkout_attempt_tax_enabled === frozen?.checkout_attempt_tax_enabled],
       ['email_frozen', after?.checkout_attempt_customer_email === fixture.email],
       ['url_frozen', after?.checkout_attempt_success_url === frozen?.checkout_attempt_success_url],
@@ -801,7 +801,7 @@ async function scenarioAutopilotCheckout(
   const expectedPriceId = requireEnv(
     variant === 'list' ? 'STRIPE_PRICE_AUTOPILOT_LIST' : 'STRIPE_PRICE_AUTOPILOT_FOUNDING',
   );
-  const expectedCents = variant === 'list' ? 6900 : 4900;
+  const expectedCents = variant === 'list' ? 14900 : 9900;
   const lineItem = provider.line_items?.data[0];
   const priceId =
     typeof lineItem?.price === 'string' ? lineItem.price : lineItem?.price?.id;
@@ -948,13 +948,13 @@ async function scenarioTierChange(sql: Sql, accountId: string): Promise<boolean>
   const checks: Array<[string, boolean]> = [
     ['started_copilot_founding', before?.subscription_tier === 'copilot' && before?.price_variant === 'founding'],
     ['preview_allowed', preview.allowed === true],
-    // 4900 = autopilot FOUNDING. A re-derived variant would price 6900 (list).
-    ['preview_uses_stored_founding_4900', preview.newBillingPreview?.basePriceCents === 4900],
+    // 9900 = autopilot FOUNDING. A re-derived variant would price 14900 (list).
+    ['preview_uses_stored_founding_9900', preview.newBillingPreview?.basePriceCents === 9900],
     ['preview_is_non_mutating', afterPreview?.subscription_tier === 'copilot'],
     ['execute_ok', outcome.ok === true],
     ['tier_now_autopilot', after?.subscription_tier === 'autopilot'],
     ['variant_still_founding', after?.price_variant === 'founding'],
-    ['base_now_autopilot_founding_4900', after?.base_price_cents === 4900],
+    ['base_now_autopilot_founding_9900', after?.base_price_cents === 9900],
     ['replay_idempotent', replay.ok === true || replay.code === 'same_tier'],
   ];
   const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
