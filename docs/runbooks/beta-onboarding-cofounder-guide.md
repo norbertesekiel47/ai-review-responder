@@ -68,8 +68,8 @@ disconnect Google or cancel at any time.
   invoiced during the free period.** They do put a card on file at checkout — see
   "Payment mechanics" below, and say it early rather than letting it surprise
   them mid-meeting.
-- **After 3 months:** the founding-customer rate — **$19/month** for Copilot
-  (regular price $29) — unless they cancel first. They can cancel anytime in
+- **After 3 months:** the founding-customer rate — **$49/month** for Copilot
+  (regular price $79) — unless they cancel first. They can cancel anytime in
   Settings → Billing with no penalty; canceling keeps access through the paid
   period.
 - **What we ask in return:** honest feedback. A 15-minute check-in call in the
@@ -95,7 +95,7 @@ Say it to them plainly, before they see the card field, in roughly these words:
 
 > *"Next screen is our normal checkout. It'll ask for a card, and the total will
 > say $0 — you're not being charged today and you won't be charged for three
-> months. The card is on file so that at month four it just carries on at $19
+> months. The card is on file so that at month four it just carries on at $49
 > instead of us having to chase you. You can cancel any time before then in
 > Settings and never pay anything."*
 
@@ -223,7 +223,7 @@ Cover, in your own words:
    voice → you approve → it posts).
 2. The control promise: *"Nothing is ever posted without you approving that
    exact text. You can edit any draft, ignore any draft, disconnect anytime."*
-3. The offer from Part 2 (free 3 months → $19/mo founding rate → cancel
+3. The offer from Part 2 (free 3 months → $49/mo founding rate → cancel
    anytime).
 4. What beta means: *"The product is real and live on your real Google profile.
    You're one of our first ~15 businesses, you get a direct line to the
@@ -319,7 +319,7 @@ From the demo they continue to plan selection and then **Stripe's checkout page*
 - The checkout page asks for a **card** and shows **$0.00 due today**. Say the
   Part 2 script out loud *before* they see the card field.
 - **Check the total before they submit.** It must read $0 due today. If it shows
-  $19, $29, or any non-zero amount, **stop — do not have them pay.** That means
+  $49, $79, or any non-zero amount, **stop — do not have them pay.** That means
   the beta comp coupon didn't attach; screenshot the page and escalate (Part 9).
   It is not fixable in the meeting and paying "and we'll refund you" is not an
   acceptable workaround.
@@ -496,7 +496,7 @@ period, data is retained so you can come back), or **delete my data**
 required to keep). If you want an export, contact us before deleting.
 
 **"How much will this cost me?"**
-Nothing for 3 months. Then $19/month as a founding customer — that rate is
+Nothing for 3 months. Then $49/month as a founding customer — that rate is
 yours to keep. Cancel anytime before the free period ends and you'll never pay
 anything.
 
@@ -508,7 +508,7 @@ charged until the three free months are over. If you cancel before then, in
 Settings, the card is never charged at all.
 
 **"Will I get charged by accident when the free period ends?"**
-No accident about it — at month four it becomes $19/month, the founding rate,
+No accident about it — at month four it becomes $49/month, the founding rate,
 and you'll have had three months to decide. Cancel any time up to that point in
 Settings → Billing and you pay nothing, ever.
 
@@ -617,7 +617,7 @@ Within an hour, log (shared doc/CRM — one entry per business):
 **Check-in cadence for the beta:** 15-minute call in week one, then weekly
 messages / bi-weekly calls for the free period. Standing agenda: Are drafts
 sounding like you? Anything confusing? Anything you expected that isn't there?
-Would you pay $19 when the free period ends — and if not, what's missing?
+Would you pay $49 when the free period ends — and if not, what's missing?
 That last question, asked honestly at month two, is the beta's entire purpose.
 
 Also watch for the silent ones: an owner who stops approving drafts for a week

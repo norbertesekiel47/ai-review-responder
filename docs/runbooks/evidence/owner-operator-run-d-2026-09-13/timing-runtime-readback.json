@@ -1,0 +1,19 @@
+{
+  "campaign": "run-d-timing-readback",
+  "captured_at": "2026-09-14T07:14:19.652Z",
+  "target": {
+    "project_id": "ad641d0e-dc01-4250-b71c-db1beedb9c8c",
+    "environment_id": "58c06358-8cbe-497f-bec0-df3b47769a10",
+    "service_id": "fb413c72-29b6-4cd1-90c2-26002491e301"
+  },
+  "method": "Read only named nonsecret environment keys in the running staging worker; verify all three target IDs before reading; no runtime mutation.",
+  "settings": {
+    "OUTBOX_WATCHDOG_STALE_MS": null,
+    "OUTBOX_POLL_INTERVAL_MS": null,
+    "OUTBOX_DISPATCH_TIMEOUT_MS": null
+  },
+  "null_means": "Environment key absent; use the inspected candidate's source default.",
+  "watchdog_effective_default_ms": 900000,
+  "dispatch_timeout_effective_default_ms": 10000,
+  "boundary": "This is a point-in-time runtime readback, not proof of every configuration value throughout the full observation window."
+}

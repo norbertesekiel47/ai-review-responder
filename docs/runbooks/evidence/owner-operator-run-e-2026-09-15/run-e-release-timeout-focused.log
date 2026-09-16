@@ -1,0 +1,16 @@
+Already up to date
+Done in 539ms using pnpm v11.0.9
+$ vitest run --coverage scripts/ci/__tests__/admin-contract-schemas.test.ts src/lib/locations/__tests__/review-qr.test.ts --maxWorkers=1
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.7 /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-e
+      Coverage enabled with v8
+
+
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+   Start at  04:06:35
+   Duration  26.18s (transform 122ms, setup 86ms, import 271ms, tests 22.31s, environment 0ms)
+

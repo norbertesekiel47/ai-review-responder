@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
+import type { ParsedProposal } from '@/lib/agents/operator/render';
 
 const {
   mockOwnerOperatorEnabled, mockBuildSnapshot, mockGenerate, mockReauthorize,
@@ -78,7 +79,13 @@ function makeSql(calls: Recorded[], count = 1) {
     const [first] = args;
     if (Array.isArray(first) && Object.prototype.hasOwnProperty.call(first, 'raw')) {
       const strings = first as unknown as TemplateStringsArray;
-      const promise = Promise.resolve(Object.assign([], { count }));
+      const text = strings.join(' ? ');
+      const rows = text.includes('RETURNING account_id, actor_user_id, location_id, conversation_id, completed_at') && count > 0
+        ? [{ account_id: payload.account_id, actor_user_id: '00000000-0000-7000-8000-00000000e001',
+          location_id: '00000000-0000-7000-8000-00000000b101', conversation_id: payload.conversation_id,
+          completed_at: new Date('2026-09-14T00:00:00Z') }]
+        : [];
+      const promise = Promise.resolve(Object.assign(rows, { count }));
       calls.push({
         text: strings.join(' ? '),
         values: args.slice(1),
@@ -233,7 +240,7 @@ describe('AgentTurnWorker policy preparation', () => {
   };
   const VALUE = { locationId: 5, before: 9, after: 10, token: 13, requiresConfirmation: 14 } as const;
 
-  function primeTurn(proposals: unknown[]) {
+  function primeTurn(proposals: ParsedProposal[]) {
     mockOwnerOperatorEnabled.mockReturnValue(true);
     mockClaimTurn.mockResolvedValue({
       turnId: payload.turn_id, conversationId: payload.conversation_id, accountId: payload.account_id,
@@ -247,8 +254,9 @@ describe('AgentTurnWorker policy preparation', () => {
       updatedAt: '2026-09-12 09:00:00.111111+00',
     });
     mockGenerate.mockResolvedValue({
-      ok: true, attempts: 1, proposals,
-      output: { segments: [{ type: 'proposal_ref', index: 0 }], unsupported: [] },
+      ok: true, attempts: 1, proposals, restoreRequests: [],
+      output: { segments: [{ type: 'proposal_ref', index: 0 }], unsupported: [],
+        proposals: proposals.map((proposal) => ({ ...proposal, operation: proposal.operation.id })) },
     });
     mockGetSettings.mockResolvedValue({ readiness: { blockReasons: ['autopilot_unavailable'] } });
     mockConsequence.mockReturnValue(LINE);

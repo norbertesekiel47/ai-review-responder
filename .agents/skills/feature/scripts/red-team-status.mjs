@@ -38,7 +38,41 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runCFourthAuthorization, validRunCFourthReport } from '../../red-team/scripts/mutation-runner.mjs';
+import {
+  requiresOperatorContinuation, validOperatorReport,
+  runCFourthAuthorization, validRunCFourthReport,
+  runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
+  requiresRunECorrectiveAdmission, validateRunECorrectiveAdmission,
+  requiresRunEStagingAdmission, validateRunEStagingAdmission,
+} from '../../red-team/scripts/mutation-runner.mjs';
+
+const RUN_E_BRANCH = 'codex/owner-operator-run-e';
+const RUN_E_GRANT = 'owner-run-e-second-pass-1600';
+const RUN_E_REPORT = 'docs/reviews/red-team/codex-owner-operator-run-e-eb15ab/findings.json';
+const RUN_E_SCOPE_CORRECTIONS_SHA256 = 'ec9afe3a0eb73387201dc1783c8628f96f543355761cf15f5509d9155dfbaf0e';
+
+/** Root-reviewed discovery corrections are finite evidence, not a coverage waiver. */
+function runEScopeCorrections(root, admissionHead) {
+  const document = makeGit(root)(['show', `${admissionHead}:docs/reviews/codex-owner-operator-run-e/budget-extension-review.md`]);
+  const start = '<!-- RUN_E_SCOPE_CORRECTIONS_START -->';
+  const end = '<!-- RUN_E_SCOPE_CORRECTIONS_END -->';
+  if (document.split(start).length !== 2 || document.split(end).length !== 2) return null;
+  const payload = document.slice(document.indexOf(start) + start.length, document.indexOf(end))
+    .match(/^\s*```json\s*\n([\s\S]*?)\n```\s*$/);
+  if (!payload) return null;
+  const manifest = JSON.parse(payload[1]);
+  if (sha256(JSON.stringify(manifest)) !== RUN_E_SCOPE_CORRECTIONS_SHA256
+    || manifest.schema !== 1 || !Array.isArray(manifest.groups)) return null;
+  const corrections = new Map();
+  for (const group of manifest.groups) {
+    if (!isPlainObject(group) || !nonEmptyString(group.reason) || !Array.isArray(group.ids)) return null;
+    for (const id of group.ids) {
+      if (!nonEmptyString(id) || corrections.has(id)) return null;
+      corrections.set(id, group.reason);
+    }
+  }
+  return corrections;
+}
 
 /** Statuses, most-blocking first. The recomputation returns the first that fires. */
 const STATUS_PRECEDENCE = [
@@ -86,6 +120,8 @@ const TOP_LEVEL_KEYS = new Set([
   'inventory',
   'findings',
   'authorizations',
+  'operatorVerifierCorrection',
+  'operatorSelectionCorrection',
   'counts',
   'status',
 ]);
@@ -249,7 +285,61 @@ export function validateShape(sidecar) {
 
   checkKeys('findings.json', sidecar, TOP_LEVEL_KEYS, errors);
   for (const key of TOP_LEVEL_KEYS) {
-    if (!(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+    if (!['operatorVerifierCorrection', 'operatorSelectionCorrection'].includes(key) && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+  }
+
+  if (sidecar.operatorSelectionCorrection !== undefined) {
+    const correction = sidecar.operatorSelectionCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorSelectionCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorSelectionCorrection', correction,
+        new Set(['id', 'priorControl', 'controlHead', 'checkpointSha256', 'failedSelection', 'failedFixture', 'reevaluation']), errors);
+      if (correction.id !== 'operator-fallow-round-1-selection-and-resolves'
+        || correction.priorControl !== 'e3bd968ae9fca8e0d787291cf067c266e67d89f9'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '0942d85131597e501bf50f38d0f4868d02d007e8f0e37ee9efc051ba227a4d6e') errors.push('operatorSelectionCorrection identity is invalid');
+      for (const [key, id, digest] of [
+        ['failedSelection', 'rt-0103', '4366858d241421e1482fec183be29e25247aca86f40c6ca18b07767a0d542fd7'],
+        ['failedFixture', 'rt-0516', '77eb90a39e53da98aa61020e3d5ae864aa73ee1c4e1ea9b97917466d51806a01'],
+        ['reevaluation', 'rt-0144', '468489f392cedd75a85b6b13892b12eae10028389e6e56223aedc3fedd874f13'],
+      ]) {
+        const row = correction[key];
+        if (!isPlainObject(row)) { errors.push(`operatorSelectionCorrection ${key} must be an object`); continue; }
+        checkKeys(`operatorSelectionCorrection ${key}`, row,
+          new Set(['candidateId', 'measurementSha256', 'originalSuggestion', key !== 'reevaluation' ? 'retained' : 'outcome']), errors);
+        if (row.candidateId !== id || row.measurementSha256 !== digest || row.originalSuggestion !== 'inconclusive'
+          || (key !== 'reevaluation' ? row.retained !== true : !OUTCOMES.has(row.outcome))) {
+          errors.push(`operatorSelectionCorrection ${key} is invalid`);
+        }
+      }
+    }
+  }
+
+  if (sidecar.operatorVerifierCorrection !== undefined) {
+    const correction = sidecar.operatorVerifierCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorVerifierCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorVerifierCorrection', correction, new Set(['id', 'controlHead', 'checkpointSha256', 'reevaluations']), errors);
+      if (correction.id !== 'operator-fallow-round-1-file-accounting-42'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b'
+        || !Array.isArray(correction.reevaluations) || correction.reevaluations.length !== 6) {
+        errors.push('operatorVerifierCorrection has invalid identity, control revision or checkpoint');
+      } else {
+        const seen = new Set();
+        for (const row of correction.reevaluations) {
+          if (!isPlainObject(row)) { errors.push('operatorVerifierCorrection reevaluation must be an object'); continue; }
+          checkKeys('operatorVerifierCorrection reevaluation', row,
+            new Set(['candidateId', 'measurementSha256', 'originalSuggestion', 'outcome']), errors);
+          if (!nonEmptyString(row.candidateId) || seen.has(row.candidateId)
+            || !SHA256_RE.test(String(row.measurementSha256)) || row.originalSuggestion !== 'inconclusive'
+            || !OUTCOMES.has(row.outcome)) errors.push('operatorVerifierCorrection reevaluation is invalid');
+          seen.add(row.candidateId);
+        }
+      }
+    }
   }
 
   if (sidecar.schema !== 1) errors.push('schema must equal 1');
@@ -281,7 +371,11 @@ export function validateShape(sidecar) {
   // construction, and with no third round the only ways out were to leave a known
   // defect unfixed or to hand-edit `head_sha` — an evidence file rewriting its own
   // provenance.
-  if (sidecar.round === 3) {
+  const eGrant = Array.isArray(sidecar.authorizations)
+    && sidecar.authorizations.some((authorization) => authorization?.id === RUN_E_GRANT);
+  if (runEThirdRoundForbidden(sidecar.branch, eGrant ? RUN_E_GRANT : null, sidecar.round)) {
+    errors.push('Run E grants round 2 only; third and higher rounds are forbidden regardless of authorization prose');
+  } else if (sidecar.round === 3) {
     const authorizations = Array.isArray(sidecar.authorizations) ? sidecar.authorizations : [];
     if (!authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {
       errors.push('round 3 requires an authorizations entry whose text names the third round');
@@ -486,6 +580,93 @@ export function validateArbiterReasoning(sidecar) {
   return errors;
 }
 
+/** Execution authority lives in immutable admission history, never in final risk waivers. */
+function validRunEReport(root, sidecar, sidecarPath, journal) {
+  if (sidecarPath !== RUN_E_REPORT || sidecar.branch !== RUN_E_BRANCH || sidecar.round !== 2
+    || sidecar.authorizations.length !== 0 || sidecar.findings.some((finding) => finding.disposition === 'accepted-risk')
+    || !isPlainObject(journal) || journal.round !== 2
+    || !Number.isInteger(journal.runs) || journal.runs < 1 || journal.runs > 1600
+    || !Array.isArray(journal.mutations) || !Array.isArray(journal.supervisors)
+    || !isPlainObject(journal.dotenv) || journal.dotenv.open !== false
+    || journal.mutations.some((entry) => !isPlainObject(entry) || entry.state !== 'restored')
+    || journal.supervisors.some((entry) => !isPlainObject(entry) || entry.active !== false)) return false;
+  const pin = journal.budgetAuthorization;
+  if (!isPlainObject(pin) || pin.id !== RUN_E_GRANT || pin.maxRuns !== 1600
+    || pin.firstRun !== 1) return false;
+  const staging = requiresRunEStagingAdmission(root, journal, sidecar.head_sha);
+  const correcting = staging || requiresRunECorrectiveAdmission(root, journal, sidecar.head_sha);
+  const continuing = correcting || requiresRunEContinuation(root, journal, sidecar.head_sha);
+  const proof = staging ? validateRunEStagingAdmission(root, journal, sidecar.head_sha) : correcting
+    ? validateRunECorrectiveAdmission(root, journal, sidecar.head_sha)
+    : continuing ? validateRunEContinuation(root, journal, sidecar.head_sha)
+      : validateRunEAdmission(root, pin.headSha);
+  if (!proof || (!continuing && (pin.headSha !== sidecar.head_sha
+    || ['id', 'maxRuns', 'sha256', 'headSha'].some((key) => pin[key] !== proof.grant[key])))) return false;
+  // A new diagnostic row may reactivate this previously excluded real warning path.
+  // Every other finalized row and finding remains byte-for-byte evidence.
+  if (staging) {
+    const historical = proof.stagingHistoricalReport;
+    const affectedId = 'src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1133';
+    if (sidecar.inventory.length < historical.inventory.length
+      || !historical.inventory.some((row) => row.id === affectedId)) return false;
+    for (const [index, row] of historical.inventory.entries()) {
+      const current = sidecar.inventory[index];
+      if (row.id === affectedId) {
+        if (current.outcome === 'excluded'
+          || ['id', 'file', 'test'].some((key) => current[key] !== row[key])
+          || !nonEmptyString(current.reason)
+          || (current.outcome !== row.outcome && current.reason === row.reason)) return false;
+      } else if (JSON.stringify(current) !== JSON.stringify(row)) return false;
+    }
+    for (const row of historical.findings) {
+      if (JSON.stringify(sidecar.findings.find((finding) => finding.id === row.id)) !== JSON.stringify(row)) return false;
+    }
+  }
+  let scopeCorrections;
+  try {
+    scopeCorrections = runEScopeCorrections(root, proof.grant.headSha);
+    if (!scopeCorrections) return false;
+    if (continuing) {
+      for (const group of proof.scopeCorrections.groups) {
+        if (!isPlainObject(group) || !nonEmptyString(group.reason) || !Array.isArray(group.ids)) return false;
+        for (const id of group.ids) {
+          if (!nonEmptyString(id) || scopeCorrections.has(id)) return false;
+          scopeCorrections.set(id, group.reason);
+        }
+      }
+      const inventoryById = new Map(sidecar.inventory.map((row) => [row.id, row]));
+      for (const [id, reason] of scopeCorrections) {
+        const row = inventoryById.get(id);
+        if (!row || (row.outcome === 'excluded' && row.reason !== reason)) return false;
+      }
+    }
+    if (JSON.stringify(JSON.parse(readFileSync(join(root, '.feature/intake.json'), 'utf8')))
+      !== JSON.stringify(proof.intake)) return false;
+    const markdown = readFileSync(join(root, sidecarPath.replace(/\.json$/, '.md')));
+    if (!markdown.subarray(0, proof.admissionMarkdown.length).equals(proof.admissionMarkdown)
+      || (staging && !markdown.toString('utf8').startsWith(proof.stagingHistoricalMarkdown))) return false;
+  } catch {
+    return false;
+  }
+  if (['mode', 'branch', 'run_id', 'fork_sha', 'merge_base_sha'].some((key) => sidecar[key] !== proof.admission[key])) return false;
+  if (sidecar.inventory.length < proof.historical.inventory.length) return false;
+  for (const [index, historical] of proof.historical.inventory.entries()) {
+    const current = sidecar.inventory[index];
+    if (['id', 'file', 'test'].some((key) => current[key] !== historical[key])) return false;
+    if (historical.outcome === 'excluded' && JSON.stringify(current) !== JSON.stringify(historical)) return false;
+    if (historical.outcome !== 'excluded' && current.outcome === 'excluded'
+      && (historical.outcome !== 'skipped-budget' || scopeCorrections.get(historical.id) !== current.reason)) return false;
+    if (current.outcome !== historical.outcome
+      && (!nonEmptyString(current.reason) || current.reason === historical.reason)) return false;
+  }
+  for (const historical of proof.historical.findings) {
+    const current = sidecar.findings.find((finding) => finding.id === historical.id);
+    if (!current || ['severity', 'title', 'at', 'duty'].some((key) => current[key] !== historical[key])
+      || (current.disposition !== 'open' && !nonEmptyString(current.reason))) return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // git and filesystem probes
 // ---------------------------------------------------------------------------
@@ -631,6 +812,13 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
+    if (requiresOperatorContinuation(root, readJournal(root))) {
+      fail(['Operator continuation requires its original report, immutable admission and preserved cumulative journal; no risk waiver applies']);
+    }
+    if (requiresRunEStagingAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))
+      || requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
+      fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);
+    }
     // The risk-scoped waiver (2026-08-31). A feature-lane run requires the
     // sidecar when the SIGNED-OFF intake declares `risk: high`. A normal-risk
     // run may omit the pass: the deterministic gate plus the review axes are
@@ -688,8 +876,28 @@ function main(argv) {
     fail([`${sidecarPath} is not valid JSON: ${error.message}`]);
   }
 
+  const journal = readJournal(root);
+  if (requiresOperatorContinuation(root, journal) && !validOperatorReport(root, sidecar, journal)) {
+    errors.push('Operator continuation requires immutable admission/history, exact inventory and exclusions, cumulative journal and corroborated outcome upgrades');
+  }
+  // Checkout ancestry survives a forged report branch/round and stripped pins.
+  const correctiveProofRequired = requiresRunEStagingAdmission(root, journal, sidecar?.head_sha)
+    || requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);
+  if (correctiveProofRequired && sidecar?.round !== 2) {
+    fail([...errors, 'Run E corrective admission retains round 2 regardless of report or journal labels']);
+  }
+  if (runEThirdRoundForbidden(branch, journal?.budgetAuthorization?.id, sidecar?.round)) {
+    fail([...errors, 'Run E grants round 2 only; the checkout or launch grant forbids third and higher reports']);
+  }
   const shapeErrors = validateShape(sidecar);
   if (shapeErrors.length > 0) fail([...errors, ...shapeErrors]);
+  const requiresRunEProof = correctiveProofRequired || journal?.budgetAuthorization?.id === RUN_E_GRANT
+    || (branch === RUN_E_BRANCH && journal?.round === 2)
+    || (sidecar.round === 2 && (branch === RUN_E_BRANCH
+      || sidecar.authorizations.some((authorization) => authorization.id === RUN_E_GRANT)));
+  if (requiresRunEProof && !validRunEReport(root, sidecar, sidecarPath, journal)) {
+    errors.push('Run E round 2 requires intact committed admission/history, its original inventory prefix, no risk waiver, and a closed matching 1600-launch journal');
+  }
   if (sidecar.round === 4 && !validRunCFourthReport(root, sidecar, sidecarPath, readJournal(root))) {
     errors.push('Run C round 4 requires committed admission, unchanged historical evidence, and the matching 150-launch journal grant');
   }

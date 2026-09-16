@@ -284,6 +284,19 @@ describe('OperatorClient', () => {
     expect(screen.queryByText(/taking longer than it should/i)).not.toBeInTheDocument();
   });
 
+  it('operator dispatch exhaustion renders a recovery action from the durable transcript', async () => {
+    vi.stubGlobal('fetch', routeFetch([
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 200,
+        body: conversationWith([storedTurn({ status: 'failed', failureReason: 'dispatch_exhausted' })]),
+      })],
+    ]));
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION });
+    render(<OperatorClient />);
+    expect(await screen.findByText('We could not start this message after several attempts. Nothing was changed. Start a new conversation to try again.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: START_NEW_CONVERSATION })).toBeInTheDocument();
+  });
+
   it('operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled', async () => {
     for (const [reason, sentence] of Object.entries(TURN_FAILURE_WORDING)) {
       // The failure is read from the DURABLE transcript, which is where it
@@ -299,7 +312,7 @@ describe('OperatorClient', () => {
 
       const { unmount } = render(<OperatorClient />);
       expect(await screen.findByText(sentence)).toBeInTheDocument();
-      const offers = reason === 'predecessor_stalled' || reason === 'exhausted';
+      const offers = reason === 'predecessor_stalled' || reason === 'exhausted' || reason === 'dispatch_exhausted';
       expect(screen.queryByRole('button', { name: START_NEW_CONVERSATION }) !== null).toBe(offers);
       unmount();
     }

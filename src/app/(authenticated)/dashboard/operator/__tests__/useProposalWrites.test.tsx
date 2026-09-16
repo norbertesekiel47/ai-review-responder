@@ -172,23 +172,28 @@ describe('useProposalWrites', () => {
     // ONE WRITE AT A TIME. An Apply moves `businesses.updated_at`, so a second
     // write started beside it is deciding a plan the server is about to answer
     // differently.
-    let release: (() => void) | null = null;
+    const releases: Array<() => void> = [];
     const fetchMock = vi.fn(async () => {
-      await new Promise<void>((resolve) => { release = resolve; });
+      await new Promise<void>((resolve) => { releases.push(resolve); });
       return { ok: true, status: 200, json: async () => ({ proposal: proposal() }) } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
 
     const { result } = harness();
     let first: Promise<void> | null = null;
-    act(() => { first = result.current.write(proposal(), 'apply'); });
-    await waitFor(() => expect(result.current.busyId).toBe(PROPOSAL));
-
-    await act(async () => { await result.current.write(proposal(), 'decline'); });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    release!();
-    await act(async () => { await first; });
+    let second: Promise<void> | null = null;
+    try {
+      act(() => { first = result.current.write(proposal(), 'apply'); });
+      await waitFor(() => expect(result.current.busyId).toBe(PROPOSAL));
+      act(() => { second = result.current.write(proposal(), 'decline'); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      // Release both requests if the guard regresses, including assertion failure.
+      await act(async () => {
+        for (const release of releases) release();
+        await Promise.allSettled([first, second]);
+      });
+    }
     await waitFor(() => expect(result.current.busyId).toBeNull());
   });
 });

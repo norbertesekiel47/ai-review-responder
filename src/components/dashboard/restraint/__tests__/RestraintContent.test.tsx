@@ -316,7 +316,7 @@ describe('RestraintContent', () => {
     // rendered at all. A mutation there survived the whole suite.
     expect(await screen.findByText('What we held back')).toBeInTheDocument();
     expect(screen.getByText(
-      'This is your whole account. Pauses that affect every location are counted once here.',
+      'This is your whole account. Decisions that affect every location are counted once here.',
     )).toBeInTheDocument();
   });
 
@@ -328,7 +328,7 @@ describe('RestraintContent', () => {
     renderContent();
 
     expect(await screen.findByText(
-      'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.',
+      'This is one location. A decision that affects the whole account is counted here, and again under every other location you have.',
     )).toBeInTheDocument();
   });
 

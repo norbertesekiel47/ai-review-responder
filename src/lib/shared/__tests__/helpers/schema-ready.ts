@@ -180,6 +180,8 @@ export const MIGRATION_071_RUN_SPINE: SchemaRequirement = {
 };
 
 export const MIGRATION_120_OWNER_OPERATOR: SchemaRequirement = {
+  // Migration 121 reuses existing constraint names; a presence-only requirement
+  // cannot detect it. Its integration suite verifies the rendered vocabulary.
   migration: '120_owner_operator',
   tables: [
     'agent_conversations',

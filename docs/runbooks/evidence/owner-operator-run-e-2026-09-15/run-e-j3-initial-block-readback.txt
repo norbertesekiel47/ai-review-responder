@@ -1,0 +1,331 @@
+Skip to main content
+RO
+Run E Synthetic Owner
+Owner
+Cafe
+Dashboard
+Reviews
+Operator
+Requests
+Analytics
+Settings
+Help
+RepWorth
+Operator
+
+Tell RepWorth what to change. Nothing happens until you approve it.
+
+Conversation
+Rules timeline
+
+Change the reply tone for Salon to warm and concise.
+
+Set the reply tone to "warm and concise"
+THIS LOCATION
+Salon
+
+Prepared for Salon
+
+NOW
+TONE
+formal and factual
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+AFTER THIS CHANGE
+TONE
+warm and concise
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+
+Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+Remembered fact
+
+Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+BEFORE
+TONE: formal and factual
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+AFTER
+TONE: warm and concise
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+CHANGE
+Set the reply tone to "warm and concise"
+LOCATION
+Salon
+APPLIED AT
+9/15/2026, 1:53:07 AM
+APPLIED BY
+Run E Synthetic Owner
+YOU ASKED
+Change the reply tone for Salon to warm and concise.
+REFERENCE
+01a0a443-7a8b-721f-8628-463813414ecd
+Restore
+Prepare a change to review before applying.
+Restore: Set the reply tone to "formal and factual"
+THIS LOCATION
+Salon
+
+Prepared for Salon
+
+NOW
+TONE
+warm and concise
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+AFTER THIS CHANGE
+TONE
+formal and factual
+PRODUCTS AND SERVICES
+Not set
+KEEP OUT OF REPLIES
+Nothing
+HIGHLIGHT WHEN IT FITS
+Nothing
+SAMPLE REPLIES
+Nothing
+
+Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+Remembered fact
+
+Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+
+BEFORE
+TONE: warm and concise
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+AFTER
+TONE: formal and factual
+PRODUCTS AND SERVICES: Not set
+KEEP OUT OF REPLIES: Nothing
+HIGHLIGHT WHEN IT FITS: Nothing
+SAMPLE REPLIES: Nothing
+CHANGE
+Restore: Set the reply tone to "formal and factual"
+LOCATION
+Salon
+APPLIED AT
+9/15/2026, 1:54:58 AM
+APPLIED BY
+Run E Synthetic Owner
+YOU ASKED
+Change the reply tone for Salon to warm and concise.
+REFERENCE
+01a0a443-7a8b-721f-8628-463813414ecd
+Restore
+Prepare a change to review before applying.
+
+Clear the location auto-approval override for Cafe so it inherits the account defaults.
+
+Use the account default for auto-reply
+THIS LOCATION
+Cafe
+NOW
+AUTO-REPLY
+5 star reviews
+TIME TO STOP A REPLY
+30 minutes
+DAILY LIMIT
+2 per day
+RULE SOURCE
+Location rule
+AFTER THIS CHANGE
+AUTO-REPLY
+Off — you approve every reply
+TIME TO STOP A REPLY
+15 minutes
+DAILY LIMIT
+Platform default (10 per day)
+RULE SOURCE
+Inherits account default
+
+Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+
+Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval.
+
+Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+
+Reviews received 2026-08-16 to 2026-09-15. As of 9/15/2026, 1:56:39 AM.
+
+Future eligible reviews. Drafts already granted a veto window keep it.
+
+Active rule
+
+Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+
+BEFORE
+AUTO-REPLY
+5 star reviews
+TIME TO STOP A REPLY
+30 minutes
+DAILY LIMIT
+2 per day
+RULE SOURCE
+Location rule
+AFTER
+AUTO-REPLY
+Off — you approve every reply
+TIME TO STOP A REPLY
+15 minutes
+DAILY LIMIT
+Platform default (10 per day)
+RULE SOURCE
+Inherits account default
+
+Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible.
+
+Reviews received 2026-08-16 to 2026-09-15. Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+
+0 drafts keep their granted veto window.
+
+Counted as of 9/15/2026, 1:57:00 AM.
+
+Auto-reply is not enabled yet.
+Autopilot must be available on this account before auto-reply can expand.
+CHANGE
+This location now: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. After this change: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). This location now uses the account default.
+LOCATION
+Cafe
+APPLIED AT
+9/15/2026, 1:57:00 AM
+APPLIED BY
+Run E Synthetic Owner
+YOU ASKED
+Clear the location auto-approval override for Cafe so it inherits the account defaults.
+REFERENCE
+01a0a448-41da-71cb-98f0-9c850ada3f95
+Restore
+Prepare a change to review before applying.
+Changes that expand auto-reply
+Proposed rule
+Restore: This location now: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). After Apply: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings.
+THIS LOCATION
+Cafe
+NOW
+AUTO-REPLY
+Off — you approve every reply
+TIME TO STOP A REPLY
+15 minutes
+DAILY LIMIT
+Platform default (10 per day)
+RULE SOURCE
+Inherits account default
+AFTER THIS CHANGE
+AUTO-REPLY
+5 star reviews
+TIME TO STOP A REPLY
+30 minutes
+DAILY LIMIT
+2 per day
+RULE SOURCE
+Location rule
+
+This creates a location rule. It stops inheriting the account default and uses all the settings shown above.
+
+Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+
+Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval.
+
+Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+
+Reviews received 2026-08-16 to 2026-09-15. As of 9/15/2026, 1:57:31 AM.
+
+Future eligible reviews. Drafts already granted a veto window keep it.
+
+Not applied
+
+Auto-reply is not enabled yet.
+Autopilot must be available on this account before auto-reply can expand.
+
+Clear the current location auto-approval override for Cafe so it inherits the account defaults.
+
+Changes that expand auto-reply
+Proposed rule
+Use the account default for auto-reply
+THIS LOCATION
+Cafe
+NOW
+AUTO-REPLY
+Off — you approve every reply
+TIME TO STOP A REPLY
+30 minutes
+DAILY LIMIT
+2 per day
+RULE SOURCE
+Location rule
+AFTER THIS CHANGE
+AUTO-REPLY
+Off — you approve every reply
+TIME TO STOP A REPLY
+15 minutes
+DAILY LIMIT
+Platform default (10 per day)
+RULE SOURCE
+Inherits account default
+
+Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+
+Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval.
+
+Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+
+Reviews received 2026-08-16 to 2026-09-15. As of 9/15/2026, 2:01:10 AM.
+
+Future eligible reviews. Drafts already granted a veto window keep it.
+
+Auto-reply is not enabled yet.
+Autopilot must be available on this account before auto-reply can expand.
+Reply safety checks have not finished verification yet.
+Type “off” to confirm this scope
+Confirm and apply
+Not now
+Message
+Send
+GOOGLE
+
+Cafe is not connected to Google, so nothing can be posted yet.
+
+Connect Google Business
+WAITING FOR YOU
+0
+drafts waiting at Cafe, of 0 across every location
+As of 2:01:14 AM
+RECENTLY COMPLETED
+0
+replies posted in the last 7 days
+As of 2:01:14 AM
+CURRENT OPERATING RULES
+Auto-posting is off — you approve every reply.
+You get 30 minutes to stop a reply, up to 2 a day.
+These are Cafe’s own rules.
+Replies are written formal and factual.
+0 things to mention, 0 to avoid.
+As of 2:01:14 AM

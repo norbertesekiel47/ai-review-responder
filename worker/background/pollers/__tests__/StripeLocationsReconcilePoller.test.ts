@@ -98,7 +98,7 @@ import { resetStripeClientForTests } from '../../../../src/lib/payments/stripe-c
 function makeStripeSubscription(
   overageQuantity: number,
   overagePriceId = 'price_overage_copilot',
-  overageUnitAmount = 1500,
+  overageUnitAmount = 7900,
 ) {
   return {
     id: 'sub_test',
@@ -106,7 +106,7 @@ function makeStripeSubscription(
     status: 'active',
     items: {
       data: [
-        { id: 'si_base', price: { id: 'price_base', unit_amount: 2900 }, quantity: 1 },
+        { id: 'si_base', price: { id: 'price_base', unit_amount: 7900 }, quantity: 1 },
         {
           id: 'si_overage',
           price: { id: overagePriceId, unit_amount: overageUnitAmount },
@@ -118,7 +118,7 @@ function makeStripeSubscription(
 }
 
 /** Build a Stripe subscription with no overage item. */
-function makeStripeSubscriptionNoOverage(baseUnitAmount = 2900) {
+function makeStripeSubscriptionNoOverage(baseUnitAmount = 7900) {
   return {
     id: 'sub_test',
     customer: 'cus_123',
@@ -142,9 +142,9 @@ interface InvoicePreviewOptions {
 }
 
 function makeInvoicePreview(options: InvoicePreviewOptions = {}) {
-  const baseCents = options.baseCents ?? 2900;
+  const baseCents = options.baseCents ?? 7900;
   const overageUnits = options.overageUnits ?? 2;
-  const overageUnitCents = options.overageUnitCents ?? 1500;
+  const overageUnitCents = options.overageUnitCents ?? 7900;
   const recurringTotal = baseCents + overageUnits * overageUnitCents;
   const totalCents = options.totalCents
     ?? recurringTotal
@@ -235,8 +235,8 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
     locations_paid: 2,
-    locations_overage_price_cents: tier === 'autopilot' ? 2000 : 1500,
-    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseByVariant.list ?? 2900,
+    locations_overage_price_cents: tier === 'autopilot' ? 14900 : 7900,
+    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseByVariant.list ?? 7900,
     active_location_count: 3,
     past_due_at: null,
     flags: {},
@@ -253,9 +253,9 @@ describe('billing reconciliation helpers', () => {
       subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_subscription_id: 'sub_123',
-      base_price_cents: 2711, // deliberately differs from canonical 2900
+      base_price_cents: 2711, // deliberately differs from canonical 7900
       locations_included: 2, // deliberately differs from canonical 1
-      locations_overage_price_cents: 1333, // differs from canonical 1500
+      locations_overage_price_cents: 1333, // differs from canonical 7900
       active_location_count: 5,
       past_due_at: null,
       flags: {},
@@ -418,10 +418,10 @@ describe('billing reconciliation helpers', () => {
 
   it('normalizes preview invoices to undiscounted non-proration subscription lines', () => {
     expect(recurringSubscriptionLineTotalCents(makeInvoicePreview({
-      totalCents: 11900,
+      totalCents: 29700,
       lineAmountDiscountCents: 1000,
       prorationCents: 500,
-    }))).toBe(5900);
+    }))).toBe(23700);
   });
 
   it('normalizes Stripe 22 invoice line pricing without legacy price objects', () => {
@@ -485,6 +485,12 @@ describe('StripeLocationsReconcilePoller', () => {
     // Set env vars for Stripe price IDs
     process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_overage_copilot';
     process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_overage_autopilot';
+    // The default base item is the env-configured list Price, as in production.
+    // List base and overage share one unit amount (7900 / 14900), so an
+    // unregistered base Price would be indistinguishable from the overage item
+    // on the unit-amount match path.
+    process.env.STRIPE_PRICE_COPILOT_LIST = 'price_base';
+    process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_base_autopilot';
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     // drift-alert.ts now reads SENTRY_DSN via the memoized getWorkerConfig(); clear
     // the worker memo so each test's SENTRY_DSN override (set after this beforeEach)
@@ -501,6 +507,8 @@ describe('StripeLocationsReconcilePoller', () => {
     delete process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_PRICE_COPILOT_OVERAGE;
     delete process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE;
+    delete process.env.STRIPE_PRICE_COPILOT_LIST;
+    delete process.env.STRIPE_PRICE_AUTOPILOT_LIST;
   });
 
   // ── No drift ────────────────────────────────────────────────────
@@ -642,9 +650,10 @@ describe('StripeLocationsReconcilePoller', () => {
           {
             id: 'si_base',
             price: {
-              id: 'price_base',
+              // Unregistered (legacy) base Price: exclusion cannot come from the env ID set.
+              id: 'price_base_legacy',
               nickname: 'Copilot plan with 1 location',
-              unit_amount: 2900,
+              unit_amount: 7900,
             },
             quantity: 1,
           },
@@ -684,7 +693,7 @@ describe('StripeLocationsReconcilePoller', () => {
       makeStripeSubscription(2, 'price_overage_copilot'),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      totalCents: 4900,
+      totalCents: 22700,
       lineAmountDiscountCents: 1000,
     }));
 
@@ -945,7 +954,7 @@ describe('StripeLocationsReconcilePoller', () => {
       makeStripeSubscription(2, 'price_overage_copilot'),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      overageUnitCents: 1501,
+      overageUnitCents: 7901,
     }));
 
     const result = await runOnce();
@@ -959,8 +968,8 @@ describe('StripeLocationsReconcilePoller', () => {
           account_id: 'acct-sentry-invoice',
         }),
         extra: expect.objectContaining({
-          expectedCents: 5900,
-          actualCents: 5902,
+          expectedCents: 23700,
+          actualCents: 23702,
           dbStatus: 'active',
           stripeStatus: 'active',
           stripeSubscriptionId: 'sub_test',
@@ -1235,10 +1244,10 @@ describe('StripeLocationsReconcilePoller', () => {
     ]);
 
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscriptionNoOverage(2900),
+      makeStripeSubscriptionNoOverage(7900),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      baseCents: 2900,
+      baseCents: 7900,
       overageUnits: 0,
     }));
 
@@ -1287,29 +1296,29 @@ describe('StripeLocationsReconcilePoller', () => {
         id: 'acct-within',
         subscription_tier: 'autopilot',
         locations_included: 5,
-        locations_overage_price_cents: 2000,
+        locations_overage_price_cents: 14900,
         active_location_count: 3,
         locations_paid: 0,
       }),
     ]);
 
     mockStripeRetrieve.mockResolvedValue({
-      ...makeStripeSubscription(0, 'price_overage_autopilot', 2000),
+      ...makeStripeSubscription(0, 'price_overage_autopilot', 14900),
       items: {
         data: [
-          { id: 'si_base', price: { id: 'price_base_autopilot', unit_amount: 6900 }, quantity: 1 },
+          { id: 'si_base', price: { id: 'price_base_autopilot', unit_amount: 14900 }, quantity: 1 },
           {
             id: 'si_overage',
-            price: { id: 'price_overage_autopilot', unit_amount: 2000 },
+            price: { id: 'price_overage_autopilot', unit_amount: 14900 },
             quantity: 0,
           },
         ],
       },
     });
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      baseCents: 6900,
+      baseCents: 14900,
       overageUnits: 0,
-      overageUnitCents: 2000,
+      overageUnitCents: 14900,
       overagePriceId: 'price_overage_autopilot',
     }));
 

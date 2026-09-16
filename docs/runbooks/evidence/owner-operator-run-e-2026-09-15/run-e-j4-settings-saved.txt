@@ -1,0 +1,4 @@
+Browser tab: 7, Title: "RepWorth", URL: "https://staging.repworth.net/settings/voice".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 78-80
+The focused UI element is 0 AXWebArea RepWorth, URL: staging.repworth.net/settings/voice

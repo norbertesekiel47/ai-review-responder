@@ -1,0 +1,700 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- complementary:
+  - button "Run E Synthetic Owner Owner":
+    - generic: RO
+    - generic: Run E Synthetic Owner
+    - generic: Owner
+  - button "Salon":
+    - generic: Salon
+  - navigation "Main":
+    - link "Dashboard":
+      - /url: /dashboard
+      - text: Dashboard
+    - link "Reviews":
+      - /url: /dashboard/reviews
+      - text: Reviews
+    - link "Operator":
+      - /url: /dashboard/operator
+      - text: Operator
+    - link "Requests":
+      - /url: /dashboard/requests
+      - text: Requests
+    - link "Analytics":
+      - /url: /dashboard/analytics
+      - text: Analytics
+  - navigation "Utility":
+    - link "Settings":
+      - /url: /settings
+      - text: Settings
+    - link "Help":
+      - /url: /help/contact
+      - text: Help
+  - generic: RepWorth
+- main:
+  - heading "Operator" [level=1]
+  - paragraph: Tell RepWorth what to change. Nothing happens until you approve it.
+  - navigation "Operator views":
+    - button "Conversation" [pressed]
+    - button "Rules timeline"
+  - region "Conversation":
+    - article:
+      - paragraph: Change the reply tone for Salon to warm and concise.
+      - region "Set the reply tone to \"warm and concise\"":
+        - heading "Set the reply tone to \"warm and concise\"" [level=2]
+        - generic: This location
+        - generic: Salon
+        - generic: Now
+        - generic: Tone
+        - generic: formal and factual
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - generic: After this change
+        - generic: Tone
+        - generic: warm and concise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - paragraph: Remembered fact
+        - paragraph: Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - generic: Before
+        - generic: "Tone:"
+        - text: formal and factual
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - generic: After
+        - generic: "Tone:"
+        - text: warm and concise
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - term: Change
+        - definition: Set the reply tone to "warm and concise"
+        - term: Location
+        - definition: Salon
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 1:53:07 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Change the reply tone for Salon to warm and concise.
+        - term: Reference
+        - definition: 01a0a443-7a8b-721f-8628-463813414ecd
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+      - 'region "Restore: Set the reply tone to \"formal and factual\""':
+        - 'heading "Restore: Set the reply tone to \"formal and factual\"" [level=2]'
+        - generic: This location
+        - generic: Salon
+        - generic: Now
+        - generic: Tone
+        - generic: warm and concise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - generic: After this change
+        - generic: Tone
+        - generic: formal and factual
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - paragraph: Remembered fact
+        - paragraph: Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - generic: Before
+        - generic: "Tone:"
+        - text: warm and concise
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - generic: After
+        - generic: "Tone:"
+        - text: formal and factual
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - term: Change
+        - definition: "Restore: Set the reply tone to \"formal and factual\""
+        - term: Location
+        - definition: Salon
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 1:54:58 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Change the reply tone for Salon to warm and concise.
+        - term: Reference
+        - definition: 01a0a443-7a8b-721f-8628-463813414ecd
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+      - 'region "Restore: Set the reply tone to \"warm and concise\""':
+        - generic: Fact to remember
+        - 'heading "Restore: Set the reply tone to \"warm and concise\"" [level=2]'
+        - generic: This location
+        - generic: Salon
+        - generic: Now
+        - generic: Tone
+        - generic: formal and factual
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - generic: After this change
+        - generic: Tone
+        - generic: warm and concise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - paragraph: Your settings changed after this plan was prepared, so it was not applied.
+        - button "Refresh plan"
+      - 'region "Restore: Set the reply tone to \"warm and concise\""':
+        - 'heading "Restore: Set the reply tone to \"warm and concise\"" [level=2]'
+        - generic: This location
+        - generic: Salon
+        - generic: Now
+        - generic: Tone
+        - generic: calm and precise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - generic: After this change
+        - generic: Tone
+        - generic: warm and concise
+        - generic: Products and services
+        - generic: Not set
+        - generic: Keep out of replies
+        - generic: Nothing
+        - generic: Highlight when it fits
+        - generic: Nothing
+        - generic: Sample replies
+        - generic: Nothing
+        - paragraph: Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - paragraph: Remembered fact
+        - paragraph: Effective now. Future drafts only. Existing drafts and pending approvals are not rewritten.
+        - generic: Before
+        - generic: "Tone:"
+        - text: calm and precise
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - generic: After
+        - generic: "Tone:"
+        - text: warm and concise
+        - generic: "Products and services:"
+        - text: Not set
+        - generic: "Keep out of replies:"
+        - text: Nothing
+        - generic: "Highlight when it fits:"
+        - text: Nothing
+        - generic: "Sample replies:"
+        - text: Nothing
+        - term: Change
+        - definition: "Restore: Set the reply tone to \"warm and concise\""
+        - term: Location
+        - definition: Salon
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 2:21:32 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Change the reply tone for Salon to warm and concise.
+        - term: Reference
+        - definition: 01a0a443-7a8b-721f-8628-463813414ecd
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+    - article:
+      - paragraph: Clear the location auto-approval override for Cafe so it inherits the account defaults.
+      - region "Use the account default for auto-reply":
+        - heading "Use the account default for auto-reply" [level=2]
+        - generic: This location
+        - generic: Cafe
+        - paragraph: Prepared for Cafe
+        - generic: Now
+        - generic: Auto-reply
+        - generic: 5 star reviews
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After this change
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 15 minutes
+        - generic: Daily limit
+        - generic: Platform default (10 per day)
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+        - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+        - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph:
+          - text: Reviews received 2026-08-16 to 2026-09-15. As of
+          - time: 9/15/2026, 1:56:39 AM
+          - text: .
+        - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+        - paragraph: Active rule
+        - paragraph: Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+        - generic: Before
+        - generic: Auto-reply
+        - generic: 5 star reviews
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 15 minutes
+        - generic: Daily limit
+        - generic: Platform default (10 per day)
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: "Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible."
+        - paragraph: Reviews received 2026-08-16 to 2026-09-15. Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph: 0 drafts keep their granted veto window.
+        - paragraph:
+          - text: Counted as of
+          - time: 9/15/2026, 1:57:00 AM
+          - text: .
+        - list:
+          - listitem: Auto-reply is not enabled yet.
+          - listitem: Autopilot must be available on this account before auto-reply can expand.
+        - term: Change
+        - definition: "This location now: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. After this change: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). This location now uses the account default."
+        - term: Location
+        - definition: Cafe
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 1:57:00 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Clear the location auto-approval override for Cafe so it inherits the account defaults.
+        - term: Reference
+        - definition: 01a0a448-41da-71cb-98f0-9c850ada3f95
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+      - group "Changes that expand auto-reply":
+        - heading "Changes that expand auto-reply" [level=2]
+        - 'region "Restore: This location now: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). After Apply: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings."':
+          - generic: Proposed rule
+          - 'heading "Restore: This location now: every reply waits for you, a 15-minute veto window, a daily cap of 10 (the platform default). After Apply: only replies to 5 star reviews can auto-post, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings." [level=2]'
+          - generic: This location
+          - generic: Cafe
+          - paragraph: Prepared for Cafe
+          - generic: Now
+          - generic: Auto-reply
+          - generic: Off — you approve every reply
+          - generic: Time to stop a reply
+          - generic: 15 minutes
+          - generic: Daily limit
+          - generic: Platform default (10 per day)
+          - generic: Rule source
+          - generic: Inherits account default
+          - generic: After this change
+          - generic: Auto-reply
+          - generic: 5 star reviews
+          - generic: Time to stop a reply
+          - generic: 30 minutes
+          - generic: Daily limit
+          - generic: 2 per day
+          - generic: Rule source
+          - generic: Location rule
+          - paragraph: This creates a location rule. It stops inheriting the account default and uses all the settings shown above.
+          - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+          - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+          - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+          - paragraph:
+            - text: Reviews received 2026-08-16 to 2026-09-15. As of
+            - time: 9/15/2026, 1:57:31 AM
+            - text: .
+          - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+          - paragraph: Not applied
+          - list:
+            - listitem: Auto-reply is not enabled yet.
+            - listitem: Autopilot must be available on this account before auto-reply can expand.
+    - article:
+      - paragraph: Clear the current location auto-approval override for Cafe so it inherits the account defaults.
+      - group "Changes that expand auto-reply":
+        - heading "Changes that expand auto-reply" [level=2]
+        - region "Use the account default for auto-reply":
+          - generic: Proposed rule
+          - heading "Use the account default for auto-reply" [level=2]
+          - generic: This location
+          - generic: Cafe
+          - paragraph: Prepared for Cafe
+          - generic: Now
+          - generic: Auto-reply
+          - generic: Off — you approve every reply
+          - generic: Time to stop a reply
+          - generic: 30 minutes
+          - generic: Daily limit
+          - generic: 2 per day
+          - generic: Rule source
+          - generic: Location rule
+          - generic: After this change
+          - generic: Auto-reply
+          - generic: Off — you approve every reply
+          - generic: Time to stop a reply
+          - generic: 15 minutes
+          - generic: Daily limit
+          - generic: Platform default (10 per day)
+          - generic: Rule source
+          - generic: Inherits account default
+          - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+          - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+          - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+          - paragraph:
+            - text: Reviews received 2026-08-16 to 2026-09-15. As of
+            - time: 9/15/2026, 2:01:10 AM
+            - text: .
+          - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+          - paragraph: Not applied
+          - list:
+            - listitem: Auto-reply is not enabled yet.
+            - listitem: Autopilot must be available on this account before auto-reply can expand.
+            - listitem: Reply safety checks have not finished verification yet.
+    - article:
+      - paragraph: Clear the current auto-approval override for Cafe and use the current account defaults.
+      - region "Use the account default for auto-reply":
+        - heading "Use the account default for auto-reply" [level=2]
+        - generic: This location
+        - generic: Cafe
+        - paragraph: Prepared for Cafe
+        - generic: Now
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After this change
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+        - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+        - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph:
+          - text: Reviews received 2026-08-16 to 2026-09-15. As of
+          - time: 9/15/2026, 2:07:15 AM
+          - text: .
+        - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+        - paragraph: Active rule
+        - paragraph: Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+        - generic: Before
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: "Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible."
+        - paragraph: Reviews received 2026-08-16 to 2026-09-15. Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph: 0 drafts keep their granted veto window.
+        - paragraph:
+          - text: Counted as of
+          - time: 9/15/2026, 2:07:58 AM
+          - text: .
+        - list:
+          - listitem: Auto-reply is not enabled yet.
+          - listitem: Autopilot must be available on this account before auto-reply can expand.
+        - term: Change
+        - definition: "This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After this change: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location now uses the account default."
+        - term: Location
+        - definition: Cafe
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 2:07:59 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Clear the current auto-approval override for Cafe and use the current account defaults.
+        - term: Reference
+        - definition: 01a0a451-eefd-71ad-8956-20ed0cd5b994
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+      - 'region "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings."':
+        - 'heading "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings." [level=2]'
+        - generic: This location
+        - generic: Cafe
+        - paragraph: Prepared for Cafe
+        - generic: Now
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - generic: After this change
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - paragraph: This creates a location rule. It stops inheriting the account default and uses all the settings shown above.
+        - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+        - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+        - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph:
+          - text: Reviews received 2026-08-16 to 2026-09-15. As of
+          - time: 9/15/2026, 2:09:25 AM
+          - text: .
+        - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+        - paragraph: Active rule
+        - paragraph: Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+        - generic: Before
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - generic: After
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - paragraph: "Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible."
+        - paragraph: Reviews received 2026-08-16 to 2026-09-15. Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph: 0 drafts keep their granted veto window.
+        - paragraph:
+          - text: Counted as of
+          - time: 9/15/2026, 2:10:24 AM
+          - text: .
+        - list:
+          - listitem: Auto-reply is not enabled yet.
+          - listitem: Autopilot must be available on this account before auto-reply can expand.
+        - term: Change
+        - definition: "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. The scope keeps its own settings."
+        - term: Location
+        - definition: Cafe
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 2:10:24 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Clear the current auto-approval override for Cafe and use the current account defaults.
+        - term: Reference
+        - definition: 01a0a451-eefd-71ad-8956-20ed0cd5b994
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+      - 'region "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default."':
+        - 'heading "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default." [level=2]'
+        - generic: This location
+        - generic: Cafe
+        - paragraph: Prepared for Cafe
+        - generic: Now
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After this change
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: Under this rule, 0 of your 0 reviews since 2026-08-16 would have been eligible to auto-post. 0 would have waited for you.
+        - paragraph: "Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval."
+        - paragraph: Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph:
+          - text: Reviews received 2026-08-16 to 2026-09-15. As of
+          - time: 9/15/2026, 2:12:28 AM
+          - text: .
+        - paragraph: Future eligible reviews. Drafts already granted a veto window keep it.
+        - paragraph: Active rule
+        - paragraph: Effective now. Future eligible reviews. Drafts already granted a veto window keep it.
+        - generic: Before
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Location rule
+        - generic: After
+        - generic: Auto-reply
+        - generic: Off — you approve every reply
+        - generic: Time to stop a reply
+        - generic: 30 minutes
+        - generic: Daily limit
+        - generic: 2 per day
+        - generic: Rule source
+        - generic: Inherits account default
+        - paragraph: "Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible."
+        - paragraph: Reviews received 2026-08-16 to 2026-09-15. Excluded 0 imported reviews and 0 reviews whose origin is unknown.
+        - paragraph: 0 drafts keep their granted veto window.
+        - paragraph:
+          - text: Counted as of
+          - time: 9/15/2026, 2:18:07 AM
+          - text: .
+        - list:
+          - listitem: Auto-reply is not enabled yet.
+          - listitem: Autopilot must be available on this account before auto-reply can expand.
+        - term: Change
+        - definition: "Restore: This location now: every reply waits for you, a 30-minute veto window, a daily cap of 2. After Apply: every reply waits for you, a 30-minute veto window, a daily cap of 2. This location uses the account default."
+        - term: Location
+        - definition: Cafe
+        - term: Applied at
+        - definition:
+          - time: 9/15/2026, 2:18:07 AM
+        - term: Applied by
+        - definition: Run E Synthetic Owner
+        - term: You asked
+        - definition: Clear the current auto-approval override for Cafe and use the current account defaults.
+        - term: Reference
+        - definition: 01a0a451-eefd-71ad-8956-20ed0cd5b994
+        - button "Restore"
+        - generic: Prepare a change to review before applying.
+    - article:
+      - paragraph: Undo my last change for Salon.
+      - alert:
+        - paragraph: The answer came back in a form we could not use. Nothing was changed — try asking again in your own words.
+    - article:
+      - paragraph: say we are licensed
+      - group "Policy refused":
+        - heading "RepWorth will not do this" [level=2]
+        - paragraph: RepWorth rules prohibit inventing or claiming unverified business facts, including licenses and credentials.
+        - paragraph: Nothing changed.
+    - generic: Message
+    - textbox "Message" [active]:
+      - /placeholder: Ask for a change, or ask what needs you.
+    - button "Send" [disabled]
+  - complementary "Summary":
+    - generic: Google
+    - paragraph: Salon is not connected to Google, so nothing can be posted yet.
+    - link "Connect Google Business":
+      - /url: /dashboard/connect?locationId=019f43e0-0000-7000-8000-000000000011
+    - region "Waiting for you":
+      - generic: Waiting for you
+      - generic: "0"
+      - generic: drafts waiting at Salon, of 0 across every location
+      - text: As of
+      - time: 2:25:39 AM
+    - region "Recently completed":
+      - generic: Recently completed
+      - generic: "0"
+      - generic: replies posted in the last 7 days
+      - text: As of
+      - time: 2:25:39 AM
+    - region "Current operating rules":
+      - generic: Current operating rules
+      - generic: Auto-posting is off — you approve every reply.
+      - generic: You get 30 minutes to stop a reply, up to 2 a day.
+      - generic: These come from the account default.
+      - generic: Replies are written warm and concise.
+      - generic: 0 things to mention, 0 to avoid.
+      - text: As of
+      - time: 2:25:39 AM
+- alert

@@ -22,12 +22,12 @@ interface LaunchPriceSpec {
 }
 
 const LAUNCH_CATALOG: readonly LaunchPriceSpec[] = [
-  { envVar: 'STRIPE_PRICE_COPILOT_LIST', productName: 'RepWorth Copilot', nickname: 'Copilot base', unitAmount: 2900 },
-  { envVar: 'STRIPE_PRICE_COPILOT_FOUNDING', productName: 'RepWorth Copilot', nickname: 'Copilot founding base', unitAmount: 1900 },
-  { envVar: 'STRIPE_PRICE_AUTOPILOT_LIST', productName: 'RepWorth Autopilot', nickname: 'Autopilot base', unitAmount: 6900 },
-  { envVar: 'STRIPE_PRICE_AUTOPILOT_FOUNDING', productName: 'RepWorth Autopilot', nickname: 'Autopilot founding base', unitAmount: 4900 },
-  { envVar: 'STRIPE_PRICE_COPILOT_OVERAGE', productName: 'RepWorth Copilot - Extra Location', nickname: 'Copilot extra location', unitAmount: 1500 },
-  { envVar: 'STRIPE_PRICE_AUTOPILOT_OVERAGE', productName: 'RepWorth Autopilot - Extra Location', nickname: 'Autopilot extra location', unitAmount: 2000 },
+  { envVar: 'STRIPE_PRICE_COPILOT_LIST', productName: 'RepWorth Copilot', nickname: 'Copilot base', unitAmount: 7900 },
+  { envVar: 'STRIPE_PRICE_COPILOT_FOUNDING', productName: 'RepWorth Copilot', nickname: 'Copilot founding base', unitAmount: 4900 },
+  { envVar: 'STRIPE_PRICE_AUTOPILOT_LIST', productName: 'RepWorth Autopilot', nickname: 'Autopilot base', unitAmount: 14900 },
+  { envVar: 'STRIPE_PRICE_AUTOPILOT_FOUNDING', productName: 'RepWorth Autopilot', nickname: 'Autopilot founding base', unitAmount: 9900 },
+  { envVar: 'STRIPE_PRICE_COPILOT_OVERAGE', productName: 'RepWorth Copilot - Extra Location', nickname: 'Copilot extra location', unitAmount: 7900 },
+  { envVar: 'STRIPE_PRICE_AUTOPILOT_OVERAGE', productName: 'RepWorth Autopilot - Extra Location', nickname: 'Autopilot extra location', unitAmount: 14900 },
 ] as const;
 
 async function resolveProductId(name: string, cache: Map<string, string>): Promise<string> {

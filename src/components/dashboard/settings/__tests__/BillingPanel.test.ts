@@ -10,8 +10,8 @@ describe('BillingPanel server plan presentation', () => {
     });
 
     expect(Object.keys(presentation.prices)).toEqual(['copilot', 'autopilot']);
-    expect(presentation.prices.copilot.basePriceCents).toBe(2900);
-    expect(presentation.prices.autopilot.basePriceCents).toBe(6900);
+    expect(presentation.prices.copilot.basePriceCents).toBe(7900);
+    expect(presentation.prices.autopilot.basePriceCents).toBe(14900);
   });
 
   it('keeps founding target amounts across the tier boundary', () => {
@@ -21,8 +21,8 @@ describe('BillingPanel server plan presentation', () => {
       trialEnabled: false,
     });
 
-    expect(presentation.prices.copilot.basePriceCents).toBe(1900);
-    expect(presentation.prices.autopilot.basePriceCents).toBe(4900);
+    expect(presentation.prices.copilot.basePriceCents).toBe(4900);
+    expect(presentation.prices.autopilot.basePriceCents).toBe(9900);
     expect(presentation.priceVariant).toBe('founding');
   });
 });

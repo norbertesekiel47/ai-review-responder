@@ -6,6 +6,7 @@ import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types
 import type { VoiceConfig } from '@/lib/responses/voice-settings';
 import {
   CATALOG,
+  describePolicyRestore,
   proposableOperation,
   type LabelKind,
   type PolicyProposableOperation,
@@ -14,6 +15,7 @@ import {
 } from './catalog';
 import { consequenceForPolicy, type PolicySnapshot } from './policy-state';
 import type { ParsedProposal } from './render';
+import { deriveRestoreInput, hasRestoreInput, parseRestoreInput, type DerivedRestoreInput, type RestoreSource } from './restore-inputs';
 import {
   PROPOSAL_FAILURE_REASON,
   PROPOSAL_STATUS,
@@ -266,8 +268,8 @@ export async function insertProposals(tx: Tx, rows: readonly ProposalRow[]): Pro
  *
  * `turn_id <> ${turnId}` rather than `id <> ${replacement.proposalId}`: EARLIER
  * pending proposals is what supersession means, and the whole current turn is
- * one reply. This predicate also subsumes the id check: a row of another turn
- * can never be the replacement.
+ * one reply. Replacement IDs are also exempt: a Restore may reuse a pending
+ * proposal owned by an earlier turn without changing that ownership.
  */
 export async function supersedePendingProposals(
   tx: Tx,
@@ -291,6 +293,7 @@ export async function supersedePendingProposals(
         AND operation = ${replacement.operation}
         AND location_id IS NOT DISTINCT FROM ${replacement.locationId}::uuid
         AND turn_id <> ${input.turnId}::uuid
+        AND NOT (id = ANY(${input.replacements.map((row) => row.proposalId)}::uuid[]))
     `;
   }
 }
@@ -309,6 +312,8 @@ type StoredRow = {
 /** One **Proposal** as the owner reads it. The named public shape of the card. */
 export interface ProposalView {
   id: string;
+  /** Server-created provenance; absent on ordinary proposals. */
+  restoreSourceProposalId?: string | null;
   /** The turn that prepared it. The Receipt's correlation id, and the card's. */
   turnId: string;
   operation: string;
@@ -357,7 +362,7 @@ export interface ProposalView {
  */
 function proposalColumns(db: Db) {
   return db`turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-            input, before, after, prepared_version_token, receipt, applied_at, failure_reason`;
+            input, before, after, prepared_version_token, receipt, applied_at::text AS applied_at, failure_reason`;
 }
 
 type CardFacts = Pick<
@@ -373,6 +378,24 @@ function withoutFriction(describe: string): CardFacts {
     readinessBlockReasons: [],
     consequence: null,
     affectedLocationCount: null,
+  };
+}
+
+function policyCardFacts(
+  operation: PolicyProposableOperation,
+  preview: { before: PolicyState; after: PolicyState },
+  target: PolicyTarget,
+  storedAfter: ReturnType<typeof parseStoredPolicyState>,
+  expansion: boolean,
+  describe: string,
+): CardFacts {
+  return {
+    describe,
+    requiresConfirmation: expansion,
+    confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
+    readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
+    consequence: storedAfter.consequence ?? null,
+    affectedLocationCount: storedAfter.affectedLocationCount ?? null,
   };
 }
 
@@ -395,17 +418,42 @@ function cardFacts(
     after: parsePolicyState(storedAfter, 'agent_proposals.after'),
   };
   const expansion = operation.exposure(preview, target) === 'expansion';
-  return {
-    describe: operation.describeChange(input, preview, target),
-    requiresConfirmation: expansion,
-    confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
-    readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
-    consequence: storedAfter.consequence ?? null,
-    affectedLocationCount: storedAfter.affectedLocationCount ?? null,
-  };
+  return policyCardFacts(operation, preview, target, storedAfter, expansion,
+    operation.describeChange(input, preview, target));
 }
 
-function mapStored(row: StoredRow): ProposalView {
+function voiceRestoreDescription(
+  operation: Extract<ProposableOperation, { domain: 'voice' }>,
+  restore: Extract<DerivedRestoreInput, { domain: 'voice' }>,
+): string {
+  return operation.id === 'set_tone' && restore.input.tone === null
+    ? 'Let RepWorth choose the reply tone.'
+    : operation.describe(restore.input);
+}
+
+function restoreCardFacts(
+  operation: ProposableOperation | null,
+  restore: DerivedRestoreInput | null,
+  stored: { locationId: string | null; before: Record<string, unknown>; after: Record<string, unknown> },
+): CardFacts {
+  if (operation && restore?.domain === 'voice' && operation.domain === 'voice') {
+    return withoutFriction(`Restore: ${voiceRestoreDescription(operation, restore)}`);
+  }
+  if (operation?.domain === 'policy' && restore?.domain === 'policy') {
+    const target = policyTargetOf(stored.locationId);
+    const storedAfter = parseStoredPolicyState(stored.after, 'agent_proposals.after');
+    const preview = {
+      before: parsePolicyState(stored.before, 'agent_proposals.before'),
+      after: parsePolicyState(stored.after, 'agent_proposals.after'),
+    };
+    const expansion = operation.exposure(preview, target) === 'expansion';
+    return policyCardFacts(operation, preview, target, storedAfter, expansion,
+      describePolicyRestore(preview, target));
+  }
+  return withoutFriction('Restore: The source receipt is no longer available.');
+}
+
+function mapStored(row: StoredRow, restore: DerivedRestoreInput | null = null): ProposalView {
   const input = parseJsonbObject(row.input, 'agent_proposals.input');
   const before = parseJsonbObject(row.before, 'agent_proposals.before');
   const after = parseJsonbObject(row.after, 'agent_proposals.after');
@@ -416,11 +464,15 @@ function mapStored(row: StoredRow): ProposalView {
   // longer parses under a bumped contract) falls back to its rationale with no
   // friction rather than throwing — the card is still readable and Apply is
   // what refuses it.
-  const card = operation && parsed?.ok
+  let card = operation && parsed?.ok
     ? cardFacts(operation, parsed.input, { locationId: row.location_id, before, after })
     : withoutFriction(row.rationale);
+  if (hasRestoreInput(input)) {
+    card = restoreCardFacts(operation, restore, { locationId: row.location_id, before, after });
+  }
   return {
     id: row.id,
+    ...(hasRestoreInput(input) ? { restoreSourceProposalId: parseRestoreInput(input)?.sourceProposalId ?? null } : {}),
     turnId: row.turn_id,
     operation: row.operation,
     contractVersion: row.contract_version,
@@ -442,6 +494,59 @@ function mapStored(row: StoredRow): ProposalView {
   };
 }
 
+/** One bounded source read for a batch; no recursive traversal of undo history. */
+async function readRestoreSources(db: Db, accountId: string, ids: readonly string[], lock = false): Promise<Map<string, RestoreSource>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db<{
+    id: string; operation: string; contract_version: number; location_id: string | null;
+    status: string; turn_id: string; receipt: unknown;
+  }[]>`
+    SELECT id, operation, contract_version, location_id, status, turn_id, receipt
+    FROM agent_proposals
+    WHERE account_id = ${accountId}::uuid AND id = ANY(${[...new Set(ids)]}::uuid[])
+    ${lock ? db`FOR UPDATE` : db``}
+  `;
+  return new Map(rows.map((row) => {
+    let receipt: Receipt | null = null;
+    try { receipt = parseReceipt(row.receipt); } catch { /* Unusable historical evidence refuses Restore. */ }
+    return [row.id, { id: row.id, operation: row.operation, contractVersion: row.contract_version,
+      locationId: row.location_id, status: row.status, turnId: row.turn_id, receipt }];
+  }));
+}
+
+/** Lock the source evidence without requiring a corrupt historical card to render. */
+export async function lockRestoreSourceForAccount(
+  tx: Tx, input: { accountId: string; proposalId: string },
+): Promise<RestoreSource | null> {
+  return (await readRestoreSources(tx, input.accountId, [input.proposalId], true)).get(input.proposalId) ?? null;
+}
+
+export async function resolveProposalRestoreInput(
+  db: Db, accountId: string,
+  proposal: Pick<ProposalView, 'id' | 'input' | 'operation' | 'contractVersion' | 'locationId'>,
+): Promise<DerivedRestoreInput | null> {
+  const provenance = parseRestoreInput(proposal.input);
+  if (!provenance || provenance.sourceProposalId === proposal.id) return null;
+  const source = (await readRestoreSources(db, accountId, [provenance.sourceProposalId])).get(provenance.sourceProposalId);
+  return source ? deriveRestoreInput({ accountId, ...proposal, source }) : null;
+}
+
+async function mapStoredRows(db: Db, accountId: string, rows: readonly StoredRow[]): Promise<ProposalView[]> {
+  const ids = rows.flatMap((row) => {
+    const parsed = parseRestoreInput(parseJsonbObject(row.input, 'agent_proposals.input'));
+    return parsed ? [parsed.sourceProposalId] : [];
+  });
+  const sources = await readRestoreSources(db, accountId, ids);
+  return rows.map((row) => {
+    const input = parseJsonbObject(row.input, 'agent_proposals.input');
+    const sourceId = parseRestoreInput(input)?.sourceProposalId;
+    const source = sourceId && sourceId !== row.id ? sources.get(sourceId) : undefined;
+    const restore = source ? deriveRestoreInput({ accountId, operation: row.operation,
+      contractVersion: row.contract_version, locationId: row.location_id, source }) : null;
+    return mapStored(row, restore);
+  });
+}
+
 export async function listProposalsForTurn(
   db: Db,
   input: { turnId: string; accountId: string },
@@ -453,7 +558,7 @@ export async function listProposalsForTurn(
       AND account_id = ${input.accountId}::uuid
     ORDER BY created_at ASC
   `;
-  return rows.map(mapStored);
+  return mapStoredRows(db, input.accountId, rows);
 }
 
 /**
@@ -474,10 +579,10 @@ export async function listProposalsForTurns(
       AND account_id = ${input.accountId}::uuid
     ORDER BY created_at ASC
   `;
-  for (const row of rows) {
-    const existing = byTurn.get(row.turn_id);
-    if (existing) existing.push(mapStored(row));
-    else byTurn.set(row.turn_id, [mapStored(row)]);
+  for (const row of await mapStoredRows(db, input.accountId, rows)) {
+    const existing = byTurn.get(row.turnId);
+    if (existing) existing.push(row);
+    else byTurn.set(row.turnId, [row]);
   }
   return byTurn;
 }
@@ -494,7 +599,57 @@ export async function listPendingProposals(
       AND status = ${PROPOSAL_STATUS.PENDING}
     ORDER BY created_at ASC
   `;
-  return rows.map(mapStored);
+  return mapStoredRows(db, input.accountId, rows);
+}
+
+/** References are bounded by the stored segment limit and transcript window. */
+export async function listProposalsByIds(
+  db: Db, input: { accountId: string; proposalIds: readonly string[] },
+): Promise<ProposalView[]> {
+  const ids = [...new Set(input.proposalIds)];
+  if (ids.length === 0) return [];
+  if (ids.length > 600) throw new Error('agents/operator: proposal reference read exceeds transcript bound');
+  const rows = await db<StoredRow[]>`
+    SELECT ${proposalColumns(db)} FROM agent_proposals
+    WHERE account_id = ${input.accountId}::uuid AND id = ANY(${ids}::uuid[])
+    ORDER BY created_at ASC, id ASC
+  `;
+  return mapStoredRows(db, input.accountId, rows);
+}
+
+export interface RulesTimelineCursor { appliedAt: string; id: string }
+
+/** An independent keyset page; timestamps retain database microseconds. */
+export async function listAppliedProposals(
+  db: Db,
+  input: { accountId: string; locationId?: string | null; cursor?: RulesTimelineCursor; limit?: number },
+): Promise<{ proposals: ProposalView[]; pendingRestores: ProposalView[]; nextCursor: RulesTimelineCursor | null }> {
+  const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
+  const rows = await db<StoredRow[]>`
+    SELECT ${proposalColumns(db)} FROM agent_proposals
+    WHERE account_id = ${input.accountId}::uuid AND status = ${PROPOSAL_STATUS.APPLIED}
+      AND applied_at IS NOT NULL
+      AND (${input.locationId === undefined} OR location_id IS NOT DISTINCT FROM ${input.locationId ?? null}::uuid)
+      AND (${input.cursor === undefined} OR (applied_at, id) < (
+        ${input.cursor?.appliedAt ?? 'infinity'}::text::timestamptz,
+        ${input.cursor?.id ?? 'ffffffff-ffff-ffff-ffff-ffffffffffff'}::uuid
+      ))
+    ORDER BY applied_at DESC, id DESC LIMIT ${limit + 1}
+  `;
+  const page = rows.slice(0, limit);
+  const last = page.at(-1);
+  const proposals = await mapStoredRows(db, input.accountId, page);
+  const pending = page.length === 0 ? [] : await db<StoredRow[]>`
+    SELECT ${proposalColumns(db)} FROM agent_proposals
+    WHERE account_id = ${input.accountId}::uuid AND status = ${PROPOSAL_STATUS.PENDING}
+      AND input->'restore'->>'sourceProposalId' = ANY(${page.map((row) => row.id)}::text[])
+    ORDER BY created_at DESC, id DESC LIMIT 50
+  `;
+  return {
+    proposals, pendingRestores: await mapStoredRows(db, input.accountId, pending),
+    nextCursor: rows.length > limit && last
+      ? { appliedAt: String(last.applied_at), id: last.id } : null,
+  };
 }
 
 export interface UnsupportedRow {
@@ -584,7 +739,7 @@ export async function readProposalForAccount(
     WHERE id = ${input.proposalId}::uuid
       AND account_id = ${input.accountId}::uuid
   `;
-  return row ? mapStored(row) : null;
+  return row ? (await mapStoredRows(db, input.accountId, [row]))[0]! : null;
 }
 
 /**
@@ -603,7 +758,7 @@ export async function lockProposalForAccount(
       AND account_id = ${input.accountId}::uuid
     FOR UPDATE
   `;
-  return row ? mapStored(row) : null;
+  return row ? (await mapStoredRows(tx, input.accountId, [row]))[0]! : null;
 }
 
 function proposableIdsFor(domain: ProposableOperation['domain']): string[] {

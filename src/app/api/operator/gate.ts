@@ -1,4 +1,4 @@
-// The single write gate for the Operator mutation routes. Not a route file —
+// Shared read and write gates for the Operator routes. Not a route file —
 // the precedent for a shared non-route module beside routes is
 // `src/app/api/dashboard/policy.ts`.
 //
@@ -12,9 +12,20 @@ import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { hasImpersonationCookie } from '@/lib/admin/impersonation/cookie';
 import {
   errorResponse,
+  requireOwnerWithAccount,
   requireWritableOwner,
+  type OwnerAccountResult,
   type WritableOwnerResult,
 } from '@/lib/auth/route-helpers';
+
+/** Flag first, then owner/account auth; reads retain their existing access. */
+export async function requireOperatorReader(request: NextRequest): Promise<OwnerAccountResult> {
+  if (!ownerOperatorEnabled()) {
+    return { ok: false, response: errorResponse('operator_disabled', 404) };
+  }
+
+  return requireOwnerWithAccount(request);
+}
 
 /** The success half of `requireWritableOwner` — the owner user + their accountId. */
 export type OperatorWriter = Extract<WritableOwnerResult, { ok: true }>;

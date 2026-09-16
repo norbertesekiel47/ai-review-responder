@@ -7,8 +7,14 @@
 // new tables carries an `account_id` predicate.
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { z } from 'zod';
 import { enqueueAgentTurn } from '@/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import type { SnapshotMetrics } from './context';
+import { completeOperatorRefusals } from './refusal-completion';
+import { materializeReply, type ParsedRestoreRequest } from './render';
+import { createRestoreProposalInTransaction } from './restore';
 import {
   insertProposals,
   insertUnsupported,
@@ -20,13 +26,76 @@ import {
 // failed-hook, which owns the failure transition and its ordering.
 import {
   TURN_STATUS,
+  TURN_FAILURE_REASON,
   asTurnStatus,
   type StoredSegment,
+  type Segment,
   type TurnFailureReason,
   type TurnStatus,
 } from './schema';
 
 type Sql = postgres.Sql;
+
+/**
+ * The poller calls this only for terminal CAS winners, on the same transaction.
+ * Read identities from that stored row; reject malformed account UUIDs and
+ * compare other payload identities as text without unsafe casts. Live or locked
+ * work retains a recoverable outbox, including if the worker later crashes.
+ */
+export async function reconcileTurnForFailedOutbox(
+  tx: postgres.TransactionSql,
+  outboxId: string,
+  leaseSeconds: number,
+): Promise<'failed' | 'deferred' | 'unchanged'> {
+  const [outbox] = await tx<{
+    account_id: string | null; conversation_id: string | null; turn_id: string;
+  }[]>`
+    SELECT payload->>'account_id' AS account_id,
+           payload->>'conversation_id' AS conversation_id,
+           aggregate_id::text AS turn_id
+    FROM job_outbox
+    WHERE id = ${outboxId}::uuid AND status = 'failed'
+      AND topic = ${QUEUE_NAMES.AGENT_TURN} AND aggregate_type = topic
+      AND aggregate_id::text = payload->>'turn_id'
+  `;
+  if (!outbox) return 'unchanged';
+  const accountId = z.uuid().safeParse(outbox.account_id);
+  if (!accountId.success) return 'unchanged';
+  const [locked] = await tx<{ status: string; expired: boolean }[]>`
+    SELECT status, COALESCE(claimed_at < NOW() - make_interval(secs => ${leaseSeconds}), false) AS expired
+    FROM agent_turns
+    WHERE id = ${outbox.turn_id}::uuid AND account_id = ${accountId.data}::uuid
+      AND conversation_id::text = ${outbox.conversation_id}
+    FOR UPDATE SKIP LOCKED
+  `;
+  // Completion locks turn before outbox. Never wait for that lock in reverse
+  // order, and never mistake SKIP LOCKED for an absent turn.
+  const [visible] = locked ? [locked] : await tx<{ status: string }[]>`
+    SELECT status FROM agent_turns
+    WHERE id = ${outbox.turn_id}::uuid AND account_id = ${accountId.data}::uuid
+      AND conversation_id::text = ${outbox.conversation_id}
+  `;
+  if (!visible || (visible.status !== TURN_STATUS.ACCEPTED && visible.status !== TURN_STATUS.RUNNING)) return 'unchanged';
+  if (!locked || (locked.status === TURN_STATUS.RUNNING && !locked.expired)) {
+    await tx`
+      UPDATE job_outbox
+      SET status = 'dispatched', completed_at = NULL, dispatched_at = NOW()
+      WHERE id = ${outboxId}::uuid AND status = 'failed'
+    `;
+    return 'deferred';
+  }
+  // The current turn claim is locked: no renewal can race this expiry decision.
+  await tx`
+    UPDATE agent_turns
+    SET status = ${TURN_STATUS.FAILED},
+        failure_reason = ${TURN_FAILURE_REASON.DISPATCH_EXHAUSTED},
+        attempt_token = NULL, claimed_at = NULL, completed_at = NOW()
+    WHERE id = ${outbox.turn_id}::uuid
+      AND account_id = ${accountId.data}::uuid
+      AND conversation_id::text = ${outbox.conversation_id}
+  `;
+  return 'failed';
+}
 
 export interface CreateTurnInput {
   accountId: string;
@@ -275,25 +344,68 @@ export async function claimTurn(
 }
 
 /**
- * Hands the claim back when the predecessor is not terminal yet: status returns
- * to `accepted`, the attempt counter is decremented and the token cleared, so
- * the wait costs nothing and the next dispatch sees a fresh turn. Fenced on the
- * token so a lost lease cannot release someone else's claim.
+ * Yields only the current turn token and its exact outbox attempt together.
+ * A failed outbox can follow an ambiguous enqueue while the worker is running;
+ * reconcile that failure when the worker yields, never kill its live work from
+ * the poller. Healthy releases cost no claim attempt or queue retry.
  */
 export async function releaseTurnClaim(
   sql: Sql,
-  input: { turnId: string; accountId: string; attemptToken: string },
-): Promise<void> {
-  await sql`
-    UPDATE agent_turns
-    SET status = ${TURN_STATUS.ACCEPTED},
-        attempt = GREATEST(attempt - 1, 0),
-        attempt_token = NULL,
-        claimed_at = NULL
-    WHERE id = ${input.turnId}::uuid
-      AND account_id = ${input.accountId}::uuid
-      AND attempt_token = ${input.attemptToken}::uuid
-  `;
+  input: {
+    turnId: string; accountId: string; attemptToken: string;
+    outboxId: string; outboxAttempt: number | undefined; leaseSeconds: number;
+    /** Only a healthy predecessor recheck proves liveness; transient errors do not. */
+    refreshLiveness?: boolean;
+  },
+): Promise<'released' | 'failed' | 'lost'> {
+  const outboxAttempt = input.outboxAttempt;
+  if (outboxAttempt === undefined) return 'lost';
+  return sql.begin(async (tx) => {
+    const [outbox] = await tx<{ status: string; conversation_id: string | null }[]>`
+      SELECT status, payload->>'conversation_id' AS conversation_id
+      FROM job_outbox
+      WHERE id = ${input.outboxId}::uuid AND attempts = ${outboxAttempt}
+        AND status IN ('dispatching', 'dispatched', 'failed') -- outbox-status-audit-ignore: claim yield includes terminal failure reconciliation, not the in-flight dedup set
+        AND topic = ${QUEUE_NAMES.AGENT_TURN} AND aggregate_type = topic
+        AND aggregate_id::text = ${input.turnId}
+        AND payload->>'turn_id' = ${input.turnId}
+        AND payload->>'account_id' = ${input.accountId}
+      FOR UPDATE
+    `;
+    if (!outbox) return 'lost';
+    // Fenced completion takes turn then outbox. Do not wait for a turn it
+    // already owns while holding the reverse order; let that writer finish.
+    const [turn] = await tx<{ id: string }[]>`
+      SELECT id FROM agent_turns
+      WHERE id = ${input.turnId}::uuid AND account_id = ${input.accountId}::uuid
+        AND conversation_id::text = ${outbox.conversation_id}
+        AND attempt_token = ${input.attemptToken}::uuid
+        AND status = ${TURN_STATUS.RUNNING}
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (!turn) return 'lost';
+    await tx`
+      UPDATE agent_turns
+      SET status = ${TURN_STATUS.ACCEPTED}, attempt = GREATEST(attempt - 1, 0),
+          attempt_token = NULL, claimed_at = NULL
+      WHERE id = ${input.turnId}::uuid AND account_id = ${input.accountId}::uuid
+        AND attempt_token = ${input.attemptToken}::uuid
+        AND status = ${TURN_STATUS.RUNNING}
+    `;
+    if (outbox.status === 'failed') {
+      const reconciled = await reconcileTurnForFailedOutbox(tx, input.outboxId, input.leaseSeconds);
+      if (reconciled !== 'failed') throw new Error('operator yielded claim lost its locked outbox identity');
+      return 'failed';
+    }
+    if (input.refreshLiveness) {
+      await tx`
+        UPDATE job_outbox SET dispatched_at = NOW()
+        WHERE id = ${input.outboxId}::uuid AND attempts = ${outboxAttempt}
+          AND status IN ('dispatching', 'dispatched') -- outbox-status-audit-ignore: only an already claimed dispatch can heartbeat; pending is not worker-owned
+      `;
+    }
+    return 'released';
+  });
 }
 
 export interface PredecessorState {
@@ -343,6 +455,15 @@ export async function readTerminalTurn(
   return row ? { status: asTurnStatus(row.status) } : null;
 }
 
+export interface TurnReplyPlan {
+  segments: readonly Segment[];
+  metrics: SnapshotMetrics;
+  scrubbed: boolean;
+  /** Original model indices; null slots are filled by fenced Restore preparation. */
+  proposalIds: readonly (string | null)[];
+  restoreRequests: readonly ParsedRestoreRequest[];
+}
+
 export interface CompleteTurnInput {
   turnId: string;
   accountId: string;
@@ -350,10 +471,91 @@ export interface CompleteTurnInput {
   attemptToken: string;
   /** The STORED union: the model's segments plus any server notice. */
   segments: readonly StoredSegment[];
+  replyPlan?: TurnReplyPlan;
   proposals: readonly ProposalRow[];
   unsupported: readonly UnsupportedRow[];
   outboxId: string;
   outboxAttempt: number | undefined;
+}
+
+interface CompletedTurnRow {
+  account_id: string;
+  actor_user_id: string;
+  location_id: string;
+  conversation_id: string;
+  completed_at: Date;
+}
+
+type ProposalReplacement = { proposalId: string; operation: string; locationId: string | null };
+
+function assertRestoreRequestMatchesTurn(
+  request: ParsedRestoreRequest, turn: CompletedTurnRow, proposalIds: readonly (string | null)[],
+): void {
+  if (request.scope.accountId !== turn.account_id
+    || (request.scope.locationId !== undefined && request.scope.locationId !== turn.location_id)
+    || !Number.isInteger(request.index) || request.index < 0 || request.index >= proposalIds.length
+    || proposalIds[request.index] !== null) {
+    throw new Error('agents/operator: restore request does not match the winning turn');
+  }
+}
+
+async function prepareFencedRestores(
+  tx: postgres.TransactionSql,
+  turn: CompletedTurnRow,
+  turnId: string,
+  plan: TurnReplyPlan,
+): Promise<{ proposalIds: (string | null)[]; replacements: ProposalReplacement[]; restoreUnavailable: boolean }> {
+  const proposalIds = [...plan.proposalIds];
+  const replacements: ProposalReplacement[] = [];
+  let restoreUnavailable = false;
+  // All allowed location requests target this one stored business. Acquire its
+  // lock before an account-only request can acquire the account lock first.
+  const requests = [...plan.restoreRequests].sort((a, b) => Number(a.scope.locationId === undefined) - Number(b.scope.locationId === undefined));
+  for (const request of requests) {
+    assertRestoreRequestMatchesTurn(request, turn, proposalIds);
+    const result = await createRestoreProposalInTransaction(tx, {
+      accountId: turn.account_id,
+      actorUserId: turn.actor_user_id,
+      locationId: request.scope.locationId ?? null,
+      owner: { conversationId: turn.conversation_id, turnId },
+    });
+    if (result.kind !== 'prepared') {
+      restoreUnavailable = true;
+      continue;
+    }
+    proposalIds[request.index] = result.proposal.id;
+    replacements.push({ proposalId: result.proposal.id, operation: result.proposal.operation, locationId: result.proposal.locationId });
+  }
+  return { proposalIds, replacements, restoreUnavailable };
+}
+
+async function materializeFencedReply(
+  tx: postgres.TransactionSql,
+  input: CompleteTurnInput,
+  turn: CompletedTurnRow,
+): Promise<ProposalReplacement[]> {
+  if (!input.replyPlan) {
+    if (input.segments.some((segment) => segment.type === 'refusal')) {
+      throw new Error('agents/operator: refusal subjects require fenced ledger materialization');
+    }
+    return [];
+  }
+  const plan = input.replyPlan;
+  const restored = await prepareFencedRestores(tx, turn, input.turnId, plan);
+  const refusalIds = await completeOperatorRefusals(tx, {
+    turn: { accountId: turn.account_id, locationId: turn.location_id },
+    // The fence stores NOW() on this same transaction. Passing its returned
+    // JS Date back would silently discard PostgreSQL's microseconds.
+    decidedAt: 'transaction_time',
+    references: plan.segments.filter((segment) => segment.type === 'refusal_ref'),
+  });
+  const reply = materializeReply({ ...plan, ...restored, refusalIds });
+  await tx`
+    UPDATE agent_turns SET reply = ${tx.json(reply as never)}
+    WHERE id = ${input.turnId}::uuid AND account_id = ${turn.account_id}::uuid
+      AND attempt_token = ${input.attemptToken}::uuid AND status = ${TURN_STATUS.COMPLETED}
+  `;
+  return restored.replacements;
 }
 
 /**
@@ -378,7 +580,7 @@ export async function completeTurnFenced(
   input: CompleteTurnInput,
 ): Promise<{ fenced: boolean }> {
   return sql.begin(async (tx) => {
-    const fenced = await tx`
+    const [completed] = await tx<CompletedTurnRow[]>`
       UPDATE agent_turns
       SET status = ${TURN_STATUS.COMPLETED},
           reply = ${tx.json(input.segments as never)},
@@ -388,28 +590,30 @@ export async function completeTurnFenced(
         AND account_id = ${input.accountId}::uuid
         AND attempt_token = ${input.attemptToken}::uuid
         AND status = ${TURN_STATUS.RUNNING}
+      RETURNING account_id, actor_user_id, location_id, conversation_id, completed_at
     `;
-    if (fenced.count === 0) return { fenced: false };
+    if (!completed) return { fenced: false };
 
+    const restored = await materializeFencedReply(tx, input, completed);
     await insertProposals(tx, input.proposals);
     await supersedePendingProposals(tx, {
-      conversationId: input.conversationId,
+      conversationId: completed.conversation_id,
       accountId: input.accountId,
       // Every proposal of THIS turn is exempt: two same-scope proposals in one
       // reply are siblings, not a correction of one another.
       turnId: input.turnId,
-      replacements: input.proposals.map((p) => ({
+      replacements: [...input.proposals.map((p) => ({
         proposalId: p.id,
         operation: p.operation,
         locationId: p.locationId,
-      })),
+      })), ...restored],
     });
     await insertUnsupported(tx, input.unsupported);
 
     await tx`
       UPDATE agent_conversations
       SET last_turn_at = NOW()
-      WHERE id = ${input.conversationId}::uuid
+      WHERE id = ${completed.conversation_id}::uuid
         AND account_id = ${input.accountId}::uuid
     `;
 
@@ -507,4 +711,3 @@ export async function failTurnAndCompleteOutbox(
     await failTurnIfNonTerminal(tx, input);
   });
 }
-

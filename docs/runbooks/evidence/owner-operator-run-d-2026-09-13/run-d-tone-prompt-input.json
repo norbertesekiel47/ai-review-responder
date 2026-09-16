@@ -1,0 +1,31 @@
+{
+  "review": {
+    "id": "01a09caf-8108-73db-8cd3-a5dcf3dc6dce",
+    "business_id": "019f43d0-0000-7000-8000-000000000011",
+    "review_date": "2026-09-13T21:32:21.93+00:00",
+    "review_text": "The team welcomed me kindly, started my appointment on time, and explained each step clearly. I left happy with the result.",
+    "star_rating": 5,
+    "reviewer_name": "Morgan Fictional",
+    "detected_language": "en"
+  },
+  "account": {
+    "id": "019f43d0-0000-7000-8000-000000000001",
+    "subscription_tier": "copilot"
+  },
+  "business": {
+    "id": "019f43d0-0000-7000-8000-000000000011",
+    "name": "Salon",
+    "tone": "warm and brief",
+    "category": "Salon",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "avoid_facts": [],
+    "staff_names": [],
+    "highlight_facts": [],
+    "sample_responses": [],
+    "products_services": null
+  },
+  "project_id": "kubdiqdhqbhwmqfditeg",
+  "schema_version": "run-d-tone-prompt-v1",
+  "voice_examples": [],
+  "triage_severity": null
+}

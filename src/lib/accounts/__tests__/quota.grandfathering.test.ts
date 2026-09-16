@@ -75,7 +75,7 @@ describe('currentBillingSnapshot grandfathering (invariant #9a)', () => {
 
   it('Copilot: stored zero overage short-circuits even when the live registry allows overage', async () => {
     expect(TIER_CONFIG.copilot.multiLocAllowed).toBe(true);
-    expect(TIER_CONFIG.copilot.overageCents).toBe(1500);
+    expect(TIER_CONFIG.copilot.overageCents).toBe(7900);
     harness.sqlReturnQueue.push([{
       subscription_tier: 'copilot',
       locations_included: 1,
@@ -97,7 +97,7 @@ describe('currentBillingSnapshot grandfathering (invariant #9a)', () => {
   });
 
   it('returns a stored founding Copilot base price, not the live registry price', async () => {
-    expect(TIER_CONFIG.copilot.baseByVariant.list).toBe(2900); // current published price
+    expect(TIER_CONFIG.copilot.baseByVariant.list).toBe(7900); // current published price
     harness.sqlReturnQueue.push([{
       subscription_tier: 'copilot',
       locations_included: 1,
@@ -107,7 +107,7 @@ describe('currentBillingSnapshot grandfathering (invariant #9a)', () => {
     }]);
 
     const snap = await currentBillingSnapshot(mockSql, 'acct_1');
-    expect(snap.basePriceCents).toBe(1900);   // STORED, not 2900
+    expect(snap.basePriceCents).toBe(1900);   // STORED, not 7900
     expect(snap.totalCents).toBe(1900);
     expect(snap.overageUnits).toBe(0);
     expect(harness.sqlCalls).toHaveLength(1); // zero-overage snapshots short-circuit
@@ -115,8 +115,8 @@ describe('currentBillingSnapshot grandfathering (invariant #9a)', () => {
   });
 
   it('stored Copilot base + overage drive the total, ignoring the live registry', async () => {
-    expect(TIER_CONFIG.copilot.baseByVariant.list).toBe(2900);
-    expect(TIER_CONFIG.copilot.overageCents).toBe(1500);
+    expect(TIER_CONFIG.copilot.baseByVariant.list).toBe(7900);
+    expect(TIER_CONFIG.copilot.overageCents).toBe(7900);
     harness.sqlReturnQueue.push([{
       subscription_tier: 'copilot',
       locations_included: 1,

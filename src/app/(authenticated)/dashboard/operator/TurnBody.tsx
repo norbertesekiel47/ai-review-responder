@@ -15,22 +15,17 @@ export interface TurnBodyProps {
   onApply: (proposal: ProposalView, confirmationLevel?: string) => void;
   onDecline: (proposal: ProposalView) => void;
   onRefreshPlan: (proposal: ProposalView) => void;
+  onRestore?: (proposal: ProposalView) => void;
   cardBusyId: string | null;
   cardErrors: Record<string, string>;
 }
 
 /**
- * One turn's reply, rendered EXHAUSTIVELY over the `RenderedSegment` union
- * (`src/lib/agents/operator/render.ts:376-382`) and in STORED ORDER.
- *
- * The union has six members and only two of them carry `text`, so a renderer
- * that printed `segment.text` dropped four kinds on the floor: a `status`
- * answer — the frozen count, its reporting period and the instant it was read,
- * which is the whole reason the value is materialized at completion — the
- * scrub `notice`, the `scope_check` chooser, and the `proposal` reference
- * itself. A `proposal` segment names WHERE its card belongs, so the card is
- * rendered AT that position; any proposal no segment references is appended
- * after the segments rather than being lost (RB-06).
+ * One turn's reply, rendered exhaustively over `RenderedSegment` in stored
+ * order. Status values stay frozen; refusal wording comes from the server.
+ * A proposal reference places its card, and unreferenced proposals are
+ * appended rather than lost (RB-06). Expansion proposals follow the transcript
+ * in their separate confirmation group.
  */
 export function TurnBody({
   turn,
@@ -40,6 +35,7 @@ export function TurnBody({
   onApply,
   onDecline,
   onRefreshPlan,
+  onRestore,
   cardBusyId,
   cardErrors,
 }: TurnBodyProps) {
@@ -59,10 +55,23 @@ export function TurnBody({
         onApply={onApply}
         onDecline={onDecline}
         onRefreshPlan={onRefreshPlan}
+        onRestore={onRestore}
         busy={cardBusyId === proposal.id}
         error={cardErrors[proposal.id] ?? null}
       />
     );
+  };
+
+  const renderProposalReference = (proposalId: string) => {
+    const proposal = byId.get(proposalId);
+    // Missing references are skipped; the card list still shows returned rows.
+    if (proposal === undefined || placed.has(proposal.id)) return null;
+    if (proposal.requiresConfirmation) {
+      placed.add(proposal.id);
+      expansions.push(proposal);
+      return null;
+    }
+    return card(proposal);
   };
 
   const rendered = turn.segments.map((segment, index) => {
@@ -74,6 +83,14 @@ export function TurnBody({
         return <p key={key} className="op-body op-question">{segment.text}</p>;
       case 'notice':
         return <p key={key} className="op-note">{segment.text}</p>;
+      case 'refusal':
+        return (
+          <div key={key} className="card op-card" role="group" aria-label="Policy refused">
+            <h2 className="card-h2">RepWorth will not do this</h2>
+            <p className="op-body">{segment.text}</p>
+            <p className="op-state-line">Nothing changed.</p>
+          </div>
+        );
       case 'status':
         // FROZEN at completion: the value, its period and the instant it was
         // read. Nothing here re-reads a count.
@@ -103,19 +120,7 @@ export function TurnBody({
             </div>
           </div>
         );
-      case 'proposal': {
-        const proposal = byId.get(segment.proposalId);
-        // A reference whose row is not in this turn's list is a transcript the
-        // reader cannot act on; it is skipped rather than throwing, and the
-        // card list below still shows anything that WAS returned.
-        if (proposal === undefined || placed.has(proposal.id)) return null;
-        if (proposal.requiresConfirmation) {
-          placed.add(proposal.id);
-          expansions.push(proposal);
-          return null;
-        }
-        return card(proposal);
-      }
+      case 'proposal': return renderProposalReference(segment.proposalId);
       default: {
         // Exhaustiveness guard: a new RenderedSegment member fails typecheck
         // here rather than disappearing from the screen.

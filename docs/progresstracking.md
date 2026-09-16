@@ -820,3 +820,43 @@ The first code for the **Owner Operator**, the conversational surface an owner w
 **Staging.** The first candidate failed account-off planning; that attempt remains recorded as FAIL. Prompt `2026-09-13.4` corrected the semantic failure. Matched UI/worker deployments of the reviewed candidate then passed three fresh real turns: all-locations off, Cafe clarification with Salon selected, and the weekend scheduling request. The ten-review fixture counted 8 included, 1 imported and 1 unknown; Apply persisted one audit, and the pending second tab returned the same receipt without another write. Actual 390px/1440px captures, stored state and all 25 zero-result cleanup checks are in the [acceptance evidence](runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md). The first Apply was desktop; the replay was mobile. No responses or connections were created. Staging retained-veto alert 3985600 is saved; live delivery was not exercised.
 
 **Release boundary.** PR #1278 merged at 2026-09-13T19:22:35Z, squash `280d1b0137f4f5a3e2cd613abe7464238d0f665e`, after required CI passed with15,911tests/11skipped. Its tree matches the reviewed candidate. Both post-merge staging deployments pin that squash. The fresh390px Apply at19:30:09Z persisted eligibility5→0of8, veto15/cap2, retainedVeto0 and one audit; the receipt survived1440px reload. All25post-merge cleanup checks were zero at19:33Z, and the exact completed queue job and Auth identity were removed. Production remains off; §12.1's remaining human/traffic checkpoints and the COO owner-pilot record are unchanged. The provenance, semantic-eval and mutation-oracle lessons are recorded in the September lab history.
+
+## 2026-09-14 — Owner Operator Run D merged (#1291, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`)
+
+**Implementation.** CA1 couples winning outbox exhaustion to its stored tenant/conversation/turn through `reconcileTurnForFailedOutbox`. Live and contended claims defer safely; accepted or expired claims terminalize in the same transaction. The D-A1 correction makes aged exhausted `agent_turn` rows left in `dispatching` after rollback eligible for the existing watchdog. CA4 makes `releaseTurnClaim` fence both turn token and outbox attempt, including delivery before enqueue acknowledgement; healthy waits refresh liveness, and delay failures still reject for retry. `dispatch_exhausted` renders durable recovery wording and a new-conversation action. No migration, dependency, new production module, production enablement or flag change was made.
+
+**Verification and review.** Final candidate `f2586bd101c22fecbce09c3f1ed64d9740d1a465` passed the full local gate: 15,978 tests passed / 11 skipped and 60 E2E passed / 108 skipped, with fingerprint `fa984d05f14ef341881978afeb38afb3247d1374c75d1426f1068d79e0ec8fc1`. Spec and standards reviews approved; accepted D-PS-1/2/3, D-A1 and prepared-runner D-RUN1 were fixed. Native Codex's final round-2 report is CLEAR: 278 retained identities, 102 killed, 176 excluded, no findings or waived risk. The second pass measured 92 cases with 191/200 launches; all 95 mutations were restored. The owner-approved final recording exception preserves the completed work grant in permanent admission history and leaves the risk-waiver list empty; it changed no checker or product source. The branch includes the explicitly bounded D verifier safeguards and their regression coverage. [Review reports](reviews/codex-owner-operator-run-d/) and [adversarial record](reviews/red-team/codex-owner-operator-run-d-7749f8/findings.md) retain provenance and limits.
+
+**Staging and limits.** The original campaign's actual 390px/1440px journeys covered next-draft tone, pinned location and durable recovery. The owner's early close yielded 24/24 completed turns over 19h50m14.857381s (p50 6.838317s; p95 16.10373645s), explicitly `full_24_hours_elapsed=false`. The tone prompt was reconstructed from source inputs; its literal placeholder signoff remains a recorded quality limitation. The corrected candidate `091d86bc778480dfd3c2cbc9fbbf61017392bbe0` then ran on Railway `113ceb47-ac01-49fb-8f6d-fd50741c0b04` and Vercel `dpl_E9ncrTWQ96hvov9pmYxXPdsFGofM`. The actual deployed watchdog produced a matching terminal pair at 2026-09-14T19:17:47.567765Z; independent ten-scope cleanup was all zero at 19:18:21.401216Z. That fixture exercised the durable rollback state without model work, Auth creation, live outage injection or an alert-delivery drill. Original fixtures and follow-up fixtures were removed. [Evidence](runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) owns detailed cleanup and post-merge deployment records.
+
+**Release.** Required CI passed for the merged feature head. Architecture counter 1→2; a pass is not yet due. The separate documentation closeout precedes E. §12.1 item 9 remains BLOCKED-human; production enablement remains a human decision.
+
+## 2026-09-15 — Owner Operator Run E #1293 merged; post-merge deployment/readiness PASS
+
+Candidate `ba0c65bb3a3665ed10a6441d27917802819ad4c1` implements receipt-derived
+Restore, Rules timeline, clear override and fenced durable policy refusals.
+Corrective fixtures strengthen13 existing cases; finite verifier additions retain
+the frozen388 records / 776 launches, earlier findings and round 2's 1,600-launch cap.
+Closed semantic-warning diagnostics were independently corrected to a scalar
+field retained by the actual logger, without prompt/validation/retry/billing changes.
+The [E evidence](runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md)
+records qualified J1–J7 PASS and exact cleanup:67 public rows, Auth/session scopes,
+7 observed queue jobs and campaign tabs/viewport closed by approximately 10:34Z.
+The original J5 failed turn remains separate from successful later recovery;
+J6's direct GET key is uncaptured and blank J7 images are not visual proof.
+Migration 121 applied in both projects; alert 3993328 is configured, delivery unproven.
+Parent ba0c65bb full gate passed: 16,218 DB / 11 skipped, 14,903 ordinary /
+1,316 skipped; build/E2E/checks PASS. Report-only fb66d15d changes two files
+(195 insertions / 7 deletions), leaving application/test/configuration unchanged.
+Final certification CLEAR: 2,437 identities = 361 killed + 2,076 excluded;
+12 fixed / zero open / zero waivers. Round2 finalized 802 launches / 401 pairs;
+record400's target-selection miss and same-ID second-attempt401 kill are retained.
+Required CI34962247726 passed, deploy-install validly skipped; optional Fallow
+failed (eight complexity findings / two clone groups). E2E34962247838 passed
+30 / 54 skipped; Doctor34962247896 passed. Local post-report verification did
+not pass: first four timeouts, then ten with 14,893 passed / 1,316 skipped in
+1,280.09s; remaining wrapper checks stopped. The owner [approved the bounded exception](reviews/codex-owner-operator-run-e/release-verification-approval.md), accepting passing GitHub checks and the earlier full local pass on identical application code without declaring the failed local wrapper green.
+Feature #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15T16:39:27Z.
+Matched post-merge deployments and [post-merge readback](runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed at d4a96f3: Railway SUCCESS16:49:36.554Z, Vercel READY16:42:55.421Z with staging alias, `/ready` HTTP20016:49:55.515Z, PostgreSQL/both Redis OK and named flags unchanged (production Operator UNSET). This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
+Architecture records 2→3 once for this feature; docs do not count. D docs #1292/30896acb closed the dependency;
+its shortened observation and human pilot/production decisions are unchanged.

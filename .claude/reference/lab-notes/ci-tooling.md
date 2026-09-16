@@ -18,6 +18,10 @@
 ### [2026-09-12] Two `/feature` closeout traps (#1270)
 `transition-state.mjs reviewed` audits EVERY `## ` section of the deviations file for a `**Verdict:**` line (summary sections included); write the line when the section is written. `pnpm ci:fallow` without coverage estimates CRAP and moves with the base — CI runs `ci:fallow:coverage`; mirror that after a gate run. Story: history/2026-09.md § 2026-09-12.
 
+### [2026-09-15] Bound every Vitest command in a gate
+
+`VITEST_WORKERS` bounds the gate's built-in suite, but not an intake's extra `pnpm test`. Installed Vitest 4.1.7 also accepts `VITEST_MAX_WORKERS`; setting both to two made Run E's unchanged broad suite pass after a load-related timeout. Keep the original timeout and assertions, preserve failed attempts, and inspect every completed row: the first attempt also failed the mirrored skill's 500-line limit. [Evidence](../../../docs/runbooks/evidence/2026-09-15-owner-operator-run-e-evidence.md).
+
 ## History
 
 - history/2026-05.md § "Never validate CI from a git worktree nested inside the parent repo"

@@ -293,6 +293,7 @@ describe('proposal view', () => {
       { turnId: TURN, accountId: ACCOUNT },
     );
 
+    expect(view).toBeDefined();
     expect(view!.turnId).toBe(TURN);
     expect(view!.preparedVersionToken).toEqual({
       businessId: LOCATION,
@@ -342,7 +343,7 @@ function policyState(overrides: Partial<PolicyState> = {}): PolicyState {
 function accountSnapshot(accountDefault: PolicyState, policySuspended = false): PolicySnapshot {
   return {
     accountId: ACCOUNT, locationId: null, target: { scope: 'account' },
-    state: { accountDefault, location: null }, versionToken: ACCOUNT_TOKEN,
+    state: { accountDefault, location: null, targetRowSuspended: policySuspended }, versionToken: ACCOUNT_TOKEN,
     targetArchived: false, policySuspended, locations: [], reviews: [],
     windowStart: '2026-08-14 03:00:00+00', windowEnd: '2026-09-13 03:00:00+00',
     asOf: '2026-09-13 03:00:00.123456+00', source: 'reviews_received_30d',
@@ -494,9 +495,9 @@ describe('buildProposalRows policy stamping', () => {
     expect(voice!.text).toContain('location_id = ?');
     expect(voice!.values).toContainEqual(['set_tone', 'set_products_services', 'set_avoid_facts', 'set_highlight_facts']);
     expect(location!.text).toContain('location_id = ?');
-    expect(location!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+    expect(location!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap', 'clear_location_override']);
     expect(account!.text).not.toContain('location_id');
-    expect(account!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+    expect(account!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap', 'clear_location_override']);
     for (const call of sqlCalls) {
       expect(call.values).toContain(ACCOUNT);
       expect(call.values).toContain(exclude);

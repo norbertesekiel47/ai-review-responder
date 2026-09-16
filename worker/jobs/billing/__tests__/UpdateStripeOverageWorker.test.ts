@@ -98,7 +98,7 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     stripe_customer_id: 'cus_test',
     stripe_subscription_id: 'sub_test',
     locations_included: 1,
-    locations_overage_price_cents: 1500,
+    locations_overage_price_cents: 7900,
     ...overrides,
   };
 }
@@ -178,7 +178,7 @@ describe('UpdateStripeOverageWorker', () => {
           { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
           {
             id: overageItemId,
-            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            price: { id: 'price_copilot_overage', unit_amount: 7900 },
             quantity: 1,
           },
         ],
@@ -419,7 +419,7 @@ describe('UpdateStripeOverageWorker', () => {
         subscription_tier: tier,
         price_variant: variant,
         subscription_status: 'trialing',
-        locations_overage_price_cents: tier === 'copilot' ? 1500 : 2000,
+        locations_overage_price_cents: tier === 'copilot' ? 7900 : 14900,
       });
       queueOverageTx(2);
       mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
@@ -430,7 +430,7 @@ describe('UpdateStripeOverageWorker', () => {
               id: 'si_existing_overage',
               price: {
                 id: overagePriceId,
-                unit_amount: tier === 'copilot' ? 1500 : 2000,
+                unit_amount: tier === 'copilot' ? 7900 : 14900,
               },
               quantity: 7,
             },
@@ -499,7 +499,7 @@ describe('UpdateStripeOverageWorker', () => {
 
   it('re-prices a trusted historical item whose unit amount conflicts with the stored snapshot', async () => {
     queueAccountRow({
-      locations_overage_price_cents: 1500,
+      locations_overage_price_cents: 7900,
     });
     queueOverageTx(3);
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
@@ -539,7 +539,7 @@ describe('UpdateStripeOverageWorker', () => {
     queueAccountRow({
       subscription_tier: 'autopilot',
       price_variant: 'founding',
-      locations_overage_price_cents: 2000,
+      locations_overage_price_cents: 14900,
     });
     queueOverageTx(3);
     mockStripeSubscriptionsRetrieve.mockResolvedValue({
@@ -548,7 +548,7 @@ describe('UpdateStripeOverageWorker', () => {
           { id: 'si_base', price: { id: 'price_autopilot_founding' }, quantity: 1 },
           {
             id: 'si_stale_copilot_overage',
-            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            price: { id: 'price_copilot_overage', unit_amount: 7900 },
             quantity: 1,
           },
         ],
@@ -560,7 +560,7 @@ describe('UpdateStripeOverageWorker', () => {
     queueAccountRow({
       subscription_tier: 'autopilot',
       price_variant: 'founding',
-      locations_overage_price_cents: 2000,
+      locations_overage_price_cents: 14900,
     });
     queueOverageTx(3);
     await handleUpdateStripeOverage(mockSql, mockJob());
@@ -648,7 +648,7 @@ describe('UpdateStripeOverageWorker', () => {
           { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
           {
             id: 'si_overage',
-            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            price: { id: 'price_copilot_overage', unit_amount: 7900 },
             quantity: 1,
           },
         ],
@@ -703,7 +703,7 @@ describe('UpdateStripeOverageWorker', () => {
           { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
           {
             id: 'si_overage',
-            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            price: { id: 'price_copilot_overage', unit_amount: 7900 },
             quantity: 2,
           },
         ],
@@ -743,7 +743,7 @@ describe('UpdateStripeOverageWorker', () => {
           { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
           {
             id: 'si_overage',
-            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            price: { id: 'price_copilot_overage', unit_amount: 7900 },
             quantity: 3,
           },
         ],

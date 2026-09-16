@@ -1,0 +1,11 @@
+{
+  "slot": 0,
+  "planned_at": "2026-09-13T21:46:17.000Z",
+  "message": "Observation 00: show what needs me at Salon.",
+  "state": "submitted_and_completed",
+  "attempted_at": "2026-09-13T21:47:44.793Z",
+  "turn_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "cleanup": "Retain all attempted IDs and results; delete exact-account runtime rows and terminal jobs after the full-day observation."
+}

@@ -117,6 +117,19 @@ function renderReport(
 }
 
 describe('RestraintReport', () => {
+  it('groups Operator refusals under the stored request-not-allowed category without links or unsafe details', () => {
+    renderReport(logWith([
+      { category: 'request_not_allowed', subjectType: 'operator_refusal', subjectId: '11111111-1111-4111-8111-111111111111' },
+      { category: 'request_not_allowed', subjectType: 'operator_refusal', subjectId: '22222222-2222-4222-8222-222222222222' },
+    ]));
+    expect(screen.getAllByRole('heading', { name: 'Request not allowed' })).toHaveLength(1);
+    expect(screen.getByText('We did not carry out a request that conflicts with our operating rules.')).toBeInTheDocument();
+    expect(screen.getByText('This is your whole account. Decisions that affect every location are counted once here.')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/11111111|22222222/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/invented_business_fact|review_incentive/)).not.toBeInTheDocument();
+  });
+
   // ── Grouping and ordering ──────────────────────────────────────────────
 
   it('RestraintReport groups rows under one owner sentence per category across categories with several rows each', () => {
@@ -738,7 +751,7 @@ describe('RestraintReport', () => {
 
     const account = renderReport(logWith([suspension]), 'account');
     expect(screen.getByText(
-      'This is your whole account. Pauses that affect every location are counted once here.',
+      'This is your whole account. Decisions that affect every location are counted once here.',
     )).toBeInTheDocument();
     account.unmount();
 
@@ -747,7 +760,7 @@ describe('RestraintReport', () => {
     // every location once each and once in the account total — so the tab says
     // which one this is rather than pretending they reconcile (D3).
     expect(screen.getByText(
-      'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.',
+      'This is one location. A decision that affects the whole account is counted here, and again under every other location you have.',
     )).toBeInTheDocument();
     // NOT "at each of your other locations" — a single-location account has
     // none, and the copy would describe a fleet the owner does not have.

@@ -1,0 +1,23 @@
+{
+  "capturedAt": "2026-09-15 06:53:11 UTC",
+  "source": "Authorized in-app Browser, Vercel project environment-variable settings",
+  "url": "https://vercel.com/norbert-esekiels-projects/rep-worth/settings/environment-variables",
+  "staging": {
+    "OWNER_OPERATOR_ENABLED": {
+      "observed": "true",
+      "method": "exact-name search, staging row, Reveal Value showed true; hidden again"
+    },
+    "AUTO_APPROVAL_ENABLED": {
+      "observed": "SET_VALUE_UNAVAILABLE",
+      "method": "exact-name row labelled staging is secret and exposes no Reveal Value control"
+    }
+  },
+  "production": {
+    "OWNER_OPERATOR_ENABLED": {
+      "observed": "no row returned",
+      "method": "OWNER_OPERATOR_ENABLED search returned only staging; no production row shown"
+    }
+  },
+  "changes": "Search text and local value visibility only; no environment values were edited or saved",
+  "limitations": "The hidden staging auto-approval value is not proved by the worker setting; the runtime readiness outcome still requires the staging journey."
+}

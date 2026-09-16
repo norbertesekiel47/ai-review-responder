@@ -49,10 +49,10 @@ describe('TIER_CONFIG', () => {
   });
 
   it.each([
-    ['copilot', 'list', 2900, 1500, 1],
-    ['copilot', 'founding', 1900, 1500, 1],
-    ['autopilot', 'list', 6900, 2000, 1],
-    ['autopilot', 'founding', 4900, 2000, 1],
+    ['copilot', 'list', 7900, 7900, 1],
+    ['copilot', 'founding', 4900, 7900, 1],
+    ['autopilot', 'list', 14900, 14900, 1],
+    ['autopilot', 'founding', 9900, 14900, 1],
   ] as const)(
     'resolves %s/%s to the immutable complete write snapshot',
     (tier, variant, baseCents, overageCents, included) => {

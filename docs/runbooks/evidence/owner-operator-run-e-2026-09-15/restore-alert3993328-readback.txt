@@ -1,0 +1,52 @@
+N
+Alerts
+operator-restore-invariant → discord
+14D
+Disable
+Edit
+Alerts Triggered
+0
+1
+Sep 3 7:00 AM
+Sep 7 7:00 AM
+Sep 13 7:00 AM
+Total Triggers
+0
+History
+Last Triggered
+Monitor
+Issue
+Alerts
+No history found
+Connected Projects
+All issues belonging to a connected project will trigger this alert when conditions are met.
+Name
+repworth-staging
+1-1 of 1
+Connected Monitors
+Issues created by a connected monitor will trigger this alert when conditions are met.
+Name
+No monitors connected
+Last Triggered
+Never
+Environment
+vercel-preview
+Throttling
+1 hour
+Conditions
+WHEN any of the following occur
+An event or issue activity is captured
+IF all of these filters match
+The event's endpoint tag equals api/operator/proposals/[id]/restore POST
+The event's message attribute contains agents/operator: prepared Restore vanished in its transaction
+The event's level equals error
+THEN perform these actions
+Send a 
+ Discord message to RepWorth server, to channel with ID or URL 1517968864724385822
+Details
+Date created
+Sep 15, 2026
+Created by
+norbertesekiel@gmail.com
+Last modified
+8 minutes ago

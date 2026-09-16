@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocationScope, type LocationInfo } from '@/contexts/LocationContext';
+import { getDisplayLabel } from '@/lib/locations/display-label';
+import { asLocationId } from '@/lib/shared/ids';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import type { OwnerConversationView } from '@/lib/agents/operator/reads';
 import { TURN_STATUS } from '@/lib/agents/operator/schema';
@@ -24,6 +27,33 @@ import { LOCATION_UNAVAILABLE, routeErrorSentence } from './wording';
  */
 
 const CONVERSATION_PATH = '/api/operator/conversation';
+
+/** How a location is NAMED on screen. The roster is the client's to own. */
+function labelFor(locations: LocationInfo[], id: string): string {
+  const found = locations.find((location) => location.id === id);
+  return found ? getDisplayLabel(found) : 'this location';
+}
+
+/** Scope and presentation state shared by the conversation and rules timeline. */
+export function useOperatorScreenState() {
+  const { currentScope, locations, setLocationScope } = useLocationScope();
+  const [disabled, setDisabled] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [panel, setPanel] = useState<'conversation' | 'timeline'>('conversation');
+  const [timelineRevision, setTimelineRevision] = useState(0);
+  // All locations is not a location: a plan belongs to exactly one.
+  const scopedLocationId = currentScope === 'all' ? null : currentScope;
+  const composerBlocked = scopedLocationId === null;
+  const markDisabled = useCallback(() => { setDisabled(true); }, []);
+  const locationLabel = useCallback((id: string) => labelFor(locations, id), [locations]);
+  /** The roster is typed LocationId; a stored id off the wire is a string. */
+  const chooseLocation = useCallback((id: string) => { setLocationScope(asLocationId(id)); }, [setLocationScope]);
+  return {
+    currentScope, locations, setLocationScope, disabled, notice, setNotice,
+    panel, setPanel, timelineRevision, setTimelineRevision, scopedLocationId,
+    composerBlocked, markDisabled, locationLabel, chooseLocation,
+  };
+}
 
 /**
  * FIVE outcomes, not two. `disabled` is lifted out because a 404
@@ -155,6 +185,12 @@ function handleLoadFailure(
   if (result.code !== 'conversation_not_found') handlers.onNotice(routeErrorSentence(result.code));
 }
 
+function unfinishedTurnId(turns: OwnerConversationView['turns']): string | null {
+  const latest = turns[turns.length - 1];
+  return latest && (latest.status === TURN_STATUS.ACCEPTED || latest.status === TURN_STATUS.RUNNING)
+    ? latest.id : null;
+}
+
 /**
  * TWO SEPARATE FACTS, deliberately kept apart (RB2-04).
  *
@@ -189,11 +225,7 @@ function applyLoadedView(
   if (loaded === null) return;
 
   const adopting = active.conversationId === null;
-  const latest = value.turns[value.turns.length - 1];
-  const unfinished = latest
-    && (latest.status === TURN_STATUS.ACCEPTED || latest.status === TURN_STATUS.RUNNING)
-    ? latest.id
-    : null;
+  const unfinished = unfinishedTurnId(value.turns);
   const resuming = active.turnId === null ? unfinished : null;
 
   if (adopting) commands.adopt(loaded.id);
@@ -235,6 +267,22 @@ export interface OperatorConversationInput {
   writeUrl: (conversationId: string | null, turnId: string | null) => void;
   onDisabled: () => void;
   onNotice: (sentence: string) => void;
+}
+
+/** A completed write or turn refreshes both durable Operator views. */
+export function useOperatorTimelineRefresh(
+  { reloadTranscript, finishTurn }: OperatorConversation,
+  setTimelineRevision: (update: (value: number) => number) => void,
+) {
+  const reloadAfterProposal = useCallback(() => {
+    reloadTranscript();
+    setTimelineRevision((value) => value + 1);
+  }, [reloadTranscript, setTimelineRevision]);
+  const finishTurnAndRefreshTimeline = useCallback(() => {
+    finishTurn();
+    setTimelineRevision((value) => value + 1);
+  }, [finishTurn, setTimelineRevision]);
+  return { reloadAfterProposal, finishTurnAndRefreshTimeline };
 }
 
 export function useOperatorConversation({

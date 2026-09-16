@@ -41,8 +41,8 @@ describe('writeTierSnapshot', () => {
       snapshot: {
         tier: SubscriptionTier.AUTOPILOT,
         variant: 'founding',
-        baseCents: 4900,
-        overageCents: 2000,
+        baseCents: 9900,
+        overageCents: 14900,
         included: 1,
       },
     });
@@ -58,7 +58,7 @@ describe('writeTierSnapshot', () => {
       expect(update.text).toContain(column);
     }
     expect(update.values).toEqual(
-      expect.arrayContaining(['autopilot', 4900, 2000, 1, 3, ACCOUNT_ID]),
+      expect.arrayContaining(['autopilot', 9900, 14900, 1, 3, ACCOUNT_ID]),
     );
     expect(harness.sqlCalls[1]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
     expect(harness.sqlCalls).toHaveLength(2);

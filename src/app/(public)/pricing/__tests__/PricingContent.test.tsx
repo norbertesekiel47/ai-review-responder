@@ -30,20 +30,20 @@ describe('PricingContent', () => {
     expect(html).toContain('<h3 class="pr-plan-name">Copilot</h3>');
     expect(html).toContain('<h3 class="pr-plan-name">Autopilot</h3>');
     expect(html).not.toMatch(/<h2[^>]*>(Copilot|Autopilot)<\/h2>/);
-    expect(html).toContain('<span class="pr-price-amt">29</span>');
-    expect(html).toContain('<span class="pr-price-amt">69</span>');
-    expect(html).toContain('$15/month per extra location');
-    expect(html).toContain('$20/month per extra location');
+    expect(html).toContain('<span class="pr-price-amt">79</span>');
+    expect(html).toContain('<span class="pr-price-amt">149</span>');
+    expect(html).toContain('$79/month per extra location');
+    expect(html).toContain('$149/month per extra location');
     expect(html).not.toMatch(/Founders|Basic|Standard|Premium/);
   });
 
   it('renders both founding rates with list context and the lifetime lock', () => {
     const html = renderPricing({ founding: true });
 
-    expect(html).toContain('<span class="pr-price-amt">19</span>');
     expect(html).toContain('<span class="pr-price-amt">49</span>');
-    expect(html).toContain('$29 list');
-    expect(html).toContain('$69 list');
+    expect(html).toContain('<span class="pr-price-amt">99</span>');
+    expect(html).toContain('$79 list');
+    expect(html).toContain('$149 list');
     expect(html.match(/Founding rate locked for the account/g)).toHaveLength(2);
   });
 

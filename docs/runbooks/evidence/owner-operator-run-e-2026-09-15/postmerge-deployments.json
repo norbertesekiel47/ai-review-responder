@@ -1,0 +1,36 @@
+{
+  "verifiedAt": "2026-09-15T16:50:31.704Z",
+  "featurePr": 1293,
+  "featureSquash": "d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf",
+  "railway": {
+    "id": "bcb3cdaa-c679-4f0f-a72c-b0b22664f1df",
+    "status": "SUCCESS",
+    "commit": "d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf",
+    "environmentId": "58c06358-8cbe-497f-bec0-df3b47769a10",
+    "serviceId": "fb413c72-29b6-4cd1-90c2-26002491e301",
+    "updatedAt": "2026-09-15T16:49:36.554Z"
+  },
+  "vercel": {
+    "id": "dpl_FZWKdR8unGM8NZRuB4mrX8YF3qp9",
+    "status": "READY",
+    "commit": "d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf",
+    "aliases": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ],
+    "readyAt": "2026-09-15T16:42:55.421Z"
+  },
+  "sourceComparison": {
+    "baseline": "690a8792efebc2f0f791653d4f73fdaa9bb660da",
+    "paths": [
+      "src",
+      "worker",
+      "supabase",
+      "package.json",
+      "pnpm-lock.yaml",
+      "next.config.mjs"
+    ],
+    "gitDiffExitCode": 0
+  },
+  "qualification": "Deployment/source/readiness confirmation; prior complete staging journeys retained, no new synthetic campaign."
+}

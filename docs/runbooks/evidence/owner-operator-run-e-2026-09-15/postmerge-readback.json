@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-09-15T16:49:53.382604+00:00",
+  "source": "Railway CLI boolean allowlist and public staging readiness",
+  "featureSquash": "d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf",
+  "environments": {
+    "staging": {
+      "OWNER_OPERATOR_ENABLED": "true",
+      "AUTO_APPROVAL_ENABLED": "false",
+      "AUTOPILOT_PURCHASABLE": "false",
+      "JUDGE_ENABLED": "true",
+      "GOVERNOR_ENABLED": "false",
+      "TRIAGE_ENABLED": "true",
+      "ESCALATION_ENABLED": "false",
+      "OPENAI_MODERATION_ENABLED": "true",
+      "MOCK_EXTERNAL_APIS": "false",
+      "REFUSAL_LEDGER_ENABLED": "UNSET",
+      "AUTO_APPROVAL_PROVIDER_MODERATION_READY": "UNSET"
+    },
+    "production": {
+      "OWNER_OPERATOR_ENABLED": "UNSET",
+      "AUTO_APPROVAL_ENABLED": "false",
+      "AUTOPILOT_PURCHASABLE": "false",
+      "JUDGE_ENABLED": "UNSET",
+      "GOVERNOR_ENABLED": "UNSET",
+      "TRIAGE_ENABLED": "UNSET",
+      "ESCALATION_ENABLED": "UNSET",
+      "OPENAI_MODERATION_ENABLED": "true",
+      "MOCK_EXTERNAL_APIS": "UNSET",
+      "REFUSAL_LEDGER_ENABLED": "UNSET",
+      "AUTO_APPROVAL_PROVIDER_MODERATION_READY": "UNSET"
+    }
+  },
+  "readiness": {
+    "status": 200,
+    "body": {
+      "status": "ready",
+      "service": "worker",
+      "checks": {
+        "postgres": "ok",
+        "queue_redis": "ok",
+        "cache_redis": "ok"
+      },
+      "timestamp": "2026-09-15T16:49:55.515Z"
+    }
+  },
+  "flagsMatchCleanupBaseline": true
+}

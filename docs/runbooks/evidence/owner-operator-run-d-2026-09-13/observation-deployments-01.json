@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-09-13 22:48:12 UTC",
+  "slot": 1,
+  "vercel": {
+    "id": "dpl_5nrGY3zR6zAsT78dHVeGpgaarwau",
+    "state": "READY",
+    "sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+    "alias": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ]
+  },
+  "railway": {
+    "id": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+    "status": "SUCCESS",
+    "sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+    "service_id": "fb413c72-29b6-4cd1-90c2-26002491e301",
+    "environment_id": "58c06358-8cbe-497f-bec0-df3b47769a10"
+  }
+}

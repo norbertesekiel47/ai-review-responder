@@ -31,7 +31,7 @@ describe('createAccountRow', () => {
     expect(account.price_variant).toBe('list');
     expect(account.subscription_status).toBe('active');
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(1500);
+    expect(account.locations_overage_price_cents).toBe(7900);
     expect(account.locations_paid).toBe(0);
     expect(account.flags).toEqual({});
   });
@@ -40,22 +40,22 @@ describe('createAccountRow', () => {
     const account = createAccountRow({ subscription_tier: 'autopilot' });
 
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(2000);
+    expect(account.locations_overage_price_cents).toBe(14900);
   });
 
   it('derives quota fields from Copilot', () => {
     const account = createAccountRow({ subscription_tier: 'copilot' });
 
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(1500);
+    expect(account.locations_overage_price_cents).toBe(7900);
   });
 
   it('derives founding pricing independently of tier', () => {
     const account = createAccountRow({ subscription_tier: 'copilot', price_variant: 'founding' });
 
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(1500);
-    expect(account.base_price_cents).toBe(1900);
+    expect(account.locations_overage_price_cents).toBe(7900);
+    expect(account.base_price_cents).toBe(4900);
   });
 
   it('allows overriding derived quota fields', () => {
@@ -70,10 +70,10 @@ describe('createAccountRow', () => {
   });
 
   it('defaults base_price_cents per tier', () => {
-    expect(createAccountRow({ subscription_tier: 'copilot' }).base_price_cents).toBe(2900);
-    expect(createAccountRow({ subscription_tier: 'autopilot' }).base_price_cents).toBe(6900);
-    expect(createAccountRow({ subscription_tier: 'copilot', price_variant: 'founding' }).base_price_cents).toBe(1900);
-    expect(createAccountRow({ subscription_tier: 'autopilot', price_variant: 'founding' }).base_price_cents).toBe(4900);
+    expect(createAccountRow({ subscription_tier: 'copilot' }).base_price_cents).toBe(7900);
+    expect(createAccountRow({ subscription_tier: 'autopilot' }).base_price_cents).toBe(14900);
+    expect(createAccountRow({ subscription_tier: 'copilot', price_variant: 'founding' }).base_price_cents).toBe(4900);
+    expect(createAccountRow({ subscription_tier: 'autopilot', price_variant: 'founding' }).base_price_cents).toBe(9900);
   });
 
   it('respects an explicit base_price_cents override', () => {
