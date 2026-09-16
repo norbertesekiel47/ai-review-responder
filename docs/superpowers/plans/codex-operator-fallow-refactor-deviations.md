@@ -63,3 +63,10 @@ The bounded correction pins each candidate/title/source hash/assertion line, ori
 Preserve unpublished candidate `3dbc804f32178c6d69043d0bc94d52661b343116` under `codex/operator-admission-pre-ui-classifier-3dbc804f` and amend only before the first continuation launch, with the original 30-launch journal closed and unmodified. No exclusion, budget, round, product or risk-waiver change is authorized by this repair.
 
 The focused continuation safeguards passed 15/15 in 10.07 seconds. Independent implementation review passed after rejecting unknown stack frames and adding digested result/receipt integration checks for all three frontend failure families, including mixed-error rejection. This is focused verifier validation; the final amended admission still requires its fresh full gate before any campaign launch.
+
+
+## D6 — Correct Vitest failed-file accounting without resetting evidence
+
+After the six-case pilot, all 42 launch records and 21 restored mutations are pinned unchanged. The six inconclusive suggestions resulted from treating nested describe-suite counts as failed-file counts. The bounded verifier repair uses `testResults` failed-file statuses and rejects file-level errors, while retaining every existing evidence predicate. It is routine support work under the existing approval to finish; no additional owner approval is asserted.
+
+The used 03502 admission and budget authorization remain immutable. One reviewed direct-child controller revision governs launches 43+ and preserves the entire prior journal prefix, product scope,501 original identities,15 verifier identities,355 approved discovery corrections, original four exclusions,1500 cumulative ceiling, and two attempts per case. The appended manifest in the existing budget-extension review records the full checkpoint, artifact pins and corrected verifier blobs. Any reevaluation cites original unchanged measurements and is recorded separately in the final report.

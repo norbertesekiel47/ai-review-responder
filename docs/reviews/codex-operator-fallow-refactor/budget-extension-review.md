@@ -3195,3 +3195,1165 @@ Safeguard assertions append inside the existing finite verifier cases, without c
   }
 }
 ```
+
+
+## D6 — Failed-file accounting repair after the six-case pilot
+
+The used admission `03502fdcee60e61b891636a625c95c6a9dadec9b` remains immutable. Its six pilot pairs consumed launches 31–42; all original measurements and inconclusive suggestions remain unchanged. Vitest 4.1.7 counts nested describe suites in `numFailedTestSuites`; all six mutants failed one file and one assertion but reported two failed suites. The verifier now counts failed files from `testResults` and refuses nonempty file-level error messages. The existing artifact, supervisor, exact-test, semantic assertion, environment and source pins remain required.
+
+This repair is within the already approved verifier support scope and the user's persistent instruction to finish. It is not a new owner approval, budget grant, discovery exclusion, product change or round. The full 42-launch checkpoint and original grant are preserved. This one direct-child control revision binds launches 43+ to corrected source blobs; original receipts remain bound to their original controller. Reports record separate corrective reevaluations against the same retained artifacts, without rewriting suggestions or claiming new executions. The cumulative 1500-launch and two-attempt ceilings remain unchanged.
+
+## Operator failed-file accounting correction
+
+```json
+{
+  "schema": 1,
+  "id": "operator-fallow-round-1-file-accounting-42",
+  "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+  "authority": "existing-approved-verifier-support-scope",
+  "checkpoint": {
+    "version": 1,
+    "round": 1,
+    "runs": 42,
+    "mutations": [
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "e14e4959a542126e81aed19ab09eefdc7b7402e0446427431689eb7a09e78d1c",
+        "mutantOid": "94f6a5a0f3248e194829f5f6eeebff5996bd116c",
+        "state": "restored",
+        "at": "2026-09-15T19:47:52.206Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "516fff131880e3a726067880113cfa6f116daa3d31ed9f7596b1c50019580995",
+        "mutantOid": "41da6525e8ce60a7e217ff1ae8352ce9c64463df",
+        "state": "restored",
+        "at": "2026-09-15T19:47:53.640Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "cfd27e0efffbff84b5bec73342efdd0bf95c2bd4d4c9aba4d7913011c1c36bb7",
+        "mutantOid": "ef7ed7c7069d56642e851894867ec95ffce868e0",
+        "state": "restored",
+        "at": "2026-09-15T19:47:55.080Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "c36b8e6769e75210b69f6cc63d286fd76486e8ceb6233d91d28f74c409945a49",
+        "mutantOid": "4b8b286251e43905b29540eacc8a07e145fe73fd",
+        "state": "restored",
+        "at": "2026-09-15T19:47:56.497Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "c36b8e6769e75210b69f6cc63d286fd76486e8ceb6233d91d28f74c409945a49",
+        "mutantOid": "4b8b286251e43905b29540eacc8a07e145fe73fd",
+        "state": "restored",
+        "at": "2026-09-15T19:47:57.912Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "c36b8e6769e75210b69f6cc63d286fd76486e8ceb6233d91d28f74c409945a49",
+        "mutantOid": "4b8b286251e43905b29540eacc8a07e145fe73fd",
+        "state": "restored",
+        "at": "2026-09-15T19:47:59.341Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "64f6d9b0e04c612cfcf682ca4f6a44c690bdb6335a7de645a1fc967a8225006f",
+        "mutantOid": "09caf67d82dbe77162354c8764fd05a34ee9a743",
+        "state": "restored",
+        "at": "2026-09-15T19:48:00.780Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "e14e4959a542126e81aed19ab09eefdc7b7402e0446427431689eb7a09e78d1c",
+        "mutantOid": "94f6a5a0f3248e194829f5f6eeebff5996bd116c",
+        "state": "restored",
+        "at": "2026-09-15T19:48:02.661Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "2cd41473cde59a6289c9c0e54eaf6fe4397aba2693084252b42e8c662c89341e",
+        "mutantOid": "4ff51cabbcb0700011eec106ad64febc4e61a4d4",
+        "state": "restored",
+        "at": "2026-09-15T19:48:04.541Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "962a6d67eeb865a6994121a756dc920527ac9ba3cf44f81699e0808a1474793f",
+        "mutantOid": "46d2bd56ac9f868cffb2c02b42b92044ca9f6841",
+        "state": "restored",
+        "at": "2026-09-15T19:48:06.483Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "2cd41473cde59a6289c9c0e54eaf6fe4397aba2693084252b42e8c662c89341e",
+        "mutantOid": "4ff51cabbcb0700011eec106ad64febc4e61a4d4",
+        "state": "restored",
+        "at": "2026-09-15T19:48:08.370Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "cfd27e0efffbff84b5bec73342efdd0bf95c2bd4d4c9aba4d7913011c1c36bb7",
+        "mutantOid": "ef7ed7c7069d56642e851894867ec95ffce868e0",
+        "state": "restored",
+        "at": "2026-09-15T19:48:10.309Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "cfd27e0efffbff84b5bec73342efdd0bf95c2bd4d4c9aba4d7913011c1c36bb7",
+        "mutantOid": "ef7ed7c7069d56642e851894867ec95ffce868e0",
+        "state": "restored",
+        "at": "2026-09-15T19:48:12.215Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "b75ee6ec6215ad30d47a97903273b34330bc795a1c48c40f84acc292cbb034e0",
+        "mutantOid": "bad88006055c64730fc23afec6b9513c5d644cb8",
+        "state": "restored",
+        "at": "2026-09-15T19:48:14.227Z"
+      },
+      {
+        "path": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "patchSha256": "5e055947d53baa02d7cad42ee8a054756e8f978c3492473c880c7968faa8cb16",
+        "mutantOid": "4018fcda39b8cfdc203eb0fb9f704895cdf91686",
+        "state": "restored",
+        "at": "2026-09-15T19:48:16.289Z"
+      },
+      {
+        "candidateId": "rt-0129",
+        "selector": "applyProposal applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/lib/agents/operator/apply.ts",
+        "patchSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+        "mutantOid": "4a03715a013fc01837986ae3e972d4fcec32c237",
+        "state": "restored",
+        "at": "2026-09-16T03:46:36.064Z"
+      },
+      {
+        "candidateId": "rt-0010",
+        "selector": "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "patchSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+        "mutantOid": "3e3d75a9ef8a9fd569436e325308b01752c795be",
+        "state": "restored",
+        "at": "2026-09-16T03:46:43.529Z"
+      },
+      {
+        "candidateId": "rt-0011",
+        "selector": "OperatorClient retry after a lost POST response resumes the original turn",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "patchSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+        "mutantOid": "e2b5bc41b4617d311b1b594a329b6b939753116d",
+        "state": "restored",
+        "at": "2026-09-16T03:46:51.483Z"
+      },
+      {
+        "candidateId": "rt-0041",
+        "selector": "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+        "originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e",
+        "mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+        "patchSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+        "mutantOid": "3f1f709a0a4445cbcd707e249675a1a72ae3aded",
+        "state": "restored",
+        "at": "2026-09-16T03:47:00.379Z"
+      },
+      {
+        "candidateId": "rt-0141",
+        "selector": "applyProposal policy scope policy Apply marks the proposal stale without a write when the current policy token moved",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/lib/agents/operator/apply.ts",
+        "patchSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+        "mutantOid": "07fe911bc0e99859861d16252ab6f90ec22f797e",
+        "state": "restored",
+        "at": "2026-09-16T03:47:08.048Z"
+      },
+      {
+        "candidateId": "rt-0284",
+        "selector": "AgentTurnWorker \\(live DB\\) missing restore history produces a fixed server explanation and no proposal",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/turns.ts",
+        "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c",
+        "mutantSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "path": "src/lib/agents/operator/turns.ts",
+        "patchSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+        "mutantOid": "2fb75ce4840e8ddc87d1fc037f8655a641900317",
+        "state": "restored",
+        "at": "2026-09-16T03:47:16.348Z"
+      }
+    ],
+    "dotenv": {
+      "open": false,
+      "files": []
+    },
+    "supervisors": [
+      {
+        "pid": 61365,
+        "pgid": 61365,
+        "startedAt": "Tue Sep 15 12:47:51 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:51.538Z"
+      },
+      {
+        "pid": 61444,
+        "pgid": 61444,
+        "startedAt": "Tue Sep 15 12:47:52 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:52.346Z"
+      },
+      {
+        "pid": 61550,
+        "pgid": 61550,
+        "startedAt": "Tue Sep 15 12:47:53 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:53.086Z"
+      },
+      {
+        "pid": 61629,
+        "pgid": 61629,
+        "startedAt": "Tue Sep 15 12:47:53 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:53.776Z"
+      },
+      {
+        "pid": 61763,
+        "pgid": 61763,
+        "startedAt": "Tue Sep 15 12:47:54 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:54.530Z"
+      },
+      {
+        "pid": 61869,
+        "pgid": 61869,
+        "startedAt": "Tue Sep 15 12:47:55 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:55.217Z"
+      },
+      {
+        "pid": 61973,
+        "pgid": 61973,
+        "startedAt": "Tue Sep 15 12:47:55 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:55.944Z"
+      },
+      {
+        "pid": 62058,
+        "pgid": 62058,
+        "startedAt": "Tue Sep 15 12:47:56 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:56.633Z"
+      },
+      {
+        "pid": 62164,
+        "pgid": 62164,
+        "startedAt": "Tue Sep 15 12:47:57 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:57.357Z"
+      },
+      {
+        "pid": 62242,
+        "pgid": 62242,
+        "startedAt": "Tue Sep 15 12:47:58 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:58.048Z"
+      },
+      {
+        "pid": 62348,
+        "pgid": 62348,
+        "startedAt": "Tue Sep 15 12:47:58 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:58.785Z"
+      },
+      {
+        "pid": 62426,
+        "pgid": 62426,
+        "startedAt": "Tue Sep 15 12:47:59 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:47:59.477Z"
+      },
+      {
+        "pid": 62509,
+        "pgid": 62509,
+        "startedAt": "Tue Sep 15 12:48:00 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:00.197Z"
+      },
+      {
+        "pid": 62678,
+        "pgid": 62678,
+        "startedAt": "Tue Sep 15 12:48:00 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:00.938Z"
+      },
+      {
+        "pid": 62885,
+        "pgid": 62885,
+        "startedAt": "Tue Sep 15 12:48:01 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:01.748Z"
+      },
+      {
+        "pid": 63034,
+        "pgid": 63034,
+        "startedAt": "Tue Sep 15 12:48:02 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:02.803Z"
+      },
+      {
+        "pid": 63121,
+        "pgid": 63121,
+        "startedAt": "Tue Sep 15 12:48:03 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:03.761Z"
+      },
+      {
+        "pid": 63224,
+        "pgid": 63224,
+        "startedAt": "Tue Sep 15 12:48:04 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:04.685Z"
+      },
+      {
+        "pid": 63649,
+        "pgid": 63649,
+        "startedAt": "Tue Sep 15 12:48:05 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:05.682Z"
+      },
+      {
+        "pid": 63921,
+        "pgid": 63921,
+        "startedAt": "Tue Sep 15 12:48:06 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:06.622Z"
+      },
+      {
+        "pid": 64025,
+        "pgid": 64025,
+        "startedAt": "Tue Sep 15 12:48:07 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:07.581Z"
+      },
+      {
+        "pid": 64125,
+        "pgid": 64125,
+        "startedAt": "Tue Sep 15 12:48:08 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:08.510Z"
+      },
+      {
+        "pid": 64230,
+        "pgid": 64230,
+        "startedAt": "Tue Sep 15 12:48:09 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:09.470Z"
+      },
+      {
+        "pid": 64308,
+        "pgid": 64308,
+        "startedAt": "Tue Sep 15 12:48:10 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:10.445Z"
+      },
+      {
+        "pid": 64420,
+        "pgid": 64420,
+        "startedAt": "Tue Sep 15 12:48:11 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:11.422Z"
+      },
+      {
+        "pid": 64521,
+        "pgid": 64521,
+        "startedAt": "Tue Sep 15 12:48:12 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:12.351Z"
+      },
+      {
+        "pid": 64724,
+        "pgid": 64724,
+        "startedAt": "Tue Sep 15 12:48:13 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:13.360Z"
+      },
+      {
+        "pid": 65192,
+        "pgid": 65192,
+        "startedAt": "Tue Sep 15 12:48:14 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:14.412Z"
+      },
+      {
+        "pid": 65548,
+        "pgid": 65548,
+        "startedAt": "Tue Sep 15 12:48:15 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:15.443Z"
+      },
+      {
+        "pid": 65648,
+        "pgid": 65648,
+        "startedAt": "Tue Sep 15 12:48:16 2026",
+        "active": false,
+        "command": "/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-operator-fallow-refactor/node_modules/.bin/vitest",
+        "at": "2026-09-15T19:48:16.436Z"
+      },
+      {
+        "candidateId": "rt-0129",
+        "selector": "applyProposal applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/apply.test.ts",
+          "--testNamePattern",
+          "applyProposal applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0129-QG07rl/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "dd9c1fb24db1cf501c1e0a4a0300ba2c766a270fd0a7cfcd004f2ce75f92f3d2",
+        "pid": 79795,
+        "pgid": 79795,
+        "startedAt": "Tue Sep 15 20:46:33 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:33.959Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "eb8d015895fadfbbcf048227305b2b35587459ae35417d8ff76ee9c9c4609a97",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/baseline.json.supervisor.json",
+        "supervisorSha256": "b4c8bcbd3c5e933f1c5b84c1718d692ab0f899c07bc274f2fe8a4cfcdba6cfb7"
+      },
+      {
+        "candidateId": "rt-0129",
+        "selector": "applyProposal applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/apply.test.ts",
+          "--testNamePattern",
+          "applyProposal applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0129-QG07rl/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "dd9c1fb24db1cf501c1e0a4a0300ba2c766a270fd0a7cfcd004f2ce75f92f3d2",
+        "pid": 80496,
+        "pgid": 80496,
+        "startedAt": "Tue Sep 15 20:46:37 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:37.611Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "cc906f6c5fdc0bf2fc5122cfa1764da52c8e4deff62764a8133a7b33921d1962",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/mutant.json.supervisor.json",
+        "supervisorSha256": "538cc5299e3e56809d2ebd58da2993e1fa8c6ee474af38e5563101bbf73c77ac"
+      },
+      {
+        "candidateId": "rt-0010",
+        "selector": "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+          "--testNamePattern",
+          "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0010-pnT3SO/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "fc4499a8e7b144285c8e4c20c2d42ec48e46e7ce2445f1140cb122008274b885",
+        "pid": 81282,
+        "pgid": 81282,
+        "startedAt": "Tue Sep 15 20:46:40 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:40.847Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "bf65939deb3b1edc8827af398c430205c54559b8a2bafbcfba4c7172f2de1cd4",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/baseline.json.supervisor.json",
+        "supervisorSha256": "7b198e181dcf16615d281addeedbe183dd56240ebf05982f9c169a33bd0389be"
+      },
+      {
+        "candidateId": "rt-0010",
+        "selector": "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+          "--testNamePattern",
+          "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0010-pnT3SO/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "fc4499a8e7b144285c8e4c20c2d42ec48e46e7ce2445f1140cb122008274b885",
+        "pid": 82056,
+        "pgid": 82056,
+        "startedAt": "Tue Sep 15 20:46:45 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:45.157Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "7a02132b6055cf32360e0eb073aad4399d20a849471323abb46f90ed0c84f6cf",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/mutant.json.supervisor.json",
+        "supervisorSha256": "49dc15544e9bcb97516ddf1bbfb335047bba05dfa41a472d6e6c043414af2f42"
+      },
+      {
+        "candidateId": "rt-0011",
+        "selector": "OperatorClient retry after a lost POST response resumes the original turn",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+          "--testNamePattern",
+          "OperatorClient retry after a lost POST response resumes the original turn",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0011-IDXiyJ/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "664e05afded8b41ca9e789c966dfed3ad8049dec9a85b89860334859d40e4be2",
+        "pid": 82893,
+        "pgid": 82893,
+        "startedAt": "Tue Sep 15 20:46:48 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:48.881Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "090b2a2bf2961dd4ceae530db188ffe42c1ab032bc03c41cdef544a1ef250004",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/baseline.json.supervisor.json",
+        "supervisorSha256": "160bca276a28a5f03efa5a895f8ec180d41fb37b7be3abbc4e857acd3dfef6cf"
+      },
+      {
+        "candidateId": "rt-0011",
+        "selector": "OperatorClient retry after a lost POST response resumes the original turn",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+        "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+        "mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+          "--testNamePattern",
+          "OperatorClient retry after a lost POST response resumes the original turn",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0011-IDXiyJ/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "664e05afded8b41ca9e789c966dfed3ad8049dec9a85b89860334859d40e4be2",
+        "pid": 83620,
+        "pgid": 83620,
+        "startedAt": "Tue Sep 15 20:46:53 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:53.107Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "5f0fa9b1b25bf9f566f6a4dce251cafe25a078dba407303059c3015cbf4eb37c",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/mutant.json.supervisor.json",
+        "supervisorSha256": "26ac3c0f44aa19cced086e0c98677cadf08cc6f86ed55bacf97c7ce2e592e92c"
+      },
+      {
+        "candidateId": "rt-0041",
+        "selector": "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+        "originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e",
+        "mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx",
+          "--testNamePattern",
+          "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0041-hatLb1/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "be9c0e17a3472dedace3a55e9cb0c6741263756dda806cacd4e4a0bf49c49b1f",
+        "pid": 84482,
+        "pgid": 84482,
+        "startedAt": "Tue Sep 15 20:46:57 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:46:57.965Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "16568726640ea4a9d146b7535be3a43d3f8bb4bc7ab670da03c2fbe4e5374d50",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/baseline.json.supervisor.json",
+        "supervisorSha256": "de717aaa395343afc0e9111099ab4f5697b2241ff1a1d8d73d3e305c367017b1"
+      },
+      {
+        "candidateId": "rt-0041",
+        "selector": "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+        "attempt": 1,
+        "target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+        "originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e",
+        "mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx",
+          "--testNamePattern",
+          "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0041-hatLb1/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "be9c0e17a3472dedace3a55e9cb0c6741263756dda806cacd4e4a0bf49c49b1f",
+        "pid": 85231,
+        "pgid": 85231,
+        "startedAt": "Tue Sep 15 20:47:02 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:47:02.075Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "a1640a9e104ca51275308f4f86c1072477ad3e26d65188f1ca7a7bf12e64dbe6",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/mutant.json.supervisor.json",
+        "supervisorSha256": "d82f1bcdc2b68b0c1ee55411c4d317ef84683c5b6521fc37629e41c4978a3395"
+      },
+      {
+        "candidateId": "rt-0141",
+        "selector": "applyProposal policy scope policy Apply marks the proposal stale without a write when the current policy token moved",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/apply.test.ts",
+          "--testNamePattern",
+          "applyProposal policy scope policy Apply marks the proposal stale without a write when the current policy token moved",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0141-gYLmhT/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "04abcdbbdc3087ebbf9e152733df9087d1576b913aaa26383aa109ed5a028126",
+        "pid": 86379,
+        "pgid": 86379,
+        "startedAt": "Tue Sep 15 20:47:05 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:47:05.980Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "9266e2be758e2257b8aee5497822f11107b50fc5d6e28b348a5089e3d3aad916",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/baseline.json.supervisor.json",
+        "supervisorSha256": "728b6bf74e5a714889cd6f960fd7d36b650c43c0a6ca6019117f4b524b3bdd9b"
+      },
+      {
+        "candidateId": "rt-0141",
+        "selector": "applyProposal policy scope policy Apply marks the proposal stale without a write when the current policy token moved",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/apply.ts",
+        "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+        "mutantSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/apply.test.ts",
+          "--testNamePattern",
+          "applyProposal policy scope policy Apply marks the proposal stale without a write when the current policy token moved",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0141-gYLmhT/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "04abcdbbdc3087ebbf9e152733df9087d1576b913aaa26383aa109ed5a028126",
+        "pid": 87165,
+        "pgid": 87165,
+        "startedAt": "Tue Sep 15 20:47:09 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:47:09.777Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "4280fa1bc45f8371e94c1f5f8aa0c1fcd1ee8c0b541f238f651eed63510fe56f",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/mutant.json.supervisor.json",
+        "supervisorSha256": "24aaf2a151a8cb0058cdde690ff268e368a137166f348462fcdb357af9c86023"
+      },
+      {
+        "candidateId": "rt-0284",
+        "selector": "AgentTurnWorker \\(live DB\\) missing restore history produces a fixed server explanation and no proposal",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/turns.ts",
+        "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c",
+        "mutantSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "baseline",
+        "resultPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/baseline.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+          "--testNamePattern",
+          "AgentTurnWorker \\(live DB\\) missing restore history produces a fixed server explanation and no proposal",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0284-ThcX0e/baseline.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "789c47734a2783dcee521f5727f6ca750dbeeb2f451ad2fa84a302eca33bde96",
+        "pid": 88037,
+        "pgid": 88037,
+        "startedAt": "Tue Sep 15 20:47:13 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:47:13.298Z",
+        "timedOut": false,
+        "code": 0,
+        "signal": null,
+        "resultSha256": "5a5f2fd067d67ce4f7df0bb6e5320b16e02e32f574c9d57d1b1cc0a56ae79cb5",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/baseline.json.supervisor.json",
+        "supervisorSha256": "881442293ca22b4b5742bdd5ec2a86f6d7ecd0edb81c077e0853fcc3c96e835c"
+      },
+      {
+        "candidateId": "rt-0284",
+        "selector": "AgentTurnWorker \\(live DB\\) missing restore history produces a fixed server explanation and no proposal",
+        "attempt": 1,
+        "target": "src/lib/agents/operator/turns.ts",
+        "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c",
+        "mutantSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+        "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+        "phase": "mutant",
+        "resultPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/mutant.json",
+        "argv": [
+          "pnpm",
+          "--config.verify-deps-before-run=false",
+          "exec",
+          "vitest",
+          "run",
+          "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+          "--testNamePattern",
+          "AgentTurnWorker \\(live DB\\) missing restore history produces a fixed server explanation and no proposal",
+          "--reporter=json",
+          "--outputFile=/private/tmp/operator-continuation-rt-0284-ThcX0e/mutant.json",
+          "--maxWorkers=1"
+        ],
+        "timeout": 120000,
+        "envSha256": "789c47734a2783dcee521f5727f6ca750dbeeb2f451ad2fa84a302eca33bde96",
+        "pid": 88819,
+        "pgid": 88819,
+        "startedAt": "Tue Sep 15 20:47:18 2026",
+        "active": false,
+        "command": "pnpm",
+        "at": "2026-09-16T03:47:18.166Z",
+        "timedOut": false,
+        "code": 1,
+        "signal": null,
+        "resultSha256": "450d54a69faed9a3f250da190d1514708145124ebd4665b57d48fa1326cc7fe3",
+        "supervisorPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/mutant.json.supervisor.json",
+        "supervisorSha256": "6cff2045cd2ab334f208e31fff9a49a5869f211b46d9fa4ad7e7094f37faf27d"
+      }
+    ],
+    "budgetAuthorization": {
+      "id": "operator-fallow-round-1-continuation-2026-09-15",
+      "maxRuns": 1500,
+      "sha256": "356915d0abb0b12605db5bc6cdc91d73c0e49164a0b57c145b31b50419d08ae2",
+      "headSha": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+      "firstRun": 31
+    }
+  },
+  "evidence": {
+    "status": "diagnostic-only-no-outcome-authority",
+    "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+    "runnerSha256": "9af22f4055bf22284cfcc78cb3e438091d3cad4b40134ea7cc340ac1884b027a",
+    "checkpoint": {
+      "path": "/private/tmp/operator-pilot42-checkpoint.json",
+      "rawSha256": "24894c45d2012456fdc1849e6b1280e19f1961d0c671b95fa18e14f43274bb52",
+      "normalizedSha256": "91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b",
+      "round": 1,
+      "runs": 42,
+      "mutationCount": 21,
+      "supervisorCount": 42
+    },
+    "records": {
+      "path": "/private/tmp/operator-root-campaign-RsQzUI/records.json",
+      "sha256": "88aadd5e9b9fdb7269fe1e47c289240c16c6daa02df7dc9f915054b7d1cdfe84"
+    },
+    "pairs": [
+      {
+        "id": "rt-0129",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/measurement.json",
+        "measurementSha256": "83530d8d25e9d0c818fc499ea39118e204436c9864dcd172539da2b59e56d18f",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/baseline.json",
+            "resultSha256": "eb8d015895fadfbbcf048227305b2b35587459ae35417d8ff76ee9c9c4609a97",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/baseline.json.supervisor.json",
+            "supervisorSha256": "b4c8bcbd3c5e933f1c5b84c1718d692ab0f899c07bc274f2fe8a4cfcdba6cfb7",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+            "mutantSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+            "target": "src/lib/agents/operator/apply.ts",
+            "envSha256": "dd9c1fb24db1cf501c1e0a4a0300ba2c766a270fd0a7cfcd004f2ce75f92f3d2"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/mutant.json",
+            "resultSha256": "cc906f6c5fdc0bf2fc5122cfa1764da52c8e4deff62764a8133a7b33921d1962",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0129-QG07rl/mutant.json.supervisor.json",
+            "supervisorSha256": "538cc5299e3e56809d2ebd58da2993e1fa8c6ee474af38e5563101bbf73c77ac",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+            "mutantSha256": "acc68e560cd191d97692145e7f2a85c02d0e73dbc2b96370a699ba1d74030802",
+            "target": "src/lib/agents/operator/apply.ts",
+            "envSha256": "dd9c1fb24db1cf501c1e0a4a0300ba2c766a270fd0a7cfcd004f2ce75f92f3d2"
+          }
+        ]
+      },
+      {
+        "id": "rt-0010",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/measurement.json",
+        "measurementSha256": "0a6b1db438abb33257d5b47ff4d36a03f3efb1a86385646887f66a100ea9321a",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/baseline.json",
+            "resultSha256": "bf65939deb3b1edc8827af398c430205c54559b8a2bafbcfba4c7172f2de1cd4",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/baseline.json.supervisor.json",
+            "supervisorSha256": "7b198e181dcf16615d281addeedbe183dd56240ebf05982f9c169a33bd0389be",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+            "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+            "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+            "envSha256": "fc4499a8e7b144285c8e4c20c2d42ec48e46e7ce2445f1140cb122008274b885"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/mutant.json",
+            "resultSha256": "7a02132b6055cf32360e0eb073aad4399d20a849471323abb46f90ed0c84f6cf",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0010-pnT3SO/mutant.json.supervisor.json",
+            "supervisorSha256": "49dc15544e9bcb97516ddf1bbfb335047bba05dfa41a472d6e6c043414af2f42",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+            "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+            "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+            "envSha256": "fc4499a8e7b144285c8e4c20c2d42ec48e46e7ce2445f1140cb122008274b885"
+          }
+        ]
+      },
+      {
+        "id": "rt-0011",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/measurement.json",
+        "measurementSha256": "358da7a1a8f76e3900c1442979b4c6ee9e11bb993e27aa9b8553e246a2244322",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/baseline.json",
+            "resultSha256": "090b2a2bf2961dd4ceae530db188ffe42c1ab032bc03c41cdef544a1ef250004",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/baseline.json.supervisor.json",
+            "supervisorSha256": "160bca276a28a5f03efa5a895f8ec180d41fb37b7be3abbc4e857acd3dfef6cf",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+            "mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+            "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+            "envSha256": "664e05afded8b41ca9e789c966dfed3ad8049dec9a85b89860334859d40e4be2"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/mutant.json",
+            "resultSha256": "5f0fa9b1b25bf9f566f6a4dce251cafe25a078dba407303059c3015cbf4eb37c",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0011-IDXiyJ/mutant.json.supervisor.json",
+            "supervisorSha256": "26ac3c0f44aa19cced086e0c98677cadf08cc6f86ed55bacf97c7ce2e592e92c",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df",
+            "mutantSha256": "26e079a543b84c098c640a8a3d116946cdb2da7c9cf7b82b16a75f086017957b",
+            "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+            "envSha256": "664e05afded8b41ca9e789c966dfed3ad8049dec9a85b89860334859d40e4be2"
+          }
+        ]
+      },
+      {
+        "id": "rt-0041",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/measurement.json",
+        "measurementSha256": "56ccc3ee123c13f92c91c9e5b4b730cd5040c59b497411604a2b7d8c9484ee97",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/baseline.json",
+            "resultSha256": "16568726640ea4a9d146b7535be3a43d3f8bb4bc7ab670da03c2fbe4e5374d50",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/baseline.json.supervisor.json",
+            "supervisorSha256": "de717aaa395343afc0e9111099ab4f5697b2241ff1a1d8d73d3e305c367017b1",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e",
+            "mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+            "target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+            "envSha256": "be9c0e17a3472dedace3a55e9cb0c6741263756dda806cacd4e4a0bf49c49b1f"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/mutant.json",
+            "resultSha256": "a1640a9e104ca51275308f4f86c1072477ad3e26d65188f1ca7a7bf12e64dbe6",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0041-hatLb1/mutant.json.supervisor.json",
+            "supervisorSha256": "d82f1bcdc2b68b0c1ee55411c4d317ef84683c5b6521fc37629e41c4978a3395",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "b38870fbe1ce62fc45cf915919d6638b289f414e",
+            "mutantSha256": "36986d07441fcc05bcf0eb0a6cf2e39044d82a3599ef389f923157e427f0425c",
+            "target": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx",
+            "envSha256": "be9c0e17a3472dedace3a55e9cb0c6741263756dda806cacd4e4a0bf49c49b1f"
+          }
+        ]
+      },
+      {
+        "id": "rt-0141",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/measurement.json",
+        "measurementSha256": "dd1b9300298d4f985ac4fa3c1ab4f1a6b3572b835802d5eff968b572a1fecd5e",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/baseline.json",
+            "resultSha256": "9266e2be758e2257b8aee5497822f11107b50fc5d6e28b348a5089e3d3aad916",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/baseline.json.supervisor.json",
+            "supervisorSha256": "728b6bf74e5a714889cd6f960fd7d36b650c43c0a6ca6019117f4b524b3bdd9b",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+            "mutantSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+            "target": "src/lib/agents/operator/apply.ts",
+            "envSha256": "04abcdbbdc3087ebbf9e152733df9087d1576b913aaa26383aa109ed5a028126"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/mutant.json",
+            "resultSha256": "4280fa1bc45f8371e94c1f5f8aa0c1fcd1ee8c0b541f238f651eed63510fe56f",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0141-gYLmhT/mutant.json.supervisor.json",
+            "supervisorSha256": "24aaf2a151a8cb0058cdde690ff268e368a137166f348462fcdb357af9c86023",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "a5f0932e98a70761b269198e089e38c70d1c2608",
+            "mutantSha256": "d7e4f938abbc3db80801ba41ec81675e8c21bfb9e2f939d351cc9782e720bc84",
+            "target": "src/lib/agents/operator/apply.ts",
+            "envSha256": "04abcdbbdc3087ebbf9e152733df9087d1576b913aaa26383aa109ed5a028126"
+          }
+        ]
+      },
+      {
+        "id": "rt-0284",
+        "measurementPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/measurement.json",
+        "measurementSha256": "0831d93f41814b736c5017e8ec6c2fd945eb38492b7fbd2fc2d15eb209ee37ba",
+        "phases": [
+          {
+            "phase": "baseline",
+            "resultPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/baseline.json",
+            "resultSha256": "5a5f2fd067d67ce4f7df0bb6e5320b16e02e32f574c9d57d1b1cc0a56ae79cb5",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/baseline.json.supervisor.json",
+            "supervisorSha256": "881442293ca22b4b5742bdd5ec2a86f6d7ecd0edb81c077e0853fcc3c96e835c",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c",
+            "mutantSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+            "target": "src/lib/agents/operator/turns.ts",
+            "envSha256": "789c47734a2783dcee521f5727f6ca750dbeeb2f451ad2fa84a302eca33bde96"
+          },
+          {
+            "phase": "mutant",
+            "resultPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/mutant.json",
+            "resultSha256": "450d54a69faed9a3f250da190d1514708145124ebd4665b57d48fa1326cc7fe3",
+            "supervisorPath": "/private/tmp/operator-continuation-rt-0284-ThcX0e/mutant.json.supervisor.json",
+            "supervisorSha256": "6cff2045cd2ab334f208e31fff9a49a5869f211b46d9fa4ad7e7094f37faf27d",
+            "attempt": 1,
+            "admission": "03502fdcee60e61b891636a625c95c6a9dadec9b",
+            "originalOid": "f42fbd06ac7ea800b2871a662e5d958abb6ff76c",
+            "mutantSha256": "b3751f4b6ebc7950c5ecd8112cb7e5ee64546b5c9762ebbedc6de4cbfc55f41a",
+            "target": "src/lib/agents/operator/turns.ts",
+            "envSha256": "789c47734a2783dcee521f5727f6ca750dbeeb2f451ad2fa84a302eca33bde96"
+          }
+        ]
+      }
+    ]
+  },
+  "sourceBlobs": {
+    ".agents/skills/red-team/scripts/mutation-runner.mjs": "cbbcac12a6bd75b3acc93ccbd8ae2d18bfd91c17",
+    ".agents/skills/feature/scripts/red-team-status.mjs": "3126ab66a92bc61bd078814ff262d09e2f1bdcce",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts": "7984ac65c915e5ebabba772dcacb5b6d12cf805f",
+    "scripts/ci/__tests__/red-team-status.test.ts": "1444a49e9beabd27b7c673d5988a323ee3f8828d"
+  }
+}
+```

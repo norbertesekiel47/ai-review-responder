@@ -1950,7 +1950,7 @@ describe('Operator continuation evidence corroboration', () => {
     const status = phase === 'baseline' ? 'passed' : 'failed';
     const resultPath = join(repo, `${phase}.result.json`);
     const result = JSON.stringify({ numRuntimeErrorTestSuites: 0, numFailedTestSuites: phase === 'mutant' ? 1 : 0,
-      testResults: [{ name: candidate.file, assertionResults: [{ fullName: candidate.test, status,
+      testResults: [{ name: candidate.file, status, message: '', assertionResults: [{ fullName: candidate.test, status,
         failureMessages: phase === 'mutant' ? ['AssertionError: expected stale to be rejected'] : [] }] }] });
     writeFileSync(resultPath, result);
     const record = { candidateId: candidate.id, selector: candidate.test, admission, phase, attempt: 1,
@@ -2039,7 +2039,7 @@ describe('Operator continuation evidence corroboration', () => {
   function frontendArtifact(proof: Awaited<ReturnType<typeof frontendFixture>>, failureMessages: string[]) {
     const launch = measured('mutant', { ...proof.launch, candidateId: proof.candidate.id, selector: proof.candidate.test });
     const raw = JSON.stringify({ numRuntimeErrorTestSuites: 0, numFailedTestSuites: 1,
-      testResults: [{ name: proof.candidate.file, assertionResults: [{ fullName: proof.candidate.test,
+      testResults: [{ name: proof.candidate.file, status: 'failed', message: '', assertionResults: [{ fullName: proof.candidate.test,
         status: 'failed', failureMessages }] }] });
     writeFileSync(launch.resultPath, raw);
     launch.resultSha256 = sha256(raw);
@@ -2060,6 +2060,22 @@ describe('Operator continuation evidence corroboration', () => {
       const proof = await frontendFixture(kind);
       expect(proof.recognize(proof.message, proof.launch, proof.candidate)).toBe(true);
       expect(proof.measure(frontendArtifact(proof, [proof.message]), proof.candidate, 'failed')).toBe(true);
+      for (const nestedSuites of [2, 3]) {
+        const launch = frontendArtifact(proof, [proof.message]);
+        const result = JSON.parse(readFileSync(launch.resultPath, 'utf8'));
+        result.numFailedTestSuites = nestedSuites;
+        result.testResults[0].status = 'failed';
+        result.testResults[0].message = '';
+        const raw = JSON.stringify(result);
+        writeFileSync(launch.resultPath, raw);
+        launch.resultSha256 = sha256(raw);
+        const { supervisorPath, supervisorSha256: _digest, ...record } = launch;
+        const receipt = JSON.stringify(record);
+        writeFileSync(supervisorPath, receipt);
+        launch.supervisorSha256 = sha256(receipt);
+        expect(proof.measure(launch, proof.candidate, 'failed')).toBe(true);
+      }
+
       expect(proof.recognize(proof.message.replace('Error: ', `Error: ${String.fromCharCode(27)}[2m`).replace('\n', `${String.fromCharCode(27)}[22m\n`),
         proof.launch, proof.candidate)).toBe(true);
     }
@@ -2114,6 +2130,24 @@ describe('Operator continuation evidence corroboration', () => {
         expect(proof.recognize(proof.message, launch, proof.candidate)).toBe(false);
       }
       expect(proof.measure(frontendArtifact(proof, [proof.message, 'ReferenceError: setup failed']), proof.candidate, 'failed')).toBe(false);
+      for (const change of ['second-file', 'file-error', 'non-array', 'wrong-status']) {
+        const launch = frontendArtifact(proof, [proof.message]);
+        const result = JSON.parse(readFileSync(launch.resultPath, 'utf8'));
+        result.testResults[0].status = 'failed';
+        if (change === 'second-file') result.testResults.push({ status: 'failed', assertionResults: [] });
+        if (change === 'file-error') result.testResults[0].message = 'beforeAll setup failed';
+        if (change === 'non-array') result.testResults = {};
+        if (change === 'wrong-status') result.testResults[0].status = 'passed';
+        const raw = JSON.stringify(result);
+        writeFileSync(launch.resultPath, raw);
+        launch.resultSha256 = sha256(raw);
+        const { supervisorPath, supervisorSha256: _digest, ...record } = launch;
+        const receipt = JSON.stringify(record);
+        writeFileSync(supervisorPath, receipt);
+        launch.supervisorSha256 = sha256(receipt);
+        expect(proof.measure(launch, proof.candidate, 'failed')).toBe(false);
+      }
+
       expect(proof.recognize(proof.message, proof.launch, { ...proof.candidate, id: 'rt-unlisted' })).toBe(false);
       expect(proof.recognize(proof.message, proof.launch, { ...proof.candidate, test: 'another case' })).toBe(false);
     }

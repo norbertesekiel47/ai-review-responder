@@ -202,6 +202,78 @@ export function operatorLegacyReconstruction(id, original, from, to, mutant) {
   return false;
 }
 
+const OPERATOR_USED_ADMISSION = '03502fdcee60e61b891636a625c95c6a9dadec9b';
+const OPERATOR_FILE_CORRECTION = 'operator-fallow-round-1-file-accounting-42';
+const OPERATOR_FILE_CHECKPOINT_SHA256 = '91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b';
+const OPERATOR_FILE_EVIDENCE_SHA256 = 'e66e50ea3da81d9057d823f25e9870f61ebe10e296a10504f811a83ceecde359';
+const OPERATOR_CONTROL_PATHS = ['.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/feature/scripts/red-team-status.mjs', ...OPERATOR_VERIFIER_TESTS];
+
+/** The used checkpoint is retained in full; only later mutation/launch rows may append. */
+export function operatorCorrectionHistory(checkpoint, journal) {
+  return checkpoint?.version === 1 && checkpoint.round === 1 && checkpoint.runs === 42
+    && checkpoint.mutations?.length === 21 && checkpoint.supervisors?.length === 42
+    && checkpoint.dotenv?.open === false && checkpoint.mutations.every((row) => row.state === 'restored')
+    && checkpoint.supervisors.every((row) => row.active === false)
+    && journal?.version === 1 && journal.round === 1 && Number.isInteger(journal.runs)
+    && journal.runs >= 42 && journal.runs <= 1500 && journal.supervisors?.length === journal.runs
+    && JSON.stringify(journal.budgetAuthorization) === JSON.stringify(checkpoint.budgetAuthorization)
+    && unchangedPrefix(checkpoint.mutations, journal.mutations)
+    && unchangedPrefix(checkpoint.supervisors, journal.supervisors);
+}
+
+function operatorControlRevision(root, admissionHead, document, journal) {
+  if (admissionHead !== OPERATOR_USED_ADMISSION) return { controlHead: admissionHead, correction: null, document };
+  const descendants = git(root, ['rev-list', '--reverse', '--first-parent', `${admissionHead}..HEAD`]).split('\n').filter(Boolean);
+  const controlHead = descendants[0];
+  if (!controlHead || git(root, ['show', '-s', '--format=%P', controlHead]) !== admissionHead) return null;
+  const controlDocument = operatorBlob(root, controlHead, OPERATOR_REVIEW);
+  if (!controlDocument.subarray(0, document.length).equals(document)) return null;
+  const suffix = controlDocument.subarray(document.length).toString('utf8');
+  const matches = [...suffix.matchAll(/## Operator failed-file accounting correction\r?\n+```json\r?\n([\s\S]*?)\r?\n```/g)];
+  if (matches.length !== 1) return null;
+  const correction = JSON.parse(matches[0][1]);
+  if (correction.schema !== 1 || correction.id !== OPERATOR_FILE_CORRECTION
+    || correction.admission !== OPERATOR_USED_ADMISSION || correction.authority !== 'existing-approved-verifier-support-scope'
+    || sha256(JSON.stringify(correction.checkpoint)) !== OPERATOR_FILE_CHECKPOINT_SHA256
+    || sha256(JSON.stringify(correction.evidence)) !== OPERATOR_FILE_EVIDENCE_SHA256
+    || !operatorCorrectionHistory(correction.checkpoint, journal)
+    || JSON.stringify(Object.keys(correction.sourceBlobs ?? {}).sort()) !== JSON.stringify([...OPERATOR_CONTROL_PATHS].sort())) return null;
+  for (const path of OPERATOR_CONTROL_PATHS) {
+    if (git(root, ['rev-parse', `${controlHead}:${path}`]) !== correction.sourceBlobs[path]) return null;
+  }
+  const deviations = OPERATOR_INTAKE.replace('-intake.json', '-deviations.md');
+  const before = operatorBlob(root, admissionHead, deviations);
+  if (!operatorBlob(root, controlHead, deviations).subarray(0, before.length).equals(before)) return null;
+  const allowed = new Set([...OPERATOR_CONTROL_PATHS, OPERATOR_REVIEW, deviations]);
+  if (git(root, ['diff', '--name-only', '--no-renames', admissionHead, controlHead]).split('\n').filter(Boolean)
+    .some((path) => !allowed.has(path))) return null;
+  for (const revision of descendants.slice(1)) {
+    if (git(root, ['show', '-s', '--format=%P', revision]).split(' ').length !== 1
+      || git(root, ['diff', '--name-only', '--no-renames', `${revision}^`, revision]).split('\n').filter(Boolean)
+        .some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) return null;
+  }
+  const evidence = correction.evidence;
+  if (!operatorArtifact({ resultPath: evidence.records.path, resultSha256: evidence.records.sha256 }, 'result')) return null;
+  for (const pair of evidence.pairs) {
+    if (!operatorArtifact({ resultPath: pair.measurementPath, resultSha256: pair.measurementSha256 }, 'result')) return null;
+  }
+  for (const launch of correction.checkpoint.supervisors.slice(30)) {
+    const receiptRaw = operatorArtifact(launch, 'supervisor');
+    const { supervisorPath, supervisorSha256, ...receipt } = launch;
+    if (!operatorArtifact(launch, 'result') || !receiptRaw || JSON.stringify(JSON.parse(receiptRaw)) !== JSON.stringify(receipt)) return null;
+  }
+  return { controlHead, correction, document: controlDocument };
+}
+
+function operatorCorrectionProvenance(proof, inventory) {
+  if (!proof.correction) return undefined;
+  return { id: OPERATOR_FILE_CORRECTION, controlHead: proof.controlHead, checkpointSha256: OPERATOR_FILE_CHECKPOINT_SHA256,
+    reevaluations: proof.correction.evidence.pairs.map((pair) => ({ candidateId: pair.id,
+      measurementSha256: pair.measurementSha256, originalSuggestion: 'inconclusive',
+      outcome: inventory.find((row) => row.id === pair.id)?.outcome })) };
+}
+
 /** Validate the first immutable admission, the historical pins and cumulative journal. */
 export function validateOperatorAdmission(root, journal, { report = false } = {}) {
   try {
@@ -219,12 +291,13 @@ export function validateOperatorAdmission(root, journal, { report = false } = {}
       || JSON.stringify(manifest.schedulingHeads) !== JSON.stringify(OPERATOR_SCHEDULE)
       || manifest.journalSha256 !== '9b1f54e102b0badf1a7c515084984e8c92f997971d381f78bc241b0b614a6073'
       || manifest.inventorySha256 !== '378cb2ba55fafec04566cda2b201631143432d3f34c5d71ac4fd1ca1bc353972') return null;
-    if (!operatorBlob(root, 'HEAD', OPERATOR_REVIEW).equals(document)
-      || !readFileSync(join(root, OPERATOR_REVIEW)).equals(document)
+    const control = operatorControlRevision(root, admissionHead, document, journal);
+    if (!control || !operatorBlob(root, 'HEAD', OPERATOR_REVIEW).equals(control.document)
+      || !readFileSync(join(root, OPERATOR_REVIEW)).equals(control.document)
       || !readFileSync(join(root, '.feature/intake.json')).equals(operatorBlob(root, admissionHead, OPERATOR_INTAKE))) return null;
     const changed = git(root, ['diff', '--name-only', '--no-renames', OPERATOR_BASELINE, admissionHead]).split('\n').filter(Boolean);
     if (changed.some((path) => !OPERATOR_PATHS.has(path))) return null;
-    const later = git(root, ['diff', '--name-only', '--no-renames', admissionHead, 'HEAD']).split('\n').filter(Boolean);
+    const later = git(root, ['diff', '--name-only', '--no-renames', control.controlHead, 'HEAD']).split('\n').filter(Boolean);
     if (later.some((path) => path !== OPERATOR_REPORT && path !== OPERATOR_MARKDOWN)) return null;
     // Scheduling exceptions are byte-level substitutions at the two pinned commits.
     for (const [index, revision] of OPERATOR_SCHEDULE.entries()) {
@@ -298,22 +371,31 @@ export function validateOperatorAdmission(root, journal, { report = false } = {}
     // Existing verifier assertions are immutable too: safeguards are an append-only suffix.
     for (const path of OPERATOR_VERIFIER_TESTS) {
       const original = operatorBlob(root, OPERATOR_BASELINE, path);
-      if (!operatorBlob(root, admissionHead, path).subarray(0, original.length).equals(original)) return null;
+      if (!operatorBlob(root, control.controlHead, path).subarray(0, original.length).equals(original)) return null;
+      const labels = (bytes) => [...bytes.toString('utf8').matchAll(/^\s*(?:describe|it)\(\s*(['"`])([^\n]*?)\1/gm)].map((match) => match[0].trimStart());
+      if (JSON.stringify(labels(operatorBlob(root, admissionHead, path)))
+        !== JSON.stringify(labels(operatorBlob(root, control.controlHead, path)))) return null;
     }
     const grant = { id: OPERATOR_CONTINUATION_ID, maxRuns: 1500, sha256: sha256(document), headSha: admissionHead };
     if ((journal.runs > 30 && !journal.budgetAuthorization)
       || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, grant)
         || journal.budgetAuthorization.firstRun !== 31))) return null;
-    for (const mutation of journal.mutations.slice(15)) {
-      if (mutation.admission !== admissionHead || mutation.originalOid !== git(root, ['rev-parse', `${admissionHead}:${mutation.path}`])) return null;
+    for (const [index, mutation] of journal.mutations.entries()) {
+      if (index < 15) continue;
+      const sourceHead = control.correction && index >= 21 ? control.controlHead : admissionHead;
+      if (mutation.admission !== admissionHead || (index >= 21 && control.correction && mutation.controlHead !== sourceHead)
+        || mutation.originalOid !== git(root, ['rev-parse', `${sourceHead}:${mutation.path}`])) return null;
     }
     const usedResults = new Set();
-    for (const launch of journal.supervisors.slice(30)) {
+    for (const [index, launch] of journal.supervisors.entries()) {
+      if (index < 30) continue;
+      const sourceHead = control.correction && index >= 42 ? control.controlHead : admissionHead;
+      if (control.correction && index >= 42 && launch.controlHead !== sourceHead) return null;
       const candidate = history.inventory.find((row) => row.id === launch.candidateId);
       if (!candidate || launch.admission !== admissionHead || launch.selector !== escapeTestName(candidate.test)
         || !['baseline', 'mutant'].includes(launch.phase) || !Number.isInteger(launch.attempt)
         || launch.attempt < 1 || launch.attempt > 2 || !launch.target
-        || launch.originalOid !== git(root, ['rev-parse', `${admissionHead}:${launch.target}`])
+        || launch.originalOid !== git(root, ['rev-parse', `${sourceHead}:${launch.target}`])
         || !/^[a-f0-9]{64}$/.test(launch.mutantSha256 ?? '')
         || !/^[a-f0-9]{64}$/.test(launch.envSha256 ?? '')
         || typeof launch.resultPath !== 'string' || usedResults.has(launch.resultPath)) return null;
@@ -334,7 +416,7 @@ export function validateOperatorAdmission(root, journal, { report = false } = {}
       || journal.supervisors.some((entry) => entry.active !== false))) return null;
     const processes = spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' });
     if (processes.status !== 0 || findWatchers(processes.stdout, selfAncestry()).length > 0) return null;
-    return { ...history, manifest, historical, grant, admissionHead };
+    return { ...history, manifest, historical, grant, admissionHead, controlHead: control.controlHead, correction: control.correction };
   } catch { return null; }
 }
 
@@ -346,7 +428,7 @@ function operatorRunMetadata(root, parsed, proof, journal, phase) {
     || !Number.isInteger(attempt) || attempt < 1 || attempt > 2 || typeof target !== 'string'
     || target.split('/').some((part) => !part || part === '.' || part === '..')
     || !/^[a-f0-9]{64}$/.test(parsed['mutant-sha256'] ?? '')) return null;
-  const originalOid = git(root, ['rev-parse', `${proof.admissionHead}:${target}`]);
+  const originalOid = git(root, ['rev-parse', `${proof.controlHead}:${target}`]);
   const previous = journal.mutations.findLast((entry) => entry.candidateId === candidate.id && entry.attempt === attempt);
   if (phase === 'mutation' || phase === 'baseline') {
     if (attempt !== (proof.attempts.get(candidate.id) ?? 0) + 1
@@ -357,7 +439,8 @@ function operatorRunMetadata(root, parsed, proof, journal, phase) {
     || git(root, ['hash-object', '--', target]) !== previous.mutantOid
     || sha256(readFileSync(join(root, target))) !== previous.mutantSha256) return null;
   return { candidateId: candidate.id, selector: parsed.selector, attempt, target,
-    originalOid, mutantSha256: parsed['mutant-sha256'], admission: proof.admissionHead };
+    originalOid, mutantSha256: parsed['mutant-sha256'], admission: proof.admissionHead,
+    ...(proof.correction ? { controlHead: proof.controlHead } : {}) };
 }
 
 const OPERATOR_FRONTEND_ASSERTION_SITES = [
@@ -424,14 +507,18 @@ export function operatorMeasuredAssertion(launch, candidate, expectedStatus) {
     const { supervisorPath, supervisorSha256, ...record } = launch;
     if (JSON.stringify(receipt) !== JSON.stringify(record) || launch.active !== false || launch.timedOut !== false
       || launch.code !== (expectedStatus === 'passed' ? 0 : 1) || launch.signal !== null
-      || result.numRuntimeErrorTestSuites > 0 || result.numFailedTestSuites > (expectedStatus === 'failed' ? 1 : 0)) return false;
+      || result.numRuntimeErrorTestSuites > 0) return false;
     const files = result.testResults ?? [];
+    if (!Array.isArray(files)
+      || files.filter((file) => file.status === 'failed').length > (expectedStatus === 'failed' ? 1 : 0)
+      || files.some((file) => typeof file.message === 'string' && file.message.trim())) return false;
     const assertions = files.flatMap((file) => (file.assertionResults ?? [])
       .filter((assertion) => ['passed', 'failed'].includes(assertion.status)).map((assertion) => ({ file, assertion })));
     if (assertions.length !== 1) return false;
     const { file, assertion } = assertions[0];
     if (!(file.name === candidate.file || file.name?.endsWith(`/${candidate.file}`))
-      || (assertion.fullName ?? assertion.title) !== candidate.test || assertion.status !== expectedStatus) return false;
+      || (assertion.fullName ?? assertion.title) !== candidate.test || assertion.status !== expectedStatus
+      || file.status !== expectedStatus) return false;
     return expectedStatus === 'passed' || (assertion.failureMessages?.length > 0
       && assertion.failureMessages.every((message) => (/AssertionError|expected .* to /s.test(message)
         || operatorFrontendAssertion(message, launch, candidate))
@@ -453,14 +540,15 @@ export function operatorOutcomeCorroborated(candidate, launches, admissionHead) 
     && bound.some((mutant) => mutant.phase === 'mutant' && mutant.attempt === baseline.attempt
       && mutant.target === baseline.target && mutant.originalOid === baseline.originalOid
       && mutant.mutantSha256 === baseline.mutantSha256
-      && mutant.envSha256 === baseline.envSha256
+      && mutant.envSha256 === baseline.envSha256 && mutant.controlHead === baseline.controlHead
       && operatorMeasuredAssertion(mutant, candidate, 'failed')));
 }
 
 export function validOperatorReport(root, sidecar, journal) {
   const proof = validateOperatorAdmission(root, journal, { report: true });
   if (!proof || sidecar.branch !== OPERATOR_BRANCH || sidecar.round !== 1
-    || sidecar.head_sha !== proof.admissionHead || sidecar.authorizations?.length !== 0
+    || sidecar.head_sha !== proof.controlHead || sidecar.authorizations?.length !== 0
+    || JSON.stringify(sidecar.operatorVerifierCorrection) !== JSON.stringify(operatorCorrectionProvenance(proof, sidecar.inventory ?? []))
     || ['mode', 'run_id', 'fork_sha', 'merge_base_sha', 'risk'].some((key) => sidecar[key] !== proof.historical[key])
     || !unchangedPrefix(proof.historical.findings ?? [], sidecar.findings ?? [])
     || !unchangedPrefix(proof.historical.authorizations ?? [], sidecar.authorizations)
@@ -1757,6 +1845,7 @@ function cmdMutate(root, parsed) {
       || !journal.supervisors.slice(30).some((entry) => entry.candidateId === operatorMetadata.candidateId
         && entry.attempt === operatorMetadata.attempt && entry.phase === 'baseline'
         && entry.target === operatorMetadata.target && entry.mutantSha256 === operatorMetadata.mutantSha256
+        && entry.originalOid === operatorMetadata.originalOid && entry.controlHead === operatorMetadata.controlHead
         && operatorMeasuredAssertion(entry, proof.inventory.find((row) => row.id === entry.candidateId), 'passed'))) {
       console.error('mutate: Operator admission, candidate attempt or green baseline invalid');
       return 1;

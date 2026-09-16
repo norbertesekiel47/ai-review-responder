@@ -2237,6 +2237,7 @@ describe('Operator same-round continuation safeguards', () => {
     return import(/* @vite-ignore */ RUNNER) as Promise<{
       validateOperatorHistory: (manifest: unknown, historical: unknown, journal: unknown) => unknown;
       operatorLaunchAllowed: (runs: number, timeout: number) => boolean;
+      operatorCorrectionHistory: (checkpoint: unknown, journal: unknown) => boolean;
       operatorLegacyReconstruction: (id: string, original: string, from: string, to: string, mutant: string) => boolean;
       operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
       escapeTestName: (test: string) => string;
@@ -2309,6 +2310,24 @@ describe('Operator same-round continuation safeguards', () => {
     expect(reconstruct('rt-0127', 'x\nx', 'x', 'y', 'y\nx')).toBe(false);
     expect(reconstruct('rt-0001', 'before x after', 'x', 'y', 'before y after')).toBe(true);
     expect(reconstruct('rt-0001', 'before x after', '', 'y', 'before x after')).toBe(false);
+    const { operatorCorrectionHistory } = await helpers();
+    const used = { version: 1, round: 1, runs: 42, dotenv: { open: false },
+      budgetAuthorization: { firstRun: 31, headSha: 'original', maxRuns: 1500 },
+      mutations: Array.from({ length: 21 }, (_, index) => ({ state: 'restored', path: `retained-${index}` })),
+      supervisors: Array.from({ length: 42 }, (_, index) => ({ active: false, pid: index, resultSha256: 'original' })) };
+    expect(operatorCorrectionHistory(used, structuredClone(used))).toBe(true);
+    for (const change of ['round', 'runs', 'mutation', 'launch', 'artifact', 'budget', 'reset']) {
+      const current = structuredClone(used);
+      if (change === 'round') current.round = 2;
+      if (change === 'runs') current.runs = 41;
+      if (change === 'mutation') current.mutations[20]!.path = 'rewritten';
+      if (change === 'launch') current.supervisors[41]!.pid += 1;
+      if (change === 'artifact') current.supervisors[41]!.resultSha256 = 'rewritten';
+      if (change === 'budget') current.budgetAuthorization.firstRun = 43;
+      if (change === 'reset') current.mutations = [];
+      expect(operatorCorrectionHistory(used, current)).toBe(false);
+    }
+
   });
 
   it('rejects missing swapped or reset legacy candidate launch mappings', async () => {
@@ -2404,6 +2423,7 @@ describe('Operator same-round continuation safeguards', () => {
     write(statusTest, '// original status assertions retained\n');
     const initialIntake = JSON.stringify({ command: 'pnpm test --maxWorkers=2 --coverage --coverage.reportsDirectory=.feature/operator-live-coverage/full && merge .feature/operator-live-coverage' });
     write(intakePath, initialIntake);
+    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\n');
     git('add', '.');
     git('commit', '-qm', 'fixture product baseline');
     const baselineHead = git('rev-parse', 'HEAD');
@@ -2553,5 +2573,105 @@ describe('Operator same-round continuation safeguards', () => {
       'fixture-check', runner, reportPath], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
     expect(validation.status, validation.stderr).toBe(0);
     expect(validation.stdout.trim()).toBe('true');
+    // A used admission stays immutable: exercise its one corrective child in this disposable repo.
+    write(reportPath, historicalRaw);
+    const used = JSON.parse(read('.feature/red-team-journal.json')) as {
+      version: number; round: number; runs: number; dotenv: { open: boolean; files: unknown[] };
+      budgetAuthorization: Record<string, unknown>; mutations: Record<string, unknown>[]; supervisors: Record<string, unknown>[];
+    };
+    const makeReceipt = (entry: Record<string, unknown>, number: number, candidateNumber: number) => {
+      const phase = entry.phase as string;
+      const resultPath = join(repo, `.feature/correction-${number}.json`);
+      const result = JSON.stringify({ numFailedTestSuites: phase === 'mutant' ? 2 : 0,
+        testResults: [{ name: join(repo, 'src/gate.test.ts'), status: phase === 'mutant' ? 'failed' : 'passed', message: '',
+          assertionResults: [{ fullName: `fixture candidate ${candidateNumber}`, status: phase === 'mutant' ? 'failed' : 'passed',
+            failureMessages: phase === 'mutant' ? ['AssertionError: expected true to be false'] : [] }] }] });
+      writeFileSync(resultPath, result);
+      const { supervisorPath: _path, supervisorSha256: _sha, ...prior } = entry;
+      const row = { ...prior, candidateId: `rt-${String(candidateNumber).padStart(4, '0')}`,
+        selector: `fixture candidate ${candidateNumber}`, resultPath, resultSha256: digest(result) };
+      const supervisorPath = `${resultPath}.receipt.json`;
+      const raw = JSON.stringify(row);
+      writeFileSync(supervisorPath, raw);
+      return { ...row, supervisorPath, supervisorSha256: digest(raw) };
+    };
+    for (let candidateNumber = 2; candidateNumber <= 6; candidateNumber += 1) {
+      used.mutations.push({ ...used.mutations[15]!, candidateId: `rt-${String(candidateNumber).padStart(4, '0')}`,
+        selector: `fixture candidate ${candidateNumber}` });
+      used.supervisors.push(makeReceipt(used.supervisors[30]!, used.supervisors.length + 1, candidateNumber));
+      used.supervisors.push(makeReceipt(used.supervisors[31]!, used.supervisors.length + 1, candidateNumber));
+    }
+    used.runs = 42;
+    const usedSha = digest(JSON.stringify(used));
+    const recordsPath = join(repo, '.feature/original-pilot-records.json');
+    writeFileSync(recordsPath, '[]');
+    const correctionEvidence = { records: { path: recordsPath, sha256: digest('[]') },
+      pairs: Array.from({ length: 6 }, (_, index) => ({ id: `rt-${String(index + 1).padStart(4, '0')}`,
+        measurementPath: recordsPath, measurementSha256: digest('[]') })) };
+    const correctionEvidenceSha = digest(JSON.stringify(correctionEvidence));
+    source = source.replaceAll('03502fdcee60e61b891636a625c95c6a9dadec9b', admissionHead)
+      .replaceAll('91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b', usedSha)
+      .replaceAll('e66e50ea3da81d9057d823f25e9870f61ebe10e296a10504f811a83ceecde359', correctionEvidenceSha);
+    writeFileSync(runner, source);
+    write('.agents/skills/red-team/scripts/mutation-runner.mjs', source);
+    write('.agents/skills/feature/scripts/red-team-status.mjs', '// fixture status verifier\n');
+    const controlPaths = ['.agents/skills/red-team/scripts/mutation-runner.mjs',
+      '.agents/skills/feature/scripts/red-team-status.mjs', runnerTest, statusTest];
+    const correction = { schema: 1, id: 'operator-fallow-round-1-file-accounting-42', admission: admissionHead,
+      authority: 'existing-approved-verifier-support-scope', checkpoint: used, evidence: correctionEvidence,
+      sourceBlobs: Object.fromEntries(controlPaths.map((path) => [path, git('hash-object', '--', path)])) };
+    const originalReview = read(review);
+    const correctionSuffix = `\n## Operator failed-file accounting correction\n\n\x60\x60\x60json\n${JSON.stringify(correction)}\n\x60\x60\x60\n`;
+    write(review, originalReview + correctionSuffix);
+    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\ncorrective appendix\n');
+    writeJournal(used);
+    git('add', '.');
+    git('commit', '-qm', 'one finite used-admission correction');
+    const controlHead = git('rev-parse', 'HEAD');
+    const admissionCheck = () => spawnSync('node', ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");const p=m.validateOperatorAdmission(process.cwd(),JSON.parse(fs.readFileSync(".feature/red-team-journal.json")));console.log(p?JSON.stringify({head:p.admissionHead,control:p.controlHead}):"null");',
+      'fixture-check', runner], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    expect(admissionCheck().stdout.trim()).toBe(JSON.stringify({ head: admissionHead, control: controlHead }));
+    const grantBefore = JSON.stringify(used.budgetAuthorization);
+    const continuedMetadata = [...metadata];
+    continuedMetadata[continuedMetadata.indexOf('--attempt') + 1] = '2';
+    const correctedLaunch = (phase: string) => {
+      const result = join(repo, `.feature/corrected-${phase}.json`);
+      return fixtureRun('run', ...continuedMetadata, '--phase', phase, '--result', result, '--', 'pnpm',
+        '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run', 'src/gate.test.ts', '--testNamePattern',
+        'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1');
+    };
+    expect(correctedLaunch('baseline').status).toBe(0);
+    expect(journal().runs).toBe(43);
+    expect(fixtureRun('mutate', ...continuedMetadata, '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(0);
+    expect(correctedLaunch('mutant').status).toBe(1);
+    expect(fixtureRun('finalize').status).toBe(0);
+    const continued = JSON.parse(read('.feature/red-team-journal.json')) as typeof used;
+    expect(continued.runs).toBe(44);
+    expect(JSON.stringify(continued.budgetAuthorization)).toBe(grantBefore);
+    expect(continued.supervisors.slice(0, 42)).toEqual(used.supervisors);
+    expect(continued.mutations.slice(0, 21)).toEqual(used.mutations);
+    expect(continued.supervisors.slice(42).every((row) => row.controlHead === controlHead && row.admission === admissionHead)).toBe(true);
+    expect(continued.mutations[21]!.controlHead).toBe(controlHead);
+    const correctedSidecar = { ...sidecar, head_sha: controlHead, operatorVerifierCorrection: {
+      id: correction.id, controlHead, checkpointSha256: usedSha,
+      reevaluations: correctionEvidence.pairs.map((pair) => ({ candidateId: pair.id, measurementSha256: pair.measurementSha256,
+        originalSuggestion: 'inconclusive', outcome: sidecar.inventory.find((row) => row.id === pair.id)!.outcome })) } };
+    write(reportPath, JSON.stringify(correctedSidecar));
+    const correctedReport = () => spawnSync('node', ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");console.log(m.validOperatorReport(process.cwd(),JSON.parse(fs.readFileSync(process.argv[3])),JSON.parse(fs.readFileSync(".feature/red-team-journal.json"))));',
+      'fixture-check', runner, reportPath], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    expect(correctedReport().stdout.trim()).toBe('true');
+    write(reportPath, JSON.stringify({ ...correctedSidecar, operatorVerifierCorrection: undefined }));
+    expect(correctedReport().stdout.trim()).toBe('false');
+    write(reportPath, historicalRaw);
+    write(review, 'changed original prefix\n' + originalReview + correctionSuffix);
+    expect(admissionCheck().stdout.trim()).toBe('null');
+    write(review, originalReview + correctionSuffix);
+    write('.agents/skills/feature/scripts/red-team-status.mjs', '// forbidden later verifier change\n');
+    git('add', '.');
+    git('commit', '-qm', 'forbidden second control revision');
+    expect(admissionCheck().stdout.trim()).toBe('null');
+
   }, 30000);
 });

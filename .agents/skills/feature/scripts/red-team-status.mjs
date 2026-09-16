@@ -120,6 +120,7 @@ const TOP_LEVEL_KEYS = new Set([
   'inventory',
   'findings',
   'authorizations',
+  'operatorVerifierCorrection',
   'counts',
   'status',
 ]);
@@ -283,7 +284,33 @@ export function validateShape(sidecar) {
 
   checkKeys('findings.json', sidecar, TOP_LEVEL_KEYS, errors);
   for (const key of TOP_LEVEL_KEYS) {
-    if (!(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+    if (key !== 'operatorVerifierCorrection' && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+  }
+
+  if (sidecar.operatorVerifierCorrection !== undefined) {
+    const correction = sidecar.operatorVerifierCorrection;
+    if (sidecar.branch !== 'codex/operator-fallow-refactor' || !isPlainObject(correction)) {
+      errors.push('operatorVerifierCorrection requires the exact Operator branch and an object');
+    } else {
+      checkKeys('operatorVerifierCorrection', correction, new Set(['id', 'controlHead', 'checkpointSha256', 'reevaluations']), errors);
+      if (correction.id !== 'operator-fallow-round-1-file-accounting-42'
+        || !SHA1_RE.test(String(correction.controlHead))
+        || correction.checkpointSha256 !== '91b56fcabdcc94a08d0fa18cce3db5e8fc3f287eb32148cc3fe5036432cc2e8b'
+        || !Array.isArray(correction.reevaluations) || correction.reevaluations.length !== 6) {
+        errors.push('operatorVerifierCorrection has invalid identity, control revision or checkpoint');
+      } else {
+        const seen = new Set();
+        for (const row of correction.reevaluations) {
+          if (!isPlainObject(row)) { errors.push('operatorVerifierCorrection reevaluation must be an object'); continue; }
+          checkKeys('operatorVerifierCorrection reevaluation', row,
+            new Set(['candidateId', 'measurementSha256', 'originalSuggestion', 'outcome']), errors);
+          if (!nonEmptyString(row.candidateId) || seen.has(row.candidateId)
+            || !SHA256_RE.test(String(row.measurementSha256)) || row.originalSuggestion !== 'inconclusive'
+            || !OUTCOMES.has(row.outcome)) errors.push('operatorVerifierCorrection reevaluation is invalid');
+          seen.add(row.candidateId);
+        }
+      }
+    }
   }
 
   if (sidecar.schema !== 1) errors.push('schema must equal 1');
