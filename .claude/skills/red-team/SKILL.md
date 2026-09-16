@@ -215,6 +215,8 @@ branch/round keeps 30; timeouts, two mutations per test, restoration and
 incomplete-status rules remain unchanged. This grants neither another round
 nor acceptance of unmeasured coverage.
 
+**Owner-approved Operator Fallow same-round continuation (2026-09-15).** Only `codex/operator-fallow-refactor`, under grant `operator-fallow-round-1-continuation-2026-09-15`, may continue round 1 from its restored 30-launch checkpoint to at most **1,500 cumulative supervised local launches**. Authority and the immutable admission manifest live in `docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md`. The exact owner reply is recorded there; it approved the preceding concrete proposal, not a generic limit override. Preserve the 501-case historical inventory prefix and four exclusions; only the finite admission-pinned verifier case suffix may append. Every launch counts, including baselines and retries; 120 seconds per launch and two semantic mutants per canonical candidate still apply. Existing attempts count. This grants no new round, product changes, existing-assertion changes, risk waiver or global budget change. Admission and status checks must preserve old report/journal evidence, bind each result to its candidate/target/selector, reject aliases and resets, and leave unmeasured or inconclusive cases incomplete. Root finalization remains mandatory. Computer Use evidence is a separate requirement and is not waived by this grant.
+
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.
 

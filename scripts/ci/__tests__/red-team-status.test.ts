@@ -1933,3 +1933,201 @@ describe('the equivalent outcome', () => {
     expect(result.stderr).toContain('counts.killed');
   });
 });
+
+describe('Operator continuation evidence corroboration', () => {
+  const runnerPath = resolve(process.cwd(), '.agents/skills/red-team/scripts/mutation-runner.mjs');
+  const candidate = { id: 'candidate-1', file: 'src/guard.test.ts', test: 'guard rejects stale approval', outcome: 'killed' };
+  const admission = 'a'.repeat(40);
+
+  async function corroborate(row: unknown, launches: unknown[]) {
+    const verifier = await import(/* @vite-ignore */ runnerPath) as {
+      operatorOutcomeCorroborated: (row: unknown, launches: unknown[], admission: string) => boolean;
+    };
+    return verifier.operatorOutcomeCorroborated(row, launches, admission);
+  }
+
+  function measured(phase: 'baseline' | 'mutant', overrides: Record<string, unknown> = {}) {
+    const status = phase === 'baseline' ? 'passed' : 'failed';
+    const resultPath = join(repo, `${phase}.result.json`);
+    const result = JSON.stringify({ numRuntimeErrorTestSuites: 0, numFailedTestSuites: phase === 'mutant' ? 1 : 0,
+      testResults: [{ name: candidate.file, assertionResults: [{ fullName: candidate.test, status,
+        failureMessages: phase === 'mutant' ? ['AssertionError: expected stale to be rejected'] : [] }] }] });
+    writeFileSync(resultPath, result);
+    const record = { candidateId: candidate.id, selector: candidate.test, admission, phase, attempt: 1,
+      target: 'src/guard.ts', originalOid: 'b'.repeat(40), mutantSha256: 'c'.repeat(64),
+      active: false, timedOut: false, signal: null, code: phase === 'baseline' ? 0 : 1,
+      resultPath, resultSha256: sha256(result), ...overrides };
+    const supervisorPath = `${resultPath}.supervisor.json`;
+    const receipt = JSON.stringify(record);
+    writeFileSync(supervisorPath, receipt);
+    return { ...record, supervisorPath, supervisorSha256: sha256(receipt) };
+  }
+
+  async function frontendFixture(kind: 'matcher' | 'async-query' | 'sync-query') {
+    const verifier = await import(/* @vite-ignore */ runnerPath) as {
+      operatorFrontendAssertion: (message: string, launch: unknown, candidate: unknown) => boolean;
+      operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
+    };
+    const sites = [
+  {
+    "id": "rt-0010",
+    "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+    "test": "OperatorClient operator screen disables the composer under All locations and enables it once a location is chosen",
+    "testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563",
+    "line": 347,
+    "sourceLine": "    expect(screen.getByRole('textbox', { name: /message/i })).toBeDisabled();",
+    "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+    "originalSha256": "e0fb63ece7ce0f96942c25c51a239763f81122012c76c44163e32cfc76d33835",
+    "mutantSha256": "2a0dcbeb98b119d2632512e865dbe1b042c0fb828163d7f1fe257d5d330d2852",
+    "family": "jest-dom",
+    "matcher": "toBeDisabled",
+    "header": "Error",
+    "messageLines": [
+      "expect(element).toBeDisabled()",
+      "Received element is not disabled:"
+    ],
+    "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df"
+  },
+  {
+    "id": "rt-0009",
+    "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+    "test": "OperatorClient operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled",
+    "testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563",
+    "line": 330,
+    "sourceLine": "    expect(await screen.findByText(/not available right now/i)).toBeInTheDocument();",
+    "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+    "originalSha256": "e0fb63ece7ce0f96942c25c51a239763f81122012c76c44163e32cfc76d33835",
+    "mutantSha256": "fc44b7818ebc025c4cfe7ea594830cbf90491683880d06322b1b2765b212077a",
+    "family": "query",
+    "query": "findByText",
+    "header": "Error",
+    "messagePrefix": "Unable to find an element with the text: /not available right now/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.",
+    "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df"
+  },
+  {
+    "id": "rt-0016",
+    "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+    "test": "OperatorClient terminal failures and requested capabilities survive reload and subsequent turns",
+    "testSha256": "d0dc077ac462d88f2eb029a1c45c14d32e4648f8643afdb16b7ae60cbcaaf563",
+    "line": 697,
+    "sourceLine": "    expect(screen.getByText(TURN_FAILURE_WORDING.exhausted!)).toBeInTheDocument();",
+    "target": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts",
+    "originalSha256": "e0fb63ece7ce0f96942c25c51a239763f81122012c76c44163e32cfc76d33835",
+    "mutantSha256": "9670b21a4e5ee3d5e8f296675fe2ef7efcdb21ec19e99342316416f67e75e996",
+    "family": "query",
+    "query": "getByText",
+    "header": "TestingLibraryElementError",
+    "messagePrefix": "Unable to find an element with the text: We tried several times and could not finish this message. Nothing was changed. Start a new conversation to try again.. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.",
+    "originalOid": "93f076f81bd038783a67b85ee85a25211cbfc4df"
+  }
+];
+    const site = sites[kind === 'matcher' ? 0 : kind === 'async-query' ? 1 : 2]!;
+    const root = process.cwd();
+    const dependency = `${root}/node_modules/`;
+    const header = site.family === 'jest-dom'
+      ? `Error: ${site.messageLines![0]}\n\n${site.messageLines![1]}\n`
+      : `${site.header}: ${site.messagePrefix}\n\nIgnored nodes: comments, script, style\n`;
+    const dependencyFrames = site.family === 'jest-dom'
+      ? `    at Proxy.__VITEST_EXTEND_ASSERTION__ (file://${dependency}@vitest/expect/dist/index.js:1888:12)\n`
+      : `${site.query!.startsWith('findBy') ? `    at waitForWrapper (${dependency}@testing-library/dom/dist/wait-for.js:163:27)\n` : ''}    at ${dependency}@testing-library/dom/dist/query-helpers.js:86:33\n`;
+    const message = `${header}${dependencyFrames}    at ${root}/${site.file}:${site.line}:10`;
+    const launch = { target: site.target, originalOid: site.originalOid, mutantSha256: site.mutantSha256 };
+    const candidate = { id: site.id, file: site.file, test: site.test };
+    return { message, launch, candidate, line: site.line, recognize: verifier.operatorFrontendAssertion, measure: verifier.operatorMeasuredAssertion };
+  }
+
+  function frontendArtifact(proof: Awaited<ReturnType<typeof frontendFixture>>, failureMessages: string[]) {
+    const launch = measured('mutant', { ...proof.launch, candidateId: proof.candidate.id, selector: proof.candidate.test });
+    const raw = JSON.stringify({ numRuntimeErrorTestSuites: 0, numFailedTestSuites: 1,
+      testResults: [{ name: proof.candidate.file, assertionResults: [{ fullName: proof.candidate.test,
+        status: 'failed', failureMessages }] }] });
+    writeFileSync(launch.resultPath, raw);
+    launch.resultSha256 = sha256(raw);
+    const { supervisorPath, supervisorSha256: _digest, ...record } = launch;
+    const receipt = JSON.stringify(record);
+    writeFileSync(supervisorPath, receipt);
+    launch.supervisorSha256 = sha256(receipt);
+    return launch;
+  }
+
+  it('accepts only a digested candidate-bound green baseline and assertion-failing mutant pair', async () => {
+    expect(await corroborate(candidate, [measured('baseline'), measured('mutant')])).toBe(true);
+    expect(await corroborate(candidate, [])).toBe(false);
+    expect(await corroborate({ ...candidate, reason: 'claimed kill' }, [measured('mutant')])).toBe(false);
+    expect(await corroborate({ ...candidate, outcome: 'equivalent', reason: 'looks equivalent' },
+      [measured('baseline'), measured('mutant')])).toBe(false);
+    for (const kind of ['matcher', 'async-query', 'sync-query'] as const) {
+      const proof = await frontendFixture(kind);
+      expect(proof.recognize(proof.message, proof.launch, proof.candidate)).toBe(true);
+      expect(proof.measure(frontendArtifact(proof, [proof.message]), proof.candidate, 'failed')).toBe(true);
+      expect(proof.recognize(proof.message.replace('Error: ', `Error: ${String.fromCharCode(27)}[2m`).replace('\n', `${String.fromCharCode(27)}[22m\n`),
+        proof.launch, proof.candidate)).toBe(true);
+    }
+  });
+
+  it('rejects another candidate selector admission target or attempt as kill evidence', async () => {
+    for (const overrides of [{ candidateId: 'other' }, { selector: 'guard.*' }, { admission: 'd'.repeat(40) },
+      { target: 'src/other.ts' }, { originalOid: 'e'.repeat(40) }, { mutantSha256: 'f'.repeat(64) }, { attempt: 2 }]) {
+      expect(await corroborate(candidate, [measured('baseline'), measured('mutant', overrides)])).toBe(false);
+    }
+  });
+
+  it('rejects altered artifacts multiple executed tests setup errors and red baselines', async () => {
+    for (const change of ['digest', 'multiple', 'setup', 'red', 'supervisor']) {
+      const baseline = measured('baseline', change === 'red' ? { code: 1 } : {});
+      const mutant = measured('mutant');
+      if (change === 'digest') writeFileSync(mutant.resultPath, '{}');
+      if (change === 'supervisor') writeFileSync(mutant.supervisorPath, '{}');
+      if (change === 'multiple' || change === 'setup') {
+        const result = JSON.parse(readFileSync(mutant.resultPath, 'utf8')) as {
+          testResults: { assertionResults: { fullName: string; status: string; failureMessages: string[] }[] }[];
+        };
+        if (change === 'multiple') result.testResults[0]!.assertionResults.push({ ...result.testResults[0]!.assertionResults[0]! });
+        else result.testResults[0]!.assertionResults[0]!.failureMessages = ['ReferenceError: beforeEach fixture failed'];
+        const raw = JSON.stringify(result);
+        writeFileSync(mutant.resultPath, raw);
+        mutant.resultSha256 = sha256(raw);
+        const { supervisorPath, supervisorSha256: _digest, ...receipt } = mutant;
+        const receiptRaw = JSON.stringify(receipt);
+        writeFileSync(supervisorPath, receiptRaw);
+        mutant.supervisorSha256 = sha256(receiptRaw);
+      }
+      expect(await corroborate(candidate, [baseline, mutant])).toBe(false);
+    }
+    for (const kind of ['matcher', 'async-query', 'sync-query'] as const) {
+      const proof = await frontendFixture(kind);
+      for (const message of [
+        'Error: arbitrary failure',
+        proof.message.replace('    at ', '    at helper (src/setup.ts:1:1)\n    at '),
+        proof.message.replace('    at ', '    at unparseableFrame\n    at '),
+        proof.message.replace(`:${proof.line}:10`, `:${proof.line + 1}:10`),
+        proof.message.replace(/\n    at [^\n]*$/u, ''),
+        `beforeEach: ${proof.message}`,
+        `afterAll: ${proof.message}`,
+        `TypeError: ${proof.message}`,
+        proof.message.replace('    at ', `    at ${process.cwd()}/src/setup.ts:1:1\n    at `),
+        proof.message.replace('__VITEST_EXTEND_ASSERTION__', 'untrustedMatcher').replace('/query-helpers.js:', '/unknown.js:'),
+        proof.message.replace('Received element is not disabled:', 'Received element is disabled:').replace('Unable to find', 'Found multiple'),
+      ]) expect(proof.recognize(message, proof.launch, proof.candidate)).toBe(false);
+      for (const launch of [{ ...proof.launch, target: 'src/other.ts' }, { ...proof.launch, originalOid: '0'.repeat(40) },
+        { ...proof.launch, mutantSha256: '0'.repeat(64) }]) {
+        expect(proof.recognize(proof.message, launch, proof.candidate)).toBe(false);
+      }
+      expect(proof.measure(frontendArtifact(proof, [proof.message, 'ReferenceError: setup failed']), proof.candidate, 'failed')).toBe(false);
+      expect(proof.recognize(proof.message, proof.launch, { ...proof.candidate, id: 'rt-unlisted' })).toBe(false);
+      expect(proof.recognize(proof.message, proof.launch, { ...proof.candidate, test: 'another case' })).toBe(false);
+    }
+  });
+
+  it('refuses normal-risk waiver after continuation lineage survives a branch rename', () => {
+    seedRepo();
+    write('docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md', 'retained admission lineage');
+    write('.feature/intake.json', JSON.stringify({ risk: 'normal' }));
+    git('add', 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md');
+    git('commit', '-qm', 'retain continuation');
+    git('branch', '-m', 'renamed-operator-continuation');
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Operator continuation requires its original report');
+  });
+});

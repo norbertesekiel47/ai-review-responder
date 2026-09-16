@@ -39,6 +39,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  requiresOperatorContinuation, validOperatorReport,
   runCFourthAuthorization, validRunCFourthReport,
   runEThirdRoundForbidden, validateRunEAdmission, validateRunEContinuation, requiresRunEContinuation,
   requiresRunECorrectiveAdmission, validateRunECorrectiveAdmission,
@@ -755,6 +756,9 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
+    if (requiresOperatorContinuation(root, readJournal(root))) {
+      fail(['Operator continuation requires its original report, immutable admission and preserved cumulative journal; no risk waiver applies']);
+    }
     if (requiresRunEStagingAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))
       || requiresRunECorrectiveAdmission(root, readJournal(root), git(['rev-parse', 'HEAD']))) {
       fail([`Run E corrective admission requires its report at ${sidecarPath}; no risk waiver applies`]);
@@ -817,6 +821,9 @@ function main(argv) {
   }
 
   const journal = readJournal(root);
+  if (requiresOperatorContinuation(root, journal) && !validOperatorReport(root, sidecar, journal)) {
+    errors.push('Operator continuation requires immutable admission/history, exact inventory and exclusions, cumulative journal and corroborated outcome upgrades');
+  }
   // Checkout ancestry survives a forged report branch/round and stripped pins.
   const correctiveProofRequired = requiresRunEStagingAdmission(root, journal, sidecar?.head_sha)
     || requiresRunECorrectiveAdmission(root, journal, sidecar?.head_sha);

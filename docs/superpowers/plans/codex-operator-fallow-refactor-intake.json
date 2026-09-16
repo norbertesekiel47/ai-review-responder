@@ -20,7 +20,8 @@
     "Read gates retain flag then requireOwnerWithAccount; write gates retain the outer withSameOrigin wrapper before the handler's flag, writable owner, and impersonation checks.",
     "Restore remains preparation of a normal Proposal from a validated same-account Receipt, never a settings mutation.",
     "Context snapshot contains no review text; model schema and all existing exported route/worker/test contracts remain unchanged.",
-    "Every existing test passes with assertions unchanged; no production suppression or threshold change is permitted."
+    "Every existing test passes with assertions unchanged; no production suppression or threshold change is permitted.",
+    "Owner-approved verifier continuation stays on this branch in round 1, retains the 30-launch checkpoint and original 501 inventory prefix, caps all cumulative supervised launches at 1500, timeout at 120 seconds and semantic mutants at two per canonical candidate; every unresolved or unmeasured row remains incomplete."
   ],
   "edge_cases": [
     "Flag-off and unauthorized GET responses retain their existing status and body; no same-origin or impersonation restriction is added to GET reads.",
@@ -48,7 +49,31 @@
     ".fallowrc.jsonc",
     ".claude/reference/arch-review-log.md",
     "docs/directory/**",
-    "docs/roadmap/2026-09-11-owner-operator/README.md"
+    "docs/roadmap/2026-09-11-owner-operator/README.md",
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/feature/scripts/red-team-status.mjs",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+    "scripts/ci/__tests__/red-team-status.test.ts",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
+    "docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md",
+    "docs/reviews/codex-operator-fallow-refactor/spec-correctness.md",
+    "docs/reviews/codex-operator-fallow-refactor/security.md",
+    "docs/reviews/codex-operator-fallow-refactor/database.md",
+    "docs/reviews/codex-operator-fallow-refactor/standards-maintainability.md",
+    "docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.json",
+    "docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.md",
+    "docs/superpowers/plans/codex-operator-fallow-refactor-intake.json",
+    "docs/superpowers/plans/codex-operator-fallow-refactor-deviations.md",
+    "docs/reviews/codex-operator-fallow-refactor/browser-verification.md",
+    "docs/reviews/codex-operator-fallow-refactor/browser-before-proposal-390.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-before-proposal-1440.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-before-receipt-390.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-before-receipt-1440.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-after-proposal-390.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-after-proposal-1440.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-after-receipt-390.png",
+    "docs/reviews/codex-operator-fallow-refactor/browser-after-receipt-1440.png"
   ],
   "tests_to_add": [],
   "verification_commands": [
