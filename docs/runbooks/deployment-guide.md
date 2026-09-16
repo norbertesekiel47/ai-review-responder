@@ -611,7 +611,7 @@ MOCK_EXTERNAL_APIS=false
   curl -I https://repworth.net/
   # expect: 200 OK + security headers (Strict-Transport-Security, X-Content-Type-Options)
   ```
-- [ ] Visit `/admin/login` — form renders; log in with the admin user from §2 → `/admin/overview`.
+- [ ] Visit `https://admin.repworth.net/login` (the Admin app, §1.1.2) — form renders; log in with the admin user from §2, pass the TOTP challenge → `/admin/overview` loads data (proves bearer → Admin API → CORS end to end).
 - [ ] If `SELF_SERVE_SIGNUP_ENABLED=true`: visit `/signup` — the form renders (a 404 means the flag is off).
 
 ---
@@ -914,8 +914,10 @@ Tiers (`src/lib/accounts/tier-config.ts`): basic $29 (1 loc) · standard $79 (1 
 
 ### 7B. Admin onboarding (secondary — internal / demo / manual)
 
-For staff, demos, or a manually-provisioned customer, use `/admin/businesses/new`
-(`/api/admin/businesses` → `onboardBusinessAsAdmin`). It creates the auth user
+For staff, demos, or a manually-provisioned customer, use the **Admin app** page
+`https://admin.repworth.net/admin/businesses/new` (§1.1.2), which calls the Admin API
+`repworth.net/api/admin/businesses` → `onboardBusinessAsAdmin`. `repworth.net/admin/businesses/new`
+no longer exists — it redirects to the legacy `/admin/login` shell kept for impersonation. It creates the auth user
 (pre-confirmed), the `users` + `accounts` + `businesses` rows, and emails an invite —
 no OTP flow.
 
@@ -942,7 +944,7 @@ customers skip this — the Stripe webhook activates them. Confirm `place_id_ver
 This is where you start touching the real Google business. Move slowly.
 
 - [ ] Tell the friend in advance: "I'm about to connect RepWorth to your GBP. Please don't reply to or edit any reviews on Google Maps for the next 2 hours."
-- [ ] Visit `/dashboard` as the owner (or impersonate via admin). See the "Connect Google Business" banner.
+- [ ] Visit `/dashboard` as the owner (or impersonate: the Admin app's business page links out to `repworth.net/admin/impersonate`, which asks for password + TOTP again — §1.1.2). See the "Connect Google Business" banner.
 - [ ] Click Connect → handoff to Zernio's hosted OAuth → friend authorizes the resort's Google account → redirects back to `/api/zernio/connect/callback`.
 - [ ] If multi-location, pick the resort location at `/dashboard/connect/select-location`.
 - [ ] Verify in Supabase:
@@ -1014,6 +1016,8 @@ This pulls existing reviews from the resort's GBP into our DB. **No reviews are 
   ```
 
 ### 9.3 Cost & rate sanity (5 min)
+
+Admin pages below live in the **Admin app** at `https://admin.repworth.net` (§1.1.2), not on `repworth.net`.
 
 - [ ] `/admin/costs` → today's total should reflect the backfill (small — typically <$0.50 for a resort with a few dozen reviews).
 - [ ] `/admin/jobs` → no `failed` outbox rows. Pending should drain to 0 within a few minutes.
@@ -1112,7 +1116,7 @@ These are not technical, they are operational discipline.
 
 ## §11. Day-2 monitoring — first week
 
-Daily, 2 minutes:
+Daily, 2 minutes (admin pages are on the Admin app, `https://admin.repworth.net`):
 - [ ] `/admin/overview` — System Health card all green (Pending outbox <50, Failed jobs = 0, Notification failures 24h = 0).
 - [ ] `/admin/costs` — daily total < your global ceiling.
 - [ ] `/admin/notifications` — every approval email shows `delivered_at` within ~5 min of `sent_at`. If `delivered_at` stays NULL, Resend webhook isn't firing — check Resend dashboard.

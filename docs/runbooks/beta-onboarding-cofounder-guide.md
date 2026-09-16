@@ -15,13 +15,13 @@
 > confirm the **Feature Status Board (Part 3)** is current with Norbert — it is
 > the single list of what you may and may not promise.
 >
-> ⚠️ **Not live in production yet.** The self-checkout path this guide describes
-> depends on billing machinery that is deliberately absent from the production
-> database until the WS8 tier cutover runs
-> (`docs/runbooks/ws8-tier-cutover.md`). It works end-to-end on staging today.
-> Confirm with Norbert that the cutover has run before you book the first real
-> meeting, and see **Part 12 — Pending ops steps** for everything else that is
-> still outstanding.
+> ✅ **LIVE IN PRODUCTION since 2026-09-16.** The whole journey in this guide ran
+> end to end against a real Google Business Profile: invite → $0 checkout → Google
+> connected → reviews imported → AI draft → approval email → one approved reply
+> posted to Google. You may book real meetings. Record:
+> `docs/runbooks/evidence/2026-09-16-beta-tester-one-evidence.md`. **Part 12 —
+> Pending ops steps** still lists what is outstanding outside this path (legal
+> review and insurance).
 
 ---
 
@@ -116,20 +116,19 @@ This is the promise gate. Anything marked **Not yet** must not be promised,
 demoed, or hinted at with a date. When an owner asks for one, the line is:
 *"That's on our roadmap — as a founding customer you'll be first to get it."*
 
-> ⚠️ **Last updated 2026-08-09 — before your FIRST meeting, ask Norbert to
-> re-confirm this table**, especially the first row, which the whole product
-> depends on.
+> **Last updated 2026-09-16, after the first production run.** The two rows that
+> said "CONFIRM WITH NORBERT" are now confirmed live in production.
 
 | Feature (plain name) | Status | Notes for you |
 |---|---|---|
-| Google connect + posting approved replies | **CONFIRM WITH NORBERT** | The core loop. Must be verified live in production before meeting #1. |
+| Google connect + posting approved replies | **Live — verified in production 2026-09-16** | The core loop. One approved reply posted to a real profile, owner-approved. |
 | Email notifications + approval links | Live (once they finish checkout) | Email is the always-on channel. |
 | AI drafts for every new review | Live | Typically ready within ~15 min of the review appearing. |
 | Edit a draft before approving | Live | On the approval page — textarea, then "Save & post." |
 | Ask for a fresh draft ("regenerate") | Live | On the approval page. |
 | Import of existing/historical reviews | Live | Owner's choice; see Part 5, step 9. |
-| Live AI demo on their real reviews, before payment | **CONFIRM WITH NORBERT** | Part 5, step 4 — the wow moment. Nothing is posted; drafts only. Depends on the pre-pay demo lane being switched **on** in that environment, and it is off by default — confirm before your first meeting. |
-| Owner completes their own $0 checkout in the meeting | Live | Part 5, step 5. Card collected, $0 due today, 3 months comped. **Prod-blocked until the WS8 cutover** — confirm with Norbert. |
+| Live AI demo on their real reviews, before payment | **Live — demo lane ON in production (verified 2026-09-16)** | Part 5, step 4 — the wow moment. Nothing is posted; drafts only. Depends on the pre-pay demo lane being switched **on** in that environment, and it is off by default — confirm before your first meeting. |
+| Owner completes their own $0 checkout in the meeting | **Live — done for real 2026-09-16** | Part 5, step 5. Card collected, $0 due today, 3 months comped, month 4 = $49. |
 | Resend the invite email yourself | Live | Part 9. Only works while they haven't signed in yet. |
 | Dashboard: review inbox, all-reviews list, analytics | Live | |
 | Weekly Monday digest email | Live | |
@@ -153,7 +152,9 @@ demoed, or hinted at with a date. When an owner asks for one, the line is:
 - [ ] You have a **RepWorth admin account with two-factor authentication
   (MFA) enrolled**. The onboarding form refuses to work without MFA. Norbert
   sets this up — do it days before your first meeting, not the morning of.
-- [ ] You've clicked through the admin onboarding form (`/admin/businesses/new`)
+- [ ] You've clicked through the admin onboarding form
+  (`https://admin.repworth.net/admin/businesses/new` — the **Admin app**, not
+  `repworth.net`; the old admin pages there were retired in the admin split)
   once against a made-up test business so the meeting isn't your first time
   seeing it. It is **three fields** — owner email, owner name, business name —
   and nothing else. Ask Norbert to clean up the test afterwards.
@@ -245,7 +246,8 @@ Cover, in your own words:
 ### Step 2 — Create their account (2 min, you drive, screen NOT shared for this part)
 
 On **your** screen (don't share it — the admin console shows internal tools),
-open **`/admin/businesses/new`**. It is **three fields**:
+open **`https://admin.repworth.net/admin/businesses/new`** (the Admin app —
+sign in there with your password and authenticator code). It is **three fields**:
 
 1. **Owner email** — the one they actually read. Everything downstream depends
    on this being right: the invite, the approval emails, the digest.
@@ -559,10 +561,19 @@ confidence; ten minutes of on-call fiddling destroys it.
 | **A posted reply looks wrong/off-brand** | "Thanks for flagging — we're on it right now." | **Escalate IMMEDIATELY (call, don't text).** A bad public reply is our worst failure mode; minutes matter. |
 | Owner asks for refund/legal/contract things | "Let me get you an answer from the team today." | Escalate. Never improvise terms. |
 
+### If you press "Generate" yourself, no email is sent — that is normal
+
+On a review in the dashboard you can ask for a draft by hand. That draft appears in
+**Reviews Need Action** and **no email goes out**. The system only emails an approval
+link for reviews that arrive on their own. Nothing is broken; the draft is waiting on
+screen. (Reason: a hand-requested draft is excluded from the automatic lane, which is
+also what stops it from ever posting by itself.)
+
 ### Resending the invite email (you can do this yourself)
 
-Open the business in the admin console (`/admin/businesses/[id]`) and use
-**Resend invite**. It sends the same invitation email to the same address.
+Open the business in the Admin app (`https://admin.repworth.net/admin/businesses/[id]`)
+and use **Resend invite** in the **Owner invite** panel (it shows only while the
+account has not paid yet). It sends the same invitation email to the same address.
 
 Two things to know:
 

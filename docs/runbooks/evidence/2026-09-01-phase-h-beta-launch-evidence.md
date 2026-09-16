@@ -451,6 +451,13 @@ is known to be a problem.
 
 ## Verdict
 
+> ✅ **CLOSED 2026-09-16 — the campaign resumed and completed.** Beta tester one is live:
+> invite → $0 checkout on the new $49 founding price → Google connect → 31-review consented
+> import → a live review drafted automatically → approval email delivered → one owner-approved
+> reply posted to Google (`approval_method='owner'`). U2–U9 all closed; U1's server half stays
+> open. Full record: [`2026-09-16-beta-tester-one-evidence.md`](2026-09-16-beta-tester-one-evidence.md).
+> The pause verdict below is history.
+
 ⏸️ **PAUSED BY THE OWNER, 2026-09-02T05:4xZ — not blocked.** Opened 2026-09-01T23:21Z.
 
 Both defects that stopped the first attempt are **closed**. The campaign stopped at a clean
@@ -458,6 +465,9 @@ state: no fixture is open, no flag was flipped, no worker was stopped, and produ
 exact pre-H.0b baseline.
 
 ### Resume from here — the next step is H.0b, and nothing before it needs redoing
+
+> **Superseded 2026-09-14 by "Resume 2" at the bottom of this file.** The admin split moved
+> H.0b's page to `https://admin.repworth.net`; `repworth.net/admin/businesses/new` is gone.
 
 | # | Step | State |
 |---|---|---|
@@ -506,3 +516,111 @@ onboarding was attempted; the other six because predicates were read from source
 predictions written down before running anything.
 
 **UTC start 2026-09-01T23:21Z · paused 2026-09-02T05:4xZ.**
+
+---
+
+## Resume 2 — 2026-09-14, read-only preflight after the admin split
+
+Run by an agent while the owner was away. **Read-only against production** except one browser
+probe (R10). No account, business, flag, deploy or provider object was created or changed.
+`main` = `a95478037` (#1288).
+
+### What changed since the pause
+
+- **The admin split finished** (map #1159, ADRs 0024–0031, `deployment-guide.md` §1.1.1–§1.1.2).
+  Every admin page this campaign names — `/admin/businesses/new`, `/admin/businesses/[id]`
+  (Resend invite), `/admin/costs`, `/admin/jobs`, `/admin/notifications`, `/admin/overview` — now
+  lives on the **Admin app** at `https://admin.repworth.net`. On `repworth.net` the same path
+  307s to the legacy `/admin/login` shell that is kept only for impersonation.
+- **No admin has signed in to the production Admin app yet.** The owner's last production sign-in
+  is 2026-09-08T23:34Z, before the Admin app's production config existed (2026-09-11). The
+  2026-09-11 readiness evidence claims public checks only. The first authenticated production
+  Admin app journey is therefore **R0 of the resume**, before H.0b.
+
+### Preflight, re-measured
+
+| # | Check | Result | UTC | Evidence |
+|---|---|---|---|---|
+| R1 | Production still at the pre-H.0b baseline | ✅ | 09:50:07Z | users 3 · accounts 1 (`cancelled`, F.4) · full-access 0 · businesses 1 · `zernio_connections` 0 · reviews 0 · responses 0 · `+beta1` email rows **0** · outbox failed 0 / in-flight 0 · open finalize incidents 0 |
+| R2 | Served UI is current `main` | ✅ | — | `repworth.net` alias → `dpl_BCTiLHr1TvUnHJoYMQTP7qbzNVf2`, `githubCommitSha a95478037…`, `target: production`, `aliasError: null` |
+| R3 | Production worker is current `main` | ✅ | 05:31:32Z | Railway deployment `b7eef8ee-…` `SUCCESS`, `commitHash a95478037…`; `/api/health` ok, `/ready` 200 |
+| R4 | Migration head present | ✅ | 04:1xZ | `public.agent_turns` exists (migration 120) |
+| R5 | Worker flag posture (Railway `production`, values read by name only) | ✅ | 09:3xZ | `AUTO_APPROVAL_ENABLED=false` · `AUTOPILOT_PURCHASABLE=false` · `TRIAL_ENABLED=false` · `SELF_SERVE_SIGNUP_ENABLED=false` · `ZERNIO_PUBLISHING_ENABLED=true` · `OPENAI_MODERATION_ENABLED=true` · `ONBOARDING_DEMO_ENABLED=true` · `BETA_COMP_COUPON_ID=repworth-beta-comp-3mo` · triage/escalation/judge/governor/ranking/owner-operator unset · `MOCK_EXTERNAL_APIS` and `NODE_ENV` unset · `SENTRY_DSN` set |
+| R6 | Vercel Production flag posture | ⚠️ **not re-read** | — | The Vercel CLI is not logged in on this machine (no `auth.json`); `vercel link` hung and was killed. The vault syncs `BETA_COMP_COUPON_ID`/`ONBOARDING_DEMO_ENABLED`/`AUTOPILOT_PURCHASABLE` to both platforms, and R5 matches P16. **Owner: re-read the four P16 values in the Vercel dashboard before H.0b.** |
+| R7 | Live comp coupon | ✅ | 09:4xZ | `repworth-beta-comp-3mo` livemode: `percent_off 100`, `repeating`, `duration_in_months 3`, `valid true`, `times_redeemed 1` (F.4) |
+| R8 | Live Prices | ✅ | 09:4xZ | 6 active, unchanged from P18 (Copilot founding base `price_1Tu0tl…qs62deIQ` = $19.00) |
+| R9 | Admin app reachable | ✅ | 04:13Z | `admin.repworth.net/login` 200; every admin path 307 → `/login?next=…` |
+| R10 | **U1, browser half** | ✅ **CLOSED** | 09:42:56Z | On `https://repworth.net/`, `setTimeout(() => { throw new Error('U1 sentry probe (phase-h resume) …') }, 0)` → **REPWORTH-PRODUCTION-5**, `environment: vercel-production`, `url: https://repworth.net/`, `release: a95478037…`, `mechanism: auto.browser.browserapierrors.setTimeout`. No tag matches a Discord rule, so nothing paged. |
+| R11 | **U1, server half** | ⚠️ covered by DSN match, not by an event | — | No safe unauthenticated server trigger exists (every `/api/admin/**` 401s in `src/proxy.ts`; public routes handle bad input). The production `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` name the **same** Sentry project `4512002871001088` (redacted read of the owner's `.env.production.local`, pulled 2026-09-08). R10 proves that project ingests. |
+| R12 | Zernio ingress re-proof | ⏭️ not run | — | A signed `POST /v1/webhooks/test` via `railway run` was refused by the agent's permission policy. P9 (2026-09-01) stands; §9.2 re-proves ingress with real events keyed on `business_id`. |
+
+### Deviations
+
+**D-9 (2026-09-14) — a local production build reports into the production Sentry project, and
+it looks exactly like a live error.** `REPWORTH-PRODUCTION-4` (2026-09-10, `GET /design-directions`)
+carries `environment: vercel-production`, but `url: http://localhost:3020/…`,
+`server_name: Norberts-MacBook-Pro.local`, `browser: HeadlessChrome`. Cause: a local `next start`
+with the pulled production env inherits `SENTRY_DSN` and `VERCEL_ENV=production`. **Consequence:**
+the issue list is not evidence of live traffic, and an agent looking for "a real production error"
+to close U1 would have closed it on a laptop. Filter on `url`/`server_name`, or unset the DSN in
+local production builds. Not a launch blocker; recorded so nobody reads it as U1.
+
+**D-10 (2026-09-14) — H.0b's page moved.** See "What changed". Every admin step below uses the
+Admin app. Impersonation (§8's "or impersonate") is a link-out from the Admin app's business
+page to `repworth.net/admin/impersonate`, which asks for password + TOTP again.
+
+### Teardown ledger additions
+
+| # | Fixture | Identifier | Removal | State |
+|---|---|---|---|---|
+| T4 | Sentry issue from the R10 probe | `REPWORTH-PRODUCTION-5` (2 events) | Resolve in Sentry | ⏳ open — resolve after the owner has read it |
+
+### Resume from here (2)
+
+| # | Step | Who | Note |
+|---|---|---|---|
+| **R0** | Sign in at `https://admin.repworth.net/login`, pass TOTP, open `/admin/overview` and see data | owner | First authenticated production Admin app journey. A 401/403/CORS error here stops the campaign |
+| — | Re-read the four P16 flags in the Vercel dashboard (R6) | owner | |
+| **H.0b** | `https://admin.repworth.net/admin/businesses/new` — `norbertliverpool@gmail.com` · `Norbert Sunn` · `Tanicia Resort` | owner | **D-6 no longer applies** — the F.4 account and its Auth login were deleted on 2026-09-14, so the plain address is free. The `+beta1` alias is not needed. |
+| H.0c–H.0d | invite → password → location+demo → Copilot → **checkout MUST read $0.00** | owner | Stop on any other amount |
+| H.0e | **both digest flags OFF on the new business before §8** (D-4) | agent SQL, owner approves | |
+| §8 | owner connects Google; verify `status='active'` | owner | |
+| — | **owner accepts the Import offer** (D-2) | owner | |
+| §9.2 → §9.5 | backfill (key on `business_id`, D-3) → cost sanity on the Admin app + OpenAI dashboard (U8) → approval email (U5) → approval page, **no click** (U6) | owner + agent | |
+| §9.6 | one post; the GBP owner names the review first; kill switch ready | owner clicks | U7 |
+
+**Still open outside this campaign** (`launch-checklist.md`): lawyer review of the legal docs,
+insurance binding, alerting drills §4.7/§4.8, and the `endpoint:admin-mfa-gate` Discord rule
+(`beta-launch-alerting.md` §1, #1212).
+
+---
+
+## Amendment — 2026-09-16: both environments emptied, tiers repriced
+
+Owner decisions, executed and verified after "Resume 2" was written. They change three
+rows above.
+
+- **Production holds no customer data.** The F.4 account, its business, owner login and
+  Supabase Auth user were deleted on 2026-09-14T17:44Z; the live Stripe customer
+  `cus_VAxn9cbOQJGzz2` was deleted the same day (`deleted: true`, live mode holds 0
+  customers). Only the two admin logins remain. **This retires the 2026-09-01 decision to
+  keep F.4 as the restore-drill anchor, and it retires D-6:** tester one uses
+  `norbertliverpool@gmail.com` with no alias.
+- **Staging holds no customer data** (2026-09-16T07:14Z): 7 accounts, their businesses,
+  owner logins and 6 Auth users deleted; 4 test subscriptions cancelled and their Stripe
+  test customers deleted; the Zernio profile removed by the owner in Zernio's dashboard.
+  The 6 admin logins and the Gate A non-admin login stay.
+- **New prices are live** (#1290, `103d38043`): Copilot **$79** list / **$49** founding,
+  Autopilot **$149** list / **$99** founding, and every extra location at the list price.
+  Six new Stripe Prices per mode; the six `STRIPE_PRICE_*` values were rotated in the
+  Infisical `prod` vault and on both staging surfaces, each readback verified, and all
+  twelve Prices verified for amount, currency, monthly interval and active state. The
+  Beta comp coupon is unchanged, so tester one still checks out at **$0.00** and converts
+  at **$49** in month four — the co-founder guide now says $49.
+- **`OWNER_OPERATOR_ENABLED` is ON in production** since 2026-09-15 (#1296), with Tanicia
+  Resort named as the pilot owner. Tester one therefore lands on a dashboard where the
+  Operator screen is live.
+
+**Unchanged by this amendment:** R0 (first authenticated production Admin app sign-in)
+still comes before H.0b, U1's server half is still unproven (R11), and §9.6 still needs
+the GBP owner to name the specific review.

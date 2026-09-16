@@ -11,6 +11,27 @@
 
 ---
 
+> ### ✅ BETA TESTER ONE IS LIVE — 2026-09-16, @norbertesekiel
+>
+> The full loop ran in production and every step was verified by query, not by screen:
+> admin sign-in on the Admin app → invite (`/invite` 200, email delivered) → **$0.00** checkout
+> on the new **$49** Copilot founding price (card captured, discount ends 2026-12-16, so cycle 4
+> bills $49) → Google connected → 31 reviews imported with consent → a live review drafted
+> automatically by OpenAI → approval email **delivered** in 2.7 s → approval page audited
+> read-only → **one owner-approved reply posted to Google** at 10:37:40Z with
+> `approval_method='owner'`. 0 failed jobs, 0 held drafts, 0 Judge verdicts (correct — the Judge
+> reviews auto-posts only). AI spend for the whole run: **$0.000168**.
+>
+> Prices changed the same week: Copilot **$79/$49**, Autopilot **$149/$99**, extra location at
+> list price (#1290). Both environments were emptied first, so no account is grandfathered on the
+> retired prices.
+>
+> **Still open before a wider cohort:** lawyer review of the legal documents, insurance binding,
+> alerting drills §4.7/§4.8, the `endpoint:admin-mfa-gate` Discord rule, and U1's server half.
+> Record: `docs/runbooks/evidence/2026-09-16-beta-tester-one-evidence.md`.
+
+---
+
 ## 🔴 Hard blockers — do not launch without these
 
 - [x] **Refusal ledger: staging ride — DONE 2026-08-31.** #1010, #1011 and #1012
@@ -112,7 +133,7 @@
 Gates the **first paying customer** per ADR 0005. The code half ships in
 `harden/beta-launch-gate`; these are the operating constraints + dashboard wiring.
 
-- [ ] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — owner approval is the
+- [x] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — read on BOTH surfaces 2026-09-16 (Railway `production` and the Vercel Production env). The 2026-09-16 first post carries `approval_method='owner'`, which is the behavioural proof. — owner approval is the
   content-safety control for irreversible public posting. Auto-approval go-live is
   a separate gate (prod moderation validation + canary + kill-switch drill).
 - [x] **Stripe live-mode activation** — ✅ **verified 2026-08-30**:
@@ -125,7 +146,7 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   gate on WS8 §6 smoke and the entire beta coupon path. Evidence files are logs, not
   tracking surfaces; anything still owed at a pause belongs here. Reading recorded in
   `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` → D1d.
-- [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
+- [x] **`SENTRY_DSN` set in prod** — present on Railway `production` 2026-09-16, and the worker boots, which `assertAlertSinkEnv` would refuse without it. — now a hard boot gate (`assertAlertSinkEnv`);
   the worker refuses to start without the non-email alert sink.
 - [ ] **Sentry alert routing → Discord** (sink decided 2026-08-30; Sentry has no Zoho Cliq
   integration and a Cliq bridge would put a translator service on the paging path) for
@@ -195,7 +216,8 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
 
 Pre-invite actions from these decisions:
 
-- [ ] **Stand up the production backend** —
+- [x] **DONE — the production backend is live and proven end to end (2026-09-16).** See `evidence/2026-09-16-beta-tester-one-evidence.md`. Original text follows.
+- [ ] ~~**Stand up the production backend**~~ —
   `docs/runbooks/beta-production-standup.md` (added 2026-08-10; revised same
   day after adversarial review) is the ordered path: the prod Railway worker
   has **never deployed**, prod queue Redis and a prod Sentry project don't
@@ -235,7 +257,8 @@ Pre-invite actions from these decisions:
   without 105 fails **every** checkout, not only admin-invited ones.
   (Migration **106** was never part of this — independent of 077, applied to prod
   2026-08-14.)
-- [ ] **Implement + staging-test the beta activation path** — stand-up
+- [x] **DONE — and proven in production 2026-09-16** with a live $0 checkout on the new $49 founding price (invoice total $0, card captured, discount ends 2026-12-16). Original text follows.
+- [ ] ~~**Implement + staging-test the beta activation path**~~ — stand-up
   Phase F: server-selected 100% coupon on the leased checkout for
   admin-onboarded accounts (`allow_promotion_codes` **omitted** on that path —
   Stripe rejects it beside `discounts` by presence, not value; see **D-16**).
@@ -292,7 +315,7 @@ Pre-invite actions from these decisions:
   the three cycle-scoped promotions are not required.
   The `onboarded_by` gate above was re-run verbatim against prod at the moment
   the live coupon came into existence: **0 rows.** See evidence file → **F.2**.
-- [ ] Set `BETA_COMP_COUPON_ID` to that coupon in **Vercel production** and
+- [x] **DONE.** Set `BETA_COMP_COUPON_ID` to that coupon in **Vercel production** and
   redeploy (Vercel does not pick up env changes without one). Server-only, no
   `NEXT_PUBLIC_*` companion. Until it is set, every attempt snapshots NULL and
   invitees are charged full price — the failure is a **charged founding
