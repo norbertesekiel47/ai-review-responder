@@ -1,0 +1,32 @@
+{
+  "capturedAt": "2026-09-15T08:42:06.949604+00:00",
+  "source": "Railway CLI; exact project/service; boolean allowlist only",
+  "environments": {
+    "staging": {
+      "OWNER_OPERATOR_ENABLED": "true",
+      "AUTO_APPROVAL_ENABLED": "false",
+      "AUTOPILOT_PURCHASABLE": "false",
+      "JUDGE_ENABLED": "true",
+      "GOVERNOR_ENABLED": "false",
+      "TRIAGE_ENABLED": "true",
+      "ESCALATION_ENABLED": "false",
+      "OPENAI_MODERATION_ENABLED": "true",
+      "MOCK_EXTERNAL_APIS": "false",
+      "REFUSAL_LEDGER_ENABLED": "UNSET",
+      "AUTO_APPROVAL_PROVIDER_MODERATION_READY": "UNSET"
+    },
+    "production": {
+      "OWNER_OPERATOR_ENABLED": "UNSET",
+      "AUTO_APPROVAL_ENABLED": "false",
+      "AUTOPILOT_PURCHASABLE": "false",
+      "JUDGE_ENABLED": "UNSET",
+      "GOVERNOR_ENABLED": "UNSET",
+      "TRIAGE_ENABLED": "UNSET",
+      "ESCALATION_ENABLED": "UNSET",
+      "OPENAI_MODERATION_ENABLED": "true",
+      "MOCK_EXTERNAL_APIS": "UNSET",
+      "REFUSAL_LEDGER_ENABLED": "UNSET",
+      "AUTO_APPROVAL_PROVIDER_MODERATION_READY": "UNSET"
+    }
+  }
+}

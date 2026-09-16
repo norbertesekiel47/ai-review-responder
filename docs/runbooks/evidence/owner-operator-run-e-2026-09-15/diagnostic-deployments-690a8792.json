@@ -1,0 +1,51 @@
+{
+  "candidate": "690a8792efebc2f0f791653d4f73fdaa9bb660da",
+  "worker": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Found 1 deployment(s):\n\n- **94a3c59b-7d7d-49f9-b0a2-493fb51f6494** [SUCCESS]\n  service: fb413c72-29b6-4cd1-90c2-26002491e301, env: 58c06358-8cbe-497f-bec0-df3b47769a10\n  created: 2026-09-15T09:42:44.431Z\n  branch staging · commit 690a879 · fix(operator): expose safe semantic rejection diagnostics"
+      }
+    ],
+    "structuredContent": {
+      "deployments": [
+        {
+          "createdAt": "2026-09-15T09:42:44.431Z",
+          "environmentId": "58c06358-8cbe-497f-bec0-df3b47769a10",
+          "id": "94a3c59b-7d7d-49f9-b0a2-493fb51f6494",
+          "meta": {
+            "branch": "staging",
+            "commitHash": "690a8792efebc2f0f791653d4f73fdaa9bb660da",
+            "commitMessage": "fix(operator): expose safe semantic rejection diagnostics",
+            "reason": "deploy"
+          },
+          "serviceId": "fb413c72-29b6-4cd1-90c2-26002491e301",
+          "snapshotId": "cdba5f1b-a35b-4c09-a805-8b6ce774ecf0",
+          "status": "SUCCESS",
+          "updatedAt": "2026-09-15T09:44:42.193Z",
+          "url": null
+        }
+      ]
+    }
+  },
+  "web": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"deployment\": {\n    \"id\": \"dpl_8vFdRsoKJeQbc8hj5AS1GUWicYbS\",\n    \"name\": \"rep-worth\",\n    \"url\": \"rep-worth-kcfdj038e-norbert-esekiels-projects.vercel.app\",\n    \"type\": \"LAMBDAS\",\n    \"state\": \"READY\",\n    \"createdAt\": 1789465365722,\n    \"creator\": {\n      \"uid\": \"3Vpxp0Tda70IkdZubfuxhoK9\",\n      \"username\": \"norbertesekiel-6415\"\n    },\n    \"project\": {\n      \"id\": \"prj_wIMnzHKefoQRdzCeMZesg2mIgNc0\",\n      \"name\": \"rep-worth\",\n      \"framework\": \"nextjs\"\n    },\n    \"meta\": {\n      \"githubCommitAuthorName\": \"Norbert Esekiel\",\n      \"githubCommitAuthorEmail\": \"norbertesekiel@gmail.com\",\n      \"githubCommitMessage\": \"fix(operator): expose safe semantic rejection diagnostics\",\n      \"githubCommitOrg\": \"RepWorth\",\n      \"githubCommitRef\": \"staging\",\n      \"githubCommitRepo\": \"ai-review-responder\",\n      \"githubCommitSha\": \"690a8792efebc2f0f791653d4f73fdaa9bb660da\",\n      \"githubDeployment\": \"1\",\n      \"githubOrg\": \"RepWorth\",\n      \"githubRepo\": \"ai-review-responder\",\n      \"githubRepoOwnerType\": \"Organization\",\n      \"githubCommitRepoId\": \"1202359628\",\n      \"githubRepoId\": \"1202359628\",\n      \"githubRepoVisibility\": \"private\",\n      \"githubHost\": \"github.com\",\n      \"githubCommitAuthorLogin\": \"norbertesekiel47\",\n      \"githubCommitVerification\": \"unverified\",\n      \"repoPushedAt\": \"1789465363000\",\n      \"lambdaRuntimeStats\": \"{\\\"nodejs\\\":3}\"\n    },\n    \"alias\": [\n      \"staging.repworth.net\",\n      \"rep-worth-env-staging-norbert-esekiels-projects.vercel.app\"\n    ],\n    \"target\": null,\n    \"regions\": [\n      \"iad1\"\n    ],\n    \"buildingAt\": 1789465367199,\n    \"ready\": 1789465436872,\n    \"readyState\": \"READY\",\n    \"source\": \"git\",\n    \"aliasError\": null\n  }\n}"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "ready": {
+    "status": "ready",
+    "postgres": "ok",
+    "queue_redis": "ok",
+    "cache_redis": "ok",
+    "timestamp": "2026-09-15T09:45:21.330Z"
+  },
+  "verification": "29 focused tests, corrected pnpm build and all pre-push checks passed. No current full wrapper gate or red-team CLEAR claimed."
+}

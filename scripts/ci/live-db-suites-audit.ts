@@ -131,6 +131,8 @@ const MIGRATION_SHAPE_FILES = new Set([
   // applies the file verbatim through `db.unsafe`, and asserts the hardened
   // catalogue. Execution is immune to every lexical evasion at once.
   'src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts',
+  // 121 executes the real constraint extension and compares the public catalogue.
+  'src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 

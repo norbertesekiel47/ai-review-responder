@@ -1,0 +1,33 @@
+{
+  "campaign": "owner-operator-run-d",
+  "status": "closed_by_owner",
+  "closed_at": "2026-09-14T17:36:31.857381Z",
+  "full_24_hours_elapsed": false,
+  "owner_decision": "observation-owner-early-close.json",
+  "cancelled_slots": [20, 21, 22, 23, 24],
+  "started_at": "2026-09-13T21:46:17.000Z",
+  "earliest_end_at": "2026-09-14T21:46:17.000Z",
+  "candidate_sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+  "project_id": "kubdiqdhqbhwmqfditeg",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "conversation_id": "2d4ae2aa-73df-40e9-8ac8-05a05ce7f8f4",
+  "max_observation_turns": 30,
+  "planned_hourly_slots": 25,
+  "paired_slots": [
+    8,
+    16
+  ],
+  "original_planned_maximum": 27,
+  "planned_maximum": 29,
+  "additional_overlap_check": {"slot": 8, "members": ["c", "d"], "reason": "Single-tab composer blocked overlapping 08A/08B. Preserve both and add two authenticated same-conversation tab submissions within max_observation_turns 30."},
+  "ui_deployment": "dpl_5nrGY3zR6zAsT78dHVeGpgaarwau",
+  "worker_deployment": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+  "worker_flags": {
+    "OWNER_OPERATOR_ENABLED": true,
+    "AUTO_APPROVAL_ENABLED": false,
+    "JUDGE_ENABLED": true,
+    "MOCK_EXTERNAL_APIS": false
+  },
+  "method": "Authenticated in-app Browser submissions approximately hourly; retain every attempted turn and outcome; percentile_cont over completed turn latency only, with failures/retries and hourly coverage reported separately."
+}

@@ -338,6 +338,29 @@ function snapshotReviews(bundle: SnapshotBundle) {
   return { reviews, excludedImported, excludedUnknown };
 }
 
+function locationSnapshotFields(input: {
+  locationId: string;
+  accountDefault: PolicyState;
+  accountDefaultRow: StoredPolicyRow | null;
+  override: StoredPolicyRow | undefined;
+  locationState: PolicyState;
+  targetArchived: boolean;
+  accountSuspended: boolean;
+}): Pick<PolicySnapshot, 'locationId' | 'target' | 'state' | 'versionToken' | 'targetArchived' | 'policySuspended'> {
+  return {
+    locationId: input.locationId,
+    target: { scope: 'location', locationId: input.locationId },
+    state: { accountDefault: input.accountDefault, location: input.locationState, targetRowSuspended: input.override?.suspended ?? false },
+    // BOTH rows, always: a location proposal goes stale when the parent moves.
+    versionToken: computeAutoApprovalVersionToken({
+      locationRow: rowVersion(input.override),
+      accountDefaultRow: rowVersion(input.accountDefaultRow),
+    }),
+    targetArchived: input.targetArchived,
+    policySuspended: input.accountSuspended || (input.override?.suspended ?? false),
+  };
+}
+
 function mapSnapshot(input: PolicyScopeInput, bundle: SnapshotBundle): PolicySnapshot | null {
   if (!bundle.account_exists) return null;
   const targetRow = bundle.target;
@@ -376,7 +399,7 @@ function mapSnapshot(input: PolicyScopeInput, bundle: SnapshotBundle): PolicySna
       ...common,
       locationId: null,
       target: { scope: 'account' },
-      state: { accountDefault, location: null },
+      state: { accountDefault, location: null, targetRowSuspended: accountSuspended },
       versionToken: computeAutoApprovalVersionToken({ accountDefaultRow: rowVersion(accountDefaultRow) }),
       targetArchived: false,
       policySuspended: accountSuspended,
@@ -386,16 +409,10 @@ function mapSnapshot(input: PolicyScopeInput, bundle: SnapshotBundle): PolicySna
   const override = overrides.get(input.locationId);
   return {
     ...common,
-    locationId: input.locationId,
-    target: { scope: 'location', locationId: input.locationId },
-    state: { accountDefault, location: effectiveFor(input.locationId) },
-    // BOTH rows, always: a location proposal goes stale when the parent moves.
-    versionToken: computeAutoApprovalVersionToken({
-      locationRow: rowVersion(override),
-      accountDefaultRow: rowVersion(accountDefaultRow),
+    ...locationSnapshotFields({
+      locationId: input.locationId, accountDefault, accountDefaultRow, override,
+      locationState: effectiveFor(input.locationId), targetArchived: targetRow.archived, accountSuspended,
     }),
-    targetArchived: targetRow.archived,
-    policySuspended: accountSuspended || (override?.suspended ?? false),
   };
 }
 

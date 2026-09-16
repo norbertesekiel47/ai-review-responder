@@ -110,9 +110,9 @@ function expectOpenAiStrict(schema: unknown): void {
   expect(nodes.length).toBeGreaterThan(0);
   for (const node of nodes) {
     const properties = keysOf(node.properties);
-    // A property-less object under additionalProperties:false admits only `{}`
-    // — the shape a loose z.record() degrades to on the wire.
-    expect(properties.length).toBeGreaterThan(0);
+    // Closed empty inputs are intentional for clear_location_override and
+    // restore_last; an open/unstructured object remains forbidden.
+    expect(isJsonObject(node.properties)).toBe(true);
     expect(node.additionalProperties).toBe(false);
     expect(Array.isArray(node.required) ? [...node.required].sort() : node.required).toEqual(
       properties,
@@ -357,7 +357,7 @@ describe('registered structured tasks reach both providers', () => {
       expect(keysOf(at(anthropicSchema, 'properties'))).toEqual(registeredKeys);
       for (const node of objectNodes(anthropicSchema)) {
         expect(node.additionalProperties).toBe(false);
-        expect(keysOf(node.properties).length).toBeGreaterThan(0);
+        expect(isJsonObject(node.properties)).toBe(true);
       }
       expect(schemaKeywords(anthropicSchema).has('oneOf')).toBe(false);
     },

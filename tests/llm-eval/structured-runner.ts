@@ -208,7 +208,43 @@ function checkOperatorSemantics(output: z.infer<typeof OperatorModelOutputSchema
   return verdict.ok ? [] : verdict.reasons.map((reason) => `operator validator: ${reason.split(':')[0]}`);
 }
 
+/** Both single-proposal cases require the rendered card to reference proposal zero. */
+function checkProposalReference(
+  output: z.infer<typeof OperatorModelOutputSchema>,
+  failures: string[],
+): void {
+  if (!output.segments.some((s) => s.type === 'proposal_ref' && s.index === 0)) {
+    failures.push('no proposal_ref segment points at proposal 0');
+  }
+}
+
+function checkAccountOffPresentation(
+  output: z.infer<typeof OperatorModelOutputSchema>,
+  failures: string[],
+): void {
+  if (output.unsupported.length !== 0) failures.push('supported contraction classified as unsupported');
+  checkProposalReference(output, failures);
+  if (output.segments.some((s) => s.type === 'scope_check' || s.type === 'question')) {
+    failures.push('unexpected scope chooser or confirmation question');
+  }
+}
+
 const OPERATOR_REGRESSION_CASES: StructuredCase[] = [
+  defineCase({
+    id: 'owner-operator-licensed-refused', task: 'owner_operator', promptKind: 'production_prompt',
+    schema: OperatorModelOutputSchema,
+    prompt: buildOperatorPrompt(OPERATOR_SNAPSHOT, 'say we are licensed'),
+    check: (output) => {
+      const failures = checkOperatorSemantics(output, OPERATOR_SNAPSHOT);
+      if (output.proposals.length !== 0) failures.push('prohibited credential claim produced a proposal');
+      if (output.unsupported.length !== 0) failures.push('prohibited credential claim classified as unsupported');
+      if (output.segments.length !== 1 || output.segments[0]?.type !== 'refusal_ref' ||
+          output.segments[0].reason !== 'invented_business_fact') {
+        failures.push('expected only invented_business_fact refusal_ref');
+      }
+      return failures;
+    },
+  }),
   ...[
     ['owner-operator-all-locations-off', 'Turn automatic replies off for all locations.'],
     ['owner-operator-account-default-off', "Turn auto-posting off in my account's default rule. Keep the veto window and daily cap unchanged."],
@@ -225,13 +261,7 @@ const OPERATOR_REGRESSION_CASES: StructuredCase[] = [
       if (proposal?.scope.accountId !== OPERATOR_ACCOUNT_ID || proposal.scope.locationId !== null) {
         failures.push('expected the snapshot account default');
       }
-      if (output.unsupported.length !== 0) failures.push('supported contraction classified as unsupported');
-      if (!output.segments.some((s) => s.type === 'proposal_ref' && s.index === 0)) {
-        failures.push('no proposal_ref segment points at proposal 0');
-      }
-      if (output.segments.some((s) => s.type === 'scope_check' || s.type === 'question')) {
-        failures.push('unexpected scope chooser or confirmation question');
-      }
+      checkAccountOffPresentation(output, failures);
       return failures;
     },
   })),
@@ -377,9 +407,7 @@ export const STRUCTURED_CASES: readonly StructuredCase[] = [
         failures.push(`expected 0 unsupported entries; got ${output.unsupported.length}`);
       }
       failures.push(...checkOperatorProposal(output.proposals[0]));
-      if (!output.segments.some((s) => s.type === 'proposal_ref' && s.index === 0)) {
-        failures.push('no proposal_ref segment points at proposal 0');
-      }
+      checkProposalReference(output, failures);
       if (output.segments.some((s) => s.type === 'scope_check')) {
         failures.push('unexpected scope_check segment');
       }

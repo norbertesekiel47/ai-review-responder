@@ -526,7 +526,15 @@ describeWithDb(
       }
     });
 
-    it('pins migration 077 direct-SQL constants to the canonical Copilot/list registry snapshot', async () => {
+    // Migration 077 is immutable and its backfill is point-in-time: it wrote the
+    // Copilot/list price that was live on 2026-07-17 (2900 base / 1500 overage).
+    // The 2026-09-14 reprice moved the registry to 7900/7900, and grandfathering
+    // (invariant #9a) means those backfilled rows KEEP the old cents — so this
+    // test pins the migration's own constants, not today's registry. Only the
+    // non-price columns still come from the registry, because 077 derives them.
+    it('pins migration 077 direct-SQL constants to its point-in-time Copilot/list prices', async () => {
+      const MIGRATION_077_BASE_CENTS = 2900;
+      const MIGRATION_077_OVERAGE_CENTS = 1500;
       const target = legacyFixtures[0]!;
       const [snapshot] = await sql()<
         {
@@ -549,8 +557,8 @@ describeWithDb(
       expect(snapshot).toEqual({
         subscription_tier: registry.tier,
         price_variant: registry.variant,
-        base_price_cents: registry.baseCents,
-        locations_overage_price_cents: registry.overageCents,
+        base_price_cents: MIGRATION_077_BASE_CENTS,
+        locations_overage_price_cents: MIGRATION_077_OVERAGE_CENTS,
         locations_included: registry.included,
         // Deliberate migration-only exception after the provider preflight:
         // no live subscription quantity exists to preserve.

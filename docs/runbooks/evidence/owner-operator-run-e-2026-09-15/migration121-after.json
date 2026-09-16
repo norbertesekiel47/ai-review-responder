@@ -1,0 +1,600 @@
+{
+  "head": "da87399c317d89f85ca8076a6dc1643c4c8995cc",
+  "sql": "-- 121_operator_refusals.sql — Owner Operator Run E, spec §6.6.\n-- Adds location-scoped content refusals and account-wide policy refusals to\n-- the existing ledger. No new table, writer, index, role grant or RLS policy.\n-- Apply staging first, then production before deploying the new writers.\n-- LOCAL-ONLY until the migrations inventory records remote introspection.\n-- The five replacements are atomic; retained C2/C4/C5 still reject incomplete\n-- subjects, missing codes and code arrays belonging to another lane.\nBEGIN;\nSET LOCAL lock_timeout = '10s';\n\nALTER TABLE refusal_events\n  DROP CONSTRAINT refusal_events_refusal_source_check,\n  ADD CONSTRAINT refusal_events_refusal_source_check CHECK (refusal_source IN (\n    'held_draft', 'auto_post_revoked', 'autonomy_suspended', 'ask_withheld',\n    'outreach_withheld', 'batch_halted', 'policy_gate_held',\n    'operator_content_refused', 'operator_policy_refused')),\n  DROP CONSTRAINT refusal_events_refusal_category_check,\n  ADD CONSTRAINT refusal_events_refusal_category_check CHECK (refusal_category IN (\n    'unsafe_content', 'watchdog_unavailable', 'below_our_bar', 'no_permission',\n    'wrong_moment', 'autonomy_paused', 'missing_information',\n    'owner_review_required', 'request_not_allowed')),\n  DROP CONSTRAINT refusal_events_subject_type_check,\n  ADD CONSTRAINT refusal_events_subject_type_check CHECK (subject_type IN (\n    'response', 'solicitation_ask', 'solicitation_outreach',\n    'solicitation_batch', 'operator_refusal')),\n  DROP CONSTRAINT refusal_events_source_subject_pairing,\n  ADD CONSTRAINT refusal_events_source_subject_pairing CHECK (\n    (CASE refusal_source\n       WHEN 'held_draft' THEN subject_type = 'response'\n       WHEN 'policy_gate_held' THEN subject_type = 'response'\n       WHEN 'auto_post_revoked' THEN subject_type = 'response'\n       WHEN 'ask_withheld' THEN subject_type = 'solicitation_ask'\n       WHEN 'outreach_withheld' THEN subject_type = 'solicitation_outreach'\n       WHEN 'batch_halted' THEN subject_type = 'solicitation_batch'\n       WHEN 'autonomy_suspended' THEN subject_type IS NULL\n       WHEN 'operator_content_refused' THEN subject_type = 'operator_refusal'\n       WHEN 'operator_policy_refused' THEN subject_type = 'operator_refusal'\n     END) IS TRUE\n  ),\n  DROP CONSTRAINT refusal_events_business_pairing,\n  ADD CONSTRAINT refusal_events_business_pairing CHECK (\n    (business_id IS NOT NULL) =\n      (refusal_source NOT IN ('autonomy_suspended', 'operator_policy_refused'))\n  );\n\nCOMMENT ON TABLE refusal_events IS\n  'The Refusal ledger. One row is one decision RepWorth made not to act, recorded when decided. Nine lanes, nine owner-facing categories. Deny-all RLS: owners read through a server route.';\nCOMMENT ON COLUMN refusal_events.business_id IS\n  'The location; NULL exactly for account-wide autonomy_suspended and operator_policy_refused decisions (C3). Location reads include account-wide rows without multiplying them.';\nCOMMENT ON COLUMN refusal_events.subject_type IS\n  'One of five subject types, or NULL for autonomy_suspended. operator_refusal identifies a server-minted refusal stored in an Operator reply.';\n\nCOMMIT;\n\n",
+  "staging": {
+    "project": "kubdiqdhqbhwmqfditeg",
+    "appliedAt": {
+      "current_time": "2026-09-15 08:34:09 UTC"
+    },
+    "application": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true}"
+        }
+      ],
+      "isError": false
+    },
+    "constraints": [
+      {
+        "conname": "refusal_events_account_id_fkey",
+        "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_all_codes_pairing",
+        "definition": "CHECK (((((refusal_source = 'policy_gate_held'::text) AND (all_refusal_codes IS NOT NULL) AND (cardinality(all_refusal_codes) > 0) AND (array_position(all_refusal_codes, NULL::text) IS NULL) AND (refusal_code = ANY (all_refusal_codes))) OR ((refusal_source <> 'policy_gate_held'::text) AND (all_refusal_codes IS NULL))) IS TRUE))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_business_id_fkey",
+        "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_business_pairing",
+        "definition": "CHECK (((business_id IS NOT NULL) = (refusal_source <> ALL (ARRAY['autonomy_suspended'::text, 'operator_policy_refused'::text]))))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_code_pairing",
+        "definition": "CHECK (((refusal_code IS NULL) = (refusal_source = 'held_draft'::text)))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_pkey",
+        "definition": "PRIMARY KEY (id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_refusal_category_check",
+        "definition": "CHECK ((refusal_category = ANY (ARRAY['unsafe_content'::text, 'watchdog_unavailable'::text, 'below_our_bar'::text, 'no_permission'::text, 'wrong_moment'::text, 'autonomy_paused'::text, 'missing_information'::text, 'owner_review_required'::text, 'request_not_allowed'::text])))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_refusal_source_check",
+        "definition": "CHECK ((refusal_source = ANY (ARRAY['held_draft'::text, 'auto_post_revoked'::text, 'autonomy_suspended'::text, 'ask_withheld'::text, 'outreach_withheld'::text, 'batch_halted'::text, 'policy_gate_held'::text, 'operator_content_refused'::text, 'operator_policy_refused'::text])))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_source_subject_pairing",
+        "definition": "CHECK ((\nCASE refusal_source\n    WHEN 'held_draft'::text THEN (subject_type = 'response'::text)\n    WHEN 'policy_gate_held'::text THEN (subject_type = 'response'::text)\n    WHEN 'auto_post_revoked'::text THEN (subject_type = 'response'::text)\n    WHEN 'ask_withheld'::text THEN (subject_type = 'solicitation_ask'::text)\n    WHEN 'outreach_withheld'::text THEN (subject_type = 'solicitation_outreach'::text)\n    WHEN 'batch_halted'::text THEN (subject_type = 'solicitation_batch'::text)\n    WHEN 'autonomy_suspended'::text THEN (subject_type IS NULL)\n    WHEN 'operator_content_refused'::text THEN (subject_type = 'operator_refusal'::text)\n    WHEN 'operator_policy_refused'::text THEN (subject_type = 'operator_refusal'::text)\n    ELSE NULL::boolean\nEND IS TRUE))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_subject_completeness",
+        "definition": "CHECK (((subject_type IS NULL) = (subject_id IS NULL)))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_subject_type_check",
+        "definition": "CHECK ((subject_type = ANY (ARRAY['response'::text, 'solicitation_ask'::text, 'solicitation_outreach'::text, 'solicitation_batch'::text, 'operator_refusal'::text])))",
+        "convalidated": true
+      }
+    ],
+    "security": [
+      {
+        "rls_enabled": true,
+        "rls_forced": false,
+        "policies": [],
+        "privileges": [
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_refusal_events_account_window",
+            "definition": "CREATE INDEX idx_refusal_events_account_window ON public.refusal_events USING btree (account_id, occurred_at DESC)"
+          },
+          {
+            "name": "idx_refusal_events_archival",
+            "definition": "CREATE INDEX idx_refusal_events_archival ON public.refusal_events USING btree (occurred_at, id)"
+          },
+          {
+            "name": "refusal_events_pkey",
+            "definition": "CREATE UNIQUE INDEX refusal_events_pkey ON public.refusal_events USING btree (id)"
+          },
+          {
+            "name": "refusal_events_subject_uniq",
+            "definition": "CREATE UNIQUE INDEX refusal_events_subject_uniq ON public.refusal_events USING btree (refusal_source, subject_id) WHERE (subject_id IS NOT NULL)"
+          }
+        ]
+      }
+    ],
+    "capturedAt": {
+      "current_time": "2026-09-15 08:34:36 UTC"
+    },
+    "changed": [
+      "refusal_events_business_pairing",
+      "refusal_events_refusal_category_check",
+      "refusal_events_refusal_source_check",
+      "refusal_events_source_subject_pairing",
+      "refusal_events_subject_type_check"
+    ]
+  },
+  "production": {
+    "project": "udeyaqnvpojbwgoaxwdg",
+    "appliedAt": {
+      "current_time": "2026-09-15 08:34:49 UTC"
+    },
+    "application": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true}"
+        }
+      ],
+      "isError": false
+    },
+    "constraints": [
+      {
+        "conname": "refusal_events_account_id_fkey",
+        "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_all_codes_pairing",
+        "definition": "CHECK (((((refusal_source = 'policy_gate_held'::text) AND (all_refusal_codes IS NOT NULL) AND (cardinality(all_refusal_codes) > 0) AND (array_position(all_refusal_codes, NULL::text) IS NULL) AND (refusal_code = ANY (all_refusal_codes))) OR ((refusal_source <> 'policy_gate_held'::text) AND (all_refusal_codes IS NULL))) IS TRUE))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_business_id_fkey",
+        "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_business_pairing",
+        "definition": "CHECK (((business_id IS NOT NULL) = (refusal_source <> ALL (ARRAY['autonomy_suspended'::text, 'operator_policy_refused'::text]))))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_code_pairing",
+        "definition": "CHECK (((refusal_code IS NULL) = (refusal_source = 'held_draft'::text)))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_pkey",
+        "definition": "PRIMARY KEY (id)",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_refusal_category_check",
+        "definition": "CHECK ((refusal_category = ANY (ARRAY['unsafe_content'::text, 'watchdog_unavailable'::text, 'below_our_bar'::text, 'no_permission'::text, 'wrong_moment'::text, 'autonomy_paused'::text, 'missing_information'::text, 'owner_review_required'::text, 'request_not_allowed'::text])))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_refusal_source_check",
+        "definition": "CHECK ((refusal_source = ANY (ARRAY['held_draft'::text, 'auto_post_revoked'::text, 'autonomy_suspended'::text, 'ask_withheld'::text, 'outreach_withheld'::text, 'batch_halted'::text, 'policy_gate_held'::text, 'operator_content_refused'::text, 'operator_policy_refused'::text])))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_source_subject_pairing",
+        "definition": "CHECK ((\nCASE refusal_source\n    WHEN 'held_draft'::text THEN (subject_type = 'response'::text)\n    WHEN 'policy_gate_held'::text THEN (subject_type = 'response'::text)\n    WHEN 'auto_post_revoked'::text THEN (subject_type = 'response'::text)\n    WHEN 'ask_withheld'::text THEN (subject_type = 'solicitation_ask'::text)\n    WHEN 'outreach_withheld'::text THEN (subject_type = 'solicitation_outreach'::text)\n    WHEN 'batch_halted'::text THEN (subject_type = 'solicitation_batch'::text)\n    WHEN 'autonomy_suspended'::text THEN (subject_type IS NULL)\n    WHEN 'operator_content_refused'::text THEN (subject_type = 'operator_refusal'::text)\n    WHEN 'operator_policy_refused'::text THEN (subject_type = 'operator_refusal'::text)\n    ELSE NULL::boolean\nEND IS TRUE))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_subject_completeness",
+        "definition": "CHECK (((subject_type IS NULL) = (subject_id IS NULL)))",
+        "convalidated": true
+      },
+      {
+        "conname": "refusal_events_subject_type_check",
+        "definition": "CHECK ((subject_type = ANY (ARRAY['response'::text, 'solicitation_ask'::text, 'solicitation_outreach'::text, 'solicitation_batch'::text, 'operator_refusal'::text])))",
+        "convalidated": true
+      }
+    ],
+    "security": [
+      {
+        "rls_enabled": true,
+        "rls_forced": false,
+        "policies": [],
+        "privileges": [
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "postgres",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "anon",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "DELETE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "INSERT"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "MAINTAIN"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "REFERENCES"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "SELECT"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRIGGER"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "TRUNCATE"
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "postgres",
+            "grantable": false,
+            "privilege": "UPDATE"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_refusal_events_account_window",
+            "definition": "CREATE INDEX idx_refusal_events_account_window ON public.refusal_events USING btree (account_id, occurred_at DESC)"
+          },
+          {
+            "name": "idx_refusal_events_archival",
+            "definition": "CREATE INDEX idx_refusal_events_archival ON public.refusal_events USING btree (occurred_at, id)"
+          },
+          {
+            "name": "refusal_events_pkey",
+            "definition": "CREATE UNIQUE INDEX refusal_events_pkey ON public.refusal_events USING btree (id)"
+          },
+          {
+            "name": "refusal_events_subject_uniq",
+            "definition": "CREATE UNIQUE INDEX refusal_events_subject_uniq ON public.refusal_events USING btree (refusal_source, subject_id) WHERE (subject_id IS NOT NULL)"
+          }
+        ]
+      }
+    ],
+    "capturedAt": {
+      "current_time": "2026-09-15 08:35:19 UTC"
+    }
+  },
+  "verdict": "PASS: exactly five constraint definitions changed; eleven validated constraints and security posture match across both environments."
+}

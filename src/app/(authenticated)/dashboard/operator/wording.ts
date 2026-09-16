@@ -62,7 +62,7 @@ export const STARTER_ACTIONS = [
 ] as const;
 
 /**
- * One sentence per `TURN_FAILURE_REASON` member (seven). Each key is a token
+ * One sentence per `TURN_FAILURE_REASON` member. Each key is a token
  * the worker wrote; none of these is ever a provider message or owner text.
  */
 export const TURN_FAILURE_WORDING: Readonly<Record<string, string>> = {
@@ -73,18 +73,20 @@ export const TURN_FAILURE_WORDING: Readonly<Record<string, string>> = {
   model_output_invalid: 'The answer came back in a form we could not use. Nothing was changed — try asking again in your own words.',
   budget_exceeded: 'This account has reached its daily limit for AI work. Nothing was changed — try again tomorrow.',
   exhausted: 'We tried several times and could not finish this message. Nothing was changed. Start a new conversation to try again.',
+  dispatch_exhausted: 'We could not start this message after several attempts. Nothing was changed. Start a new conversation to try again.',
 };
 
 const TURN_FAILURE_FALLBACK = 'That message did not finish. Nothing was changed — try again.';
 
 /**
- * Which failures are worth offering a fresh conversation for. Both are
+ * Which failures are worth offering a fresh conversation for. These are
  * conversation-level dead ends: a stalled predecessor blocks every successor in
  * the SAME conversation, and an exhausted turn has already been retried.
  */
 export const OFFERS_NEW_CONVERSATION: ReadonlySet<string> = new Set([
   'predecessor_stalled',
   'exhausted',
+  'dispatch_exhausted',
 ]);
 
 /**
@@ -211,6 +213,11 @@ export const ROUTE_ERROR_WORDING: Readonly<Record<string, string>> = {
   contract_changed: 'RepWorth changed since this plan was prepared, so it must be prepared again. Nothing was applied.',
   apply_failed: 'Something went wrong and nothing was applied. Try again.',
   decline_failed: 'Something went wrong. Try again.',
+  restore_failed: 'We could not prepare this restore. Nothing was changed. Try again.',
+  restore_not_applied: 'Only an applied change can be restored. Nothing was changed.',
+  restore_invalid_source: 'This receipt can no longer be restored. Nothing was changed.',
+  restore_no_history: 'There is no applied change to restore in this scope.',
+  rules_timeline_failed: 'We could not load your rules timeline. Try again.',
   turn_create_failed: 'We could not send that message. Nothing was changed — try again.',
   turn_key_conflict: 'That message was already sent with different wording. Start a new conversation.',
   location_not_found: 'That location is no longer active.',

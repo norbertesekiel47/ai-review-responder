@@ -4,11 +4,13 @@ import {
   REVIEW_TEXT_REMOVED_MARKER,
   renderSegments,
   scrubPastedReview,
+  semanticRejectionCodes,
   validateModelOutput,
 } from '../render';
 import { modelVisibleOperations } from '../catalog';
 import type { Snapshot } from '../context';
 import { parseReplySegments, type Segment } from '../schema';
+import { OPERATOR_REFUSAL_REASONS, OPERATOR_REFUSAL_RULES } from '../refusals';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -68,6 +70,123 @@ const toneProposal = {
 };
 
 describe('operator output validator', () => {
+  it('distinguishes completion, scope and reference rejection diagnostics from real validation', () => {
+    const result = validateModelOutput(output({
+      segments: [
+        { type: 'text', text: 'I have updated your tone.' },
+        { type: 'scope_check', locationId: LOCATION },
+        { type: 'proposal_ref', index: 0 },
+      ],
+    }), snapshot);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected semantic rejection');
+    expect(semanticRejectionCodes(result.reasons)).toEqual([
+      'completion_claim', 'invalid_proposal_ref', 'scope_check_current_location',
+    ]);
+  });
+
+  it('never copies model-controlled reason suffixes or unknown reasons into diagnostic codes', () => {
+    const privateText = 'PRIVATE_SENTINEL\n{"owner_text":"DO_NOT_LOG"}';
+    const codes = semanticRejectionCodes([
+      `status_ref names a metric outside the snapshot: ${privateText}`,
+      `proposal names an operation outside the catalog: ${privateText}`,
+      `proposal names an operation this account may not use: ${privateText}`,
+      `proposal scope must name the stored location for ${privateText}`,
+      `proposal input is outside the domain for ${privateText}`,
+      privateText,
+      '__proto__',
+    ]);
+    expect(codes).toEqual([
+      'unknown_status_metric', 'unknown_operation', 'operation_unavailable',
+      'proposal_location_required', 'invalid_operation_input',
+      'unknown_semantic_rejection', 'unknown_semantic_rejection',
+    ]);
+    expect(JSON.stringify(codes)).not.toContain('PRIVATE_SENTINEL');
+    expect(JSON.stringify(codes)).not.toContain('DO_NOT_LOG');
+    expect(semanticRejectionCodes([])).toEqual([]);
+  });
+
+  it('keeps ordinary proposals separate from indexed Restore requests in a mixed refusal reply', () => {
+    const ready = { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) };
+    const restore = { ...toneProposal, operation: 'restore_last', input: {} };
+    const result = validateModelOutput(output({
+      proposals: [restore, toneProposal, { ...restore, scope: { accountId: ACCOUNT, locationId: null } }],
+      segments: [{ type: 'proposal_ref', index: 0 }, { type: 'refusal_ref', reason: 'review_incentive' },
+        { type: 'proposal_ref', index: 1 }, { type: 'proposal_ref', index: 2 }],
+    }), ready);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposals.map((proposal) => proposal.operation.id)).toEqual(['set_tone']);
+    expect(result.restoreRequests).toEqual([
+      { index: 0, scope: { accountId: ACCOUNT, locationId: LOCATION } },
+      { index: 2, scope: { accountId: ACCOUNT } },
+    ]);
+    expect(materializeReply({
+      segments: result.output.segments, metrics: snapshot.metrics, scrubbed: false,
+      proposalIds: ['location-restore', 'ordinary', 'account-restore'], refusalIds: { review_incentive: 'subject' },
+    })).toEqual([
+      { type: 'proposal', proposalId: 'location-restore' },
+      { type: 'refusal', reason: 'review_incentive', subjectId: 'subject' },
+      { type: 'proposal', proposalId: 'ordinary' }, { type: 'proposal', proposalId: 'account-restore' },
+    ]);
+  });
+
+  it('refuses Restore requests for foreign scopes, missing availability, or fabricated state', () => {
+    const ready = { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) };
+    const restore = { ...toneProposal, operation: 'restore_last', input: {} };
+    for (const candidate of [
+      { ...restore, scope: { accountId: OTHER_LOCATION, locationId: LOCATION } },
+      { ...restore, scope: { accountId: ACCOUNT, locationId: OTHER_LOCATION } },
+      { ...restore, input: { sourceProposalId: LOCATION } },
+    ]) expect(validateModelOutput(output({ proposals: [candidate] }), ready).ok).toBe(false);
+    expect(validateModelOutput(output({ proposals: [restore] }), snapshot).ok).toBe(false);
+  });
+
+  it('clear_location_override requires the stored location and an empty ordinary input', () => {
+    const readySnapshot = { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) };
+    const clear = { ...toneProposal, operation: 'clear_location_override', input: {} };
+    expect(validateModelOutput(output({ proposals: [clear] }), readySnapshot).ok).toBe(true);
+    expect(validateModelOutput(output({ proposals: [{ ...clear, scope: { accountId: ACCOUNT, locationId: null } }] }), readySnapshot).ok).toBe(false);
+  });
+
+  it('materializes every refusal into a durable subject and renders the fixed rule after reload', () => {
+    for (const reason of OPERATOR_REFUSAL_REASONS) {
+      const stored = materializeReply({
+        segments: [{ type: 'refusal_ref', reason }], metrics: snapshot.metrics, proposalIds: [],
+        refusalIds: { [reason]: LOCATION }, scrubbed: false,
+      });
+      expect(stored).toEqual([{ type: 'refusal', reason, subjectId: LOCATION }]);
+      expect(renderSegments(parseReplySegments(JSON.stringify(stored)), { locations: [] })).toEqual([
+        { type: 'refusal', reason, subjectId: LOCATION, text: OPERATOR_REFUSAL_RULES[reason].rule },
+      ]);
+    }
+  });
+
+  it('throws when a refusal has no server ID instead of silently dropping its durable record', () => {
+    expect(() => materializeReply({
+      segments: [{ type: 'refusal_ref', reason: 'invented_business_fact' }],
+      metrics: snapshot.metrics, proposalIds: [], scrubbed: false,
+    })).toThrow('refusal_ref has no server-minted subject ID');
+  });
+
+  it('stored refusal segments require a UUID and reject model references or fabricated wording', () => {
+    const stored = { type: 'refusal', reason: 'invented_business_fact', subjectId: LOCATION };
+    expect(() => parseReplySegments([{ ...stored, subjectId: 'not-a-uuid' }])).toThrow();
+    expect(() => parseReplySegments([{ ...stored, reason: 'made_up' }])).toThrow();
+    expect(() => parseReplySegments([{ ...stored, text: 'Fake clause' }])).toThrow();
+    expect(() => parseReplySegments([{ type: 'refusal_ref', reason: stored.reason }])).toThrow();
+  });
+
+  it('rejects duplicate identical refusal references while accepting distinct same-lane reasons', () => {
+    const first = { type: 'refusal_ref', reason: 'invented_business_fact' };
+    const duplicate = validateModelOutput(output({ segments: [first, first] }), snapshot);
+    expect(duplicate.ok).toBe(false);
+    expect(!duplicate.ok && duplicate.reasons.join(' ')).toContain('duplicate refusal_ref');
+    expect(validateModelOutput(output({ segments: [first,
+      { type: 'refusal_ref', reason: 'customer_data_exposure' },
+    ] }), snapshot).ok).toBe(true);
+  });
+
   it('validator rejects a text segment that invents a count next to a metric word', () => {
     const result = validateModelOutput(
       output({ segments: [{ type: 'text', text: 'You have 3 reviews waiting.' }] }),
@@ -328,6 +447,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
     const result = validateModelOutput(output({ proposals: [capProposal] }), policySnapshot);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.proposals).toHaveLength(1);
     expect(result.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
     expect('locationId' in result.proposals[0]!.scope).toBe(false);
     expect(result.proposals[0]!.operation.domain).toBe('policy');
@@ -337,6 +457,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
       output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT } }] }),
       policySnapshot,
     );
+    expect(absent.ok && absent.proposals).toHaveLength(1);
     expect(absent.ok && absent.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
 
     // An account-default proposal does not target the stored location, so it
@@ -351,6 +472,7 @@ describe('operator output validator — auto-approval policy proposals', () => {
       output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT, locationId: LOCATION } }] }),
       policySnapshot,
     );
+    expect(located.ok && located.proposals).toHaveLength(1);
     expect(located.ok && located.proposals[0]!.scope).toEqual({ accountId: ACCOUNT, locationId: LOCATION });
   });
 
@@ -408,6 +530,11 @@ describe('operator output validator — auto-approval policy proposals', () => {
       policySnapshot,
     );
     expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    expect(off.proposals).toHaveLength(1);
+    expect(off.proposals[0]!.operation.id).toBe('set_auto_reply_scope');
+    expect(off.proposals[0]!.scope).toEqual({ accountId: ACCOUNT, locationId: LOCATION });
+    expect(off.proposals[0]!.input).toEqual({ threshold: null });
   });
 });
 

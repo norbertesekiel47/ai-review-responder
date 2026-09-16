@@ -238,7 +238,7 @@ describe('autonomy cards', () => {
     const unreferenced = asProposal(proposal(policy({ id: 'unreferenced', describe: 'Another expansion' })));
     render(<TurnBody turn={{ id: TURN, sequence: 1, status: 'completed', failureReason: null,
       locationId: SALON, ownerText: 'Change my rules',
-      proposals: [expanding, ordinary, contraction, unreferenced], unsupported: [{ id: 'unsupported', request: 'A requested extra', context: '' }],
+      proposals: [expanding, ordinary, contraction, unreferenced], unsupported: [{ id: 'unsupported', request: 'A requested extra', context: '' }], refused: [],
       segments: [{ type: 'proposal', proposalId: expanding.id }, { type: 'proposal', proposalId: ordinary.id },
         { type: 'proposal', proposalId: contraction.id },
         { type: 'text', text: 'Last explanation' }, { type: 'proposal', proposalId: expanding.id }],

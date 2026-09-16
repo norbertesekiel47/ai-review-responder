@@ -15,6 +15,9 @@
 // ORDER. Precedent: the parked `feat/refusal-log` branch's own
 // `vocabulary.test.ts` parses migration 111 for the same reason.
 //
+// Run E extends the effective vocabulary with migration 121. These projection
+// comparisons read its lists; migration-121's executable integration suite
+// separately proves database behavior and unchanged access posture.
 // Title 4's authority is a bare TYPE union (`AutonomySuspensionTrigger`), which
 // nothing can enumerate at run time, so that case parses the union out of its
 // owning module instead of re-spelling four literals here.
@@ -51,7 +54,7 @@ import * as vocabulary from '../vocabulary';
 import type { AssertNever, UnrankedIn } from '../vocabulary';
 
 /** The table under test. Applied to staging and production; never edited here. */
-const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
+const VOCABULARY_MIGRATION = 'supabase/migrations/121_operator_refusals.sql';
 
 /** The module T2 creates. Read as TEXT by title 5. */
 const VOCABULARY_MODULE = 'src/lib/refusals/vocabulary.ts';
@@ -90,7 +93,7 @@ function readRepoFile(relativePath: string): string {
  * keeps a sentence from ever being read as a vocabulary.
  */
 function migrationSqlWithoutComments(): string {
-  return readRepoFile(MIGRATION_116)
+  return readRepoFile(VOCABULARY_MIGRATION)
     .split('\n')
     .filter((line) => !/^\s*--/.test(line))
     .join('\n');
@@ -113,7 +116,7 @@ function columnCheckMembers(column: string): readonly string[] {
   const match = pattern.exec(migrationSqlWithoutComments());
   const members = match?.[1];
   if (members === undefined) {
-    throw new Error(`${MIGRATION_116}: could not locate the ${column} CHECK member list`);
+    throw new Error(`${VOCABULARY_MIGRATION}: could not locate the ${column} CHECK member list`);
   }
   return quotedMembers(members);
 }
@@ -206,12 +209,12 @@ function unionMembers(relativePath: string, typeName: string): readonly string[]
 }
 
 describe('Refusal ledger vocabulary', () => {
-  it("REFUSAL_SOURCES lists exactly the seven lanes migration 116's refusal_source CHECK admits, in the migration's order", () => {
+  it("REFUSAL_SOURCES lists exactly the nine lanes migration 121's refusal_source CHECK admits, in the migration's order", () => {
     const admitted = columnCheckMembers('refusal_source');
 
     // Guard the parse itself: an anchor that silently matched nothing would
     // make every assertion below vacuous.
-    expect(admitted).toHaveLength(7);
+    expect(admitted).toHaveLength(9);
 
     // ORDERED, not sorted. A Refusal source is the LANE, and the lane order is
     // the migration's — `policy_gate_held` joined the parent effort's six in
@@ -220,19 +223,19 @@ describe('Refusal ledger vocabulary', () => {
     expect([...REFUSAL_SOURCES]).toEqual([...admitted]);
   });
 
-  it("REFUSAL_CATEGORIES lists exactly the eight categories migration 116's refusal_category CHECK admits, in the migration's order", () => {
+  it("REFUSAL_CATEGORIES lists exactly the nine categories migration 121's refusal_category CHECK admits, in the migration's order", () => {
     const admitted = columnCheckMembers('refusal_category');
 
     // Eight: `owner_review_required` was coined in #998 and joined the closed
     // seven the parked branch shipped.
-    expect(admitted).toHaveLength(8);
+    expect(admitted).toHaveLength(9);
     expect([...REFUSAL_CATEGORIES]).toEqual([...admitted]);
   });
 
-  it("REFUSAL_SUBJECT_TYPES lists exactly the four subject types migration 116's subject_type CHECK admits", () => {
+  it("REFUSAL_SUBJECT_TYPES lists exactly the five subject types migration 121's subject_type CHECK admits", () => {
     const admitted = columnCheckMembers('subject_type');
 
-    expect(admitted).toHaveLength(4);
+    expect(admitted).toHaveLength(5);
     expect([...REFUSAL_SUBJECT_TYPES]).toEqual([...admitted]);
   });
 

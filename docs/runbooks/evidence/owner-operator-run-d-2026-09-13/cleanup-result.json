@@ -1,0 +1,578 @@
+{
+  "target": "staging kubdiqdhqbhwmqfditeg",
+  "deletion": [
+    {
+      "verified_at": "2026-09-14 18:02:03.779448+00",
+      "deletion_readback": [
+        {
+          "before_ids": [
+            "019f43d0-0000-7000-8000-000000000001"
+          ],
+          "table_name": "accounts",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "019f43d0-0000-7000-8000-000000000031",
+            "2d4ae2aa-73df-40e9-8ac8-05a05ce7f8f4"
+          ],
+          "table_name": "agent_conversations",
+          "deleted_count": 2,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-9adb-758a-a5f6-1fabf1f2dd0a"
+          ],
+          "table_name": "agent_outcomes",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09cac-637e-72dc-8253-06ad15ccbba3",
+            "01a09cb7-b9e3-72fc-9b59-7c2662e46d3f",
+            "01a09cbd-b5dc-7408-aaf4-c38bfb4e9a30"
+          ],
+          "table_name": "agent_proposals",
+          "deleted_count": 3,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-8288-702c-80d6-7a6a82e9ce15",
+            "01a09caf-9a11-723e-a313-a1921046ee9d",
+            "01a09caf-9aa8-75e2-891a-48522d3b44fb",
+            "01a09caf-9b76-76bd-9164-2853376d73d8"
+          ],
+          "table_name": "agent_run_steps",
+          "deleted_count": 4,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-81a2-70eb-8061-2c372a96dd78"
+          ],
+          "table_name": "agent_runs",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "019f43d0-0000-7000-8000-000000000032",
+            "01a09cac-5183-7656-a8a4-1aa156cd2135",
+            "01a09cb7-6e5a-746f-8140-467aaf458ddb",
+            "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+            "01a09cf3-836c-71c3-b689-2eefd8778f72",
+            "01a09d2a-62bb-7063-90d1-0d0022e9f059",
+            "01a09d61-5a96-705d-9040-30c14aa9bf75",
+            "01a09d98-3a79-7369-97af-5d7eb8694009",
+            "01a09dcf-316d-73ee-8119-fa8c36d66966",
+            "01a09e06-19b4-755f-b383-23addef5b2c7",
+            "01a09e3d-1442-71ac-baf7-51478000553a",
+            "01a09e74-2738-7037-880e-e3f565383a0e",
+            "01a09e74-d531-75a5-9018-96bfa894380d",
+            "01a09e76-f6b6-771c-94cd-1d6a0992ced7",
+            "01a09e76-f98e-7327-952f-8c9ce71438d9",
+            "01a09eaa-de01-727f-8db6-9d76bb6c3def",
+            "01a09ee1-e92b-728b-8554-7f28fb21a6ad",
+            "01a09f19-0a1d-71b8-9908-56aab64cbffa",
+            "01a09f4f-a0bd-74e7-8a95-63bee25bb682",
+            "01a09f86-a12a-716c-9bb6-10cdb724c296",
+            "01a09fbd-9e48-7318-9515-43bfed47373a",
+            "01a09ff4-8887-7199-808e-8d10a6acae15",
+            "01a0a02b-91e3-7229-b476-8e7aa2768796",
+            "01a0a02b-94c4-7640-9db7-2dbcc7cbf9d1",
+            "01a0a062-542a-729c-97ba-ccfbc215c82e",
+            "01a0a099-4132-777d-9681-01ad4b0e3614",
+            "01a0a0d0-38c3-720c-acc4-66b56eb7b3de"
+          ],
+          "table_name": "agent_turns",
+          "deleted_count": 27,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-8358-75fe-ba5c-2eeace158ec6",
+            "01a09caf-9bf9-7052-8a91-ba7d0ed975be"
+          ],
+          "table_name": "analytics_events",
+          "deleted_count": 2,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09cac-62f8-727c-acc4-92df4bd3f2be",
+            "01a09caf-92d7-7104-a1ae-053b9c4e0453",
+            "01a09cb7-b95f-7179-b757-7c4ab4d11cc7",
+            "01a09cbd-b541-76e9-b290-b30318e99b3f",
+            "01a09cf3-998c-746b-8b4a-10c960193d79",
+            "01a09d2a-7839-7006-a134-e596de438b5c",
+            "01a09d61-6bbd-72ae-9da5-ab49ee6525e0",
+            "01a09d98-4ab3-74ec-8940-d5a426aba356",
+            "01a09dcf-3ee6-778f-b3dd-b37e13785d7c",
+            "01a09e06-3078-74c3-a3ae-c3c1c3b288e4",
+            "01a09e3d-23f6-72fd-83a1-1e0e2cdcd8ba",
+            "01a09e74-4036-7133-aa2a-297d69789d9a",
+            "01a09e74-e897-70e0-860e-73059d0ebd02",
+            "01a09e77-0d3e-71f3-8daa-5efb9a2cdf4f",
+            "01a09e77-3784-7762-8f42-c61e4fa08d83",
+            "01a09eaa-f71f-71dc-a85e-8c21bb4ff75e",
+            "01a09ee1-fced-77f9-af45-faf65b6516bb",
+            "01a09f19-2a33-7367-8a82-6764633f0346",
+            "01a09f4f-bd3e-7019-88f5-99c2128fffb3",
+            "01a09f86-b08e-7730-ae9e-3bff5fd56a16",
+            "01a09fbd-b76f-73f9-81f4-ab9e900e8ee4",
+            "01a09ff4-a8b0-7029-b0a9-9062845e4ad7",
+            "01a0a02b-b0f1-716a-83c6-2aa2017902db",
+            "01a0a02b-d49f-7561-a205-3a9882cfc000",
+            "01a0a062-6a30-71f4-b3ef-39eca4062b2d",
+            "01a0a099-5e45-7562-94d4-e63553226881",
+            "01a0a0d0-5122-71cc-ba16-85113d101166"
+          ],
+          "table_name": "api_costs",
+          "deleted_count": 27,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "019f43d0-0000-7000-8000-000000000011",
+            "019f43d0-0000-7000-8000-000000000012"
+          ],
+          "table_name": "businesses",
+          "deleted_count": 2,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09cae-0e25-720d-acda-a65698430a69"
+          ],
+          "table_name": "channel_enrollments",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09cac-52a2-773f-aba7-3e2ec11da07d",
+            "01a09caf-82ca-779c-b401-a49ce70f5ebd",
+            "01a09cb7-6f4c-7653-a6dc-e338e2f5b6cc",
+            "01a09cbd-9d1b-7429-8c18-c6c667fb9802",
+            "01a09cf3-8473-73bc-8236-53660f227a50",
+            "01a09d2a-63b2-752f-9b98-96addccb7a33",
+            "01a09d61-5b88-76cc-b494-8bdb351d18e1",
+            "01a09d98-3b7f-765a-8a04-c57d2c49a207",
+            "01a09dcf-327f-777f-8dcc-dac26092de0a",
+            "01a09e06-1aa7-730f-a0ba-8ca70b506e6a",
+            "01a09e3d-1544-7158-aaea-7ca51ab72640",
+            "01a09e74-2845-73ee-90ee-3a4bfb9f62e1",
+            "01a09e74-d64c-70fa-a0c5-9418790c5a69",
+            "01a09e76-f7ba-70df-b157-339d42992934",
+            "01a09e76-fa9e-77a1-8453-006473b7349e",
+            "01a09eaa-df0d-742f-85c4-abb0aef93eb7",
+            "01a09ee1-ea4d-7548-bb31-55c19f994a60",
+            "01a09f19-0b14-713d-95c1-6217249acaa7",
+            "01a09f4f-a1c2-708c-b264-9fa91546684d",
+            "01a09f86-a216-7218-8dce-a61962c09de5",
+            "01a09fbd-9f56-72b8-b4d2-38e1b465c5df",
+            "01a09ff4-897b-7259-af50-15552b372aa6",
+            "01a0a02b-92f8-77f3-be95-76fefc5d46f2",
+            "01a0a02b-95c8-7122-84b8-83c8c74d01fb",
+            "01a0a062-551f-731c-9b7f-ee01cfeda33c",
+            "01a0a099-4230-763b-9bc2-e718ea9613c2",
+            "01a0a0d0-39d8-76dc-bacd-fe09a4fc072e"
+          ],
+          "table_name": "job_outbox",
+          "deleted_count": 27,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-9893-76dd-8f8c-0a8f41f3d67d"
+          ],
+          "table_name": "responses",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "01a09caf-8108-73db-8cd3-a5dcf3dc6dce"
+          ],
+          "table_name": "reviews",
+          "deleted_count": 1,
+          "remaining_count": 0
+        },
+        {
+          "before_ids": [
+            "019f43d0-0000-7000-8000-000000000002"
+          ],
+          "table_name": "users",
+          "deleted_count": 1,
+          "remaining_count": 0
+        }
+      ]
+    }
+  ],
+  "public_id_readback": [
+    {
+      "table_name": "accounts",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_conversations",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_outcomes",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_proposals",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_run_steps",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_runs",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "agent_turns",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "analytics_events",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "api_costs",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "businesses",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "channel_enrollments",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "responses",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "reviews",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "users",
+      "remaining_ids": 0
+    },
+    {
+      "table_name": "job_outbox",
+      "remaining_ids": 0
+    }
+  ],
+  "public_scope_readback": [
+    {
+      "table_name": "account_audit_log",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "account_offboarding_tokens",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "account_offboardings",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "accounts",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "admin_audit_log",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_conversations",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_outcomes",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_proposals",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_run_steps",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_runs",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_turns",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "agent_unsupported_requests",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "analytics_events",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "api_costs",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "api_costs_daily_rollups",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "approval_audit_log",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "approval_links",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "auto_approval_policies",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "businesses",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "channel_enrollments",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "competitor_snapshots",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "contact_csv_uploads",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "flagged_responses",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "google_connections",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "impersonation_sessions",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "judge_verdicts",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "monthly_impact_emails",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "notification_deliveries",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "onboarding_demos",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "onboarding_drip_log",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "prospect_demos",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "ranking_snapshots",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "refusal_events",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "responses",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "review_escalations",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "review_exceptions",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "reviews",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "satisfaction_responses",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_asks",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_batches",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_consent",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_contacts",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_outreach",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_send_breaker",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_suppression_corrections",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_suppressions",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_unsubscribe_tokens",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "solicitation_visits",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "users",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "weekly_summaries",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "zernio_backfill_runs",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "zernio_connections",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "zernio_finalize_incidents",
+      "count": 0,
+      "ids": []
+    },
+    {
+      "table_name": "job_outbox",
+      "count": 0,
+      "ids": []
+    }
+  ],
+  "auth_recovery_readback": [
+    {
+      "captured_at": "2026-09-14 18:02:53.328846+00",
+      "auth_users": 0,
+      "auth_identities": 0,
+      "auth_sessions": 0,
+      "auth_refresh_tokens": 0,
+      "recovery_outbox": 0,
+      "recovery_client_key": 0
+    }
+  ],
+  "auth_helper_result": {
+    "id": "856a970a-45a9-43a4-a9a4-71261f7b4fb7",
+    "email": "run-d-c48bb6a6@e2e.repworth.net",
+    "removed": true
+  },
+  "jobs_evidence": "cleanup-jobs-removed.json",
+  "browser": {
+    "viewport_reset": true,
+    "synthetic_tab_1_closed": true,
+    "remaining_user_tabs": [
+      "3"
+    ]
+  },
+  "notes": [
+    "Two pending synthetic analytics events were removed before their parents; they were not claimed to have been dispatched.",
+    "Initial automatic approval review rejected deletion pending disposable-fixture proof. Additional read-only verification confirmed both conversations were created by the exact synthetic owner with zero foreign turn/proposal owners. The same transaction was then approved and executed; no workaround or broader deletion was used."
+  ]
+}

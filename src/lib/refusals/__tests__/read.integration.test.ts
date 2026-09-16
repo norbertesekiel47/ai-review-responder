@@ -175,10 +175,11 @@ async function seedArchivalEvent(
 
 interface SeedRefusalInput {
   accountId: string;
-  /** null is the account-wide `autonomy_suspended` lane (C3). */
+  /** null denotes an account-wide lane (C3). */
   businessId: string | null;
   category: RefusalCategory;
   source?: RefusalSource;
+  refusalCode?: string;
   subjectId?: string | null;
   occurredAt?: Date;
   /** Raw SQL fragment for a sub-millisecond fixture. Overrides `occurredAt`. */
@@ -199,13 +200,15 @@ async function seedRefusal(input: SeedRefusalInput): Promise<string> {
   // C1 — the lane determines the subject type, totally.
   const subjectType = source === 'autonomy_suspended'
     ? null
-    : source === 'ask_withheld'
-      ? 'solicitation_ask'
-      : source === 'outreach_withheld'
-        ? 'solicitation_outreach'
-        : source === 'batch_halted'
-          ? 'solicitation_batch'
-          : 'response';
+    : source === 'operator_content_refused' || source === 'operator_policy_refused'
+      ? 'operator_refusal'
+      : source === 'ask_withheld'
+        ? 'solicitation_ask'
+        : source === 'outreach_withheld'
+          ? 'solicitation_outreach'
+          : source === 'batch_halted'
+            ? 'solicitation_batch'
+            : 'response';
 
   // C2 — a subject is whole or absent.
   const subjectId = subjectType === null
@@ -219,7 +222,7 @@ async function seedRefusal(input: SeedRefusalInput): Promise<string> {
     : null;
   const refusalCode = source === 'held_draft'
     ? null
-    : (allRefusalCodes?.[0] ?? 'seeded_code');
+    : (input.refusalCode ?? allRefusalCodes?.[0] ?? 'seeded_code');
 
   const occurredAt = input.occurredAtSql
     ?? sql()`${input.occurredAt ?? new Date()}`;
@@ -468,6 +471,53 @@ describeWithDb(
 
       expect(log.total).toBe(1);
       expect(log.entries[0]?.category).toBe('unsafe_content');
+    });
+
+    it('counts Operator policy refusals once per account and once per location while retaining only the safe category projection', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const sibling = await addLocation(accountId);
+      const foreign = await seedAccountWithLocation();
+      const accountSubject = randomUUID();
+      const locationSubject = randomUUID();
+      const siblingSubject = randomUUID();
+      const accountRefusal = await seedRefusal({
+        accountId, businessId: null, source: 'operator_policy_refused',
+        category: 'request_not_allowed', refusalCode: 'review_incentive',
+        subjectId: accountSubject,
+      });
+      const locationRefusal = await seedRefusal({
+        accountId, businessId, source: 'operator_content_refused',
+        category: 'request_not_allowed', refusalCode: 'invented_business_fact',
+        subjectId: locationSubject,
+      });
+      const siblingRefusal = await seedRefusal({
+        accountId, businessId: sibling, source: 'operator_content_refused',
+        category: 'request_not_allowed', refusalCode: 'customer_data_exposure',
+        subjectId: siblingSubject,
+      });
+      await seedRefusal({
+        accountId: foreign.accountId, businessId: null, source: 'operator_policy_refused',
+        category: 'request_not_allowed', refusalCode: 'review_edit_pressure',
+      });
+      const accountLog = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      const locationLog = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+      const siblingLog = await getRefusalLog(sql(), { kind: 'location', accountId, businessId: sibling }, '30d');
+      expect(accountLog.total).toBe(3);
+      expect(accountLog.entries.map((entry) => entry.id).sort()).toEqual([accountRefusal, locationRefusal, siblingRefusal].sort());
+      expect(locationLog.total).toBe(2);
+      expect(locationLog.entries.map((entry) => entry.id).sort()).toEqual([accountRefusal, locationRefusal].sort());
+      expect(siblingLog.total).toBe(2);
+      expect(siblingLog.entries.map((entry) => entry.id).sort()).toEqual([accountRefusal, siblingRefusal].sort());
+      for (const entry of accountLog.entries) {
+        expect(Object.keys(entry).sort()).toEqual(['id', 'category', 'occurredAt', 'subjectType', 'subjectId', 'reviewId', 'linkKind'].sort());
+        expect(entry.category).toBe('request_not_allowed');
+        expect(entry.subjectType).toBe('operator_refusal');
+        expect(entry.reviewId).toBeNull();
+        expect(entry.linkKind).toBeNull();
+      }
+      expect(accountLog.entries.find((entry) => entry.id === accountRefusal)?.subjectId).toBe(accountSubject);
+      expect(accountLog.entries.find((entry) => entry.id === locationRefusal)?.subjectId).toBe(locationSubject);
+      expect(accountLog.entries.find((entry) => entry.id === siblingRefusal)?.subjectId).toBe(siblingSubject);
     });
 
     // --- The account-wide suspension, which is the read's hardest case (I7) ---

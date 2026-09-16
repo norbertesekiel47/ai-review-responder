@@ -1,0 +1,32 @@
+{
+  "segments": [
+    {
+      "file": "observation-health.jsonl",
+      "count": 116,
+      "first": "2026-09-13T21:51:48.006383+00:00",
+      "last": "2026-09-14T07:26:48.011294+00:00"
+    },
+    {
+      "file": "observation-health-continuation-20260914.jsonl",
+      "count": 122,
+      "first": "2026-09-14T07:29:09.075085+00:00",
+      "last": "2026-09-14T17:31:48.015205+00:00"
+    }
+  ],
+  "samples": 238,
+  "failures": [],
+  "max_sample_gap_seconds": 300.010209,
+  "last_sample": {
+    "at": "2026-09-14T17:31:48.015205+00:00",
+    "url": "https://repworth-worker-staging.up.railway.app/ready",
+    "http_status": 200,
+    "status": "ready",
+    "service": "worker",
+    "checks": {
+      "postgres": "ok",
+      "queue_redis": "ok",
+      "cache_redis": "ok"
+    },
+    "server_timestamp": "2026-09-14T17:31:48.153Z"
+  }
+}

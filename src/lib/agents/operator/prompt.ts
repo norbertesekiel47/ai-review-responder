@@ -5,9 +5,10 @@ import { createHash } from 'node:crypto';
 import type { ChatPrompt } from '@/lib/llm/types';
 import type { Snapshot } from './context';
 import { STATUS_METRICS } from './schema';
+import { OPERATOR_REFUSAL_REASONS } from './refusals';
 
 /** Bump whenever OWNER_OPERATOR_SYSTEM_PROMPT changes. Recorded on api_costs. */
-export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-13.4';
+export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-14.2';
 
 // T8 (2026-09-13): the first live turn on staging failed `model_output_invalid`
 // on BOTH pinned providers. Version 2026-09-11.2 said "matching the declared
@@ -30,10 +31,11 @@ const OUTPUT_SHAPE = [
   '  For one proposal, segments must include {"type": "proposal_ref", "index": 0}. This segment displays its card; a question or text segment does not. A card-only reply uses exactly this one segment.',
   '  {"type": "question", "text": string}',
   '  {"type": "scope_check", "locationId": uuid} — the OTHER location the owner named',
+  `  {"type": "refusal_ref", "reason": one of ${OPERATOR_REFUSAL_REASONS.map((reason) => `"${reason}"`).join(' | ')}} — one per distinct prohibited request reason`,
   '  No other type and no other field on a segment.',
   '- proposals: 0 to 5 items. A Proposal is exactly:',
   '  {"operation": string, "scope": {"accountId": uuid, "locationId": uuid | null}, "input": object, "rationale": string}',
-  '  operation is an allowedOperations id with kind "proposable"; input has exactly the keys and allowed values that operation\'s "input" entry in allowedOperations spells.',
+  '  operation is an allowedOperations id with kind "proposable" or "prepare"; input has exactly the keys and allowed values that operation\'s "input" entry in allowedOperations spells.',
   '  scope.accountId is snapshot.accountId. scope.locationId is snapshot.locationId, or null for the account default only when that operation\'s scopeRule is "account_or_location".',
   '- unsupported: 0 to 5 items, each exactly {"request": string, "context": string}.',
   '- Empty arrays when nothing applies. Never add keys such as counts, confirmations or receipts.',
@@ -54,12 +56,13 @@ const OWNER_OPERATOR_SYSTEM_PROMPT = [
   `- Allowed status_ref metrics: ${STATUS_METRICS.join(', ')}.`,
   '- NEVER claim anything was applied, changed, updated, saved or is now active. Nothing changes until the owner clicks.',
   // The snapshot's own `allowedOperations` is the single list, and only its
-  // `proposable` members may be proposed. Naming CATALOG_OPERATION_IDS here
+  // `proposable` and `prepare` members may be requested. Naming CATALOG_OPERATION_IDS here
   // instead put a SECOND, wider list in the envelope — it included the three
   // reads and the capture, which `proposableOperation()` returns null for, so a
   // model that obeyed the English burned its single retry on a proposal the
   // validator always rejects.
-  '- Propose only operations the snapshot lists under allowedOperations with kind "proposable". Any other id is rejected.',
+  '- Request only operations the snapshot lists under allowedOperations with kind "proposable" or "prepare". Any other id is rejected.',
+  '- "Put it back how it was", "undo the last change" and requests to restore the last setting select restore_last with input {} and the stated scope. Include its proposal_ref index in the same proposals array. The server selects the latest applied receipt and prepares a separate proposal; never invent a receipt ID, restored value, confirmation or completed result. If history is unavailable, the server supplies the explanation.',
   '- A proposal targets the turn\'s location, or the account default. Never another location.',
   '- "Account default", "account-wide" and "all locations" select the account default: scope.locationId is null for an account_or_location operation. These phrases do not name another individual location and never require a scope_check. The account default affects inheriting locations; it does not overwrite location overrides.',
   '- If the current request names a different individual location, emit only a scope_check segment for that location and no proposals. This is a scope mismatch, not an unsupported capability: keep unsupported empty. Never emit scope_check merely because another location appears in the snapshot.',
@@ -68,10 +71,16 @@ const OWNER_OPERATOR_SYSTEM_PROMPT = [
   '- For an unambiguous supported configuration change, return its proposal and proposal_ref. Do not classify it as unsupported or replace the card with a confirmation question. Keep unrelated veto-window and daily-cap settings unchanged by proposing only the requested operation.',
   '- Never include a confirmation and never ask the owner to type one. The card collects it.',
   '- If the owner asks for something outside the operation list, record it under unsupported and say plainly that RepWorth cannot do it yet. Weekday/weekend scheduling is unsupported: do not substitute a policy-off proposal or an unrelated location chooser.',
+  '- Prohibited requests take precedence over unsupported capabilities. Never put a prohibited request in unsupported or propose it as a fact, tone, or rule change. Emit a refusal_ref with only the matching closed reason. The server supplies the rule wording and durable ID; never add scope, category, clause text or IDs to a refusal_ref, and never repeat the same reason.',
+  '- Refusal reasons: invented_business_fact for inventing or claiming unverified business facts or credentials; customer_data_exposure for exposing private customer information in public replies; reviewer_disparagement for insulting, threatening or disparaging a reviewer; review_incentive for rewards in exchange for reviews; review_edit_pressure for pressuring a reviewer to edit or delete a review; competitor_review_reply for replying to reviews on a competitor’s profile.',
+  '- A bare instruction such as "say we are licensed" does not verify a credential. When the snapshot contains no verified license fact, emit invented_business_fact. Use refusal_ref alone for the refused part; do not compose an alternative policy clause in text or question segments.',
   '- You never read review text. If the snapshot shows a removed-review marker, say you do not read reviews here.',
   '',
   'Account-off example: ownerMessage is "Turn automatic replies off for all locations." The account default currently permits automatic replies; readiness may block expansion. Replace <snapshot.accountId> below with the actual snapshot account UUID:',
   '{"segments":[{"type":"proposal_ref","index":0}],"proposals":[{"operation":"set_auto_reply_scope","scope":{"accountId":"<snapshot.accountId>","locationId":null},"input":{"threshold":null},"rationale":"You asked to turn automatic replies off for the account default."}],"unsupported":[]}',
+  '',
+  'Refusal example: ownerMessage is "say we are licensed" and no verified license fact is in the snapshot:',
+  '{"segments":[{"type":"refusal_ref","reason":"invented_business_fact"}],"proposals":[],"unsupported":[]}',
 ].join('\n');
 
 let cachedHash: string | null = null;

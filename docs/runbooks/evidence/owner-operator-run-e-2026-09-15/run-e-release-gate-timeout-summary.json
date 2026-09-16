@@ -1,0 +1,63 @@
+{
+  "reportCommit": "fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4",
+  "measuredHead": "ba0c65bb3a3665ed10a6441d27917802819ad4c1",
+  "canonicalChecker": "CLEAR; root-confirmed",
+  "inventory": 2437,
+  "killed": 361,
+  "excluded": 2076,
+  "fixedFindings": 12,
+  "openFindings": 0,
+  "riskWaivers": 0,
+  "firstPostReportGate": {
+    "state": "FAILED test row; remaining gate stopped, not completed GREEN",
+    "exitCode": 143,
+    "testTimeoutMs": 5000,
+    "failedTests": 4,
+    "passedTests": 14899,
+    "skippedTests": 1316,
+    "durationSeconds": 502.87,
+    "failedTitles": [
+      "FAIL  |parallel| scripts/ci/__tests__/admin-contract-schemas.test.ts > admin request schema source analysis > separates parameters, JSON bodies, multipart, and bodyless methods",
+      "FAIL  |parallel| src/lib/locations/__tests__/review-qr.test.ts > getOwnerReviewQrLocations > returns only the caller's account locations from getOwnerReviewQrLocations",
+      "FAIL  |parallel| src/lib/locations/__tests__/review-qr.test.ts > getOwnerReviewQrLocation > returns the one mapped location and generates exactly one QR",
+      "FAIL  |parallel| src/lib/locations/__tests__/review-qr.test.ts > getOwnerReviewQrLocation > scopes the one query by the caller account id"
+    ],
+    "interruption": {
+      "reason": "Stopped remaining checks after recorded four test timeouts; no passing gate claimed",
+      "head": "fb66d15dd1297927f4fe9aaee0dc1c682d01e3a4",
+      "gatePid": 29198,
+      "identifiedProcessIds": [
+        29198,
+        16506,
+        89469,
+        89471,
+        89496,
+        16469,
+        16515,
+        17203,
+        17220
+      ],
+      "forcedTerminationIds": [],
+      "previousStatusIsHistorical": true,
+      "archive": "/private/tmp/run-e-release-gate-timeouts-fb66d15d"
+    },
+    "archivedStatusIsHistorical": true,
+    "testLogSha256": "c7ae5caa7ce08e8389f9cf213e2955564222edd9de32871b364619feaf1102ee"
+  },
+  "focusedUnchangedVerification": {
+    "startAt": "2026-09-15T11:06:35Z",
+    "command": "pnpm exec vitest run --coverage scripts/ci/__tests__/admin-contract-schemas.test.ts src/lib/locations/__tests__/review-qr.test.ts --maxWorkers=1",
+    "passedFiles": 2,
+    "passedTests": 27,
+    "durationSeconds": 26.18,
+    "sourceAssertionTimeoutChanges": false,
+    "log": "run-e-release-timeout-focused.log",
+    "sha256": "ec47c19373356d73f17ad6df06464565b673310233a1ca9d1412575e38057224"
+  },
+  "remaining": [
+    "complete one-worker post-report gate",
+    "required PR CI",
+    "feature/docs merges",
+    "post-merge verification"
+  ]
+}

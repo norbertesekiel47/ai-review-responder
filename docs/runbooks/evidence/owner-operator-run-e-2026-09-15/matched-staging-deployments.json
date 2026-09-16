@@ -1,0 +1,72 @@
+{
+  "capturedAt": {
+    "current_time": "2026-09-15 08:48:23 UTC"
+  },
+  "railway": {
+    "createdAt": "2026-09-15T08:45:21.612Z",
+    "environmentId": "58c06358-8cbe-497f-bec0-df3b47769a10",
+    "id": "6cbf08db-c0cb-4760-85bb-f3df334846de",
+    "meta": {
+      "branch": "staging",
+      "commitHash": "da87399c317d89f85ca8076a6dc1643c4c8995cc",
+      "commitMessage": "docs(operator): finalize Run E adversarial evidence",
+      "reason": "deploy"
+    },
+    "serviceId": "fb413c72-29b6-4cd1-90c2-26002491e301",
+    "snapshotId": "4e18e919-21f5-4f5a-8d73-a6e681f75c7b",
+    "status": "SUCCESS",
+    "updatedAt": "2026-09-15T08:47:15.647Z",
+    "url": null
+  },
+  "vercel": {
+    "id": "dpl_HY5KKihPQitA4btWrRPi8FwwYgfZ",
+    "name": "rep-worth",
+    "url": "rep-worth-qldqbd31d-norbert-esekiels-projects.vercel.app",
+    "type": "LAMBDAS",
+    "state": "READY",
+    "createdAt": 1789461922929,
+    "creator": {
+      "uid": "3Vpxp0Tda70IkdZubfuxhoK9",
+      "username": "norbertesekiel-6415"
+    },
+    "project": {
+      "id": "prj_wIMnzHKefoQRdzCeMZesg2mIgNc0",
+      "name": "rep-worth",
+      "framework": "nextjs"
+    },
+    "meta": {
+      "githubCommitAuthorName": "Norbert Esekiel",
+      "githubCommitAuthorEmail": "norbertesekiel@gmail.com",
+      "githubCommitMessage": "docs(operator): finalize Run E adversarial evidence",
+      "githubCommitOrg": "RepWorth",
+      "githubCommitRef": "staging",
+      "githubCommitRepo": "ai-review-responder",
+      "githubCommitSha": "da87399c317d89f85ca8076a6dc1643c4c8995cc",
+      "githubDeployment": "1",
+      "githubOrg": "RepWorth",
+      "githubRepo": "ai-review-responder",
+      "githubRepoOwnerType": "Organization",
+      "githubCommitRepoId": "1202359628",
+      "githubRepoId": "1202359628",
+      "githubRepoVisibility": "private",
+      "githubHost": "github.com",
+      "githubCommitAuthorLogin": "norbertesekiel47",
+      "githubCommitVerification": "unverified",
+      "repoPushedAt": "1789461920000",
+      "lambdaRuntimeStats": "{\"nodejs\":3}"
+    },
+    "alias": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ],
+    "target": null,
+    "regions": [
+      "iad1"
+    ],
+    "buildingAt": 1789461951532,
+    "ready": 1789462080638,
+    "readyState": "READY",
+    "source": "git",
+    "aliasError": null
+  }
+}

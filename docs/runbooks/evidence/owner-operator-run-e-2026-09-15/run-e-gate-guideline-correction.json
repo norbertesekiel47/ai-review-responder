@@ -1,0 +1,24 @@
+{
+  "candidate": "263fe7e3def2ebd1cae4f76de146c7822b278d9a",
+  "predecessor": "ac487bde9ce2d54022f02375901500abf0edf3a7",
+  "correction": "Root initially missed agent-config failure in first ac487 gate. Both full ac487 gates failed the 511-line skill document limit; first also had a5s timeout. Second passed all behavioral checks but was RED. Earlier timeout-only summaries are incomplete.",
+  "preservedGates": [
+    "/private/tmp/run-e-corrective-gate-ac487-timeout-preserved",
+    "/private/tmp/run-e-corrective-gate-ac487-guideline-preserved"
+  ],
+  "formatting": {
+    "beforeLines": 511,
+    "afterLines": 498,
+    "whitespaceSeparatedWordTokens": "identical",
+    "mirrors": "byte-identical",
+    "agentConfig": "PASS:16skills5hooks18rules",
+    "reviewer": "native Codex /root/run_e_branch_standards APPROVE"
+  },
+  "sourceChanges": "None: runner/checker/tests/product/intake/reports and raw594 checkpoint unchanged; only both skill paragraphs reflowed and both review/deviation records appended.",
+  "currentGate": {
+    "status": "RUNNING",
+    "log": "/private/tmp/run-e-corrective-263fe7-full-gate.log"
+  },
+  "adversarialLaunches": 594,
+  "correctiveAdmission": false
+}

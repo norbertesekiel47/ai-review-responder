@@ -1,0 +1,16 @@
+{
+  "campaign": "Run E scoped cleanup",
+  "files": {
+    "run-e-queue-before-cleanup.json": "e3e405a5877fcb9680812bc65c6037e38fbe5ecec3c823187b92bb0a806702ed",
+    "run-e-queue-cleanup-result.json": "eaaa6f530eb7d2d9c7267532d250b3e0a22218dd69b53eabb5081ab596062832",
+    "run-e-queue-cleanup-readback.json": "0e1905a3d60aa253fbe4a2c6c36d80c2c9a73ac858fc056ed4411c220a659b07",
+    "run-e-signed-out.txt": "a95a3cf2153b9b01cefb9af9c4258ba8ca76eba1b63e14de927c59f0649ebcf4",
+    "run-e-cleanup-final-closure.json": "e9a60a2a5d251cdb9014511fd35bcdc9adfe413efe1a159f8ef0d43e873f3ebb",
+    "run-e-public-cleanup-rehearsal-result.json": "ab5ecf34d3a3e3630cc6b42df37a4d344e90b61a2fbca7e3f78fb49ec527e0af",
+    "run-e-public-cleanup-commit-result.json": "ab5ecf34d3a3e3630cc6b42df37a4d344e90b61a2fbca7e3f78fb49ec527e0af",
+    "run-e-auth-cleanup-result.json": "c371ffa765ed583b1bee872d2e5b6f5b91c03802c0ac77cacff7d0ba628741ee",
+    "run-e-cleanup-final-readback.json": "c85b9c79466341863883c3055efa5ae9a0273e876b7c548fd775515d6b7c972a",
+    "cleanup-final-worker-flags.json": "c1707e437e267ba4b8f143941f3d736c15658b2da11fc6f880b89e2a6bf62c13"
+  },
+  "excluded": "No older broad nil-UUID inventory copied; unrelated metadata excluded"
+}

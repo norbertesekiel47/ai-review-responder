@@ -1,0 +1,242 @@
+[
+  {
+    "attempt_id": "slot-00-a",
+    "slot": 0,
+    "attempted_at": "2026-09-13T21:47:44.793Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-01-a",
+    "slot": 1,
+    "attempted_at": "2026-09-13T22:46:34.403Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09cf3-836c-71c3-b689-2eefd8778f72",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-02-a",
+    "slot": 2,
+    "attempted_at": "2026-09-13T23:46:30.460Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09d2a-62bb-7063-90d1-0d0022e9f059",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-03-a",
+    "slot": 3,
+    "attempted_at": "2026-09-14T00:46:32.944Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09d61-5a96-705d-9040-30c14aa9bf75",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-04-a",
+    "slot": 4,
+    "attempted_at": "2026-09-14T01:46:28.909Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09d98-3a79-7369-97af-5d7eb8694009",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-05-a",
+    "slot": 5,
+    "attempted_at": "2026-09-14T02:46:31.596Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09dcf-316d-73ee-8119-fa8c36d66966",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-06-a",
+    "slot": 6,
+    "attempted_at": "2026-09-14T03:46:29.619Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e06-19b4-755f-b383-23addef5b2c7",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-07-a",
+    "slot": 7,
+    "attempted_at": "2026-09-14T04:46:33.241Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e3d-1442-71ac-baf7-51478000553a",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-08-a",
+    "slot": 8,
+    "attempted_at": "2026-09-14T05:46:41.814Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e74-2738-7037-880e-e3f565383a0e",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-08-b",
+    "slot": 8,
+    "attempted_at": "2026-09-14T05:47:29.409Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e74-d531-75a5-9018-96bfa894380d",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-08-c",
+    "slot": 8,
+    "attempted_at": "2026-09-14T05:49:49.072Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e76-f6b6-771c-94cd-1d6a0992ced7",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-08-d",
+    "slot": 8,
+    "attempted_at": "2026-09-14T05:49:49.072Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09e76-f98e-7327-952f-8c9ce71438d9",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-09-a",
+    "slot": 9,
+    "attempted_at": "2026-09-14T06:46:31.087Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09eaa-de01-727f-8db6-9d76bb6c3def",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-10-a",
+    "slot": 10,
+    "attempted_at": "2026-09-14T07:46:35.399Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09ee1-e92b-728b-8554-7f28fb21a6ad",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-11-a",
+    "slot": 11,
+    "attempted_at": "2026-09-14T08:46:48.349Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09f19-0a1d-71b8-9908-56aab64cbffa",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-12-a",
+    "slot": 12,
+    "attempted_at": "2026-09-14T09:46:25.835Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09f4f-a0bd-74e7-8a95-63bee25bb682",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-13-a",
+    "slot": 13,
+    "attempted_at": "2026-09-14T10:46:30.288Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09f86-a12a-716c-9bb6-10cdb724c296",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-14-a",
+    "slot": 14,
+    "attempted_at": "2026-09-14T11:46:33.890Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09fbd-9e48-7318-9515-43bfed47373a",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-15-a",
+    "slot": 15,
+    "attempted_at": "2026-09-14T12:46:32.716Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a09ff4-8887-7199-808e-8d10a6acae15",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-16-a",
+    "slot": 16,
+    "attempted_at": "2026-09-14T13:46:38.412Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a0a02b-94c4-7640-9db7-2dbcc7cbf9d1",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-16-b",
+    "slot": 16,
+    "attempted_at": "2026-09-14T13:46:38.412Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a0a02b-91e3-7229-b476-8e7aa2768796",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-17-a",
+    "slot": 17,
+    "attempted_at": "2026-09-14T14:46:28.425Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a0a062-542a-729c-97ba-ccfbc215c82e",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-18-a",
+    "slot": 18,
+    "attempted_at": "2026-09-14T15:46:27.505Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a0a099-4132-777d-9681-01ad4b0e3614",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  },
+  {
+    "attempt_id": "slot-19-a",
+    "slot": 19,
+    "attempted_at": "2026-09-14T16:46:29.804Z",
+    "account_id": "019f43d0-0000-7000-8000-000000000001",
+    "turn_id": "01a0a0d0-38c3-720c-acc4-66b56eb7b3de",
+    "client_turn_key": null,
+    "outcome": "completed",
+    "http_status": null
+  }
+]

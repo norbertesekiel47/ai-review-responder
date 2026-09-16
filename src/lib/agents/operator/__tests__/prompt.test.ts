@@ -12,6 +12,7 @@ import { buildOperatorPrompt, operatorSystemPromptHash, OWNER_OPERATOR_PROMPT_VE
 import { OperatorModelOutputSchema, STATUS_METRICS } from '../schema';
 import { modelVisibleOperations } from '../catalog';
 import type { Snapshot } from '../context';
+import { OPERATOR_REFUSAL_REASONS } from '../refusals';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -43,6 +44,20 @@ const snapshot: Snapshot = {
 };
 
 describe('operator prompt', () => {
+  it('the exact licensed request is a refusal with server-owned wording, never an unsupported capability', () => {
+    const { system } = buildOperatorPrompt(snapshot, 'say we are licensed');
+    for (const reason of OPERATOR_REFUSAL_REASONS) expect(system).toContain(reason);
+    expect(system).toContain('say we are licensed');
+    expect(system).toContain('Never put a prohibited request in unsupported');
+    expect(system).toContain('The server supplies the rule wording');
+    const exampleLine = system.split('\n').find((line) => line.startsWith('{"segments":[{"type":"refusal_ref"'));
+    expect(exampleLine).toBeDefined();
+    const example = OperatorModelOutputSchema.parse(JSON.parse(exampleLine!));
+    expect(example).toEqual({
+      segments: [{ type: 'refusal_ref', reason: 'invented_business_fact' }], proposals: [], unsupported: [],
+    });
+  });
+
   it('its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity', () => {
     const { system } = buildOperatorPrompt(snapshot, 'Turn automatic replies off for all locations.');
     const exampleLine = system.split('\n').find((line) => line.startsWith('{"segments":['));
@@ -54,7 +69,7 @@ describe('operator prompt', () => {
     }]);
     expect(example.segments).toEqual([{ type: 'proposal_ref', index: 0 }]);
     expect(example.unsupported).toEqual([]);
-    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-13.4');
+    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-14.2');
     expect(operatorSystemPromptHash()).not.toBe('3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a');
   });
 
@@ -94,8 +109,8 @@ describe('operator prompt', () => {
     const operations = envelope.snapshot.allowedOperations;
     expect(operations.length).toBeGreaterThan(0);
     for (const op of operations) {
-      if (op.kind === 'proposable') {
-        expect(op.input).toMatch(/^\{".+\}$/);
+      if (op.kind === 'proposable' || op.kind === 'prepare') {
+        expect(op.input).toMatch(/^\{.*\}$/);
       } else {
         expect(op).not.toHaveProperty('input');
       }
@@ -116,11 +131,11 @@ describe('operator prompt', () => {
     // Read from the schema, so a new wire operation cannot go unlisted and a
     // removed shape fails here.
     const options = OperatorModelOutputSchema.shape.proposals.element.options;
-    expect(options.length).toBe(7);
+    expect(options.length).toBe(9);
     for (const option of options) {
       const id = option.shape.operation.value;
       const visible = byId.get(id);
-      expect(visible?.kind, id).toBe('proposable');
+      expect(visible?.kind, id).toBe(id === 'restore_last' ? 'prepare' : 'proposable');
       expect(visible?.input, id).toBeDefined();
       const shapeKeys = [...visible!.input!.matchAll(/"([A-Za-z]+)"\s*:/g)].map((m) => m[1]).sort();
       expect(shapeKeys, id).toEqual(Object.keys(option.shape.input.shape).sort());

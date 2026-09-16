@@ -1,0 +1,39 @@
+{
+  "campaign": "run-d",
+  "captured_at": "2026-09-14T13:47:37.947Z",
+  "queue": "agent_turn",
+  "paused": false,
+  "transport_error": false,
+  "jobs": [
+    {
+      "id": "01a0a02b-92f8-77f3-be95-76fefc5d46f2_1",
+      "missing": false,
+      "state": "completed",
+      "turn_id": "01a0a02b-91e3-7229-b476-8e7aa2768796",
+      "account_id": "019f43d0-0000-7000-8000-000000000001",
+      "attemptsMade": 1,
+      "attemptsStarted": 1,
+      "timestamp": 1789393609777,
+      "processedOn": 1789393610125,
+      "finishedOn": 1789393613367,
+      "delay": 0,
+      "failedReasonPresent": false,
+      "configuredAttempts": 5
+    },
+    {
+      "id": "01a0a02b-95c8-7122-84b8-83c8c74d01fb_1",
+      "missing": false,
+      "state": "completed",
+      "turn_id": "01a0a02b-94c4-7640-9db7-2dbcc7cbf9d1",
+      "account_id": "019f43d0-0000-7000-8000-000000000001",
+      "attemptsMade": 1,
+      "attemptsStarted": 2,
+      "timestamp": 1789393609777,
+      "processedOn": 1789393620161,
+      "finishedOn": 1789393622498,
+      "delay": 0,
+      "failedReasonPresent": false,
+      "configuredAttempts": 5
+    }
+  ]
+}

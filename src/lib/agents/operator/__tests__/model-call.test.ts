@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { runLlmTask, recordApiCost, calculateCostUsd, withCostGuard, capturedCents } = vi.hoisted(() => {
   const capturedCents: number[] = [];
@@ -32,6 +32,7 @@ import { LLMStructuredOutputError } from '@/lib/llm/run-task';
 import { generateOperatorReply } from '../model-call';
 import { OWNER_OPERATOR_PROMPT_VERSION, operatorSystemPromptHash } from '../prompt';
 import type { Snapshot } from '../context';
+import { modelVisibleOperations } from '../catalog';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -96,6 +97,56 @@ function validReply() {
 }
 
 describe('operator model call', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('logs only closed rejection codes with the existing attempt metadata for semantic failures', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const privateMetric = 'PRIVATE_METRIC_DO_NOT_LOG';
+    runLlmTask.mockResolvedValue({ ...validReply(), structured: {
+      segments: [{ type: 'status_ref', metric: privateMetric }],
+      proposals: [], unsupported: [],
+    } });
+
+    const result = await generateOperatorReply(sql, {
+      accountId: ACCOUNT, locationId: LOCATION, subscriptionTier: 'copilot',
+      snapshot, ownerText: 'Show the pending work.', turnId: TURN,
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'model_output_invalid', attempts: 2 });
+    expect(warn.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([1, 2].map((attempt) =>
+      expect.objectContaining({
+        message: 'owner_operator output rejected by validator',
+        data: { turn_id: TURN, attempt, reason_count: 1, rejection_codes: 'unknown_status_metric' },
+      })));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(privateMetric);
+    // Diagnosis changes neither the validation retry nor billing behavior.
+    expect(runLlmTask).toHaveBeenCalledTimes(2);
+    expect(recordApiCost).toHaveBeenCalledTimes(2);
+    expect((runLlmTask.mock.calls[1]![1] as { user: string }).user).toContain(privateMetric);
+  });
+
+  it('returns indexed restore requests separately from ordinary proposals after one billed validation', async () => {
+    const reply = validReply();
+    runLlmTask.mockResolvedValueOnce({ ...reply, structured: {
+      segments: [{ type: 'proposal_ref', index: 0 }, { type: 'proposal_ref', index: 1 }],
+      proposals: [
+        { operation: 'restore_last', scope: { accountId: ACCOUNT, locationId: LOCATION }, input: {}, rationale: 'Restore the last change' },
+        { operation: 'set_tone', scope: { accountId: ACCOUNT, locationId: LOCATION }, input: { tone: 'warm' }, rationale: 'Use a warm tone' },
+      ], unsupported: [],
+    } });
+    const result = await generateOperatorReply(sql, {
+      accountId: ACCOUNT, locationId: LOCATION, subscriptionTier: 'copilot', turnId: TURN,
+      ownerText: 'Restore the last change, then use a warm tone',
+      snapshot: { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.restoreRequests).toEqual([{ index: 0, scope: { accountId: ACCOUNT, locationId: LOCATION } }]);
+    expect(result.proposals.map((proposal) => proposal.operation.id)).toEqual(['set_tone']);
+    expect(result.attempts).toBe(1);
+    expect(runLlmTask).toHaveBeenCalledOnce();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     capturedCents.length = 0;

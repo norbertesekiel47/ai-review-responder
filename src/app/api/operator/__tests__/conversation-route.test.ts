@@ -30,6 +30,38 @@ const TURN = '00000000-0000-7000-8000-000000000011';
 const LOCATION_A = '00000000-0000-7000-8000-00000000b001';
 
 describe('GET /api/operator/conversation', () => {
+  it('preserves each stored turn refusal list in a resumed conversation GET', async () => {
+    const refusal = {
+      type: 'refusal',
+      reason: 'review_incentive',
+      subjectId: '11111111-1111-4111-8111-111111111111',
+      text: 'RepWorth rules prohibit offering incentives in exchange for reviews.',
+    };
+    const view = {
+      conversation: { id: CONVERSATION, lastTurnAt: '2026-09-11T10:00:00.000Z' },
+      turns: [
+        {
+          id: TURN, sequence: 1, status: 'completed', failureReason: null,
+          locationId: LOCATION_A, ownerText: 'Offer an incentive for a review.',
+          segments: [refusal], proposals: [], unsupported: [], refused: [refusal],
+        },
+        {
+          id: '22222222-2222-4222-8222-222222222222', sequence: 2,
+          status: 'completed', failureReason: null, locationId: LOCATION_A,
+          ownerText: 'Show what needs me.',
+          segments: [], proposals: [], unsupported: [], refused: [],
+        },
+      ],
+      summary: null,
+    };
+    mockGetConversationForOwner.mockResolvedValue({ kind: 'view', view });
+    const response = await GET(new NextRequest(
+      `https://app.repworth.test/api/operator/conversation?id=${CONVERSATION}`,
+    ));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(view);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.OWNER_OPERATOR_ENABLED = 'true';
