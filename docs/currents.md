@@ -9,7 +9,15 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-16 (tier repricing: Copilot $79/$49, Autopilot $149/$99, extra location = list price; Owner Operator Run E #1293 merged).
+Last updated: 2026-09-16 (beta tester one live in production: $0 checkout on the new $49 founding price, 31-review import, first owner-approved reply posted to Google).
+
+## Quick summary — Beta tester one is live in production (2026-09-16)
+
+The first customer completed the whole journey against a real Google Business Profile, and every step was verified by query in production. The Admin app created the account and sent the invite (`/invite` 200, email delivered); the owner finished a live Stripe Checkout at **$0.00 due today** on the new **$49** Copilot founding price, with a card captured and the comp discount ending 2026-12-16, so cycle four bills $49. Google connected, the owner accepted the Import offer, and the backfill pulled **31 reviews** (13 of them with existing owner replies, stored as `posted` so we never re-reply).
+
+A live review then drove the loop by itself: ingest → OpenAI `gpt-4o-mini` draft → approval email **sent and delivered in 2.7 s** → read-only approval page (audit row, SHA-256 token, device cookie) → **one owner-approved reply posted to Google** at 10:37:40Z with `approval_method='owner'`. 0 failed jobs, 0 held drafts, 0 Judge verdicts (correct: the Judge reviews auto-posts, and auto-approval is off). Whole-run AI spend: **$0.000168**.
+
+Three behaviours worth knowing: imported reviews do **not** auto-draft; a draft you request by hand sends **no** email (`on-demand-generate.ts` suppresses it, which is also what excludes it from auto-posting); and the Connect banner can flash for a second after a successful connect. Evidence: [`runbooks/evidence/2026-09-16-beta-tester-one-evidence.md`](runbooks/evidence/2026-09-16-beta-tester-one-evidence.md). Still open: legal review, insurance, alerting drills §4.7/§4.8, and U1's server half.
 
 ## Quick summary — Owner Operator Run E: Restore and policy refusals (2026-09-15, #1293)
 

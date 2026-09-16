@@ -620,12 +620,13 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase H — Prove it (deployment-guide §9–§10)
 
-- [ ] §9.1 sanity → §9.2 read-only backfill vs a friendly/test GBP → §9.3 cost
-      sanity → §9.4 approval email → §9.5 approval page (**no approve click**).
-- [ ] §9.6 — one deliberate first post, **clicked by a human**, kill switch
-      (`ZERNIO_PUBLISHING_ENABLED=false`) ready. Then §11 day-2 monitoring.
-- [ ] Only then: first beta business per
-      `docs/runbooks/beta-onboarding-cofounder-guide.md`.
+- [x] **DONE 2026-09-16.** §9.1 sanity → §9.2 consented import (31 reviews) → §9.3 cost
+      sanity (OpenAI confirmed, $0.000168 for the run) → §9.4 approval email sent AND
+      delivered → §9.5 approval page audited read-only, no approve click.
+- [x] **§9.6 DONE 2026-09-16T10:37:40Z** — one deliberate first post, clicked by the owner,
+      `approval_method='owner'`, kill switch ready and unused. §11 day-2 monitoring starts now.
+- [x] **First beta business onboarded 2026-09-16** — tester one is a live paying-in-month-four
+      customer. Evidence: `evidence/2026-09-16-beta-tester-one-evidence.md`.
 
 ---
 
@@ -641,7 +642,7 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       recorded
 - [ ] Flag snapshot appended (Railway + Vercel); alerting routes verified via
       canary to the ONE named sink; staging drills passed
-- [ ] §9.6 first deliberate post succeeded and verified on Google
+- [x] §9.6 first deliberate post succeeded and verified on Google (2026-09-16T10:37:40Z)
 - [ ] 🔴 hard blockers (PITR drill, legal review, insurance): each either
       **completed** or covered by a **dated, owner-approved policy change
       recorded in `launch-checklist.md`**. Never tick an incomplete box.

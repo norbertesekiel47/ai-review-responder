@@ -451,6 +451,13 @@ is known to be a problem.
 
 ## Verdict
 
+> ✅ **CLOSED 2026-09-16 — the campaign resumed and completed.** Beta tester one is live:
+> invite → $0 checkout on the new $49 founding price → Google connect → 31-review consented
+> import → a live review drafted automatically → approval email delivered → one owner-approved
+> reply posted to Google (`approval_method='owner'`). U2–U9 all closed; U1's server half stays
+> open. Full record: [`2026-09-16-beta-tester-one-evidence.md`](2026-09-16-beta-tester-one-evidence.md).
+> The pause verdict below is history.
+
 ⏸️ **PAUSED BY THE OWNER, 2026-09-02T05:4xZ — not blocked.** Opened 2026-09-01T23:21Z.
 
 Both defects that stopped the first attempt are **closed**. The campaign stopped at a clean
