@@ -27,6 +27,15 @@ const GIT_FREE_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
 ) as NodeJS.ProcessEnv;
 
+// Several cases import the runner and call it IN PROCESS, where its git calls
+// inherit this process's environment. A git hook (the lefthook pre-push run)
+// exports GIT_DIR, which pointed those calls at the pushing repository instead
+// of the fixture — `fatal: path 'src/gate.ts' exists on disk, but not in <sha>`.
+// Reproduced on main with GIT_DIR set; found pushing #1302.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('GIT_')) delete process.env[key];
+}
+
 let repo: string;
 let runner = RUNNER;
 
@@ -2435,6 +2444,31 @@ describe('Operator same-round continuation safeguards', () => {
     expect(run('round-start').status).toBe(1);
     expect(run('run', '--', 'node', '-e', 'process.exit(0)').status).toBe(1);
     expect(existsSync(join(repo, '.feature/red-team-journal.json'))).toBe(false);
+  });
+
+  // #1302: #1297 squash-merged the Operator review into main, so every branch
+  // cut from main carries the file. Once the admission commit is on
+  // origin/main the continuation is finished and presence alone must not match.
+  it('opens a round on a branch cut from main after the Operator admission merged', () => {
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    write(review, 'merged admission');
+    git('add', review);
+    git('commit', '-qm', 'squash-merge the operator continuation');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-qb', 'fix-unrelated-work');
+    expect(run('round-start').status).toBe(0);
+  });
+
+  it('keeps continuation lineage when the admission commit is not on origin/main', () => {
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    write(review, 'branch-only admission');
+    git('add', review);
+    git('commit', '-qm', 'admission exists only on the branch');
+    git('branch', '-m', 'renamed-continuation');
+    const result = run('round-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Operator continuation');
   });
 
   it('refuses mutation and launch before immutable admission even on the exact branch', () => {
