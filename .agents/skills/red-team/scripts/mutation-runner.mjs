@@ -107,11 +107,25 @@ function operatorAdmissionHead(root) {
     .split('\n').filter(Boolean).at(-1) ?? null;
 }
 
+/**
+ * The continuation is finished once its admission commit is on origin/main:
+ * #1297 squash-merged the review into main, so every later branch carries the
+ * file and presence alone would claim them all (#1302). Any other git answer —
+ * not an ancestor, or no origin/main ref at all — keeps the lineage fail-closed.
+ */
+function operatorAdmissionMerged(root, admissionHead) {
+  const probe = spawnSync('git', ['merge-base', '--is-ancestor', admissionHead, 'refs/remotes/origin/main'], {
+    cwd: root, stdio: 'ignore', timeout: 10_000,
+  });
+  return !probe.error && probe.status === 0;
+}
+
 export function requiresOperatorContinuation(root, journal) {
   if (journal?.budgetAuthorization?.id === OPERATOR_CONTINUATION_ID) return true;
   try {
-    return git(root, ['branch', '--show-current']) === OPERATOR_BRANCH
-      || operatorAdmissionHead(root) !== null;
+    if (git(root, ['branch', '--show-current']) === OPERATOR_BRANCH) return true;
+    const admissionHead = operatorAdmissionHead(root);
+    return admissionHead !== null && !operatorAdmissionMerged(root, admissionHead);
   } catch { return false; }
 }
 

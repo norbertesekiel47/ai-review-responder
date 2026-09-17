@@ -2437,6 +2437,29 @@ describe('Operator same-round continuation safeguards', () => {
     expect(existsSync(join(repo, '.feature/red-team-journal.json'))).toBe(false);
   });
 
+  // #1302: #1297 squash-merged the Operator review into main, so every branch
+  // cut from main carries the file. Once the admission commit is on
+  // origin/main the continuation is finished and presence alone must not match.
+  it('opens a round on a branch cut from main after the Operator admission merged', () => {
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    write(review, 'merged admission');
+    git('add', review);
+    git('commit', '-qm', 'squash-merge the operator continuation');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-qb', 'fix-unrelated-work');
+    expect(run('round-start').status).toBe(0);
+  });
+
+  it('keeps continuation lineage when the admission commit is not on origin/main', () => {
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    write(review, 'branch-only admission');
+    git('add', review);
+    git('commit', '-qm', 'admission exists only on the branch');
+    git('branch', '-m', 'renamed-continuation');
+    expect(run('round-start').status).toBe(1);
+  });
+
   it('refuses mutation and launch before immutable admission even on the exact branch', () => {
     git('branch', '-m', 'codex/operator-fallow-refactor');
     write('mutant.txt', 'changed');
