@@ -42,10 +42,17 @@ email shares the Resend provider with the product.
   right-click the channel → Copy Channel ID — the Discord action targets a channel
   by ID). _Native Discord integration needs a paid Sentry plan (Team+); on the
   free tier, route via a Discord channel webhook instead._
-- [ ] **Sentry alert rule → Discord** for issues tagged `endpoint:admin-mfa-gate` (#1212) —
+- [x] **DONE 2026-09-16 — rule `3999385` "Prod — admin-mfa-gate 500 → discord"**, verified by API
+  readback: `IF Tagged event endpoint == admin-mfa-gate → Discord 443670 / channel
+  1544045194264051842 / tags repworth-prod`, throttle 60 min. **The "more than 5 events in
+  10 minutes" threshold was deliberately NOT applied** — the builder's only frequency filter for
+  this shape is a cumulative counter with no interval, the instrument the owner rejected on
+  2026-09-01; the 60-minute throttle is the volume control, as on every sibling rule. Evidence:
+  `evidence/2026-09-16-alerting-gap-closure-evidence.md` → D-19. Original text follows.
+  ~~**Sentry alert rule → Discord** for issues tagged `endpoint:admin-mfa-gate` (#1212)~~ —
   the Admin API's caught 500 (`internalError`, `src/lib/auth/admin-mfa-gate.ts`) is
   captured there since #1212; a burst means Supabase Auth or the DB is failing every
-  admin request. Threshold: more than 5 events in 10 minutes.
+  admin request.
 - [ ] **Sentry alert rule → Discord** for issues tagged `subsystem:health_alert`
   at level `error` (P0/P1) and `warning` (P1/P2): _Then_ action → **Send a
   notification to the Discord integration** → your server + channel. The
@@ -999,6 +1006,15 @@ precondition below.
   zero** — read it first — and expect the page on the POST that takes the group
   past the configured value. In production this means the first `N` unattributed
   suppressions page nobody and every one after that pages, hourly, forever.
+- [x] **PASS 2026-09-16 — the uptime half is proven; D-6's block is gone.** `worker.staging.repworth.net`
+  now exists on the Railway staging service, so Sentry accepts an uptime monitor for it:
+  **`10354501` "Staging worker /ready"**, created to mirror production `8341697` exactly (GET,
+  300 s, 10 s timeout, downtime 3 / recovery 1). Drill: worker stopped 14:27:19Z → failures at
+  14:29:42 / 14:34:42 / 14:39:42 → issue **`REPWORTH-STAGING-1E`** at 14:39:44Z → **Discord,
+  owner-confirmed** → restored `--from-source` at commit `35b7e8c7f` → auto-resolved 14:54:42Z.
+  **Measured detection budget: 13 minutes**, the same in production, which runs the identical
+  configuration. The stuck-outbox arm below was NOT run in this pass. Evidence:
+  `evidence/2026-09-16-alerting-gap-closure-evidence.md`. Original text follows.
 - [ ] **Killed worker — and the stuck-outbox drill rides on it (G.3 D-1).** Stop the
   worker process; expect the external `/ready` check to page. **While it is stopped,
   insert the stuck-outbox fixture** (`job_outbox` row `status='pending',
@@ -1006,7 +1022,15 @@ precondition below.
   `outbox_pending_age` fires on the first clean cycle — the row survives to be seen
   only because dispatch was actually stopped. Folding the two also spends **one**
   worker interruption instead of two.
-- [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
+- [x] **PASS 2026-09-16, on PRODUCTION and organically — the 2026-09-01 verdict was true for staging
+  only.** Production missed check-ins on 09-06, 09-10 (×2) and **09-13T05:20:00Z**; Sentry created
+  **`REPWORTH-PRODUCTION-3`** (`monitor_check_in_failure`, category outage) and rule `3925256`
+  fired at **05:20:49Z**, 49 s later — owner-confirmed in Discord. **Staging still creates no cron
+  issue**, and the two monitors differ in exactly one place: staging carries an explicit
+  `failure_issue_threshold` and `max_runtime: 5`, production has both `null`. The hand-edited rig
+  is the broken one. **No Sentry support ticket is needed.** Evidence:
+  `evidence/2026-09-16-alerting-gap-closure-evidence.md`. Original text follows.
+- [ ] ~~**Probe stopped**~~ — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
   ⚠️ **RE-RUN 2026-09-01T20:15–20:32Z. STILL A QUALIFIED FAIL, and the cause is now isolated to
   Sentry.** Three consecutive `missed` check-ins (20:20:16Z, 20:25:18Z, 20:30:22Z), environment
