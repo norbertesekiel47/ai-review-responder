@@ -2457,7 +2457,9 @@ describe('Operator same-round continuation safeguards', () => {
     git('add', review);
     git('commit', '-qm', 'admission exists only on the branch');
     git('branch', '-m', 'renamed-continuation');
-    expect(run('round-start').status).toBe(1);
+    const result = run('round-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Operator continuation');
   });
 
   it('refuses mutation and launch before immutable admission even on the exact branch', () => {
