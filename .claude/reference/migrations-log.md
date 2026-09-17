@@ -2919,8 +2919,9 @@ Revisit triggers:
   **Rollback inverse (migration 123, staging first) — exact, never blanket.**
   Before applying 122, save each project's client-role table ACL (per table,
   role, privilege, grant option) and full `pg_default_acl`. The inverse
-  re-grants exactly the triples present in that snapshot and absent after
-  122, plus the exact default-ACL entries 122 removed. `GRANT ALL ON <the
+  re-grants exactly the (table, role, privilege, grant option) entries
+  present in that snapshot and absent after 122 — `WITH GRANT OPTION` where
+  the snapshot had it — plus the exact default-ACL entries 122 removed. `GRANT ALL ON <the
   twenty>` is WRONG: migrations 055 and 076 had already revoked
   `authenticated` INSERT/UPDATE/DELETE on `auto_approval_policies` and
   `judge_verdicts`, so a blanket grant would widen them. Warranted only if a

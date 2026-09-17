@@ -22,6 +22,16 @@
 
 Execution identity fails closed through the owner guard (appropriate); no Supabase platform dependency found in the repo; the twenty-table list verified complete against migration history (29 deny-all tables, nine already hardened); `supabase_admin` defaults do not combine with `postgres` defaults for tables `postgres` creates.
 
+## Round 2 — verification only, at `68ecc1d707f2994d771d131a97a4359f04559e34`
+
+| Axis | Result | Report |
+|---|---|---|
+| spec-correctness (fresh agent) | S1, S2, S3 fixed; one new LOW gap: log and plan said re-grant "triples", dropping the grant option the intake keeps | `spec-correctness-round-2.md` |
+| standards-maintainability (fresh agent) | M1, M2, M4 fixed; no new defect. Appendix (untriaged): step-8 SQL is duplicated between plan and log | `standards-maintainability-round-2.md` |
+| adversarial (Codex, resumed `01a0adcc-3ce1-7bd2-8f56-8ede960e87ee`) | A1, A2 addressed; migration executable SQL byte-identical; VERDICT: APPROVED | `adversarial-round-2.md` |
+
+Round-2 new LOW gap — ACCEPT. Fix: log entry 122 and plan step 8 now say "(table, role, privilege, grant option) entries … `WITH GRANT OPTION` where the snapshot had it". `contract-changed` → UNCHANGED, so no round 3; self-verified: the wording now matches intake `rollback_plan`. Standards appendix duplication — not triaged (the plan is a workflow record; the log is the owner).
+
 ## Red team
 
 No round opened. `requiresOperatorContinuation` returns true on every branch cut from `main` after #1297 (verified: evaluates `true` on this branch). No mutation applied; `mutation-runner.mjs finalize` restored 0 files and closed the journal. Filed as #1302. The `reviewed` transition waits for the owner's decision.
