@@ -39,5 +39,12 @@
 
 - **What:** `mutation-runner.mjs round-start` and `red-team-status.mjs` refuse on this branch because `requiresOperatorContinuation` is true for every branch cut from `main` after #1297.
 - **Why it matters:** the high-risk lane requires a red-team sidecar for the `reviewed` transition. No mutation was applied; the finalizer restored 0 files.
-- **Resolution:** owner decision — fix #1302 first and re-run the pass, or authorize an explicit waiver. Not decided by the agent.
+- **Resolution:** owner decision 2026-09-17: fix #1302 first, then run the pass. #1302 fixed by PR #1303 (`b73c6a001`), merged into this branch at `b39178a60`; red-team round 1 then ran at that SHA (`docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/`).
 - **Verdict:** ACCEPT (recorded as a blocker, not a re-plan: no locked intake decision is invalidated)
+
+## D7 — tests_to_add gained an eighth title; suite restore covers RLS flags (red-team round 1, RT-1 / RT-3)
+
+- **What:** new case `migration 122 fails fast with a lock timeout when another session holds a catalogue row lock` (a second session holds the `reviews` catalogue row through an uncommitted GRANT; the file must fail with 55P03 within 12 s instead of the 57014 statement timeout). The suite restore now also puts back every table's RLS and FORCE flags and verifies them.
+- **Why:** red-team INV-9 marked `SET LOCAL lock_timeout` inconclusive — no test created contention. Proven by hand 2026-09-17 on the local test DB: 5.0 s / 55P03 with the line, 30.0 s / 57014 without it. RT-3 found an RLS-flipping mutant left the shared container dirty.
+- **Surface impact:** none. Same suite file; both intake copies updated.
+- **Verdict:** ACCEPT

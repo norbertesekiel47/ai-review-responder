@@ -116,6 +116,8 @@ let currentUser = '';
 let original: Catalogue;
 let ownerGuardError: string | null = null;
 let ownerGuardAfter: Catalogue;
+let lockContention: { code: string | null; elapsedMs: number } | undefined;
+let lockContentionAfter: Catalogue;
 let before: Catalogue;
 let after: Catalogue;
 let afterSecond: Catalogue;
@@ -314,15 +316,42 @@ async function readRoleGrants(): Promise<RoleGrants> {
   return { tables: [...tables], columns: [...columns], defaults: [...defaults] };
 }
 
+// A mutant that flips RLS or FORCE on some table would otherwise leave the
+// shared container dirty for every later suite (red-team RT-3). Policies are
+// not restored: 122 creates none, and a policy mutant fails the policies
+// assertion loudly; `pnpm test:db:setup` is the repair for that case.
+function rowSecurityStatements(original: Catalogue['tables'], current: Catalogue['tables']): string[] {
+  const statements: string[] = [];
+  for (const [name, snapshot] of Object.entries(original)) {
+    const now = current[name];
+    if (!now) continue;
+    const target = `public.${quoteIdent(name)}`;
+    if (now.rls !== snapshot.rls) {
+      statements.push(`ALTER TABLE ${target} ${snapshot.rls ? 'ENABLE' : 'DISABLE'} ROW LEVEL SECURITY`);
+    }
+    if (now.force !== snapshot.force) {
+      statements.push(`ALTER TABLE ${target} ${snapshot.force ? 'FORCE' : 'NO FORCE'} ROW LEVEL SECURITY`);
+    }
+  }
+  return statements;
+}
+
 // Step 8: put the three roles' table grants, column grants and schema-public
-// default table entries back exactly as `originalGrants` read them, then prove
-// it — including the FULL pg_default_acl snapshot.
-async function restore(originalGrants: RoleGrants, originalDefaultAcl: string[]): Promise<void> {
+// default table entries back exactly as `originalGrants` read them, restore
+// every table's RLS and FORCE flags, then prove it — including the FULL
+// pg_default_acl snapshot.
+async function restore(
+  originalGrants: RoleGrants,
+  originalCatalogue: Catalogue,
+): Promise<void> {
+  const originalDefaultAcl = originalCatalogue.defaultAcl;
   // A failed verbatim apply leaves an aborted transaction open on this single
   // connection; ROLLBACK repairs it (and only warns when none is open).
   await sql().unsafe('ROLLBACK');
   const roles = RESTORED_ROLES.join(', ');
+  const flagStatements = rowSecurityStatements(originalCatalogue.tables, (await readCatalogue()).tables);
   await sql().begin(async (tx) => {
+    for (const statement of flagStatements) await tx.unsafe(statement);
     await tx.unsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${roles}`);
     await tx.unsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM ${roles}`);
     for (const grant of originalGrants.tables) {
@@ -351,8 +380,10 @@ async function restore(originalGrants: RoleGrants, originalDefaultAcl: string[])
 
   const restored = await readRoleGrants();
   const restoredDefaultAcl = await readDefaultAcl();
+  const restoredCatalogue = await readCatalogue();
   if (
-    JSON.stringify(restored.tables) !== JSON.stringify(originalGrants.tables)
+    rowSecurityStatements(originalCatalogue.tables, restoredCatalogue.tables).length > 0
+    || JSON.stringify(restored.tables) !== JSON.stringify(originalGrants.tables)
     || JSON.stringify(restored.columns) !== JSON.stringify(originalGrants.columns)
     || JSON.stringify([...restoredDefaultAcl].sort()) !== JSON.stringify([...originalDefaultAcl].sort())
   ) {
@@ -413,6 +444,40 @@ describeWithDb(
         await sql().unsafe(`DROP TABLE ${OWNER_PROBE}`);
         ownerGuardAfter = await readCatalogue();
 
+        // 2b. Lock contention (red-team RT-1, INV-9): another session holds the
+        //     `reviews` catalogue row through an uncommitted GRANT. The file's
+        //     `SET LOCAL lock_timeout` must make it fail fast with 55P03, not
+        //     queue until the statement timeout (57014) — proven by hand
+        //     2026-09-17: 5.0 s with the line, 30.0 s without it. The applier
+        //     gets its own 15 s statement timeout so a mutant fails in bounded
+        //     time; everything rolls back, so the container is untouched.
+        const holder = postgres(databaseUrl, { max: 1, prepare: false });
+        const applier = postgres(databaseUrl, {
+          max: 1,
+          prepare: false,
+          connection: { statement_timeout: 15_000 },
+        });
+        try {
+          await holder.unsafe('BEGIN');
+          await holder.unsafe('GRANT SELECT ON public.reviews TO anon');
+          const startedAt = Date.now();
+          let code: string | null = null;
+          try {
+            await applier.unsafe(migration);
+          } catch (error) {
+            code = typeof error === 'object' && error !== null && 'code' in error
+              ? String(error.code)
+              : messageOf(error);
+          }
+          lockContention = { code, elapsedMs: Date.now() - startedAt };
+          await applier.unsafe('ROLLBACK');
+        } finally {
+          await holder.unsafe('ROLLBACK');
+          await holder.end({ timeout: 5 });
+          await applier.end({ timeout: 5 });
+        }
+        lockContentionAfter = await readCatalogue();
+
         // 3. Degrade to the measured Supabase posture without granting DML the
         //    container lacks; `reviews` and `users` are the positive controls,
         //    and migration 040's column-only grants stay the negative ones.
@@ -442,7 +507,7 @@ describeWithDb(
       // 8. Restore, and never let a restore failure hide an apply failure.
       let restoreFailure: unknown;
       try {
-        await restore(originalGrants, original.defaultAcl);
+        await restore(originalGrants, original);
       } catch (error) {
         restoreFailure = error;
       }
@@ -580,6 +645,15 @@ describeWithDb(
     it('migration 122 refuses to run when a public table is owned by a role other than the applier', () => {
       expect(ownerGuardError).toContain(OWNER_GUARD_MESSAGE);
       expect(ownerGuardAfter).toEqual(original);
+    });
+
+    it('migration 122 fails fast with a lock timeout when another session holds a catalogue row lock', () => {
+      // 55P03 = lock_not_available (the file's `SET LOCAL lock_timeout`);
+      // 57014 = query_canceled (the 15 s statement timeout a missing
+      // lock_timeout would fall through to).
+      expect(lockContention?.code).toBe('55P03');
+      expect(lockContention?.elapsedMs).toBeLessThan(12_000);
+      expect(lockContentionAfter).toEqual(original);
     });
   },
 );

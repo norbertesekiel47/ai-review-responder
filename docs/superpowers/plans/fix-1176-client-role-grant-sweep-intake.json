@@ -85,7 +85,8 @@
     "migration 122 changes no RLS flag, policy or column grant on any public table",
     "migration 122 removes the four rights from the owning role's default table privileges and keeps default DML",
     "migration 122 is a no-op when applied a second time",
-    "migration 122 refuses to run when a public table is owned by a role other than the applier"
+    "migration 122 refuses to run when a public table is owned by a role other than the applier",
+    "migration 122 fails fast with a lock timeout when another session holds a catalogue row lock"
   ],
   "verification_commands": [
     "pnpm ci:rls-audit",
