@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **121** — next migration is **122**
+Current head: **122** — next migration is **123**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2862,6 +2862,52 @@ Revisit triggers:
   applies the file verbatim, tests both lane scopes and compares the public
   catalogue and access posture. No new `SchemaRequirement`: all object names
   already exist, so presence would falsely report an unupgraded database ready.
+
+- **122** — client-role grant sweep (#1176). **LOCAL-ONLY** — applied and
+  verified only against the local test container (`pnpm test:db:setup`); not
+  yet applied to staging or production. Apply staging FIRST, then production;
+  verify by introspection, never the ledger.
+  **What it does.** One transaction (`SET LOCAL lock_timeout = '5s'`): a `DO`
+  guard refuses unless `current_user` owns every table in `public`; `REVOKE
+  TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM anon,
+  authenticated`; `REVOKE ALL` from those two roles on the twenty deny-all
+  tables; the same three rights removed from the schema-level default table
+  privileges; and, on PostgreSQL ≥ 17 only, MAINTAIN removed from both. No
+  object, RLS flag, policy, column grant, `service_role` or owner privilege
+  changes. Follow-ups: #1300 (registry split, recurrence guard, sequence and
+  function defaults), #1301 (older suite rebuilds).
+  **Measured baseline (2026-09-16, read-only).** Both projects: 58 tables in
+  `public`, 0 with RLS off; 20 deny-all tables (RLS on, zero policies) still
+  granting `anon`/`authenticated` privileges; `anon` and `authenticated` hold
+  TRUNCATE on 49 tables each. Staging's default ACL for `postgres` in `public`
+  gives `anon`, `authenticated` and `service_role` `arwdDxtm` (schema-level
+  entry, no global entry). The twenty: `agent_outcomes, agent_run_steps,
+  agent_runs, analytics_events, auto_approval_policies, flagged_responses,
+  google_connections, impersonation_sessions, inbound_events, judge_verdicts,
+  owner_leads, poller_cursors, prospect_demos, refusal_events,
+  review_escalations, solicitation_consent, solicitation_send_breaker,
+  solicitation_suppression_corrections, solicitation_suppressions,
+  solicitation_unsubscribe_tokens`.
+  **Why safe.** Every server write is Postgres.js as the table owner. The only
+  supabase-js table read is `users`, which keeps SELECT. None of the twenty
+  carries a column grant, so `REVOKE ALL` strips nothing hidden. `REVOKE` takes
+  no relation lock. TRUNCATE is exempt from row policies, which is why it goes
+  everywhere, not only on deny-all tables.
+  **Version guard limit.** Both projects run PostgreSQL 17; the container runs
+  16, so `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`
+  (in `MIGRATION_SHAPE_FILES`; degrades, applies the file verbatim twice,
+  diffs, restores) never executes the MAINTAIN branch. Its only proof is the
+  mandatory four-right `has_table_privilege` count in the plan's step 8, which
+  must return 0 on each project after apply.
+  **Rollback inverse (migration 123, staging first).** Before applying 122,
+  save each project's client-role table ACL and default ACL. Inverse: `GRANT
+  ALL ON <the twenty> TO anon, authenticated`; `GRANT TRUNCATE, REFERENCES,
+  TRIGGER, MAINTAIN TO anon, authenticated` on each table that held them
+  before (the 49, taken from the saved snapshot — never `ON ALL TABLES`);
+  `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT TRUNCATE, REFERENCES,
+  TRIGGER, MAINTAIN ON TABLES TO anon, authenticated`. Warranted only if a real
+  code path hits a 42501 in Sentry or Railway logs after the staging apply.
+  No `SchemaRequirement`: 122 creates no object to name.
 
 - **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,
   `agent_proposals`, `agent_unsupported_requests`). **Applied to staging
