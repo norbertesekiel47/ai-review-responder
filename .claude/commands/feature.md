@@ -199,8 +199,23 @@ feature touches, and state for each whether we deepen an existing module or are
 forced to add a new interface. A plan that would widen an interface or scatter
 logic across seams gets redesigned before proceeding.
 
-Then invoke `writing-plans`, structuring tasks as tickets:
+Then write the plan, structuring tasks as tickets. Write it for an engineer
+who is skilled but knows nothing of this codebase or domain:
 
+- **Map the files first.** Before any task, list every file to create or
+  modify and its one responsibility. Split by responsibility, not by layer;
+  files that change together live together. Follow the existing patterns —
+  plan a split only for a file this feature already has to touch and that has
+  become unwieldy.
+- **Every task names its files exactly**: `Create:`, `Modify: path:lines`,
+  `Test:`. Its steps are checkboxes (`- [ ]`), one 2–5 minute action each:
+  write the failing test → run it and see the expected failure → write the
+  minimal code → run it and see it pass → commit. Code steps show the code;
+  command steps show the command and the expected output.
+- **No placeholders.** These are plan failures: "TBD", "TODO", "add
+  appropriate error handling", "handle edge cases", "write tests for the
+  above" without the test code, "similar to Task N" (repeat the content —
+  tasks get read out of order), or a type or function that no task defines.
 - **The FIRST task is the eval task.** Author the `tests_to_add` bodies as
   failing tests, committed before any implementation task — the spec in
   executable form. Slices not yet buildable may use `.todo`/`.fails`. Each
@@ -217,6 +232,16 @@ Then invoke `writing-plans`, structuring tasks as tickets:
 
 Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 `.claude/reference/migrations-log.md` before writing the migration step.
+
+**Self-review the plan before registering it** — a checklist you run, not a
+dispatch. Fix what it finds inline; no re-review is needed:
+
+1. **Intake coverage** — every `user_visible_behavior` entry, edge case and
+   `tests_to_add` title maps to a task. Add a task for any gap.
+2. **Placeholder scan** — search the plan for the patterns above.
+3. **Name consistency** — types, signatures and property names in later
+   tasks match their definitions in earlier ones (`clearLayers()` in T3 and
+   `clearFullLayers()` in T7 is a bug).
 
 Register the tracers:
 
@@ -312,23 +337,84 @@ grilling conversation; consult the files.
 bash scripts/feature-state.sh set-phase executing
 ```
 
-Invoke `subagent-driven-development` FROM this session: fresh per-task
-subagents against the worktree. Every task prompt includes the glossary
-excerpt (the relevant `docs/context/*.md` terms), the task's spec slice and blocking-edge context, the
-precedent paths from `existing_patterns_to_follow`, and the failing eval tests
-this task turns green — code references, never prose descriptions of them. The
-full delegation contract is in `execution-lanes.md` § Delegation contract.
+Dispatch a FRESH subagent per task, from this session, against the worktree.
+Run every task without pausing to check in; stop only on a BLOCKED you cannot
+resolve, an ambiguity that prevents progress, or a finished plan.
+
+**The task prompt.** The subagent never inherits this session and never reads
+the plan file — paste what it needs: the task's full text from the plan, where
+it fits (blocking-edge context), the glossary excerpt (the relevant
+`docs/context/*.md` terms), the precedent paths from
+`existing_patterns_to_follow`, and the failing eval tests this task turns
+green — code references, never prose descriptions of them. The full
+delegation contract is in `execution-lanes.md` § Delegation contract. The
+prompt also tells the subagent to:
+
+- ask before starting if requirements, approach or assumptions are unclear,
+  and ask again mid-task instead of guessing;
+- build exactly the task — no extras (YAGNI), no restructuring outside it,
+  and follow the plan's file structure; a file growing past the plan's intent
+  is a concern to report, not a split to make;
+- stop and escalate rather than hand back work it is unsure of — an
+  architectural choice the plan did not make, code it cannot understand from
+  what it was given, or reading file after file without progress;
+- self-review before reporting: everything in the task done, edge cases,
+  names that say what things do, tests that check real behavior and not
+  mocks;
+- report `Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`, the
+  files changed and the test results, inside the ≤10-line summary below.
+
+**Model per task**: a 1–2 file task with a complete spec → a fast model;
+multi-file integration → a standard model; design judgment or broad codebase
+reasoning → the most capable model.
+
+**Handle the status.** DONE → spec check below. DONE_WITH_CONCERNS → read the
+concerns; resolve correctness or scope concerns before the check, note mere
+observations. NEEDS_CONTEXT → supply it and re-dispatch. BLOCKED → a context
+gap gets more context on the same model; a reasoning gap gets a stronger
+model; a task too large gets split; a wrong plan goes to the owner. Never
+re-dispatch unchanged after an escalation, and never fix the task by hand in
+this session — dispatch a fix subagent with specific instructions.
+
+**Spec check per task — do not trust the report.** Read the diff, not the
+summary. Compare it to the task text line by line: anything missing, anything
+extra that was not requested, anything misread. Confirm its failing eval tests
+are now green. A gap goes back to a subagent and is checked again; never move
+to the next task with a gap open. Code-quality review of the whole branch is
+step 7's wave, not a per-task stage.
 
 **Parallel dispatch**: the first task always runs alone, because its
 enforcement spot check proves the guard binds for subagent tool calls in this
 harness. After it passes, tasks the plan marked mutually independent may run as
-concurrent subagents via `dispatching-parallel-agents`. Tasks sharing files or
-edges stay serial. Any surface violation by a parallel task stops the whole
-fan-out.
+concurrent subagents — one agent per independent task, all launched in ONE
+message. Each prompt is focused (one task), self-contained (all its context
+pasted in), and names its constraints (its edit lease; touch nothing else)
+and its return format. Tasks sharing files, edges or state stay serial. When
+the fan-out returns: read every summary, check that no two agents touched the
+same code, spot-check the diffs (agents make systematic errors), and run the
+suite before the next task. Any surface violation by a parallel task stops the
+whole fan-out.
 
-TDD per `test-driven-development` where behavior is specifiable up front:
-red → green → refactor, one vertical slice at a time. Commit per completed
-task. Move each tracer as it starts and finishes:
+**TDD** where behavior is specifiable up front, one vertical slice at a time:
+
+1. RED — one minimal test for one behavior, clearly named, on real code
+   (mock only what cannot run in a test).
+2. Watch it fail, every time. It must FAIL, not error, and fail because the
+   behavior is missing, not because of a typo. A test that passes on the first
+   run tests existing behavior — fix the test.
+3. GREEN — the simplest code that passes. No extra options or features.
+4. Watch it pass, with the other tests still green and the output clean. A
+   failure means fixing the code, not the test.
+5. REFACTOR only while green; add no behavior.
+
+Production code written before its test is deleted and rewritten from the
+test — not kept as a reference. A bug fix starts with a failing test that
+reproduces the bug. Never assert on a mock's own existence or calls in place
+of the behavior, never add a production method that only tests use, and
+understand a dependency's side effects before mocking it. A test that is hard
+to write means the design is hard to use — simplify the interface.
+
+Commit per completed task. Move each tracer as it starts and finishes:
 
 ```bash
 node .agents/skills/feature/scripts/progress.mjs tracer T3 active
@@ -567,9 +653,28 @@ shows the shape). After round 3, stop looping:
 RISK = high surfaces the disagreement to the owner; RISK = normal makes the
 call and records both positions in the review report AND the PR description.
 
-Triage the tables with `receiving-code-review`: fix what is real, reject the
-rest with stated reasoning. Log verdicts as one-liners in the report file so a
-resumed session inherits triage state. **COMMIT the review reports and triage
+**Triage the tables — a finding is a claim to verify, not an order.** For
+each finding:
+
+1. Read the whole table before acting; related findings change each other.
+   If any finding is unclear, clarify it before fixing ANY of them.
+2. Restate the finding in your own words, then check it against the code: is
+   it correct for THIS codebase, would the fix break something, is there a
+   reason for the current code, does the reviewer have the full context?
+3. A suggestion to build something "properly": grep for real callers first.
+   No callers means propose removal (YAGNI), not a fuller build.
+4. A finding that conflicts with a locked intake or plan decision is the
+   owner's call, not a fix.
+5. Reject with technical reasoning and `file:line` evidence. If you cannot
+   verify a finding, say what you would need rather than guessing.
+6. Fix the real ones one at a time, in order — blocking (breakage, security),
+   then simple, then complex — and test each fix before the next.
+
+No performative agreement or thanks in verdicts: state the fix, or state the
+reason for rejecting. A reply to an inline GitHub review comment goes in its
+thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`),
+never as a top-level PR comment. Log verdicts as one-liners in the report file
+so a resumed session inherits triage state. **COMMIT the review reports and triage
 verdicts** — uncommitted reports vanish with the worktree at cleanup.
 
 Re-run step 5, then go to step 7.5. **The phase does NOT move to `reviewed`
