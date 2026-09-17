@@ -27,6 +27,15 @@ const GIT_FREE_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
 ) as NodeJS.ProcessEnv;
 
+// Several cases import the runner and call it IN PROCESS, where its git calls
+// inherit this process's environment. A git hook (the lefthook pre-push run)
+// exports GIT_DIR, which pointed those calls at the pushing repository instead
+// of the fixture — `fatal: path 'src/gate.ts' exists on disk, but not in <sha>`.
+// Reproduced on main with GIT_DIR set; found pushing #1302.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('GIT_')) delete process.env[key];
+}
+
 let repo: string;
 let runner = RUNNER;
 
