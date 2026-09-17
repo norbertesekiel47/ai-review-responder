@@ -1,85 +1,60 @@
-# Red team — fix-1176-client-role-grant-sweep (feature, round 1)
+# Red team — fix-1176-client-role-grant-sweep (feature, round 2)
 
 - Mode: feature · Risk: high · Issue #1176
-- Fork `b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58` = merge-base · HEAD `b39178a6019ba43301519473063ba7297f9857ab`
-- Intake SHA-256 `868cf514966b8a8f65b8e3c8359e46ae38645b13cddfa48682b943f726c8422c` (`.feature/intake.json`, byte-identical to the committed copy)
-- **Status: INCOMPLETE_ORACLE** — 11 inventory rows: 8 killed, 2 inconclusive (oracle), 1 excluded. Findings: 0 P0, 1 open P1, 2 open P2.
+- Fork `b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58` = merge-base · HEAD `2dd74a20fcf7cc761a46b183f7b88268768c9710`
+- Intake SHA-256 `13cc93ffdfcc6bc74bcb87d280b73e4b94332edaf485bfa48870a4400c4203b2` (`.feature/intake.json`, byte-identical to the committed copy)
+- Generated 2026-09-17T12:58:04Z
+- **Status: CLEAR** — 12 inventory rows: 10 killed, 0 inconclusive, 2 excluded. Findings: 0 P0, 0 open P1, 1 open P2; 3 fixed.
 
-## Preconditions
+> Rendered from `findings.json` (the round-2 sidecar) by the orchestrating session. The round-2 agent's own write of this file failed, so the JSON is the source; every row below restates its `reason`. Round 1 (head `b39178a60`, status INCOMPLETE_ORACLE) is in git history at commit `762233bbb`.
 
-- The worktree was clean at HEAD. `watchers`: none.
-- `round-start`: round 1 opened with 30 runs available. 24 runs were used.
-- The environment followed the allowlist: temporary HOME and `TEST_DATABASE_POOL_URL` from the local test container only (localhost, postgres:16). `dotenv-swap` scrubbed `.env.local` for the mutation phase and `dotenv-restore` put it back. No connection was made to staging or production.
+## Scope
 
-## Severity table
+Round 2 is scoped to the fix hunks between the round-1 head `b39178a60` and HEAD, their direct callers, and round 1's two inconclusive oracle rows (INV-8, INV-9).
 
-| Severity | file:line | Finding | Disposition |
-|---|---|---|---|
-| P1 | supabase/migrations/122_client_role_grant_sweep.sql:110 | RT-1: two hunks have no executable covering test: the PG17 MAINTAIN branch (108-114) and the `lock_timeout` backstop (70). The only proof is the mandatory post-apply PG17 query. | open (high risk, so the user adjudicates) |
-| P2 | docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:25 | RT-2: the handoff (fork point, "Red team BLOCKED") and deviation D6 are stale after the #1302 merge | open |
-| P2 | src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:320 | RT-3: the suite's restore reverts only grants and the default ACL, so a migration that changes RLS leaves the shared test DB dirty | open |
+## Environments
 
-## Scope decision: mutating the migration
-
-The skill excludes `supabase/migrations/` because the database is normally provisioned before the run, so changing the file changes nothing under test. That premise does not hold here. The 122 suite `readFileSync`s the checked-in file inside `beforeAll` and applies it verbatim with `db.unsafe`. A mutant of the file is therefore exactly what the suite executes. Mutations ran against the local test DB only, with one mutant per run. Each mutant was restored by named-path `git checkout -- <file>` and verified against the HEAD blob before the next mutation. The orchestrator's `finalize` will find every journaled entry at its original OID.
+- Local test DB: localhost, postgres:16, `server_version_num` 160014 — the CI major.
+- Disposable postgres:17-alpine container: localhost:5517, `server_version_num` 170010, provisioned by the repo driver (`test-db-bootstrap.sql`, then all 122 migrations), removed after the pass.
+- No connection to staging or production. `.env.local` swapped and restored. 24 of 30 runs used.
 
 ## Inventory
 
 | ID | Candidate | Outcome | Evidence |
 |---|---|---|---|
-| INV-1 | removes the four rights on every public table | killed | M1a drops TRIGGER (:88) → fails. M1b revokes FROM anon only → fails. |
-| INV-2 | removes every client privilege from the twenty deny-all tables | killed | M2a removes one table from the list → fails. M2b narrows REVOKE ALL to SELECT/INSERT/UPDATE → fails. |
-| INV-3 | keeps client DML elsewhere, owner and service_role unchanged | killed | M3a adds DELETE → fails on reviews. M3b adds service_role → non-client ACL diff fails. |
-| INV-4 | no RLS flag, policy or column-grant change | killed | M4a REVOKE ALL on businesses → column ACL fails. M4b FORCE RLS on agent_runs → fails. The force flag was then reset by hand (RT-3). |
-| INV-5 | default privileges lose the four rights and keep DML | killed | M5a deletes step 3 → fails. M5b REVOKE ALL defaults → fails. |
-| INV-6 | second apply is a no-op | killed | M6a appends a toggling GRANT/REVOKE DO block → fails. |
-| INV-7 | owner guard refuses | killed | M7a turns RAISE EXCEPTION into WARNING → fails. M7b narrows the guard to relkind 'p' → fails. |
-| INV-8 | PG17 MAINTAIN branch (:108-114) | inconclusive (oracle) → RT-1 | The container is PG16 (160014; ci.yml:252 `postgres:16`), so the branch cannot execute. Not mutated. |
-| INV-9 | `SET LOCAL lock_timeout` (:70) | inconclusive (oracle) → RT-1 | Only contention can observe it and no test creates contention. Not proven equivalent, because it also bounds pg_class tuple-lock waits. |
-| INV-10 | `MIGRATION_SHAPE_FILES` entry (scripts/ci/live-db-suites-audit.ts:136-138), oracle `pnpm ci:live-db-suites` | killed | The first baseline was red for an infra reason: the tsx IPC socket path under the long TMPDIR was too long. Rerun with a short home: green. MA1 deletes the entry → audit fails with runtime-ddl on the 122 suite. |
-| INV-11 | scripts/ci/__tests__/live-db-suites-audit.test.ts | excluded | This unchanged importer tests synthetic content only and cannot observe the real-tree entry. |
+| INV-1 | removes TRUNCATE, REFERENCES, TRIGGER and MAINTAIN on every public table | killed | PG17: M8a (`:111` table-level REVOKE MAINTAIN deleted) and M8c (version gate `:110` raised to 180000) fail — anon:MAINTAIN survives on `account_audit_log`. Round-1 PG16 kills stand; migration blob unchanged. |
+| INV-2 | removes every client privilege from the twenty deny-all tables | killed | PG16: M2a (drops `solicitation_unsubscribe_tokens` from the REVOKE ALL list) fails. |
+| INV-3 | keeps client DML elsewhere; owner and service_role unchanged | killed | PG16: M3a (adds DELETE to the revoke) fails on `reviews`. |
+| INV-4 | no RLS flag, policy or column-grant change | killed | PG17: M4b (FORCE RLS on `agent_runs`) and M4c (DISABLE RLS on `reviews`) fail. After each run: 0 forced / 58 RLS tables — the RT-3 restore works. |
+| INV-5 | default privileges lose the four rights, keep DML | killed | PG17: M8b (`:112` default REVOKE MAINTAIN deleted) and M8c fail — the default probe keeps anon:MAINTAIN. |
+| INV-6 | second apply is a no-op | killed | PG16: M6a (toggling DO block) fails. |
+| INV-7 | owner guard refuses | killed | PG16: M7a (RAISE EXCEPTION → WARNING) fails. |
+| INV-8 | PG17 MAINTAIN branch `:108-114`, via INV-1 and INV-5 on PostgreSQL 17 | killed | Resolves round 1's inconclusive row. Suite baseline on PG17: 8 passed. M8a, M8b, M8c: 4 of 4 killed. CI stays PG16 (RT-4). |
+| INV-9 | lock-contention case for `SET LOCAL lock_timeout` `:70` | killed | Resolves round 1's inconclusive row. PG16: M9a (line deleted) and M9b (moved after step 4) fail with "expected 57014 to be 55P03" at the 15 s applier timeout. Also green on PG17. |
+| INV-10 | `pnpm ci:live-db-suites` — `MIGRATION_SHAPE_FILES` entry | killed | Round-1 kill MA1 carried (audit file unchanged); baseline re-run at HEAD passed. |
+| INV-11 | `scripts/ci/__tests__/live-db-suites-audit.test.ts` | excluded | Unchanged importer; synthetic content only; INV-10 measures the hunk. |
+| INV-12 | `restore()` RLS-flag restore and verification (RT-3 fix hunk) | excluded | Runs in `beforeAll`, no single `it()` oracle. Measured out of suite: flags clean after M4b/M4c; with the flag-apply line removed plus M4b, `beforeAll` failed — the verification is not vacuous. |
 
-Every baseline (B1–B7, BA2) passed, and `assert-one-test` confirmed exactly one executed test for each Vitest run. Every mutant run also executed exactly one test and failed on an assertion, not on setup. `beforeAll` finished each time, so the suite's self-verifying restore passed.
+## Findings
 
-## Out-of-suite measurements (not test oracles)
+| Severity | Location | Finding | Disposition |
+|---|---|---|---|
+| P1 | `supabase/migrations/122_client_role_grant_sweep.sql:110` | RT-1: the PG17 MAINTAIN branch and the `lock_timeout` backstop had no executable covering test | fixed |
+| P2 | `docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:4` | RT-2: handoff and deviation D6 stale after the #1302 merge | fixed |
+| P2 | `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:323` | RT-3: suite restore ignored RLS/FORCE flags | fixed |
+| P2 | `.github/workflows/ci.yml:252` | RT-4: CI runs the suite on PostgreSQL 16 only, so no CI run executes the MAINTAIN branch | open |
 
-- **PG17 correctness (RT-1).** The check ran on a throwaway `postgres:17-alpine` container (170010) with roles anon, authenticated and service_role, and 22 synthetic RLS tables (the twenty plus reviews and users) under default ALL grants. The checked-in file applied cleanly twice. The effective count of the four rights (including MAINTAIN) was 0, reviews kept 8 client DML rights, and service_role kept MAINTAIN on all 22. A rolled-back new-table probe showed client SELECT/INSERT/UPDATE/DELETE only. The container was stopped with `--rm`.
-- **Locking claim.** A second throwaway PG17 ran `REVOKE TRUNCATE` with `lock_timeout = '1s'` while another session held ACCESS EXCLUSIVE, and again under ROW EXCLUSIVE. It completed both times, which supports the header claim that "REVOKE takes no relation lock".
+### Arbiter reasoning
 
-## Duty 2 — fragile assertions
-
-The seven cases were scanned and none was found. The array comparisons read SQL with `ORDER BY`, so an ordering contract exists. No absence-of-tag proxies or exact string counts are used. The guard case's kill surfaced as Chai rejecting `toContain` on `null`. That still fails closed, and the test checks the real behaviour (a missing error).
-
-## Duty 3 — docs vs reality
-
-`prevalidate-plan.py` ran on the plan, handoff, deviations, migrations-log and triage. Citations: 0 in each. The four "stale commit" hits are Codex session UUID fragments (`01a0adb0…`, `01a0adcc…`), which are false positives. The following claims were hand-checked against HEAD and hold:
-
-- `.github/workflows/ci.yml:252` is `postgres:16`.
-- `055_auto_approval_policy.sql:72` and `076_judge_verdicts_governor.sql:61` revoke authenticated INSERT/UPDATE/DELETE.
-- supabase-js reads `users` only, at `src/proxy.ts:252`, `src/app/api/auth/callback/route.ts:112` and `src/components/auth/hooks/useLoginSubmit.ts:94`. No other `.from('<table>')` exists in `src` or `worker` outside tests.
-- Column ACLs exist only on businesses and channel_enrollments (local DB).
-- There are 58 public tables and 0 views, matviews or foreign tables (local DB).
-- There is no path:line claim to re-resolve.
-
-Stale items are recorded as RT-2.
-
-## Duty 4 — missed sibling cases
-
-- **Pattern:** deny-all tables (RLS on, zero `pg_policy` rows) in `public` at migrations head on the local test DB. **Result:** 29. That is the twenty in the migration plus the nine the intake names as already revoked. For each of the nine, `rg "REVOKE ALL[^;]*\b<table>\b" supabase/migrations` finds its revoke: 056 (account_offboarding_tokens, account_offboardings), 117 (admin_audit_log), 118 (poller_heartbeats), 119 (job_outbox), 120 (agent_conversations, agent_proposals, agent_turns, agent_unsupported_requests). **Siblings missed: 0.**
-- **Pattern:** relkind v/m/f/p in public. **Result:** 0.
-- **Exclusions:** sequences, functions and supabase_admin defaults (intake non-goals, #1300). Production data was not read.
-
-## Duty 5 — operational completeness
-
-The diff adds no runtime code path, Sentry signal or `beta-launch-alerting.md` rule: it is a migration plus a test and a CI allowlist entry. The detectors the intake relies on (post-apply introspection and 42501 watch) are manual acceptance steps. There is nothing to compare statically, and nothing was found.
-
-## Restoration
-
-- The migration was mutated 13 times and the audit script twice (MA1 ran twice because of the infra retry). Each time the file was restored by named-path checkout and its hash verified against HEAD. `git status --porcelain` was empty before the report files were written.
-- `.env.local` was restored with `dotenv-restore`.
-- The local test DB was restored by the suite on every run, and `agent_runs` FORCE RLS was reset by hand (0 forced tables re-read).
-- The journal still holds 15 entries in state `applied` whose working blob equals `originalOid`. The orchestrator's `finalize` closes them. It was not run here, per instruction.
+- **RT-1 — fixed.** The lock-contention case kills M9a and M9b on PG16. On PG17, INV-1 and INV-5 kill each MAINTAIN mutant and the gate mutant (4 of 4). The uncovered-change condition no longer holds; the CI residual is RT-4.
+- **RT-2 — fixed.** Handoff line 4 records fork `889c8be6e` at creation and merge-base `b73c6a001`; `b39178a60` is the merge commit; D6 records the owner decision. D7 claims hold: intake copies byte-identical, the eighth title matches the suite verbatim, 55P03 vs 57014 reproduced.
+- **RT-3 — fixed.** Flags restored under M4b and M4c; removing the flag-apply line makes `beforeAll` fail. Flags are computed after the ROLLBACK, applied inside the restore transaction, and re-read before the grant comparison.
+- **RT-4 — open, P2.** A covering test exists and kills every MAINTAIN mutant on PG17, so this is not an uncovered change. What is missing is a PG17 CI lane: a later edit to that branch would pass CI unchecked. Mitigations in the contract: the migration applies once, staging first, and the mandatory PG17 four-right post-apply query in migrations-log entry 122 must return 0 on each project.
 
 ## Authorizations
 
 None.
+
+## Restoration
+
+All 14 mutations (13 to the migration, 1 to the suite) restored; both blobs match HEAD. The orchestrator's `finalize` closed the journal (0 files needed restoring). `.env.local` restored. The PG17 container and the scratch files holding its URL were removed. The PG16 test DB is clean: 0 forced tables, no client role holds TRUNCATE.

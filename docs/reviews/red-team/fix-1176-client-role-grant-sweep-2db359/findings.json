@@ -5,139 +5,151 @@
   "branch": "fix-1176-client-role-grant-sweep",
   "fork_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
   "merge_base_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
-  "head_sha": "b39178a6019ba43301519473063ba7297f9857ab",
-  "intake_sha256": "868cf514966b8a8f65b8e3c8359e46ae38645b13cddfa48682b943f726c8422c",
+  "head_sha": "2dd74a20fcf7cc761a46b183f7b88268768c9710",
+  "intake_sha256": "13cc93ffdfcc6bc74bcb87d280b73e4b94332edaf485bfa48870a4400c4203b2",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-17T12:35:24Z",
+  "round": 2,
+  "generated_at": "2026-09-17T12:58:04Z",
   "inventory": [
     {
       "id": "INV-1",
       "test": "migration 122 removes TRUNCATE, REFERENCES, TRIGGER and MAINTAIN from anon and authenticated on every public table",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Scope decision: the migration is mutated despite the supabase/migrations/ exclusion, because this suite readFileSync's supabase/migrations/122_client_role_grant_sweep.sql inside beforeAll and applies it verbatim through db.unsafe, so the mutant IS the code under test (the exclusion's premise, provisioned-before-run, does not hold). Baseline B1 green, exactly one test. M1a (supabase/migrations/122_client_role_grant_sweep.sql:88 drops TRIGGER from the REVOKE list) -> failed: revoked right survives on account_audit_log (anon:TRIGGER). M1b (supabase/migrations/122_client_role_grant_sweep.sql:88 FROM anon only) -> failed: authenticated REFERENCES/TRIGGER/TRUNCATE survive."
+      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B1-pg17 green, exactly one test. M8a (supabase/migrations/122_client_role_grant_sweep.sql:111 deleted, table-level REVOKE MAINTAIN) -> failed: revoked right survives on account_audit_log (anon:MAINTAIN). M8c (supabase/migrations/122_client_role_grant_sweep.sql:110 version gate 170000 -> 180000, branch never runs) -> failed the same way. Round-1 PG16 kills M1a/M1b stand; the migration blob 6f48261d is unchanged since round 1."
     },
     {
       "id": "INV-2",
       "test": "migration 122 removes every anon and authenticated privilege from the twenty deny-all tables",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B2 green, exactly one test. M2a (drop solicitation_unsubscribe_tokens from the REVOKE ALL list, supabase/migrations/122_client_role_grant_sweep.sql:92-99) -> failed on that table's 8 client privileges. M2b (REVOKE ALL -> REVOKE SELECT, INSERT, UPDATE, supabase/migrations/122_client_role_grant_sweep.sql:92) -> failed: anon/authenticated DELETE survives on agent_outcomes."
+      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B2 green, exactly one test. M2a (supabase/migrations/122_client_role_grant_sweep.sql:99 solicitation_unsubscribe_tokens replaced, so it leaves the REVOKE ALL list) -> failed: client privileges on solicitation_unsubscribe_tokens not empty."
     },
     {
       "id": "INV-3",
       "test": "migration 122 keeps anon and authenticated DML on tables outside the deny-all list and leaves owner and service_role privileges unchanged",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B3 green, exactly one test. M3a (add DELETE to the supabase/migrations/122_client_role_grant_sweep.sql:88 revoke, over-reach) -> failed: client privileges on reviews lose DELETE. M3b (add service_role to the supabase/migrations/122_client_role_grant_sweep.sql:88 FROM list) -> failed: non-client ACL on account_audit_log changed."
+      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B3 green, exactly one test. M3a (supabase/migrations/122_client_role_grant_sweep.sql:88 adds DELETE to the revoke) -> failed: client privileges on reviews lose DELETE."
     },
     {
       "id": "INV-4",
       "test": "migration 122 changes no RLS flag, policy or column grant on any public table",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B4 green, exactly one test. M4a (append businesses to the REVOKE ALL list) -> failed: businesses column ACL emptied (REVOKE ALL on a table also strips column grants). M4b (ALTER TABLE agent_runs FORCE ROW LEVEL SECURITY before COMMIT) -> failed: agent_runs force expected false. The suite's restore does not undo RLS flags (see RT-3); relforcerowsecurity was reset by hand on the local test DB and re-read as 0 forced tables."
+      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B4-pg17 green, exactly one test. M4b (ALTER TABLE agent_runs FORCE ROW LEVEL SECURITY before COMMIT) -> failed: agent_runs force expected false. M4c (ALTER TABLE reviews DISABLE ROW LEVEL SECURITY before COMMIT) -> failed: reviews rls expected true. After each mutant run the container read 0 forced / 58 RLS-enabled public tables, identical to before: the RT-3 flag restore works."
     },
     {
       "id": "INV-5",
       "test": "migration 122 removes the four rights from the owning role's default table privileges and keeps default DML",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B5 green, exactly one test. M5a (delete step 3, supabase/migrations/122_client_role_grant_sweep.sql:103-104) -> failed: default probe still holds anon:TRUNCATE. M5b (step 3 REVOKE ALL ON TABLES) -> failed: default probe lacks anon:SELECT."
+      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B5-pg17 green, exactly one test. M8b (supabase/migrations/122_client_role_grant_sweep.sql:112 deleted, ALTER DEFAULT PRIVILEGES REVOKE MAINTAIN) -> failed: default probe still includes anon:MAINTAIN. M8c (version gate 170000 -> 180000) -> failed the same way."
     },
     {
       "id": "INV-6",
       "test": "migration 122 is a no-op when applied a second time",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B6 green, exactly one test. M6a (append a DO block that toggles anon SELECT on public.reviews, a non-idempotent statement) -> failed: afterSecond differs from after. One mutant only (limit is 2)."
+      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B6 green, exactly one test. M6a (DO block before COMMIT toggling anon SELECT on public.reviews) -> failed: afterSecond differs from after."
     },
     {
       "id": "INV-7",
       "test": "migration 122 refuses to run when a public table is owned by a role other than the applier",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
       "outcome": "killed",
-      "reason": "Baseline B7 green, exactly one test. M7a (supabase/migrations/122_client_role_grant_sweep.sql:82 RAISE EXCEPTION -> RAISE WARNING) -> failed: ownerGuardError null, toContain rejects. M7b (supabase/migrations/122_client_role_grant_sweep.sql:79 guard relkind IN ('p') only, so ordinary tables are never checked) -> failed the same way."
+      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B7 green, exactly one test. M7a (supabase/migrations/122_client_role_grant_sweep.sql:82 RAISE EXCEPTION -> RAISE WARNING) -> failed: ownerGuardError null."
     },
     {
       "id": "INV-8",
-      "test": "(no executable covering test) PG17 MAINTAIN branch, supabase/migrations/122_client_role_grant_sweep.sql:108-114",
+      "test": "PG17 MAINTAIN branch (supabase/migrations/122_client_role_grant_sweep.sql:108-114), measured through INV-1 and INV-5 on PostgreSQL 17",
       "file": "supabase/migrations/122_client_role_grant_sweep.sql",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT-1",
-      "reason": "The local and CI container is PostgreSQL 16 (server_version_num 160014; .github/workflows/ci.yml:252 image postgres:16), so the IF branch never runs and no test can kill a mutant of it. Not mutated: a survivor would be unexecuted by construction. Out-of-suite check on a throwaway postgres:17-alpine container (170010, 22 synthetic RLS tables, default ALL grants): the verbatim file applied twice without error, the four-right has_table_privilege count was 0, reviews kept 8 client DML rights, service_role kept MAINTAIN on all 22, and a rolled-back new-table probe showed client DML only. That is evidence the SQL is correct, not a test oracle."
+      "outcome": "killed",
+      "reason": "Resolves round-1 inconclusive row. On the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass the suite derives revokedRights from acldefault, which there includes MAINTAIN, so the degrade grants MAINTAIN and the assertions cover it. Whole-suite baseline BS-pg17: 8 passed. Mutants of each MAINTAIN statement separately: M8a (:111) killed by INV-1; M8b (:112) killed by INV-5; the gate mutant M8c (:110) killed by both. 4 of 4 killed. CI stays PG16, so no CI run executes this oracle (RT-4)."
     },
     {
       "id": "INV-9",
-      "test": "(no executable covering test) SET LOCAL lock_timeout backstop, supabase/migrations/122_client_role_grant_sweep.sql:70",
-      "file": "supabase/migrations/122_client_role_grant_sweep.sql",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT-1",
-      "reason": "Only a contention path can tell this line apart, and no test sets up contention. Not proven equivalent: lock_timeout also bounds waits on pg_class tuple locks from a concurrent GRANT. Direct probe on throwaway PG17 confirms the header claim that REVOKE takes no relation lock (it finished under a held ACCESS EXCLUSIVE and under a held ROW EXCLUSIVE with lock_timeout 1s)."
+      "test": "migration 122 fails fast with a lock timeout when another session holds a catalogue row lock",
+      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Resolves round-1 inconclusive row for supabase/migrations/122_client_role_grant_sweep.sql:70. On the local test DB (localhost, postgres:16, server_version_num 160014, the CI major): baseline B9 green, exactly one test. M9a (:70 SET LOCAL lock_timeout deleted) -> failed: expected 57014 to be 55P03 (run took 15 s, the applier statement timeout). M9b (the SET LOCAL moved after step 4, so steps 1-3 run unbounded) -> failed the same way. Also green on PG17 in BS-pg17."
     },
     {
       "id": "INV-10",
       "test": "pnpm ci:live-db-suites (audit over the real tree) — MIGRATION_SHAPE_FILES entry for the 122 suite",
       "file": "scripts/ci/live-db-suites-audit.ts",
       "outcome": "killed",
-      "reason": "Data-only hunk (scripts/ci/live-db-suites-audit.ts:136-138); no Vitest case observes it, so the CI audit command is the oracle, run under the same supervisor. First baseline (BA) was red for infra: tsx IPC socket path under the long scratch TMPDIR exceeded the unix socket limit (EINVAL listen); rerun with a short tmp home: BA2 passed. MA1 (delete the entry) -> failed: runtime-ddl on the 122 suite (first at line 241)."
+      "reason": "Round-1 kill MA1 carried: scripts/ci/live-db-suites-audit.ts is unchanged between the round-1 head and HEAD. Round 2 re-ran the audit baseline BA at HEAD against the changed suite (new holder/applier connections and GRANT): passed."
     },
     {
       "id": "INV-11",
       "test": "scripts/ci/__tests__/live-db-suites-audit.test.ts (reverse-import hit)",
       "file": "scripts/ci/__tests__/live-db-suites-audit.test.ts",
       "outcome": "excluded",
-      "reason": "Unchanged importer of the changed module. Every case feeds synthetic file content and never reads the real MIGRATION_SHAPE_FILES membership of the 122 path, so it cannot cover a data-only entry. INV-10 measures that hunk instead."
+      "reason": "Unchanged importer of the changed module. Every case feeds synthetic file content and never reads the real MIGRATION_SHAPE_FILES membership of the 122 path. INV-10 measures that hunk."
+    },
+    {
+      "id": "INV-12",
+      "test": "restore(): rowSecurityStatements flag restore and restore verification (RT-3 fix hunk, suite beforeAll)",
+      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Test-infrastructure hunk with no assertion of its own: it runs inside beforeAll, so no single it() can execute it as an oracle and assert-one-test cannot apply. Measured out-of-suite instead: after M4b and M4c (INV-4) the PG17 container read 0 forced / 58 RLS tables; with the flag-apply line (test file :354) removed AND M4b applied (MR1), beforeAll failed and 0 tests ran, so the verification at :385 fails loud. agent_runs FORCE was then reset by hand on the disposable container."
     }
   ],
   "findings": [
     {
       "id": "RT-1",
       "severity": "P1",
-      "title": "Two production hunks in migration 122 have no executable covering test: the PG17-only MAINTAIN branch and the lock_timeout backstop. The only proof is the mandatory post-apply PG17 query on each project.",
+      "title": "Two production hunks in migration 122 had no executable covering test: the PG17 MAINTAIN branch and the lock_timeout backstop.",
       "at": "supabase/migrations/122_client_role_grant_sweep.sql:110",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Uncovered-change rule: no test in the inventory executes lines 108-114 on PG16, and none creates lock contention for line 70. The intake records the PG16 limit (edge_cases, observability) and makes the PG17 four-right query mandatory, but that is a manual step, not a test oracle. Throwaway PG17 checks by the red team found no defect (INV-8, INV-9). High-risk migration: the user must adjudicate."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Round 2: both hunks now have covering tests that kill mutants. lock_timeout (:70): the new lock-contention case kills M9a and M9b on PG16, the CI major. MAINTAIN branch (:108-114): on a disposable PostgreSQL 17 container provisioned the repo way, INV-1 and INV-5 kill each MAINTAIN statement mutant and the version-gate mutant (4/4). The uncovered-change condition no longer holds. The CI residual is recorded separately as RT-4."
     },
     {
       "id": "RT-2",
       "severity": "P2",
-      "title": "Handoff and deviation D6 are stale after the #1302 merge. The fork point still reads 889c8be6e (the merge-base is now b73c6a001), progress still says the red team is blocked by #1302, and D6 still asks for an owner decision.",
-      "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:25",
+      "title": "Handoff and deviation D6 were stale after the #1302 merge.",
+      "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:4",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "Each statement was true when written: 889c8be6e is an ancestor of HEAD and the block did happen. They read as history, so this is P2, not a false claim. prevalidate-plan.py flagged 4 \"stale commits\" in the plan, handoff and triage docs; all are Codex session UUID fragments, not commits (false positives). No path:line citations exist in the changed plan, handoff, deviation or review docs. Hand-checked claims that hold: postgres:16 at ci.yml:252; REVOKEs in 055:72 and 076:61; supabase-js .from('users') only at src/proxy.ts:252, src/app/api/auth/callback/route.ts:112 and src/components/auth/hooks/useLoginSubmit.ts:94; column ACLs only on businesses and channel_enrollments; 58 public tables."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Verified at HEAD: handoff:4 now records fork 889c8be6e at creation and merge-base b73c6a001 (git merge-base agrees); b39178a60 is the merge commit with parents 19f23491e and b73c6a001; b73c6a001 subject names #1302/#1303; findings commit 762233bbb exists; D6 now records the owner decision. D7 claims hold: both intake copies byte-identical (cmp), the eighth title matches the suite it() verbatim, 55P03 vs 57014 reproduced by M9a. prevalidate-plan.py: deviations PASS; handoff flags 01a0adcc and 8ede960e87ee, which are Codex session UUID fragments (false positives, as in round 1)."
     },
     {
       "id": "RT-3",
       "severity": "P2",
-      "title": "The suite restore reverts only grants and the default ACL. A migration change that alters RLS flags or policies leaves the shared local test DB dirty after the run.",
-      "at": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:320",
+      "title": "The suite restore reverted only grants and the default ACL, so an RLS-flipping mutant left the shared test DB dirty.",
+      "at": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:323",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Verified: under M4b (FORCE on agent_runs) and M4c (RLS disabled on reviews) the container read 0 forced / 58 RLS-enabled tables after the run, identical to before. With the flag-apply line removed plus M4b, beforeAll failed on the verification, so the check is not vacuous. No defect introduced: flags are computed after the ROLLBACK, applied inside the same restore transaction, and re-read before the grant comparison."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P2",
+      "title": "CI runs the 122 suite on PostgreSQL 16 only, so no CI run executes the MAINTAIN branch; its kill evidence exists only from a local PostgreSQL 17 container in this pass.",
+      "at": ".github/workflows/ci.yml:252",
       "duty": 1,
       "disposition": "open",
-      "arbiter_reasoning": "Seen under mutant M4b: agent_runs stayed FORCE RLS after the suite finished and had to be reset by hand. In-run detection still works (INV-4 killed). This matters only for a defective edit to the migration, and the shipped file changes no RLS state."
+      "arbiter_reasoning": "Residual of RT-1. P2, not P1: the branch now has a covering test that kills every MAINTAIN mutant when run on PG17 (INV-8), so this is not an uncovered change. What is missing is a lane that runs it on PG17: a later edit to the file would pass CI unchecked on that branch. Mitigations in the contract: the migration is applied once, staging first, and the mandatory PG17 four-right post-apply query in migrations-log entry 122 must return 0 on each project. If the owner treats the CI gap as blocking, it needs an accepted-risk authorization or a PG17 CI job; this pass records neither."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 11,
-    "killed": 8,
+    "inventory_total": 12,
+    "killed": 10,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 2,
+    "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 1,
-    "findings_total": 3,
+    "excluded": 2,
+    "findings_total": 4,
     "p0_open": 0,
-    "p1_open": 1,
-    "p2_open": 2,
+    "p1_open": 0,
+    "p2_open": 1,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 3,
     "rejected": 0
   },
-  "status": "INCOMPLETE_ORACLE"
+  "status": "CLEAR"
 }
