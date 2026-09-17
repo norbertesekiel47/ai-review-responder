@@ -14,8 +14,8 @@
 // Stated limit: the MAINTAIN branch cannot execute on the PG16 container
 // (`.github/workflows/ci.yml` pins `postgres:16`). REVOKED_RIGHTS is derived
 // from `acldefault`, which keeps every other assertion meaningful there; the
-// mandatory PG17 evidence query in the plan's step 8 is the only proof of that
-// branch.
+// mandatory PG17 post-apply query in `.claude/reference/migrations-log.md`
+// entry 122 is the only proof of that branch.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -145,6 +145,23 @@ function clientRight(role: string, privilege: string): string {
 
 const PROBE_ROLLBACK = new Error('migration 122 default probe rollback sentinel');
 
+// Every pg_default_acl entry — all roles, object types and scopes — as sorted
+// `role|namespace-or-*|objtype|grantee|privilege|grantable` strings.
+async function readDefaultAcl(): Promise<string[]> {
+  const rows = await sql()<{ entry: string }[]>`
+    SELECT d.defaclrole::regrole::text
+           || '|' || CASE WHEN d.defaclnamespace = 0 THEN '*' ELSE d.defaclnamespace::regnamespace::text END
+           || '|' || d.defaclobjtype::text
+           || '|' || CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END
+           || '|' || x.privilege_type
+           || '|' || x.is_grantable::text AS entry
+      FROM pg_default_acl d
+      CROSS JOIN LATERAL aclexplode(d.defaclacl) AS x
+     ORDER BY 1
+  `;
+  return rows.map((row) => row.entry);
+}
+
 async function readCatalogue(): Promise<Catalogue> {
   const rows = await sql()<
     {
@@ -214,17 +231,7 @@ async function readCatalogue(): Promise<Catalogue> {
       ), '[]'::jsonb)::text AS function_acl
   `;
 
-  const defaultAcl = await sql()<{ entry: string }[]>`
-    SELECT d.defaclrole::regrole::text
-           || '|' || CASE WHEN d.defaclnamespace = 0 THEN '*' ELSE d.defaclnamespace::regnamespace::text END
-           || '|' || d.defaclobjtype::text
-           || '|' || CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END
-           || '|' || x.privilege_type
-           || '|' || x.is_grantable::text AS entry
-      FROM pg_default_acl d
-      CROSS JOIN LATERAL aclexplode(d.defaclacl) AS x
-     ORDER BY 1
-  `;
+  const defaultAcl = await readDefaultAcl();
 
   // A table created by the owning role reads the default privileges as they
   // really apply; the transaction always rolls back, so it never commits.
@@ -267,7 +274,7 @@ async function readCatalogue(): Promise<Catalogue> {
     ),
     sequenceAcl: schemaAcl?.sequence_acl ?? '',
     functionAcl: schemaAcl?.function_acl ?? '',
-    defaultAcl: defaultAcl.map((row) => row.entry),
+    defaultAcl,
     defaultProbe,
   };
 }
@@ -307,10 +314,6 @@ async function readRoleGrants(): Promise<RoleGrants> {
   return { tables: [...tables], columns: [...columns], defaults: [...defaults] };
 }
 
-async function applyMigration(migration: string): Promise<void> {
-  await sql().unsafe(migration);
-}
-
 // Step 8: put the three roles' table grants, column grants and schema-public
 // default table entries back exactly as `originalGrants` read them, then prove
 // it — including the FULL pg_default_acl snapshot.
@@ -347,19 +350,7 @@ async function restore(originalGrants: RoleGrants, originalDefaultAcl: string[])
   });
 
   const restored = await readRoleGrants();
-  const [defaultAclRows] = await sql()<{ entries: string[] }[]>`
-    SELECT coalesce(array_agg(entry ORDER BY entry), '{}'::text[]) AS entries FROM (
-      SELECT d.defaclrole::regrole::text
-             || '|' || CASE WHEN d.defaclnamespace = 0 THEN '*' ELSE d.defaclnamespace::regnamespace::text END
-             || '|' || d.defaclobjtype::text
-             || '|' || CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END
-             || '|' || x.privilege_type
-             || '|' || x.is_grantable::text AS entry
-        FROM pg_default_acl d
-        CROSS JOIN LATERAL aclexplode(d.defaclacl) AS x
-    ) entries
-  `;
-  const restoredDefaultAcl = defaultAclRows?.entries ?? [];
+  const restoredDefaultAcl = await readDefaultAcl();
   if (
     JSON.stringify(restored.tables) !== JSON.stringify(originalGrants.tables)
     || JSON.stringify(restored.columns) !== JSON.stringify(originalGrants.columns)
@@ -413,7 +404,7 @@ describeWithDb(
           `CREATE TABLE ${OWNER_PROBE} (id int); ALTER TABLE ${OWNER_PROBE} OWNER TO service_role;`,
         );
         try {
-          await applyMigration(migration);
+          await sql().unsafe(migration);
           ownerGuardError = null;
         } catch (error) {
           ownerGuardError = messageOf(error);
@@ -440,9 +431,9 @@ describeWithDb(
 
         // 4–7. BEFORE, apply verbatim, AFTER, apply again, AFTER-SECOND.
         before = await readCatalogue();
-        await applyMigration(migration);
+        await sql().unsafe(migration);
         after = await readCatalogue();
-        await applyMigration(migration);
+        await sql().unsafe(migration);
         afterSecond = await readCatalogue();
       } catch (error) {
         applyFailure = error;

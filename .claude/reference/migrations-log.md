@@ -2896,17 +2896,36 @@ Revisit triggers:
   **Version guard limit.** Both projects run PostgreSQL 17; the container runs
   16, so `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`
   (in `MIGRATION_SHAPE_FILES`; degrades, applies the file verbatim twice,
-  diffs, restores) never executes the MAINTAIN branch. Its only proof is the
-  mandatory four-right `has_table_privilege` count in the plan's step 8, which
-  must return 0 on each project after apply.
-  **Rollback inverse (migration 123, staging first).** Before applying 122,
-  save each project's client-role table ACL and default ACL. Inverse: `GRANT
-  ALL ON <the twenty> TO anon, authenticated`; `GRANT TRUNCATE, REFERENCES,
-  TRIGGER, MAINTAIN TO anon, authenticated` on each table that held them
-  before (the 49, taken from the saved snapshot — never `ON ALL TABLES`);
-  `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT TRUNCATE, REFERENCES,
-  TRIGGER, MAINTAIN ON TABLES TO anon, authenticated`. Warranted only if a real
-  code path hits a 42501 in Sentry or Railway logs after the staging apply.
+  diffs, restores) never executes the MAINTAIN branch. Its only proof is this
+  mandatory post-apply check, which must return `0` on each project:
+
+  ```sql
+  SELECT count(*)
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN unnest(ARRAY['anon','authenticated']) AS r(role)
+    CROSS JOIN unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) AS p(priv)
+   WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
+     AND has_table_privilege(r.role, c.oid, p.priv);
+  ```
+
+  **Global-default preflight (mandatory, each project, before apply).** 122
+  changes only the schema-level default ACL, and a schema-level revoke cannot
+  subtract a GLOBAL default grant (PostgreSQL combines the two). Before apply,
+  `pg_default_acl` rows with `defaclnamespace = 0`, `defaclobjtype = 'r'`,
+  `defaclrole = current_user` must grant `anon`/`authenticated` none of the
+  four rights; after apply, a rolled-back `CREATE TABLE` probe as the applying
+  role must show none of them. Staging had no global entry on 2026-09-16;
+  production's defaults were not read.
+  **Rollback inverse (migration 123, staging first) — exact, never blanket.**
+  Before applying 122, save each project's client-role table ACL (per table,
+  role, privilege, grant option) and full `pg_default_acl`. The inverse
+  re-grants exactly the triples present in that snapshot and absent after
+  122, plus the exact default-ACL entries 122 removed. `GRANT ALL ON <the
+  twenty>` is WRONG: migrations 055 and 076 had already revoked
+  `authenticated` INSERT/UPDATE/DELETE on `auto_approval_policies` and
+  `judge_verdicts`, so a blanket grant would widen them. Warranted only if a
+  real code path hits a 42501 in Sentry or Railway logs after the staging
+  apply.
   No `SchemaRequirement`: 122 creates no object to name.
 
 - **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,

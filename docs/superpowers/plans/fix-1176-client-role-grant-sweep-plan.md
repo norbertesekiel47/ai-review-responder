@@ -160,7 +160,16 @@ SELECT count(*)
   CROSS JOIN unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) AS p(priv)
  WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
    AND has_table_privilege(r.role, c.oid, p.priv);
-``` `.claude/reference/arch-review-log.md` merge counter after merge.
+```
+
+**Mandatory preflight on each project BEFORE apply** (branch round 1, adversarial finding 2). Migration 122 changes only the schema-level default ACL, and a schema-level revoke cannot subtract a GLOBAL default grant. Both checks must pass, or the apply stops:
+
+1. No global default entry for the applying role grants anon or authenticated any of the four rights: `SELECT … FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x WHERE d.defaclnamespace = 0 AND d.defaclobjtype = 'r' AND d.defaclrole = current_user::regrole AND x.grantee IN ('anon'::regrole, 'authenticated'::regrole) AND x.privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER','MAINTAIN')` returns zero rows.
+2. After apply, a rolled-back probe as the applying role — `BEGIN; CREATE TABLE public.__m122_probe (id int);` then the four-right `has_table_privilege` check for anon and authenticated on it; `ROLLBACK;` — shows none of the four rights.
+
+**Rollback is an exact inverse, never a blanket grant** (branch round 1, spec + adversarial). The saved pre-apply snapshot is per table, role, privilege and grant option. Migration 123, if ever needed, re-grants exactly the (table, role, privilege) triples present in that snapshot and absent after 122, plus the exact default-ACL entries removed. `GRANT ALL` on the twenty is wrong: migrations 055 and 076 had already removed authenticated INSERT/UPDATE/DELETE on `auto_approval_policies` and `judge_verdicts`.
+
+`.claude/reference/arch-review-log.md` merge counter after merge.
 
 ## Plan review appendix
 

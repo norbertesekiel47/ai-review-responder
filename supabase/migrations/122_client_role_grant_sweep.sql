@@ -56,7 +56,8 @@
 -- through EXECUTE behind `server_version_num`. The suite
 -- (`src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`)
 -- therefore cannot execute the MAINTAIN branch; the mandatory PG17 four-right
--- query in the plan's step 8 (must return 0 on each project) is its proof.
+-- query in `.claude/reference/migrations-log.md` entry 122 (must return 0 on
+-- each project) is its proof, beside the global-default preflight there.
 --
 -- IDEMPOTENT / LOCKSTEP
 -- Re-runnable: a second apply changes nothing. Apply staging FIRST, then
