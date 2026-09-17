@@ -2217,4 +2217,22 @@ describe('Operator continuation evidence corroboration', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Operator continuation requires its original report');
   });
+
+  // #1302: after the Operator review reached main, a branch cut from main is
+  // not that continuation and must reach the ordinary normal-risk waiver.
+  it('waives normal risk on a branch cut from main after the Operator admission merged', () => {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'red-team@example.test');
+    git('config', 'user.name', 'red team');
+    write('docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md', 'merged admission');
+    git('add', 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md');
+    git('commit', '-qm', 'squash-merge the operator continuation');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-qb', 'fix-unrelated-work');
+    write('.feature/intake.json', `${JSON.stringify({ risk: 'normal' }, null, 2)}\n`);
+    const result = check();
+    expect(result.stderr).not.toContain('Operator continuation');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('WAIVED');
+  });
 });
