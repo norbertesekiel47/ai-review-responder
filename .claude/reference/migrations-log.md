@@ -2863,10 +2863,17 @@ Revisit triggers:
   catalogue and access posture. No new `SchemaRequirement`: all object names
   already exist, so presence would falsely report an unupgraded database ready.
 
-- **122** — client-role grant sweep (#1176). **LOCAL-ONLY** — applied and
-  verified only against the local test container (`pnpm test:db:setup`); not
-  yet applied to staging or production. Apply staging FIRST, then production;
-  verify by introspection, never the ledger.
+- **122** — client-role grant sweep (#1176). **Applied to STAGING
+  2026-09-17T13:06:16Z** (`psql` as `postgres`, project
+  `kubdiqdhqbhwmqfditeg`, file sha256 prefix `441aac16c3ffe63d`); **NOT yet
+  applied to PRODUCTION** — lockstep is open until it is. Staging verified by
+  introspection: four-right count 0, deny-all tables with client grants 0, RLS
+  off 0 of 58, `authenticated` SELECT on `users` kept, rolled-back new-table
+  probe 0 of the four rights and all 8 DML kept, and the post-apply client ACL
+  plus full `pg_default_acl` equal the pre-apply snapshot minus exactly the
+  intended entries. Preflight: zero global default rows. Evidence and the
+  rollback-source snapshot: `docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/`.
+  Verify by introspection, never the ledger.
   **What it does.** One transaction (`SET LOCAL lock_timeout = '5s'`): a `DO`
   guard refuses unless `current_user` owns every table in `public`; `REVOKE
   TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM anon,
