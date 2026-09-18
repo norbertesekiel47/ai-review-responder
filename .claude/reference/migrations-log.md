@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **121** — next migration is **122**
+Current head: **122** — next migration is **123**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2862,6 +2862,98 @@ Revisit triggers:
   applies the file verbatim, tests both lane scopes and compares the public
   catalogue and access posture. No new `SchemaRequirement`: all object names
   already exist, so presence would falsely report an unupgraded database ready.
+
+- **122** — client-role grant sweep (#1176). **Applied to STAGING
+  2026-09-17T13:06:16Z and to PRODUCTION 2026-09-17T14:07:59Z** (`psql` as
+  `postgres`, projects `kubdiqdhqbhwmqfditeg` then `udeyaqnvpojbwgoaxwdg`,
+  the same file, sha256 prefix `441aac16c3ffe63d`, staging first). Lockstep is
+  CLOSED.
+  **LOCKSTEP PROVEN BY BYTE COMPARISON, not by assertion.** One identical
+  snapshot query on each project — every `anon`/`authenticated` table ACL
+  entry, every client column entry, every `pg_default_acl` row — returned
+  byte-identical files BEFORE the apply (1080 rows each) and byte-identical
+  files AFTER it (526 rows each). Both verified by introspection immediately
+  and again ~11 h later: four-right count 0, deny-all tables with client
+  grants 0, RLS off 0 of 58, `authenticated` SELECT on `users` kept, and a
+  rolled-back new-table probe showing 0 of the four rights with all 8 DML
+  rights kept. Preflight on both: zero global `pg_default_acl` rows, which is
+  what makes the schema-level revoke sufficient.
+  **Applied through the SESSION pooler (port 5432), never the transaction
+  pooler (6543)**, and every read used `BEGIN READ ONLY … COMMIT` rather than
+  a session `SET` — a session GUC set through a transaction pooler can outlive
+  the client on a shared server connection.
+  Behaviour after apply, both projects: the anon key gets `42501` on
+  `auto_approval_policies`, `refusal_events` and `solicitation_consent`, while
+  `users` and `reviews` still answer 200 with RLS filtering rows. Worker
+  pollers cycled without an error, warning or permission line — staging for
+  the watch hour, production for ~11 h — and Sentry recorded no issue in
+  either environment.
+  Evidence and the rollback-source snapshots:
+  `docs/reviews/fix-1176-client-role-grant-sweep/{staging,production}-apply/`.
+  Verify by introspection, never the ledger.
+  **What it does.** One transaction (`SET LOCAL lock_timeout = '5s'`): a `DO`
+  guard refuses unless `current_user` owns every table in `public`; `REVOKE
+  TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM anon,
+  authenticated`; `REVOKE ALL` from those two roles on the twenty deny-all
+  tables; the same three rights removed from the schema-level default table
+  privileges; and, on PostgreSQL ≥ 17 only, MAINTAIN removed from both. No
+  object, RLS flag, policy, column grant, `service_role` or owner privilege
+  changes. Follow-ups: #1300 (registry split, recurrence guard, sequence and
+  function defaults), #1301 (older suite rebuilds).
+  **Measured baseline (2026-09-16, read-only).** Both projects: 58 tables in
+  `public`, 0 with RLS off; 20 deny-all tables (RLS on, zero policies) still
+  granting `anon`/`authenticated` privileges; `anon` and `authenticated` hold
+  TRUNCATE on 49 tables each. Staging's default ACL for `postgres` in `public`
+  gives `anon`, `authenticated` and `service_role` `arwdDxtm` (schema-level
+  entry, no global entry). The twenty: `agent_outcomes, agent_run_steps,
+  agent_runs, analytics_events, auto_approval_policies, flagged_responses,
+  google_connections, impersonation_sessions, inbound_events, judge_verdicts,
+  owner_leads, poller_cursors, prospect_demos, refusal_events,
+  review_escalations, solicitation_consent, solicitation_send_breaker,
+  solicitation_suppression_corrections, solicitation_suppressions,
+  solicitation_unsubscribe_tokens`.
+  **Why safe.** Every server write is Postgres.js as the table owner. The only
+  supabase-js table read is `users`, which keeps SELECT. None of the twenty
+  carries a column grant, so `REVOKE ALL` strips nothing hidden. `REVOKE` takes
+  no relation lock. TRUNCATE is exempt from row policies, which is why it goes
+  everywhere, not only on deny-all tables.
+  **Version guard limit.** Both projects run PostgreSQL 17; the container runs
+  16, so `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`
+  (in `MIGRATION_SHAPE_FILES`; degrades, applies the file verbatim twice,
+  diffs, restores) never executes the MAINTAIN branch. Its only proof is this
+  mandatory post-apply check, which must return `0` on each project:
+
+  ```sql
+  SELECT count(*)
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN unnest(ARRAY['anon','authenticated']) AS r(role)
+    CROSS JOIN unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) AS p(priv)
+   WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
+     AND has_table_privilege(r.role, c.oid, p.priv);
+  ```
+
+  **Global-default preflight (mandatory, each project, before apply).** 122
+  changes only the schema-level default ACL, and a schema-level revoke cannot
+  subtract a GLOBAL default grant (PostgreSQL combines the two). Before apply,
+  `pg_default_acl` rows with `defaclnamespace = 0`, `defaclobjtype = 'r'`,
+  `defaclrole = current_user` must grant `anon`/`authenticated` none of the
+  four rights; after apply, a rolled-back `CREATE TABLE` probe as the applying
+  role must show none of them. **Both checks PASSED on both projects at apply
+  time** (2026-09-17): zero global rows on each, and the probe showed none of
+  the four rights. (At the 2026-09-16 baseline read only staging's defaults had
+  been read; production's were read as part of its own preflight.)
+  **Rollback inverse (migration 123, staging first) — exact, never blanket.**
+  Before applying 122, save each project's client-role table ACL (per table,
+  role, privilege, grant option) and full `pg_default_acl`. The inverse
+  re-grants exactly the (table, role, privilege, grant option) entries
+  present in that snapshot and absent after 122 — `WITH GRANT OPTION` where
+  the snapshot had it — plus the exact default-ACL entries 122 removed. `GRANT ALL ON <the
+  twenty>` is WRONG: migrations 055 and 076 had already revoked
+  `authenticated` INSERT/UPDATE/DELETE on `auto_approval_policies` and
+  `judge_verdicts`, so a blanket grant would widen them. Warranted only if a
+  real code path hits a 42501 in Sentry or Railway logs after the staging
+  apply.
+  No `SchemaRequirement`: 122 creates no object to name.
 
 - **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,
   `agent_proposals`, `agent_unsupported_requests`). **Applied to staging

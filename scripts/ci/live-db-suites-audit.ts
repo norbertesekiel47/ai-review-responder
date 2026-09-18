@@ -133,6 +133,9 @@ const MIGRATION_SHAPE_FILES = new Set([
   'src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts',
   // 121 executes the real constraint extension and compares the public catalogue.
   'src/lib/shared/__tests__/migration-121-operator-refusals.integration.test.ts',
+  // 122 (#1176) degrades every public table's client grants and the owner's
+  // default ACL, executes the real file twice, then restores and verifies.
+  'src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 

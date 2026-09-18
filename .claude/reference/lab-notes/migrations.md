@@ -99,6 +99,26 @@ same name is *present* in both environments while differing in content — compa
 **Gotcha:** `psql` rejects `?pgbouncer=true`; strip the query string from
 `DATABASE_POOL_URL` / `STAGING_DATABASE_POOL_URL` before passing it.
 
+**Gotcha (#1176, 2026-09-17):** `DATABASE_POOL_URL` is the **transaction**
+pooler (port 6543). A session-level `SET` sent through it can outlive your
+client on a server connection another tenant then gets — a stray
+`SET default_transaction_read_only = on` there hands the next caller `25006` on
+its writes. Apply migrations and run manual introspection through the
+**session** pooler (same host, port **5432**) or a direct connection, and
+express read-only intent per transaction (`BEGIN READ ONLY; …; COMMIT;`), never
+as a session GUC.
+
+**Lockstep is a BYTE COMPARISON of the two projects, not per-project
+verification (#1176).** Per-project checks answer "is this project right?"; they
+cannot answer "do the two agree?", which is what lockstep claims. Snapshot the
+posture with ONE query per project — every client-role table ACL entry, every
+client column entry, every `pg_default_acl` row — and diff the files: 122's
+pre-apply snapshots were byte-identical (1080 rows each) and so were the
+post-apply snapshots (526 rows each). **Keep the pre-apply file: it is the only
+correct rollback source.** A blanket `GRANT ALL` inverse would have WIDENED two
+tables, because 055 and 076 had already revoked `authenticated`
+INSERT/UPDATE/DELETE on `auto_approval_policies` and `judge_verdicts`.
+
 ### Test-DB provisioning: local and CI applied the same "shared recipe" to different schemas
 
 - **[2026-08-14] Two RLS assertions failed locally and passed in CI, and the error
