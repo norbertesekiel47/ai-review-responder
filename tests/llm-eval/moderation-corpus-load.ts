@@ -26,51 +26,70 @@ function isBucket(value: unknown): value is ModerationBucket {
   );
 }
 
+type FieldCheck = readonly [
+  ok: (raw: Record<string, unknown>) => boolean,
+  detail: string,
+];
+
+/** One row's field contract. Table-driven so the parser stays a loop. */
+const FIELD_CHECKS: readonly FieldCheck[] = [
+  [(raw) => typeof raw.id === 'string' && raw.id.trim() !== '', 'id must be a non-empty string'],
+  [(raw) => raw.label === 'safe' || raw.label === 'unsafe', 'label must be "safe" or "unsafe"'],
+  [(raw) => isBucket(raw.bucket), 'bucket is not a known bucket'],
+  [
+    (raw) => typeof raw.description === 'string' && raw.description.trim() !== '',
+    'description must be a non-empty string',
+  ],
+  [
+    (raw) => typeof raw.text === 'string' && raw.text.trim() !== '',
+    'text must be a non-empty string',
+  ],
+  [(raw) => typeof raw.expectProviderFlag === 'boolean', 'expectProviderFlag must be a boolean'],
+];
+
+/**
+ * A label and its bucket must agree, and only an unsafe row may target the
+ * provider. Checked after FIELD_CHECKS, so both fields are known-valid here.
+ */
+function agreementDetail(raw: Record<string, unknown>): string | null {
+  const safeBucket = (SAFE_BUCKETS as readonly string[]).includes(raw.bucket as string);
+  if (raw.label === 'safe' && !safeBucket) {
+    return `safe row uses unsafe bucket "${String(raw.bucket)}"`;
+  }
+  if (raw.label === 'unsafe' && safeBucket) {
+    return `unsafe row uses safe bucket "${String(raw.bucket)}"`;
+  }
+  if (raw.label === 'safe' && raw.expectProviderFlag === true) {
+    return 'safe row must not expect a provider flag';
+  }
+  return null;
+}
+
+/** Validate one parsed line. Throws with the source line number on the first breach. */
+function validateRow(raw: unknown, lineNumber: number): ModerationCorpusRow {
+  if (!isRecord(raw)) {
+    throw new Error(`${LABEL} line ${lineNumber} must be a JSON object`);
+  }
+  for (const [ok, detail] of FIELD_CHECKS) {
+    if (!ok(raw)) throw new Error(`${LABEL} line ${lineNumber} ${detail}`);
+  }
+  const disagreement = agreementDetail(raw);
+  if (disagreement) throw new Error(`${LABEL} line ${lineNumber} ${disagreement}`);
+  return raw as unknown as ModerationCorpusRow;
+}
+
 /** Parse JSONL corpus rows. Validates shape, uniqueness, and label/bucket agreement. */
 export function parseModerationCorpus(jsonl: string): ModerationCorpusRow[] {
   const rows: ModerationCorpusRow[] = [];
   const ids = new Set<string>();
 
   for (const { lineNumber, value: raw } of parseJsonLines(jsonl, LABEL)) {
-    if (!isRecord(raw)) {
-      throw new Error(`${LABEL} line ${lineNumber} must be a JSON object`);
+    const row = validateRow(raw, lineNumber);
+    if (ids.has(row.id)) {
+      throw new Error(`duplicate ${LABEL} row id "${row.id}"`);
     }
-    if (typeof raw.id !== 'string' || raw.id.trim() === '') {
-      throw new Error(`${LABEL} line ${lineNumber} id must be a non-empty string`);
-    }
-    if (raw.label !== 'safe' && raw.label !== 'unsafe') {
-      throw new Error(`${LABEL} line ${lineNumber} label must be "safe" or "unsafe"`);
-    }
-    if (!isBucket(raw.bucket)) {
-      throw new Error(`${LABEL} line ${lineNumber} bucket is not a known bucket`);
-    }
-    if (typeof raw.description !== 'string' || raw.description.trim() === '') {
-      throw new Error(`${LABEL} line ${lineNumber} description must be a non-empty string`);
-    }
-    if (typeof raw.text !== 'string' || raw.text.trim() === '') {
-      throw new Error(`${LABEL} line ${lineNumber} text must be a non-empty string`);
-    }
-    if (typeof raw.expectProviderFlag !== 'boolean') {
-      throw new Error(`${LABEL} line ${lineNumber} expectProviderFlag must be a boolean`);
-    }
-
-    const safeBucket = (SAFE_BUCKETS as readonly string[]).includes(raw.bucket);
-    if (raw.label === 'safe' && !safeBucket) {
-      throw new Error(`${LABEL} line ${lineNumber} safe row uses unsafe bucket "${raw.bucket}"`);
-    }
-    if (raw.label === 'unsafe' && safeBucket) {
-      throw new Error(`${LABEL} line ${lineNumber} unsafe row uses safe bucket "${raw.bucket}"`);
-    }
-    if (raw.label === 'safe' && raw.expectProviderFlag) {
-      throw new Error(`${LABEL} line ${lineNumber} safe row must not expect a provider flag`);
-    }
-
-    const parsed = raw as unknown as ModerationCorpusRow;
-    if (ids.has(parsed.id)) {
-      throw new Error(`duplicate ${LABEL} row id "${parsed.id}"`);
-    }
-    ids.add(parsed.id);
-    rows.push(parsed);
+    ids.add(row.id);
+    rows.push(row);
   }
 
   if (rows.length === 0) {

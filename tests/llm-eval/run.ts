@@ -14,6 +14,7 @@ import type {
 } from './judge-types';
 import type { EvalReport, EvalResult, EvalRow } from './types';
 import type { StructuredAttemptReport } from './structured-runner';
+import type { ModerationCorpusReport } from './moderation-types';
 
 export interface RunOptions {
   live: boolean;
@@ -214,6 +215,32 @@ async function runStructuredMain(): Promise<void> {
   writeReport(report);
 }
 
+function printModerationReport(report: ModerationCorpusReport): void {
+  for (const result of report.results) {
+    const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
+    const layers = [
+      result.flaggedByLocal ? 'local' : null,
+      result.flaggedByProvider ? 'provider' : null,
+    ]
+      .filter(Boolean)
+      .join('+');
+    console.log(
+      `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
+        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}`,
+    );
+  }
+
+  console.log(
+    `\n${report.passed}/${report.total} rows correct  ` +
+      `FP=${report.falsePositives}/${report.safeTotal} ` +
+      `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
+      `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
+      `providerErrors=${report.providerErrors}`,
+  );
+  for (const violation of report.violations) console.log(`VIOLATION  ${violation}`);
+  console.log(`VERDICT: ${report.verdict} (${report.environment})`);
+}
+
 /**
  * The provider-moderation corpus lane. Calls the real OpenAI Moderation API
  * through the production `moderateResponse`, so it is keyed and opt-in.
@@ -255,30 +282,7 @@ async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
     environment,
   );
 
-  for (const result of report.results) {
-    const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
-    const layers = [
-      result.flaggedByLocal ? 'local' : null,
-      result.flaggedByProvider ? 'provider' : null,
-    ]
-      .filter(Boolean)
-      .join('+');
-    console.log(
-      `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
-        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}`,
-    );
-  }
-
-  console.log(
-    `\n${report.passed}/${report.total} rows correct  ` +
-      `FP=${report.falsePositives}/${report.safeTotal} ` +
-      `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
-      `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
-      `providerErrors=${report.providerErrors}`,
-  );
-  for (const violation of report.violations) console.log(`VIOLATION  ${violation}`);
-  console.log(`VERDICT: ${report.verdict} (${report.environment})`);
-
+  printModerationReport(report);
   writeReport(report, {
     outPath: readFlagValue(argv, '--out'),
     failed: report.verdict === 'FAIL',
