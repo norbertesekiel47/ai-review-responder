@@ -107,7 +107,8 @@
     "scripts/ci/__tests__/*.test.ts",
     "tests/llm-eval/moderation-corpus-safety.jsonl",
     "src/components/dashboard/timeline/step-facts.ts",
-    "src/components/dashboard/timeline/__tests__/*.test.tsx"
+    "src/components/dashboard/timeline/__tests__/*.test.tsx",
+    "worker/jobs/publisher/__tests__/*.test.ts"
   ],
   "tests_to_add": [
     "returns not-cleared when the LLM task throws",

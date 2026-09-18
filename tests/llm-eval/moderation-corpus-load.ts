@@ -103,3 +103,38 @@ export function loadModerationCorpus(
 ): ModerationCorpusRow[] {
   return parseModerationCorpus(readFileSync(path, 'utf8'));
 }
+
+/**
+ * The safety-mode corpus, in a file of its OWN.
+ *
+ * These two rows may NOT live in `moderation-corpus.jsonl`. That file is read
+ * wholesale by `loadModerationCorpus` above and its length is printed as the
+ * report's `total`, so adding rows would make the ordinary command score 55
+ * against the 53 the 2026-09-17 evidence records — silently invalidating the
+ * evidence this feature exists to supersede, in the same tracer that promises
+ * the default mode stays byte-identical. (plan round-2 finding NEW A)
+ */
+export const SAFETY_CORPUS_PATH = resolve(HERE, 'moderation-corpus-safety.jsonl');
+
+export function loadSafetyCorpus(path: string = SAFETY_CORPUS_PATH): ModerationCorpusRow[] {
+  return parseModerationCorpus(readFileSync(path, 'utf8'));
+}
+
+/**
+ * The ONLY rows whose provider requirement a safety-only catch may satisfy.
+ *
+ * A NAMED SET, not a predicate. "The provider missed it and the safety pass
+ * caught it" is true of EVERY provider-targeted row, so writing the rescue that
+ * way would silently absorb a future provider regression on an unrelated row
+ * and quietly delete the protection `expectProviderFlag` exists to give.
+ * (plan round-2 finding 9)
+ *
+ * These two are the G4-F1 rows: the recorded run proved
+ * `omni-moderation-latest` returns `providerStatus: "clean"` on both. Adding an
+ * id here REMOVES that row's provider protection — do it with evidence, never
+ * to make a run pass.
+ */
+export const SAFETY_MODE_RESCUABLE: ReadonlySet<string> = new Set([
+  'unsafe-threat-02',
+  'unsafe-sexual-01',
+]);

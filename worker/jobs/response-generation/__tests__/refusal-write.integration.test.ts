@@ -321,6 +321,10 @@ interface InputOverrides {
 
 function makeInput(reviewId: string, overrides: InputOverrides = {}): PersistResponseInput {
   return {
+    // A cleared Safety review (G4-F1). These cases are about other gates, so
+    // the verdict is the approvable one — absence is not clearance, so it has
+    // to be stated rather than left undefined.
+    safetyVerdict: { cleared: true, concern: null, source: 'llm', provider: 'openai' } as const,
     result: {
       responseText: 'Thank you for taking the time to write this.',
       language: 'en',

@@ -173,6 +173,9 @@ describe('persistResponseAndNotify on the on_demand_generate lane', () => {
     // every other candidacy conjunct is satisfied.
     await persistResponseAndNotify(mockSql as never, {
       result: RESULT,
+      // null: an on-demand draft is never an auto-approval candidate, so the
+      // worker skips the check and no verdict exists.
+      safetyVerdict: null,
       retryCostId: undefined,
       reviewId: 'rev-1',
       businessId: 'biz-1',

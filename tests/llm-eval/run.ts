@@ -215,18 +215,33 @@ async function runStructuredMain(): Promise<void> {
   writeReport(report);
 }
 
+/** `openai x53, anthropic x2` — inlined so the offline lane imports nothing. */
+function summariseProviders(report: ModerationCorpusReport): string {
+  const counts = new Map<string, number>();
+  for (const result of report.results) {
+    const key = result.safetyProvider ?? 'none';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([provider, n]) => `${provider} x${n}`).join(', ');
+}
+
 function printModerationReport(report: ModerationCorpusReport): void {
   for (const result of report.results) {
     const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
     const layers = [
       result.flaggedByLocal ? 'local' : null,
       result.flaggedByProvider ? 'provider' : null,
+      result.flaggedBySafetyReview ? 'safety_review' : null,
     ]
       .filter(Boolean)
       .join('+');
+    // Which provider answered the safety review, per row (deviation D5): the
+    // Anthropic fallback means production may not use the one the corpus
+    // measured, so the evidence names it rather than implying OpenAI.
+    const answeredBy = result.safetyProvider ? ` safety-by=${result.safetyProvider}` : '';
     console.log(
       `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
-        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}`,
+        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}${answeredBy}`,
     );
   }
 
@@ -235,7 +250,12 @@ function printModerationReport(report: ModerationCorpusReport): void {
       `FP=${report.falsePositives}/${report.safeTotal} ` +
       `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
       `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
-      `providerErrors=${report.providerErrors}`,
+      `providerErrors=${report.providerErrors}` +
+      (report.safetyErrors === undefined
+        ? ''
+        : `  safetyErrors=${report.safetyErrors}  ` +
+          `injectionMisses=${report.safetyInjectionMisses ?? 0}  ` +
+          `safetyProviders=${summariseProviders(report)}`),
   );
   for (const violation of report.violations) console.log(`VIOLATION  ${violation}`);
   console.log(`VERDICT: ${report.verdict} (${report.environment})`);
@@ -268,19 +288,36 @@ async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
     );
   }
 
-  // Keyed deps load only here, so the offline default stays import-light.
-  const [{ loadModerationCorpus }, { moderateResponse }, { runModerationCorpus }] =
-    await Promise.all([
-      import('./moderation-corpus-load'),
-      import('../../src/lib/moderation/moderate'),
-      import('./moderation-runner'),
-    ]);
+  const withSafetyReview = argv.includes('--with-safety-review');
 
-  const report = await runModerationCorpus(
-    loadModerationCorpus(),
-    moderateResponse,
-    environment,
-  );
+  // Keyed deps load only here, so the offline default stays import-light.
+  const [
+    { loadModerationCorpus, loadSafetyCorpus },
+    { moderateResponse },
+    { runModerationCorpus, assertSafetyModeEnvironment, makeCorpusSafetyReview },
+  ] = await Promise.all([
+    import('./moderation-corpus-load'),
+    import('../../src/lib/moderation/moderate'),
+    import('./moderation-runner'),
+  ]);
+
+  // Deviation D3, and BEFORE any external call: reviewSafety short-circuits to
+  // a mock CLEARANCE under MOCK_EXTERNAL_APIS (D2), so the run would record a
+  // PASS that tested nothing. Same shape as the OPENAI_MODERATION_ENABLED
+  // guard above — refusing afterwards still burns budget and still leaves a
+  // transcript that looks like a run.
+  if (withSafetyReview) assertSafetyModeEnvironment();
+
+  // The injection rows are APPENDED, and live in their own file. Putting them
+  // in moderation-corpus.jsonl would make the default command score 55 rows
+  // against the 53 the 2026-09-17 evidence records (round-2 NEW A).
+  const rows = withSafetyReview
+    ? [...loadModerationCorpus(), ...loadSafetyCorpus()]
+    : loadModerationCorpus();
+
+  const report = await runModerationCorpus(rows, moderateResponse, environment, {
+    ...(withSafetyReview ? { safetyReview: makeCorpusSafetyReview() } : {}),
+  });
 
   printModerationReport(report);
   writeReport(report, {

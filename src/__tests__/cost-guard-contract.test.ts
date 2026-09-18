@@ -58,6 +58,15 @@ const CALLER_ALLOWLIST = new Set([
   // Run C keyed structured eval — synthetic, explicitly opt-in, no tenant DB
   // or tenant spend ledger; the same sanctioned eval exception as above.
   'tests/llm-eval/structured-runner.ts',
+  // Safety-review corpus lane (G4-F1) — `makeCorpusSafetyReview` calls the
+  // pinned task directly, with NO cost guard and no api_costs row, the same
+  // sanctioned eval exception as the two above: the rows are synthetic text
+  // with no tenant behind them, so reserving against a real business's daily
+  // budget would be wrong. It reuses the PRODUCTION prompt, task descriptor
+  // and schema (refine included), so the cost path is the only difference and
+  // the cost path cannot change a verdict. Tenant spend goes through
+  // src/lib/moderation/safety-review.ts, which is guarded and listed above.
+  'tests/llm-eval/moderation-runner.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker', 'tests/llm-eval'];

@@ -100,6 +100,72 @@ rule fails CI. Fix the text, never the expectation. A provider miss on a live
 run is a finding: record it in the evidence doc. Do not delete the row without
 a stated reason there.
 
+## Safety-review mode (`--with-safety-review`)
+
+```bash
+pnpm eval:llm --live --moderation-corpus --with-safety-review --env staging --out <path>.json
+```
+
+Adds the **Safety review** (`safety_reviewed` on the run spine) as a third
+layer, to close finding **G4-F1**: the recorded 2026-09-17 run proved
+`omni-moderation-latest` returns `providerStatus: "clean"` on a veiled threat
+and on sexual innuendo, and the local filter covers business risks rather than
+interpersonal abuse. Neither reads what a reply *implies*.
+
+The judge reuses the production prompt, task descriptor (pinned models,
+temperature 0, the Anthropic fallback) and schema, including its contradiction
+refine. It skips only `withCostGuard` and the `api_costs` row — the same
+sanctioned eval exception `live-runner.ts` carries, because the rows are
+synthetic text with no tenant behind them. The cost path cannot change a
+verdict.
+
+### What the mode adds, and what it deliberately leaves alone
+
+**The default mode is byte-identical.** Without the flag, the rows loaded, the
+results and the acceptance object are exactly what they were — that is what
+keeps the 2026-09-17 evidence reproducible, and `__tests__/` asserts it by
+loading from disk and comparing the report shape. The two injection rows live in
+their **own** file, `moderation-corpus-safety.jsonl`, for the same reason:
+`loadModerationCorpus` returns every row in the file it reads and the report
+prints that count, so adding rows there would silently make the ordinary command
+score 55 against the recorded 53.
+
+**`caughtBy` is not a rewrite of `flaggedByProvider`.** Raw provider attribution
+is never widened by the safety pass. A safety-only catch is printed as
+`flagged-by=safety_review`, so the evidence can never claim a provider
+classification that did not happen.
+
+**The provider-requirement rescue is a NAMED SET.** Only `unsafe-threat-02` and
+`unsafe-sexual-01` — the two G4-F1 rows — may have their `expectProviderFlag`
+satisfied by a safety-only catch (`SAFETY_MODE_RESCUABLE`). Writing that rule as
+the predicate "the provider missed it and safety caught it" would be true of
+*every* provider-targeted row, so a future provider regression anywhere would be
+absorbed silently and the protection would quietly disappear. Adding an id to
+that set **removes that row's provider protection** — do it with evidence in the
+dated evidence doc, never to make a run pass.
+
+**`safety-by=` names the answering provider on every row.** The Anthropic
+fallback is kept deliberately, so production may answer from a provider the
+corpus never measured. The summary line prints the tally
+(`safetyProviders=openai x53, anthropic x2`). An evidence doc that does not
+state this is overclaiming.
+
+### Two more zero budgets
+
+Every existing budget is unchanged. Safety mode layers on:
+
+| Budget | Why it is zero |
+|---|---|
+| `maxSafetyErrors` | The check fails **closed**, so a timeout returns `cleared: false` — which without its own outcome would score as a true positive on an unsafe row, and on a safe row would fit inside the 5% FP budget and vanish. A `failed`, `skipped` or `mock` verdict scores `safety_error` and proves nothing, exactly as `provider_error` proves nothing. Fail-closed at runtime is correct; fail-closed as *evidence* is a lie. |
+| `maxSafetyInjectionMisses` | The injection rows are evidence about the **safety reviewer**, so they are scored against its own verdict. `output-filter.ts` already flags "ignore previous" and "system prompt" at high severity, so a combined-lane check would pass while the reviewer obeyed the injection. One of the two shipped rows is caught locally and one is not — that contrast is the point. |
+
+### It refuses to run in mock mode
+
+`reviewSafety` returns a mock **clearance** under `MOCK_EXTERNAL_APIS=true`, so
+the lane refuses to start **before any external call**. Refusing afterwards
+still burns budget and still leaves a transcript that looks like a run. Same
+shape as the `OPENAI_MODERATION_ENABLED` guard above.
+
 ## CI gate
 
 The keyless Vitest smoke suite (`tests/llm-eval/__tests__/*.test.ts`) runs in the

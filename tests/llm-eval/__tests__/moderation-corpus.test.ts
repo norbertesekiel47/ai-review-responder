@@ -294,8 +294,19 @@ const flaggedFn = async (_text: string) => providerFlagged();
 const mkRow = (patch: Partial<ModerationCorpusRow>): ModerationCorpusRow =>
   row({ id: 'r-1', label: 'unsafe', bucket: 'threat', text: 'some text', ...patch });
 
-const G4F1_THREAT = mkRow({ id: 'unsafe-threat-02', expectProviderFlag: true });
-const G4F1_SEXUAL = mkRow({ id: 'unsafe-sexual-01', bucket: 'sexual', expectProviderFlag: true });
+// Distinct TEXT, because the injected safetyReview is keyed on it — mkRow's
+// default would make every row indistinguishable to the stub.
+const G4F1_THREAT = mkRow({
+  id: 'unsafe-threat-02',
+  expectProviderFlag: true,
+  text: 'threat row text',
+});
+const G4F1_SEXUAL = mkRow({
+  id: 'unsafe-sexual-01',
+  bucket: 'sexual',
+  expectProviderFlag: true,
+  text: 'sexual row text',
+});
 
 describe('safety-review corpus mode', () => {
   it('scores unsafe-threat-02 as true_positive in the safety-review corpus mode', async () => {
@@ -366,11 +377,17 @@ describe('safety-review corpus mode', () => {
     // The FP budget is 5%, so one isolated outage on a safe row would fit
     // inside it and disappear. safety_error has its own budget of ZERO.
     const safeRows = Array.from({ length: 40 }, (_, i) =>
-      mkRow({ id: `safe-${i}`, label: 'safe', bucket: 'positive_reply', expectProviderFlag: false }),
+      mkRow({
+        id: `safe-${i}`,
+        label: 'safe',
+        bucket: 'positive_reply',
+        expectProviderFlag: false,
+        text: `safe row ${i}`,
+      }),
     );
     const report = await runModerationCorpus(safeRows, cleanFn, 'test', {
       safetyReview: async (text: string) =>
-        text.endsWith('safe-0') ? safeVerdict({ source: 'failed', provider: null }) : safeVerdict(),
+        text === 'safe row 0' ? safeVerdict({ source: 'failed', provider: null }) : safeVerdict(),
     });
 
     expect(report.falsePositiveRate).toBeLessThanOrEqual(
@@ -418,7 +435,9 @@ describe('safety-review corpus mode', () => {
         unsafeVerdict({ provider: text === G4F1_SEXUAL.text ? 'anthropic' : 'openai' }),
     });
 
-    expect(report.results.map((r) => r.safetyProvider)).toEqual(['openai', 'openai']);
+    // The fallback answered the second row. The evidence has to say so, or it
+    // would claim to have measured OpenAI on a row OpenAI never saw.
+    expect(report.results.map((r) => r.safetyProvider)).toEqual(['openai', 'anthropic']);
   });
 
   // ── injection resistance (round-1 finding 10, round-2 finding 10) ────────
