@@ -64,8 +64,12 @@ const DISABLED_TEST = /\b(?:(?:it|test|describe)\.(?:skip|todo)|x(?:it|test|desc
 const EXPECT_CALL = /\bexpect\s*\(/g;
 const SUPPRESSION =
   /eslint-disable|@ts-expect-error|@ts-ignore|@ts-nocheck|fallow-ignore|outbox-seam-ignore|simplify-ignore|(?:istanbul|v8) ignore/;
-const UNFINISHED = /not[ -]?implemented|\b(?:TODO|FIXME)\b|catch\s*(?:\([^)]*\))?\s*\{\s*\}/i;
-const COVERAGE_FLOOR = /DIFF_COVERAGE_MIN\b[^\d\n]{0,12}(\d{1,3})/;
+// TODO/FIXME are case-SENSITIVE on purpose: `it.todo(` and a `todoList`
+// variable are not unfinished work.
+const UNFINISHED = /[Nn]ot[ -]?[Ii]mplemented|\b(?:TODO|FIXME)\b|catch\s*(?:\([^)]*\))?\s*\{\s*\}/;
+// An ASSIGNMENT or a default only — `=60`, `:-60`, `?? '60'`. A bare mention
+// in a comment (or in this file's own pattern) sets nothing.
+const COVERAGE_FLOOR = /DIFF_COVERAGE_MIN\s*(?:=|:-|\?\?)\s*['"]?(\d{1,3})/;
 const DEFAULT_COVERAGE_FLOOR = 80;
 
 /** The files that DEFINE the checks. A change here is always worth a look. */
@@ -80,7 +84,7 @@ const QUALITY_CONFIG = new Set([
 ]);
 const AUDIT_SCRIPT = /^scripts\/ci\/[\w-]+-audit\.ts$/;
 
-/** Code only: a TODO in a doc or a plan is a note, not unfinished work. */
+/** Code only: a marker quoted in a doc, a skill or a plan is prose, not a finding. */
 function isSourceFile(path: string): boolean {
   return /\.(?:[cm]?[jt]sx?|sql|sh)$/.test(path);
 }
@@ -136,7 +140,8 @@ function coverageFloor(text: string): number | null {
 }
 
 function coverageFloorFindings(parsed: ParsedDiff): Finding[] {
-  return parsed.added.flatMap((line): Finding[] => {
+  // A test file cannot set the floor; one that mentions it is a fixture.
+  return parsed.added.filter((line) => !isTestFile(line.file)).flatMap((line): Finding[] => {
     const next = coverageFloor(line.text);
     if (next === null) return [];
     const previous = parsed.removed
@@ -169,7 +174,7 @@ function reviewFindings(parsed: ParsedDiff): Finding[] {
     }
   }
   for (const line of parsed.added) {
-    if (SUPPRESSION.test(line.text)) {
+    if (isSourceFile(line.file) && SUPPRESSION.test(line.text)) {
       findings.push({ tier: 'REVIEW', rule: 'suppression-added', file: line.file, detail: line.text.trim() });
     }
     if (isSourceFile(line.file) && !isTestFile(line.file) && UNFINISHED.test(line.text)) {
