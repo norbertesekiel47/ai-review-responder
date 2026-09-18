@@ -286,23 +286,20 @@ const unsafeVerdict = (over: Partial<SafetyVerdict> = {}): SafetyVerdict => ({
   ...over,
 });
 
-const row = (patch: Partial<ModerationCorpusRow>): ModerationCorpusRow =>
-  ({
-    id: 'r-1',
-    label: 'unsafe',
-    bucket: 'threat',
-    description: 'd',
-    text: 'some text',
-    expectProviderFlag: false,
-    ...patch,
-  }) as ModerationCorpusRow;
+/** The file's own `row` helper, defaulted to an UNSAFE row for this block. */
+/** ModerateFn adapters: the decision builders above are sync and take no text. */
+const cleanFn = async (_text: string) => providerClean();
+const flaggedFn = async (_text: string) => providerFlagged();
 
-const G4F1_THREAT = row({ id: 'unsafe-threat-02', expectProviderFlag: true });
-const G4F1_SEXUAL = row({ id: 'unsafe-sexual-01', bucket: 'sexual', expectProviderFlag: true });
+const mkRow = (patch: Partial<ModerationCorpusRow>): ModerationCorpusRow =>
+  row({ id: 'r-1', label: 'unsafe', bucket: 'threat', text: 'some text', ...patch });
+
+const G4F1_THREAT = mkRow({ id: 'unsafe-threat-02', expectProviderFlag: true });
+const G4F1_SEXUAL = mkRow({ id: 'unsafe-sexual-01', bucket: 'sexual', expectProviderFlag: true });
 
 describe('safety-review corpus mode', () => {
   it('scores unsafe-threat-02 as true_positive in the safety-review corpus mode', async () => {
-    const report = await runModerationCorpus([G4F1_THREAT], providerClean, 'test', {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict(),
     });
 
@@ -311,7 +308,7 @@ describe('safety-review corpus mode', () => {
   });
 
   it('scores unsafe-sexual-01 as true_positive in the safety-review corpus mode', async () => {
-    const report = await runModerationCorpus([G4F1_SEXUAL], providerClean, 'test', {
+    const report = await runModerationCorpus([G4F1_SEXUAL], cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict({ concern: 'implied_sexual' }),
     });
 
@@ -324,7 +321,7 @@ describe('safety-review corpus mode', () => {
     // `flaggedByProvider` stays exactly what the provider said, and the report
     // has to say which layer actually caught it, or the evidence doc would
     // claim a provider classification that never happened.
-    const report = await runModerationCorpus([G4F1_THREAT], providerClean, 'test', {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict(),
     });
 
@@ -340,10 +337,10 @@ describe('safety-review corpus mode', () => {
     // is true of every provider-targeted row, so a future provider regression
     // on an unrelated row would be silently rescued and the protection the
     // lane exists for would vanish.
-    const other = row({ id: 'unsafe-harassment-01', bucket: 'harassment', expectProviderFlag: true });
+    const other = mkRow({ id: 'unsafe-harassment-01', bucket: 'harassment', expectProviderFlag: true });
     expect(SAFETY_MODE_RESCUABLE.has(other.id)).toBe(false);
 
-    const report = await runModerationCorpus([other], providerClean, 'test', {
+    const report = await runModerationCorpus([other], cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict({ concern: 'targeted_abuse' }),
     });
 
@@ -357,7 +354,7 @@ describe('safety-review corpus mode', () => {
     // Fail-closed at RUNTIME is correct. Fail-closed as EVIDENCE is a lie: a
     // timeout would otherwise score as a true positive and authorize readiness
     // without the classifier ever having recognized the content.
-    const report = await runModerationCorpus([G4F1_THREAT], providerClean, 'test', {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict({ source: 'failed', provider: null }),
     });
 
@@ -369,9 +366,9 @@ describe('safety-review corpus mode', () => {
     // The FP budget is 5%, so one isolated outage on a safe row would fit
     // inside it and disappear. safety_error has its own budget of ZERO.
     const safeRows = Array.from({ length: 40 }, (_, i) =>
-      row({ id: `safe-${i}`, label: 'safe', bucket: 'positive_reply', expectProviderFlag: false }),
+      mkRow({ id: `safe-${i}`, label: 'safe', bucket: 'positive_reply', expectProviderFlag: false }),
     );
-    const report = await runModerationCorpus(safeRows, providerClean, 'test', {
+    const report = await runModerationCorpus(safeRows, cleanFn, 'test', {
       safetyReview: async (text: string) =>
         text.endsWith('safe-0') ? safeVerdict({ source: 'failed', provider: null }) : safeVerdict(),
     });
@@ -389,7 +386,7 @@ describe('safety-review corpus mode', () => {
       // Deviation D2: reviewSafety returns a mock CLEARANCE under
       // MOCK_EXTERNAL_APIS. A corpus that accepted it would record a PASS that
       // tested nothing — the exact silent-failure shape this lane was built for.
-      const report = await runModerationCorpus([G4F1_THREAT], providerClean, 'test', {
+      const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
         safetyReview: async () => unsafeVerdict({ source, provider: null }),
       });
 
@@ -416,7 +413,7 @@ describe('safety-review corpus mode', () => {
     // Deviation D5 mitigation. The Anthropic fallback is kept, so production
     // may answer from a provider the corpus never measured. The evidence must
     // never be able to claim coverage it does not have.
-    const report = await runModerationCorpus([G4F1_THREAT, G4F1_SEXUAL], providerClean, 'test', {
+    const report = await runModerationCorpus([G4F1_THREAT, G4F1_SEXUAL], cleanFn, 'test', {
       safetyReview: async (text: string) =>
         unsafeVerdict({ provider: text === G4F1_SEXUAL.text ? 'anthropic' : 'openai' }),
     });
@@ -430,7 +427,7 @@ describe('safety-review corpus mode', () => {
     const injectionRows = loadSafetyCorpus();
     expect(injectionRows.length).toBeGreaterThanOrEqual(2);
 
-    const report = await runModerationCorpus(injectionRows, providerClean, 'test', {
+    const report = await runModerationCorpus(injectionRows, cleanFn, 'test', {
       safetyReview: async () => unsafeVerdict(),
     });
 
@@ -444,7 +441,7 @@ describe('safety-review corpus mode', () => {
     // decision can be correct while the layer under test obeyed the injection.
     const injectionRows = loadSafetyCorpus();
 
-    const report = await runModerationCorpus(injectionRows, providerFlagged, 'test', {
+    const report = await runModerationCorpus(injectionRows, flaggedFn, 'test', {
       safetyReview: async () => safeVerdict(),
     });
 
@@ -455,8 +452,8 @@ describe('safety-review corpus mode', () => {
   // ── the default mode is untouched (round-2 NEW A) ────────────────────────
 
   it('leaves the default corpus mode unchanged, so the recorded 2026-09-17 evidence stays reproducible', async () => {
-    const withoutOptions = await runModerationCorpus(CORPUS, providerClean, 'test');
-    const withEmptyOptions = await runModerationCorpus(CORPUS, providerClean, 'test', {});
+    const withoutOptions = await runModerationCorpus(CORPUS, cleanFn, 'test');
+    const withEmptyOptions = await runModerationCorpus(CORPUS, cleanFn, 'test', {});
 
     expect(withEmptyOptions.results).toEqual(withoutOptions.results);
     expect(withEmptyOptions.acceptance).toEqual(MODERATION_CORPUS_ACCEPTANCE);
@@ -473,7 +470,7 @@ describe('safety-review corpus mode', () => {
     // number the 2026-09-17 evidence doc records.
     expect(loadModerationCorpus()).toHaveLength(53);
 
-    const report = await runModerationCorpus(loadModerationCorpus(), providerClean, 'test');
+    const report = await runModerationCorpus(loadModerationCorpus(), cleanFn, 'test');
 
     expect(report.total).toBe(53);
     expect(report.acceptance).toEqual(MODERATION_CORPUS_ACCEPTANCE);

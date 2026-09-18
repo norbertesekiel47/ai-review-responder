@@ -44,7 +44,10 @@ vi.mock('@/lib/llm/anthropic-provider', () => ({
   anthropicProvider: { id: 'anthropic', complete: anthropicComplete },
 }));
 const shouldAttempt = vi.hoisted(() =>
-  vi.fn((provider: string) => ({ provider, epoch: 0 })),
+  vi.fn<(provider: string) => { provider: string; epoch: number } | null>((provider) => ({
+    provider,
+    epoch: 0,
+  })),
 );
 vi.mock('@/lib/llm/circuit-breaker', () => ({
   llmCircuitBreaker: { shouldAttempt, recordAttempt: vi.fn() },
@@ -98,12 +101,12 @@ describe('reviewSafety', () => {
   // ── the model's own answers ──────────────────────────────────────────────
 
   it('returns cleared with no concern for an ordinary safe draft', async () => {
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask: runTaskReturning(CLEARED) });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(CLEARED) });
     expect(verdict).toMatchObject({ cleared: true, concern: null, source: 'llm' });
   });
 
   it('returns not-cleared with the concern the model named for an unsafe draft', async () => {
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask: runTaskReturning(NOT_CLEARED) });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(NOT_CLEARED) });
     expect(verdict).toMatchObject({
       cleared: false,
       concern: 'implied_threat',
@@ -114,12 +117,12 @@ describe('reviewSafety', () => {
   it('records the answering provider on every safety verdict', async () => {
     // Deviation D5: the Anthropic fallback is KEPT, so production may answer
     // from a provider the corpus never measured. The verdict has to say which.
-    const fromOpenai = await reviewSafety(mockSql, INPUT, {
+    const fromOpenai = await reviewSafety(mockSql as never, INPUT, {
       runTask: runTaskReturning(CLEARED, 'openai'),
     });
     expect(fromOpenai.provider).toBe('openai');
 
-    const fromAnthropic = await reviewSafety(mockSql, INPUT, {
+    const fromAnthropic = await reviewSafety(mockSql as never, INPUT, {
       runTask: runTaskReturning(CLEARED, 'anthropic'),
     });
     expect(fromAnthropic.provider).toBe('anthropic');
@@ -128,11 +131,12 @@ describe('reviewSafety', () => {
   it('passes only the draft text to the LLM task, never the review text', async () => {
     const runTask = runTaskReturning(CLEARED);
     await reviewSafety(
-      mockSql,
+      mockSql as never,
       { ...INPUT, draftText: `${INPUT.draftText}` },
       { runTask },
     );
-    const prompt = JSON.stringify(runTask.mock.calls[0]?.[0] ?? {});
+    const [firstCall] = runTask.mock.calls as unknown as Array<[unknown]>;
+    const prompt = JSON.stringify(firstCall?.[0] ?? {});
     expect(prompt).toContain(INPUT.draftText);
     expect(prompt).not.toContain(REVIEW_TEXT);
   });
@@ -141,7 +145,7 @@ describe('reviewSafety', () => {
 
   it('returns not-cleared when the model output fails the schema', async () => {
     const runTask = vi.fn(async () => llmResult({ cleared: 'yes', concern: 'nope' }));
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
     expect(verdict).toMatchObject({ cleared: false, concern: null, source: 'failed' });
   });
 
@@ -149,7 +153,7 @@ describe('reviewSafety', () => {
     // Round-1 finding 2. The unrefined object accepted this, and the gate reads
     // only `cleared` — so a model naming a threat could still permit posting.
     const runTask = vi.fn(async () => llmResult({ cleared: true, concern: 'implied_threat' }));
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
     expect(verdict.cleared).toBe(false);
     expect(verdict.source).toBe('failed');
   });
@@ -159,19 +163,19 @@ describe('reviewSafety', () => {
   it('makes no LLM call when cost reservation is denied or unavailable', async () => {
     // Round-1 finding 1: the reservation must PRECEDE the spend. Proven at the
     // real tracker boundary, not by making a stubbed runTask throw.
-    reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('redis down'));
+    reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
     const runTask = runTaskReturning(CLEARED);
 
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
 
     expect(runTask).not.toHaveBeenCalled();
     expect(verdict).toMatchObject({ cleared: false, source: 'failed' });
   });
 
   it('returns not-cleared when the cost reservation fails, and does not rethrow', async () => {
-    reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('redis down'));
+    reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
     await expect(
-      reviewSafety(mockSql, INPUT, { runTask: runTaskReturning(CLEARED) }),
+      reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(CLEARED) }),
     ).resolves.toMatchObject({ cleared: false, source: 'failed' });
   });
 
@@ -182,7 +186,7 @@ describe('reviewSafety', () => {
     // throwing default so this lands fail-closed.
     finalizeCost.mockRejectedValueOnce(new Error('redis INCRBY failed'));
 
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask: runTaskReturning(CLEARED) });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(CLEARED) });
 
     expect(verdict.cleared).toBe(false);
     expect(verdict.source).toBe('failed');
@@ -193,19 +197,19 @@ describe('reviewSafety', () => {
     // continues (triage.ts:114). A lost audit row must not become a clearance.
     recordApiCost.mockRejectedValueOnce(new Error('api_costs insert failed'));
 
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask: runTaskReturning(CLEARED) });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(CLEARED) });
 
     expect(verdict.cleared).toBe(false);
     expect(verdict.source).toBe('failed');
   });
 
   it.each([
-    ['malformed output', [{ provider: 'openai', model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 9 } }]],
-    ['a refusal', [{ provider: 'openai', model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 4 } }]],
-    ['truncation', [{ provider: 'openai', model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 120 } }]],
+    ['malformed output', [{ provider: 'openai' as const, model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 9 } }]],
+    ['a refusal', [{ provider: 'openai' as const, model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 4 } }]],
+    ['truncation', [{ provider: 'openai' as const, model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 120 } }]],
     ['multiple billed attempts', [
-      { provider: 'openai', model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 9 } },
-      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', usage: { promptTokens: 200, completionTokens: 11 } },
+      { provider: 'openai' as const, model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 200, completionTokens: 9 } },
+      { provider: 'anthropic' as const, model: 'claude-haiku-4-5-20251001', usage: { promptTokens: 200, completionTokens: 11 } },
     ]],
   ])(
     'finalizes and audits billed invalid safety-review completions before returning not-cleared without retry',
@@ -222,7 +226,7 @@ describe('reviewSafety', () => {
         );
       });
 
-      const verdict = await reviewSafety(mockSql, INPUT, { runTask });
+      const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
 
       expect(verdict).toMatchObject({ cleared: false, source: 'failed' });
       expect(finalizeCost).toHaveBeenCalled();
@@ -242,7 +246,7 @@ describe('reviewSafety', () => {
     );
     anthropicComplete.mockResolvedValue(llmResult(CLEARED, 'anthropic'));
 
-    const verdict = await reviewSafety(mockSql, INPUT);
+    const verdict = await reviewSafety(mockSql as never, INPUT);
 
     expect(openaiComplete).not.toHaveBeenCalled();
     expect(anthropicComplete).toHaveBeenCalledTimes(1);
@@ -253,7 +257,7 @@ describe('reviewSafety', () => {
     openaiComplete.mockRejectedValue(new Error('openai 503'));
     anthropicComplete.mockRejectedValue(new Error('anthropic 503'));
 
-    const verdict = await reviewSafety(mockSql, INPUT);
+    const verdict = await reviewSafety(mockSql as never, INPUT);
 
     expect(verdict).toMatchObject({ cleared: false, concern: null, source: 'failed' });
     expect(verdict.provider).toBeNull();
@@ -265,7 +269,7 @@ describe('reviewSafety', () => {
     const runTask = vi.fn(async () => {
       throw new Error('boom');
     });
-    await expect(reviewSafety(mockSql, INPUT, { runTask })).resolves.toMatchObject({
+    await expect(reviewSafety(mockSql as never, INPUT, { runTask })).resolves.toMatchObject({
       cleared: false,
       concern: null,
       source: 'failed',
@@ -277,7 +281,7 @@ describe('reviewSafety', () => {
     // second paid draft to fix a gate failure — the locked "No retry" invariant.
     const failures: Array<() => void> = [
       () => {
-        reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('down'));
+        reserveCost.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
       },
       () => {
         finalizeCost.mockRejectedValueOnce(new Error('finalize down'));
@@ -288,7 +292,7 @@ describe('reviewSafety', () => {
     ];
     const throwers: Array<unknown> = [
       new Error('plain'),
-      new CostInfraUnavailableError('cost infra'),
+      new CostInfraUnavailableError('reserveCost'),
       new LLMStructuredOutputError('safety_review', 'openai', new Error('invalid'), []),
       'a bare string',
       null,
@@ -299,7 +303,7 @@ describe('reviewSafety', () => {
       vi.clearAllMocks();
       reserveCost.mockResolvedValue('2026-09-18');
       arm();
-      const verdict: SafetyVerdict = await reviewSafety(mockSql, INPUT, {
+      const verdict: SafetyVerdict = await reviewSafety(mockSql as never, INPUT, {
         runTask: runTaskReturning(CLEARED),
       });
       expect(verdict.cleared).toBe(false);
@@ -311,7 +315,7 @@ describe('reviewSafety', () => {
       const runTask = vi.fn(async () => {
         throw thrown;
       });
-      const verdict: SafetyVerdict = await reviewSafety(mockSql, INPUT, { runTask });
+      const verdict: SafetyVerdict = await reviewSafety(mockSql as never, INPUT, { runTask });
       expect(verdict.cleared).toBe(false);
       expect(verdict.source).toBe('failed');
     }
@@ -326,7 +330,7 @@ describe('reviewSafety', () => {
     isMockMode.mockReturnValue(true);
     const runTask = runTaskReturning(CLEARED);
 
-    const verdict = await reviewSafety(mockSql, INPUT, { runTask });
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
 
     expect(runTask).not.toHaveBeenCalled();
     expect(reserveCost).not.toHaveBeenCalled();
