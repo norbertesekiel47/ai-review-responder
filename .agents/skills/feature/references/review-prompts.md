@@ -151,6 +151,23 @@ file:line, the named violated standard or smell, evidence, and the smallest
 maintainable correction. Do not edit files.
 ```
 
+## Weakened checks — appended to whichever axis runs
+
+Green tests written by the model that wrote the code can encode the same
+mistake. Append this to the spec/correctness brief (or the single combined
+review on a light lane):
+
+```text
+Run `pnpm ci:weakened-checks`. For EVERY REVIEW row, state whether protection
+was lost and cite where it now lives (a moved assertion, a stronger replacing
+test, a justified allowlist entry) — or report it as a finding. Then ask of
+the new tests: can they pass while the promised behavior is wrong? Where the
+change crosses a trust boundary, confirm a negative test exists for wrong
+tenant, missing authorization, and replayed or stale input. List every
+compromise the change makes that the review record does not already name
+(working-rules.md § No unacknowledged debt).
+```
+
 ## Conditional risk axes
 
 Activate only those implicated by `risk_reasons`:

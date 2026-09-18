@@ -53,6 +53,26 @@ describe('the small lane gate', () => {
   });
 });
 
+// A plan of complete code steps writes the feature twice, and the first
+// version is written before any test has run. The rule has one owner; a router
+// that restates it forks it.
+describe('the plan is a behavior contract', () => {
+  const RULE = 'The plan is a behavior contract, not an implementation.';
+
+  it('execution-lanes.md owns the rule and the security contract', () => {
+    expect(executionLanes).toContain(RULE);
+    expect(executionLanes).toContain('the security contract, when the slice crosses a trust boundary');
+    expect(executionLanes).toContain('write tests per slice');
+  });
+
+  it.each(ROUTERS)('%s cites it and does not demand complete code', (_name, router) => {
+    expect(router).toContain('behavior contract, not an');
+    expect(router).not.toContain(RULE);
+    expect(router).not.toContain('Code steps show the code');
+    expect(router).not.toContain('The FIRST task is the eval task');
+  });
+});
+
 describe('both routers cite the shared rule set', () => {
   it.each(ROUTERS)('%s cites working-rules.md', (_name, router) => {
     expect(router).toContain('working-rules.md');

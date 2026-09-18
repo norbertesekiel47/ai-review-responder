@@ -192,7 +192,10 @@ worktree.
 
 Use tracer bullets: each task delivers one vertical behavior slice, names its
 test seam, declares blocking edges, cites the precedent it follows, and stays
-inside `allowed_edit_surface`. When the surface must widen, count the
+inside `allowed_edit_surface`. The plan is a behavior contract, not an
+implementation — [execution-lanes.md](references/execution-lanes.md) § Tracer
+bullets and TDD owns the fields, the security contract, and the per-slice
+test rule. When the surface must widen, count the
 amendment mechanically — `bash scripts/feature-state.sh incr-amendment` —
 which refuses a second amendment without a recorded owner reason. Consult `codebase-design` before introducing or
 widening an interface.
@@ -324,7 +327,8 @@ as its note before you stop.
 ### 6. Review proportionally
 
 Read [review-prompts.md](references/review-prompts.md). Review the diff from a
-fixed merge-base only after the review gate is green:
+fixed merge-base only after the review gate is green. Append its § Weakened
+checks brief to the spec/correctness axis on every lane:
 
 **Take main BEFORE this section, then freeze the fork.** From the moment the
 wave dispatches, a rebase voids the gate result, the fingerprint, the blast
@@ -451,7 +455,10 @@ the wave plus the scoped round spend both by design.
 ### 7. Stop at review-ready
 
 Report the implemented behavior, material decisions, changed files, exact
-verification evidence, review verdicts, deviations, and unresolved risks.
+verification evidence, review verdicts, deviations, unresolved risks, and
+every compromise the change names ([working-rules.md](references/working-rules.md)
+§ No unacknowledged debt). Include the change's `docs/agents/change-ledger.md`
+row in the report; whoever ships adds it.
 State which external action is available next, but do not take it without
 explicit authorization. Read [shipping-boundaries.md](references/shipping-boundaries.md)
 if the user asks to continue.
