@@ -343,6 +343,15 @@ function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify
     originLane: 'live_ingest_new' as const,
     loadedReviewContentHash: 'hash-1',
     moderation: CLEAN_MODERATION,
+    // The APPROVABLE default, so every pre-existing case keeps testing the gate
+    // it is about. Absence is not clearance (that is the safety row's whole
+    // point), so this cannot be left undefined.
+    safetyVerdict: {
+      cleared: true,
+      concern: null,
+      source: 'llm',
+      provider: 'openai',
+    } as const,
     accountId: 'acct-1',
     preLlmSubscriptionTier: 'autopilot' as const,
     logger: { log: () => {}, warn: () => {} },
@@ -683,7 +692,13 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
     queuePersistRows({ structural: true });
 
-    await persistResponseAndNotify(mockSql, baseInput({ originLane: 'regenerate', logger } as never));
+    // safetyVerdict null, because a structural non-candidate never reaches the
+    // check — ResponseGeneratorWorker skips it with no LLM call. The fixture's
+    // cleared default would be a state the worker cannot produce here.
+    await persistResponseAndNotify(
+      mockSql,
+      baseInput({ originLane: 'regenerate', safetyVerdict: null, logger } as never),
+    );
 
     expect(logger.log).not.toHaveBeenCalled();
     assertManualNotificationFallback({ structural: true });
@@ -1710,7 +1725,9 @@ describe('persistResponseAndNotify — safety review', () => {
     // Round-1 finding 11. The check ran and was PAID FOR, then the review text
     // changed underneath it. ADR 0017's zero-write path stands — but the paid
     // evaluation must not vanish from the record.
-    queuePersistRows({ state: { review_content_hash: 'hash-CHANGED' } });
+    // The gate compares `loadedReviewContentHash` against the hash on the
+    // review-lock row — the FIRST statement in the transaction.
+    txQueue.push([{ id: 'rev-1', review_content_hash: 'hash-CHANGED-UNDER-US' }]);
     const logged: unknown[][] = [];
     const logger = {
       log: (...args: unknown[]) => logged.push(args),

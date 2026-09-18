@@ -33,9 +33,40 @@ const {
   const sqlReturnQueue: unknown[] = [];
   const callOrder: string[] = [];
 
-  const mockTx = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> =>
-    Promise.resolve([]),
-  );
+  // Text-aware, because persist.ts runs the REAL auto-approval path and its
+  // runtime-state read throws on a missing row. Everything else returns [],
+  // which is what the lock/insert statements expect.
+  const mockTx = vi.fn((strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
+    const text = strings.join(' ').replace(/\s+/g, ' ');
+    if (text.includes('FROM reviews r') && text.includes('JOIN accounts a')) {
+      return Promise.resolve([
+        {
+          star_rating: 5,
+          review_content_hash: null,
+          archived_at: null,
+          subscription_status: 'active',
+          subscription_tier: 'autopilot',
+          account_past_due_at: null,
+          account_flags: {},
+          triage_severity: null,
+          triage_source: null,
+        },
+      ]);
+    }
+    if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+      return Promise.resolve([{ id: 'rev-1' }]);
+    }
+    if (text.includes('FROM businesses') && text.includes('FOR UPDATE')) {
+      return Promise.resolve([{ id: 'biz-1' }]);
+    }
+    if (text.includes('FROM approval_audit_log')) {
+      return Promise.resolve([{ auto_approved_today: 0 }]);
+    }
+    if (text.includes('FROM auto_approval_policies')) {
+      return Promise.resolve([]);
+    }
+    return Promise.resolve([]);
+  });
   (mockTx as unknown as { json: (v: unknown) => unknown }).json = vi.fn((v: unknown) => v);
 
   const mockSql: any = vi.fn(() => Promise.resolve(sqlReturnQueue.shift() ?? []));

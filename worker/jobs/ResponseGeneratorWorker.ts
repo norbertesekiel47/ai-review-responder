@@ -5,6 +5,8 @@ import { markOutboxCompleted, markOutboxCompletedWithReason, markOutboxFailed, e
 import { OUTBOX_COMPLETION_REASON } from '../../src/lib/shared/outbox-completion-reason';
 import { completeRun, findActiveReviewRun } from '../../src/lib/agents/run-spine';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
+import { reviewSafety } from '../../src/lib/moderation/safety-review';
+import { isAutoApprovalCandidate } from './response-generation/auto-approval';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import { normalizeGenerateResponsePayload } from '../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -104,6 +106,42 @@ export async function handleResponseGeneration(
   // ── Output moderation (local rules always; provider if configured) ───
   const moderation = await moderateResponse(draft.result.responseText);
 
+  // ── Safety review (auto-approval lane only) ──────────────────────────
+  // Closes G4-F1: the provider classifier returns "clean" on veiled threats
+  // and on innuendo, and the local filter covers business risks rather than
+  // interpersonal abuse. This is the layer that reads what a reply IMPLIES.
+  //
+  // Skipped — with NO LLM call — whenever the gate already blocks, which is
+  // every draft today (AUTO_APPROVAL_ENABLED is false everywhere). That skip is
+  // what keeps this feature's cost at zero until the flag flips.
+  //
+  // OUTSIDE sql.begin ON PURPOSE. An LLM call inside the transaction would hold
+  // the review, business and entitlement locks (persist.ts:395) across provider
+  // latency — seconds, on a pooled connection. Plan review upheld this
+  // placement in round 1 and added the test that pins the ordering.
+  //
+  // reviewSafety NEVER throws: every failure returns a not-cleared verdict, so
+  // a check failure cannot retry a draft that is already generated and paid for.
+  const safetyVerdict =
+    isAutoApprovalCandidate({
+      originLane: payload.originLane,
+      version,
+      suppressNotification: payload.suppressNotification,
+    }) && !moderation.flagged
+      ? await reviewSafety(
+          sql,
+          {
+            draftText: draft.result.responseText,
+            businessId,
+            accountId: ctx.accountId,
+            subscriptionTier: ctx.subscriptionTier,
+            correlationId: payload.correlationId,
+          },
+          {},
+          logger,
+        )
+      : null;
+
   // ── Persist response + outbox + cost link + moderation hold in one tx ─
   // (invariant #4: a high-severity flag holds the draft + skips notification,
   // atomically with response persistence). DB failure throws → BullMQ retry.
@@ -118,6 +156,7 @@ export async function handleResponseGeneration(
     originLane: payload.originLane,
     loadedReviewContentHash: ctx.loadedReviewContentHash,
     moderation,
+    safetyVerdict,
     accountId: ctx.accountId,
     preLlmSubscriptionTier: ctx.subscriptionTier,
     logger,
