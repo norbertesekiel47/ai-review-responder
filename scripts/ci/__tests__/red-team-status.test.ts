@@ -3,7 +3,29 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// WHY THIS FILE NEEDS A LONGER TIMEOUT THAN THE 5s DEFAULT.
+//
+// Every case drives the checker as a CLI — `spawnSync('node', [checker])` —
+// against a fixture repository that `beforeEach` builds with real `git`
+// commands. One case therefore pays Node startup plus several git invocations,
+// and the owner-approved budget grants made the heaviest cases much heavier:
+// the Run C, D and E admission paths each validate a full historical report,
+// ordered inventory identities and journal prefixes.
+//
+// Measured locally on an idle machine: three cases already exceed 5,000ms
+// (7.9s, 6.1s, 5.1s) and two more sit above 2s. They pass locally only because
+// nothing competes for the cores. On a loaded CI runner the marginal ones cross
+// the line, and WHICH one crosses is luck — PR #1309 hit `rejects fourth-round
+// evidence with wrong date` on one run and `rejects Run E third and higher
+// reports before generic authorization prose` on the very next. Both failed as
+// `Test timed out in 5000ms`, never as an assertion.
+//
+// A retry is not the fix: the file is marginal by construction and grows with
+// every new grant. 30s leaves headroom for the slowest case under load while
+// still failing fast on a genuine hang.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 // Lives here, not beside the script, for the reason edit-surface-guard.test.ts
 // states: vitest's include roots are scripts/ci/**, src/**, worker/**, tests/**

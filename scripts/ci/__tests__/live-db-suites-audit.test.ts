@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { auditLiveDbFile, listAuditedFiles } from '../live-db-suites-audit';
+
+// See red-team-status.test.ts for the full reasoning. `listAuditedFiles` walks
+// the repository, so the case that exercises it measures ~1.8s on an idle
+// machine and a loaded CI runner can push it past the 5,000ms default.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const LIVE_DB = 'const url = process.env.TEST_DATABASE_POOL_URL;';
 const APPLIES_DDL = `
