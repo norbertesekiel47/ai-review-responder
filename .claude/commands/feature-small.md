@@ -73,7 +73,10 @@ node .agents/skills/feature/scripts/progress.mjs step plan skipped --note "small
 ## 3. Build in this session
 
 No subagents, no plan document. Write the `tests_to_add` first as failing
-tests when behavior is specifiable up front, then make them green. Stay
+tests when behavior is specifiable up front, then make them green: watch each
+test FAIL for the right reason (missing behavior, not a typo or an error)
+before writing code, write only the code that passes it, and refactor only
+while green. Test real behavior, not a mock's calls. Stay
 inside `allowed_edit_surface`; a change that needs a file outside it is the
 signal to stop and re-run step 0.
 
@@ -99,8 +102,19 @@ node .agents/skills/feature/scripts/progress.mjs step gate done
 ## 5. One review pass
 
 Invoke `/code-review` on the branch: spec and correctness only. Triage the
-findings with `receiving-code-review` — fix what is real, reject the rest
-with a stated reason. Re-run step 4 after any fix.
+findings as claims to verify, not orders:
+
+- Read them all first. If any is unclear, clarify it before fixing any.
+- Check each against the code: correct for THIS codebase, safe to change,
+  no reason for the current code that the reviewer missed. A "build it
+  properly" suggestion gets a grep for real callers first — none means
+  propose removal.
+- Reject with technical reasoning and `file:line` evidence; if you cannot
+  verify a finding, say what you would need.
+- Fix the real ones one at a time — blocking, then simple, then complex —
+  testing each. No performative agreement: state the fix or the reason.
+
+Re-run step 4 after any fix.
 
 ```bash
 node .agents/skills/feature/scripts/progress.mjs step review done
