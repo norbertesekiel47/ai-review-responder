@@ -134,7 +134,14 @@
       "arbiter_reasoning": "Residual of RT-1. P2, not P1: the branch now has a covering test that kills every MAINTAIN mutant when run on PG17 (INV-8), so this is not an uncovered change. What is missing is a lane that runs it on PG17: a later edit to the file would pass CI unchecked on that branch. Mitigations in the contract: the migration is applied once, staging first, and the mandatory PG17 four-right post-apply query in migrations-log entry 122 must return 0 on each project. If the owner treats the CI gap as blocking, it needs an accepted-risk authorization or a PG17 CI job; this pass records neither."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-third-round-2026-09-17",
+      "date": "2026-09-17",
+      "finding_ids": ["RT-4"],
+      "text": "Owner, 2026-09-17, answering a message whose step 2 read: 'After the production evidence commit, authorize one scoped red-team round 3 that covers only those docs commits.' Owner reply, verbatim: 'Yes proceed with the remaining steps please.' This authorizes the third round, scoped to the staging and production evidence commits (docs and migrations-log only; no production or test code changed since round 2's head 2dd74a20fcf7cc761a46b183f7b88268768c9710). It does not accept RT-4's risk; RT-4's disposition stays open."
+    }
+  ],
   "counts": {
     "inventory_total": 12,
     "killed": 10,
