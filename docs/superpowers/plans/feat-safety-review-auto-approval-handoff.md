@@ -42,6 +42,19 @@ This branch is cut from `feat/provider-moderation-corpus` (PR #1309, CI green,
 there. If #1309 merges first, rebase onto `main` at that point and re-run the
 gate — the fork point is not frozen until the step 7 wave dispatches.
 
+## Baseline gate — RED on purpose, and why
+
+`bash scripts/verify-gate.sh --baseline` was run at the step 3 boundary to prove
+the tree, without advancing the phase. Result **RED**. All three red rows are
+expected or environmental. None is a code defect — this branch has written zero
+production lines.
+
+| Row | State | Why |
+|---|---|---|
+| `promised-tests` | FAIL, all 20 missing | Correct before T1. T1 IS the task that creates them. This row goes green the moment T1 lands. |
+| `rls-audit` | FAIL | Environmental. Static coverage PASSES (48 tenant tables enable RLS in migrations). The live check fails with "test DB provisioning incomplete or behind head". The parent checkout has no `TEST_DATABASE_POOL_URL` and so skips it and passes. **Fix at step 5: `pnpm test:db:setup`.** Not run at plan time because it drops schema `public` on the test DB and this feature is `db_touching: false`. |
+| `reclassify` | WARN | **False trigger — do NOT re-run step 0 on it.** It reports 3,327 production lines against the 250 estimate, but it diffs against `origin/main` while this branch is cut from the unmerged `feat/provider-moderation-corpus`. It is counting PR #1309's 3,566 insertions. The number becomes honest once #1309 merges and this branch rebases onto `main`. Re-check the trigger then; it is a real signal on a correct fork point. |
+
 ## State of the run
 
 - Round counter: `planReviewRounds=1`. Two rounds remain before the stop rule.
