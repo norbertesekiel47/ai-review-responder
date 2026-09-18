@@ -108,7 +108,10 @@
     "tests/llm-eval/moderation-corpus-safety.jsonl",
     "src/components/dashboard/timeline/step-facts.ts",
     "src/components/dashboard/timeline/__tests__/*.test.tsx",
-    "worker/jobs/publisher/__tests__/*.test.ts"
+    "worker/jobs/publisher/__tests__/*.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "docs/directory.md",
+    "docs/directory/lib-moderation.md"
   ],
   "tests_to_add": [
     "returns not-cleared when the LLM task throws",
@@ -166,7 +169,7 @@
     "pnpm exec vitest run src/lib/moderation/__tests__ src/lib/llm/__tests__ src/lib/refusals/__tests__ src/__tests__/cost-guard-contract.test.ts worker/jobs/response-generation/__tests__ tests/llm-eval/__tests__ scripts/ci/__tests__/gate-rows.test.ts",
     "pnpm typecheck"
   ],
-  "estimated_prod_lines": 340,
+  "estimated_prod_lines": 950,
   "estimated_test_lines": 1020,
   "dependencies_added": [],
   "rollback_plan": "THE RUNTIME LEVER IS AUTO_APPROVAL_ENABLED=false PLUS A WORKER REDEPLOY. That is the only control that stops drafts already covered by an existing policy from being approved and published; the publisher's runtime check reads it (auto-policy-publish.ts:555). AUTO_APPROVAL_PROVIDER_MODERATION_READY is an EXPANSION control, not a runtime kill: it feeds buildAutoApprovalReadiness, which settings.ts:328 enforces when an owner enables or widens a policy, and the generation evaluator never reads it. Unsetting it stops new opt-ins while existing policies keep running. This wording corrects a factually wrong earlier rollback claim, caught by plan round-1 finding 6; the owner chose to fix the wording rather than add a runtime readiness gate, because the existing AUTO_APPROVAL_ENABLED gate is sufficient. Ship-time posture: AUTO_APPROVAL_ENABLED=false in every environment, so the safety review never runs and the gate is unreachable until Autopilot is deliberately turned on. There is no migration, so code revert is a plain git revert plus a worker redeploy. The only new persisted artefact is a safety_reviewed run-spine step, which is append-only and read by nothing that would break on its absence.",
