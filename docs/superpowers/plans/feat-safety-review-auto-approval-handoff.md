@@ -5,23 +5,34 @@ A resumed session bootstraps from this file. It never needs the prior transcript
 
 ## Where to pick up
 
-**Step 4 — execute the tracers. The plan is APPROVED and the review wave is
-closed.** Phase is `plan_approved`. Start at T0.
+**Step 7 — the review wave. Phase is `gate_green` and the gate is GREEN at
+HEAD.** 8/8 tracers done, all deviations resolved (D1–D12, every verdict ACCEPT).
 
-Three rounds ran against one resumed Codex session, and every finding is closed.
-`planReviewRounds=3` — the cap is spent. **Do not open a round 4.** If new doubt
-arises about the plan, it goes to the owner, not to another round.
+| Step | State |
+|---|---|
+| 3 plan | 3 review rounds, all findings closed. Cap spent — **no round 4.** |
+| 4 execute | 8/8 tracers, one commit each |
+| 5 gate | **GREEN** at `b29a2565` — 34/35 PASS, 1 WARN |
+| 6 deviations | D1–D12 resolved, all ACCEPT |
+| 7 review | **next** |
 
-| Round | Kind | Result |
-|---|---|---|
-| 1 | full plan-skeptic | REVISE — 6 P1, 7 P2 |
-| 2 | verification-only | REVISE — 10 closed; 9, 10, 13 open; 3 new (A, B, C) |
-| 3 | verification-only (cap) | REVISE — all 6 closed; 1 new, a one-line arity slip, fixed as revision 3a |
+The one WARN is `reclassify`, and it is the fork-point artifact the baseline
+table below describes: it diffs against `origin/main` and counts PR #1309's
+3,566 insertions as this branch's. This branch's OWN production diff against its
+real fork point is **908 lines** against an estimate raised to 950 — under, not
+over. Re-check the trigger once #1309 merges; do not re-run step 0 on it now.
 
-`contract-changed` answers **UNCHANGED** after 3a, so nothing further is owed.
-The plan's § "Review appendix" carries that self-verification.
+## Remaining
 
-No implementation has started. No tracer has moved.
+1. **Step 7 review wave**, then **7.5 red-team** (`red-team-status.mjs` must
+   exit 0 before `reviewed`).
+2. **Step 8 ship**: PR, then the live corpus runs.
+3. **The live corpus runs are NOT done and are the real go-live gate.**
+   `pnpm eval:llm --live --moderation-corpus --with-safety-review --env staging`
+   then production, each with `--out` into a dated evidence doc. Only on
+   `VERDICT: PASS` in BOTH does
+   `AUTO_APPROVAL_PROVIDER_MODERATION_READY` flip, via the `flag-flip` skill,
+   staging first. `AUTO_APPROVAL_ENABLED` is **not** flipped by this work.
 
 ## This run is NOT parked
 

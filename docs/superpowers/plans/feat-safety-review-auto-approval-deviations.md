@@ -54,7 +54,14 @@ model clearance on the run spine, so it can never be mistaken for evidence.
 `user_visible_behavior`, disclosed here rather than absorbed silently. It adds no
 path to `allowed_edit_surface`.
 
-**Verdict:** pending — resolve at step 6.
+**Verdict:** ACCEPT — resolved at step 6. As built it is safer than disclosed:
+the gate does not merely fail to clear on a mock verdict, it **refuses to treat
+one as an answer at all** (`safetyReviewBlockReasons` requires `source === 'llm'`,
+`auto-approval.ts`). So a mock clearance blocks with `safety_review_unavailable`
+even in the unreachable case where `MOCK_EXTERNAL_APIS=true` reached a lane that
+could post. The environment guarantee is still true; the code no longer depends
+on it. Pinned by `blocks auto-approval when the safety verdict is null,
+undefined, or missing cleared`.
 
 ---
 
@@ -70,7 +77,14 @@ for `OPENAI_MODERATION_ENABLED`.
 refuses to start unless `MOCK_EXTERNAL_APIS` is not `true`, and any row whose
 verdict `source` is `'mock'` fails the run.
 
-**Verdict:** pending — resolve at step 6.
+**Verdict:** ACCEPT — resolved at step 6. Built as
+`assertSafetyModeEnvironment()` (`moderation-runner.ts`), called from `run.ts`
+**before** the rows load and before any provider call, and a `mock` or `skipped`
+verdict scores `safety_error` against a zero budget. Round 1's finding 3
+widened this from "mock" to every non-answer, which is the stronger rule: an
+outage is not evidence either. Pinned by `refuses the live safety-review corpus
+before external calls when MOCK_EXTERNAL_APIS=true` and `rejects safety-review
+corpus evidence containing mock or skipped verdicts`.
 
 ---
 
@@ -261,7 +275,15 @@ check.
 **Classification.** A deviation from T1's stated expectation, disclosed rather
 than absorbed. No path or title changed.
 
-**Verdict:** pending — resolve at step 6.
+**Verdict:** ACCEPT — resolved at step 6, and the per-tracer mutation checks
+were actually run rather than merely promised. T5's two-mutation table came out
+exactly as round-2 NEW C specified: deleting the safety row fails `adds exactly
+safety_review_not_cleared` and leaves `preserves every pre-safety decision`
+passing; deleting an existing veto (`triage_high_severity`) fails `preserves`.
+The round-1 superset property survived that second mutation, which is what made
+it vacuous. Two of the six also stopped passing vacuously once T5 landed — the
+`cleared: 'mock'` case now blocks — so four remain, all preservation
+assertions.
 
 ---
 
