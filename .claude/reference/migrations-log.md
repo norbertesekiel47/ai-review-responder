@@ -2864,15 +2864,32 @@ Revisit triggers:
   already exist, so presence would falsely report an unupgraded database ready.
 
 - **122** — client-role grant sweep (#1176). **Applied to STAGING
-  2026-09-17T13:06:16Z** (`psql` as `postgres`, project
-  `kubdiqdhqbhwmqfditeg`, file sha256 prefix `441aac16c3ffe63d`); **NOT yet
-  applied to PRODUCTION** — lockstep is open until it is. Staging verified by
-  introspection: four-right count 0, deny-all tables with client grants 0, RLS
-  off 0 of 58, `authenticated` SELECT on `users` kept, rolled-back new-table
-  probe 0 of the four rights and all 8 DML kept, and the post-apply client ACL
-  plus full `pg_default_acl` equal the pre-apply snapshot minus exactly the
-  intended entries. Preflight: zero global default rows. Evidence and the
-  rollback-source snapshot: `docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/`.
+  2026-09-17T13:06:16Z and to PRODUCTION 2026-09-17T14:07:59Z** (`psql` as
+  `postgres`, projects `kubdiqdhqbhwmqfditeg` then `udeyaqnvpojbwgoaxwdg`,
+  the same file, sha256 prefix `441aac16c3ffe63d`, staging first). Lockstep is
+  CLOSED.
+  **LOCKSTEP PROVEN BY BYTE COMPARISON, not by assertion.** One identical
+  snapshot query on each project — every `anon`/`authenticated` table ACL
+  entry, every client column entry, every `pg_default_acl` row — returned
+  byte-identical files BEFORE the apply (1080 rows each) and byte-identical
+  files AFTER it (526 rows each). Both verified by introspection immediately
+  and again ~11 h later: four-right count 0, deny-all tables with client
+  grants 0, RLS off 0 of 58, `authenticated` SELECT on `users` kept, and a
+  rolled-back new-table probe showing 0 of the four rights with all 8 DML
+  rights kept. Preflight on both: zero global `pg_default_acl` rows, which is
+  what makes the schema-level revoke sufficient.
+  **Applied through the SESSION pooler (port 5432), never the transaction
+  pooler (6543)**, and every read used `BEGIN READ ONLY … COMMIT` rather than
+  a session `SET` — a session GUC set through a transaction pooler can outlive
+  the client on a shared server connection.
+  Behaviour after apply, both projects: the anon key gets `42501` on
+  `auto_approval_policies`, `refusal_events` and `solicitation_consent`, while
+  `users` and `reviews` still answer 200 with RLS filtering rows. Worker
+  pollers cycled without an error, warning or permission line — staging for
+  the watch hour, production for ~11 h — and Sentry recorded no issue in
+  either environment.
+  Evidence and the rollback-source snapshots:
+  `docs/reviews/fix-1176-client-role-grant-sweep/{staging,production}-apply/`.
   Verify by introspection, never the ledger.
   **What it does.** One transaction (`SET LOCAL lock_timeout = '5s'`): a `DO`
   guard refuses unless `current_user` owns every table in `public`; `REVOKE
