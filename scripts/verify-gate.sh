@@ -453,11 +453,17 @@ run_sync() {
 # processes don't have it, and a swallowed `command not found` reads as
 # "every title missing".
 #
-# Search `scripts` too, not just src/worker: the CI audits under scripts/ci/
-# carry their own suites (scripts/ci/__tests__/*.test.ts), and an intake may
-# legitimately promise titles there. Omitting it reported every such title as
-# missing while the tests existed and passed — a false RED that is
-# indistinguishable from a genuinely unwritten test (#611 feature, 2026-07-28).
+# Search `scripts` and `tests` too, not just src/worker. This is one defect that
+# has now been found twice, so treat it as a pattern rather than two accidents:
+# a promised title is reported missing whenever its suite lives under a root
+# this line does not name, and a false RED there is indistinguishable from a
+# genuinely unwritten test.
+#   - `scripts`: the CI audits under scripts/ci/ carry their own suites
+#     (scripts/ci/__tests__/*.test.ts). Added at #611 (2026-07-28).
+#   - `tests`: the LLM-eval suites live at tests/llm-eval/__tests__/. Added by
+#     feat/safety-review-auto-approval (plan round-1 finding 13), whose intake
+#     promises 13 corpus titles there.
+# Adding a root is cheap; the grep is fixed-string and bounded by --include.
 #
 # Matching is fixed-string against the file, so a promised title must appear
 # UNESCAPED in source: write a title containing an apostrophe with double
@@ -465,7 +471,7 @@ run_sync() {
 MISSING_TITLES=""
 while IFS= read -r TITLE; do
   [ -n "$TITLE" ] || continue
-  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts 2>/dev/null && continue
+  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts tests 2>/dev/null && continue
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)

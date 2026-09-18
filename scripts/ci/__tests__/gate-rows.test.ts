@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -176,6 +176,91 @@ describe('verify-gate.sh row wiring', () => {
       expect(result.stdout).toContain('gate-rows.sh did not load');
       const status = JSON.parse(readFileSync(join(dir, '.feature/gate-status.json'), 'utf8'));
       expect(status.passed).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('promised-tests title discovery', () => {
+  const source = readFileSync(GATE, 'utf8');
+
+  // Extract and RUN the real grep line rather than asserting that the script
+  // mentions a root. A source-text assertion ("expect(source).toContain('tests')")
+  // passes against a mutant that names the root in a comment and drops it from
+  // the command — the same disarmed-mutant trap the launch tests above exist
+  // for. Whatever roots that one line names are the roots this test exercises.
+  // `&& continue` is stripped: it belongs to the enclosing read-loop and is a
+  // syntax error on its own. Everything that decides WHAT is searched — the
+  // flags, the --include filters, the roots — is kept verbatim.
+  const GREP_LINE = source
+    .match(/^\s*grep -rqF "\$TITLE".*$/m)?.[0]
+    ?.replace(/\s*&&\s*continue\s*$/, '');
+
+  /** A tree with one promised title, under `where`, and empty sibling roots. */
+  function corpusFixture(where: string, title: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'promised-tests-'));
+    for (const root of ['src', 'worker', 'scripts', 'tests']) {
+      mkdirSync(join(dir, root), { recursive: true });
+    }
+    mkdirSync(join(dir, where), { recursive: true });
+    writeFileSync(
+      join(dir, where, 'fixture.test.ts'),
+      `it('${title}', () => {});\n`,
+      'utf8',
+    );
+    return dir;
+  }
+
+  function discovers(where: string, title: string): boolean {
+    const dir = corpusFixture(where, title);
+    try {
+      const result = spawnSync(
+        'bash',
+        ['-uo', 'pipefail', '-c', `TITLE=${shellQuote(title)}; ${GREP_LINE} && echo FOUND`],
+        { cwd: dir, encoding: 'utf8' },
+      );
+      return result.stdout.includes('FOUND');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('promised-tests discovers promised corpus titles under tests/llm-eval', () => {
+    // The LLM-eval suites have nowhere else to live, and feat/safety-review-
+    // auto-approval promises 13 titles there. Without `tests` in the roots the
+    // gate reports all 13 missing while they exist and pass — a false RED that
+    // cannot be told apart from an unwritten test (plan round-1 finding 13).
+    expect(GREP_LINE, 'the promised-tests grep line moved or was renamed').toBeDefined();
+    expect(discovers('tests/llm-eval/__tests__', 'scores unsafe-threat-02 as true_positive')).toBe(
+      true,
+    );
+  });
+
+  it('keeps discovering titles under the roots it already searched', () => {
+    // Adding a root must not reorder or drop the others. #611 added `scripts`
+    // for exactly this class of false RED; this pins all four at once.
+    for (const where of ['src/lib/__tests__', 'worker/__tests__', 'scripts/ci/__tests__']) {
+      expect(discovers(where, `promised title under ${where}`), where).toBe(true);
+    }
+  });
+
+  it('still reports a genuinely unwritten title as missing', () => {
+    // The roots are wide, not unconditional. A gate that finds everything is
+    // the same false green as a gate that finds nothing is a false red.
+    const dir = corpusFixture('tests/llm-eval/__tests__', 'a title that was written');
+    try {
+      const result = spawnSync(
+        'bash',
+        [
+          '-uo',
+          'pipefail',
+          '-c',
+          `TITLE=${shellQuote('a title nobody wrote')}; ${GREP_LINE} && echo FOUND`,
+        ],
+        { cwd: dir, encoding: 'utf8' },
+      );
+      expect(result.stdout).not.toContain('FOUND');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
