@@ -5,29 +5,32 @@
   "branch": "feat/safety-review-auto-approval",
   "fork_sha": "e0c3ceb1331dee7bf7eb92dc6128879c860b5805",
   "merge_base_sha": "e0c3ceb1331dee7bf7eb92dc6128879c860b5805",
-  "head_sha": "6a787c037d767dfa5af79ef2450766e02996c785",
+  "head_sha": "2fccbe29fe04b01424da6f70b04b66ac5ca72300",
   "intake_sha256": "3841dd8f03a6661a340257da094baf685e86fc39715fc8230d8cc93e94e9c724",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-18T13:19:53.077Z",
+  "round": 3,
+  "generated_at": "2026-09-18T15:08:05.097Z",
   "inventory": [
     {
       "id": "rt-A01",
       "test": "returns cleared with no concern for an ordinary safe draft",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline (22 cases) at HEAD 2fccbe29f. M55 inverted the cleared derivation at src/lib/moderation/safety-review-schema.ts:92 (`cleared: !(output.cleared && output.concern === null)`) — this case FAILED."
     },
     {
       "id": "rt-A02",
       "test": "returns not-cleared with the concern the model named for an unsafe draft",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M55 — this case FAILED."
     },
     {
       "id": "rt-A03",
       "test": "records the answering provider on every safety verdict",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. M54 replaced the answering provider threaded into deriveSafetyVerdict at src/lib/moderation/safety-review.ts with a null — this case FAILED."
     },
     {
       "id": "rt-A04",
@@ -51,13 +54,15 @@
       "id": "rt-A07",
       "test": "makes no LLM call when cost reservation is denied or unavailable",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. M52 made the outer catch of reviewSafety fail OPEN (returning a cleared llm verdict in place of FAILED_SAFETY_VERDICT at src/lib/moderation/safety-review.ts:296) — this case FAILED."
     },
     {
       "id": "rt-A08",
       "test": "returns not-cleared when the cost reservation fails, and does not rethrow",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M52 — this case FAILED."
     },
     {
       "id": "rt-A09",
@@ -81,25 +86,29 @@
       "id": "rt-A12",
       "test": "clears from the Anthropic fallback when the primary safety-review circuit is open",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. M55 (inverted cleared derivation) — this case FAILED."
     },
     {
       "id": "rt-A13",
       "test": "returns not-cleared when every safety-review provider attempt fails",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M52 (fail-open outer catch) — this case FAILED."
     },
     {
       "id": "rt-A14",
       "test": "returns not-cleared when the LLM task throws",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M52 — this case FAILED."
     },
     {
       "id": "rt-A15",
       "test": "never throws, for any injected failure",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M52 — this case FAILED."
     },
     {
       "id": "rt-A16",
@@ -117,7 +126,8 @@
       "id": "rt-B02",
       "test": "does not add safety_review_not_cleared when the verdict is cleared",
       "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline (54 cases). M43 made safetyReviewBlockReasons return ['safety_review_not_cleared'] unconditionally at worker/jobs/response-generation/auto-approval.ts:424 — this case FAILED (17 of 54 failed)."
     },
     {
       "id": "rt-B03",
@@ -135,19 +145,22 @@
       "id": "rt-B05",
       "test": "invariants: a not-cleared verdict never produces approved=true",
       "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. M50 made safetyReviewBlockReasons return [] unconditionally — this case FAILED (8 of 54 failed)."
     },
     {
       "id": "rt-B06",
       "test": "invariants: a cleared safety verdict preserves every pre-safety approval decision and block reason",
       "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M43 — this case FAILED."
     },
     {
       "id": "rt-B07",
       "test": "invariants: a not-cleared safety verdict adds exactly safety_review_not_cleared to the pre-safety block set",
       "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M50 — this case FAILED."
     },
     {
       "id": "rt-C01",
@@ -172,7 +185,8 @@
       "id": "rt-C04",
       "test": "does not retry the job when the safety review fails",
       "file": "worker/__tests__/safety-review-call-site.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline (13 cases). M49 added a rethrow at worker/jobs/ResponseGeneratorWorker.ts when the verdict carries source='failed' — the BullMQ retry the locked no-retry invariant forbids — and this case FAILED, alone."
     },
     {
       "id": "rt-D01",
@@ -190,19 +204,22 @@
       "id": "rt-D03",
       "test": "a completed safety review followed by stale content creates no response, spine step, or follow-up work and records the discarded evaluation",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline (70 cases). M56 deleted the logSafetyEvaluation call on the content-freshness skip path in worker/jobs/response-generation/persist.ts — this case FAILED, alone."
     },
     {
       "id": "rt-D04",
       "test": "a not-cleared safety review without an active run still notifies the owner and records its evaluation outside the spine",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. TWO mutants. M57 replaced the disposition discriminator at worker/jobs/response-generation/persist.ts:248 with a constant 'recorded_on_spine' and SURVIVED — all 70 cases green; that residual is recorded as finding RT-17 and is a log-label gap, not this row's tested behaviour. M59 then deleted the whole logSafetyEvaluation call on the persisted path and this case FAILED, alone, so the row's own oracle (\"records its evaluation outside the spine\") is real."
     },
     {
       "id": "rt-D05",
       "test": "a safety_reviewed spine-write failure rolls back the response and follow-up outbox work and propagates the persistence error",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline. M58 wrapped the safety_reviewed recordStep in a swallowing try/catch — this case FAILED, alone."
     },
     {
       "id": "rt-E01",
@@ -232,10 +249,8 @@
       "id": "rt-E05",
       "test": "fails the safety-review corpus when an unsafe row receives source=failed instead of a model judgment",
       "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT-11",
-      "reason": "Green baseline at HEAD 6a787c037. Mutation M29 dropped `&& safety.source === 'llm'` from the extracted `safetyFlagged` helper (moderation-runner.ts:106) — the exact clause the fix restored. This test PASSED under the mutant, and so did the whole file: a second supervised launch ran all 39 cases of moderation-corpus.test.ts under M29 with 0 failures. The branch IS executed (the case supplies source:'failed'), and the mutant is not equivalent — it makes an OUTAGE row report flaggedBySafetyReview=true, the overclaim the helper's own docstring says it exists to prevent. No oracle in the covering set falsifies the clause, so this is a claim about the ORACLE, not a proven behaviour-preserving mutant."
+      "outcome": "killed",
+      "reason": "Round 3. RT-11 fix verified. Green file baseline (39 cases). M44 dropped `&& safety.source === 'llm'` from safetyFlagged at tests/llm-eval/moderation-runner.ts:106 — the exact round-2 survivor, which round 2 measured leaving all 39 cases green. Under the fix EXACTLY ONE of 39 fails, and it is this case: \"expected true to be false\" on flaggedBySafetyReview."
     },
     {
       "id": "rt-E06",
@@ -325,13 +340,15 @@
       "id": "rt-I01",
       "test": "maps safety_review_not_cleared to a refusal category",
       "file": "src/lib/refusals/__tests__/vocabulary.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green baseline. M61 swapped the two safety refusal category mappings at src/lib/refusals/vocabulary.ts:488-489 — this case FAILED."
     },
     {
       "id": "rt-I02",
       "test": "maps the two safety block reasons to unsafe_content and watchdog_unavailable",
       "file": "src/lib/refusals/__tests__/vocabulary.test.ts",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M61 — this case FAILED."
     },
     {
       "id": "rt-I03",
@@ -371,23 +388,21 @@
       "test": "src/lib/agents/run-spine.ts:68 — STEP_PERSONA['safety_reviewed'] = 'system'",
       "file": "(no covering test)",
       "outcome": "skipped-budget",
-      "reason": "RT-05 fix: src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx now carries a non-tautological covering assertion (`expect(STEP_PERSONA.safety_reviewed).toBe('system')`), recorded as row rt-L04. The uncovered-change condition is resolved; budget did not reach the mutation."
+      "reason": "RT-05 fix: src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx carries a non-tautological covering assertion (row rt-L04). Round 3 measured rt-L01/rt-L02 but the 30-launch budget did not reach a STEP_PERSONA mutant."
     },
     {
       "id": "rt-K02",
       "test": "src/components/dashboard/timeline/step-facts.ts:58-65 — STEP_COPY['safety_reviewed'] label/explain/failedLabel",
       "file": "(no covering test)",
-      "outcome": "skipped-budget",
-      "reason": "RT-05 fix: step-facts-safety.test.tsx asserts the label, the explain, the label/moderation_checked collision and the `Held for you` failedLabel directly (rows rt-L01..rt-L03). The uncovered-change condition is resolved; budget did not reach the mutation."
+      "outcome": "killed",
+      "reason": "Round 3. Resolved by measurement, not inspection: M60 deleted the STEP_COPY.safety_reviewed entry and rows rt-L01 and rt-L02 both FAILED. The uncovered-change condition RT-05 recorded is closed."
     },
     {
       "id": "rt-K03",
       "test": "tests/llm-eval/run.ts:218-232,251-258,291,300-320 — summariseProviders, the safety fields in printModerationReport and the --with-safety-review CLI wiring",
       "file": "(no covering test)",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT-06",
-      "reason": "PARTIALLY resolved. `summariseProviders` moved out of run.ts into moderation-runner.ts as `summariseSafetyProviders` and gained two cases (rows rt-E14, rt-E15). The REST of the hunk is still uncovered: tests/llm-eval/__tests__/run.test.ts is unchanged on this branch and grep over it for `--with-safety-review`, `printModerationReport`, `assertSafetyModeEnvironment` and `makeCorpusSafetyReview` returns zero hits, so the CLI entry point and the new report printing have no covering candidate."
+      "outcome": "killed",
+      "reason": "Round 3. Resolved by the RT-06 fix and measured. The CLI entry point now has a covering suite (rows rt-M01..rt-M07) and THREE mutants on tests/llm-eval/run.ts died against it: M45 moved assertSafetyModeEnvironment (run.ts:307) after the runModerationCorpus await, M46 appended the safety corpus rows unconditionally, M47 passed the safetyReview option unconditionally. The report-printing sub-hunk is covered by rt-M05 and the summariseSafetyProviders extraction by rt-E14/rt-E15, all three still skipped-budget."
     },
     {
       "id": "rt-A17",
@@ -400,14 +415,15 @@
       "id": "rt-A18",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
       "test": "reports a fail-closed outage to the alert sink, carrying no draft text",
-      "outcome": "skipped-budget",
-      "reason": "RT-07 emitting half. Not executed; see RT-14 for a static facet contradiction found by Duty 5 without a launch."
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M52 — this case FAILED. The alert-sink assertion is real: a fail-OPEN catch stops the outage reaching reportCaughtError at src/lib/moderation/safety-review.ts:293."
     },
     {
       "id": "rt-A19",
       "file": "src/lib/moderation/__tests__/safety-review.test.ts",
       "test": "does not report a model-judged block to the alert sink",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Green file baseline. M62 added a reportCaughtError call on every model-judged not-cleared verdict — the exact over-alerting regression runbook rule 14 argues against — and this case FAILED."
     },
     {
       "id": "rt-C05",
@@ -420,7 +436,8 @@
       "id": "rt-C06",
       "file": "worker/__tests__/safety-review-call-site.test.ts",
       "test": "threads null when the safety review was skipped, never a synthesised clearance",
-      "outcome": "skipped-budget"
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline. M48 replaced the skip path's `: null` at worker/jobs/ResponseGeneratorWorker.ts:176 with a synthesised {cleared:true,source:'llm'} verdict — this case FAILED, alone."
     },
     {
       "id": "rt-C07",
@@ -453,15 +470,15 @@
       "id": "rt-L01",
       "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
       "test": "renders a label and explanation rather than a de-snake-cased database word",
-      "outcome": "skipped-budget",
-      "reason": "New file added by the RT-05 fix; covers rt-K02."
+      "outcome": "killed",
+      "reason": "Round 3. Green baseline. M60 deleted the whole STEP_COPY.safety_reviewed entry at src/components/dashboard/timeline/step-facts.ts:58 — this case FAILED. RT-05 was \"fixed by inspection\" in round 2; it is now measured."
     },
     {
       "id": "rt-L02",
       "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
       "test": "says a held draft was held for you, never that the check failed",
-      "outcome": "skipped-budget",
-      "reason": "Covers the `Held for you` failedLabel named in RT-05."
+      "outcome": "killed",
+      "reason": "Round 3. Same baseline and mutant M60 — this case FAILED."
     },
     {
       "id": "rt-L03",
@@ -475,6 +492,83 @@
       "test": "is registered on the run spine as a system step",
       "outcome": "skipped-budget",
       "reason": "Covers rt-K01; replaces the tautological Object.entries loop with a direct value assertion."
+    },
+    {
+      "id": "rt-C08",
+      "test": "skips the safety review and makes no LLM call for a non-positive rating (one star — the abuse burst S3 describes)",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed",
+      "reason": "RT-15, added by 2fccbe29f. Green file baseline (13 cases). TWO mutants, both killed: M40 deleted `&& ctx.normalizedReview.starRating >= 4` at worker/jobs/ResponseGeneratorWorker.ts:162 and M41 weakened it to `>= 1`. Under each, EXACTLY the three non-positive cases failed and the other ten passed."
+    },
+    {
+      "id": "rt-C09",
+      "test": "skips the safety review and makes no LLM call for a non-positive rating (two stars)",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed",
+      "reason": "RT-15. Same baseline and the same two mutants M40 and M41 — this case FAILED under both."
+    },
+    {
+      "id": "rt-C10",
+      "test": "skips the safety review and makes no LLM call for a non-positive rating (three stars — the top of the blocked band)",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed",
+      "reason": "RT-15, the top of the blocked band. Same baseline and the same two mutants M40 and M41 — this case FAILED under both."
+    },
+    {
+      "id": "rt-C11",
+      "test": "runs the safety review for a four-star review, the bottom of the positive quadrant",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed",
+      "reason": "RT-15, the other direction. Green file baseline. M42 tightened the predicate to `> 4` at worker/jobs/ResponseGeneratorWorker.ts:162 — this case FAILED, alone, so the boundary is pinned from both sides and a too-wide skip cannot pass silently."
+    },
+    {
+      "id": "rt-M01",
+      "test": "calls assertSafetyModeEnvironment BEFORE the corpus run when --with-safety-review is present",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "killed",
+      "reason": "RT-06, the load-bearing case. Green file baseline (7 cases). M45 moved the `if (withSafetyReview) assertSafetyModeEnvironment();` call at tests/llm-eval/run.ts:307 to AFTER the runModerationCorpus await — this case FAILED, alone, with \"expected 5 to be less than 4\". A presence-only assertion would have survived it; the invocationCallOrder comparison does not."
+    },
+    {
+      "id": "rt-M02",
+      "test": "never calls assertSafetyModeEnvironment without the flag",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Green file baseline only. The 30-launch budget did not reach a mutant on its own oracle (dropping the `withSafetyReview` guard on the call)."
+    },
+    {
+      "id": "rt-M03",
+      "test": "appends the safety corpus rows only under --with-safety-review",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "killed",
+      "reason": "RT-06 corpus composition. Green file baseline. M46 appended the safety rows unconditionally at tests/llm-eval/run.ts — this case FAILED, alone."
+    },
+    {
+      "id": "rt-M04",
+      "test": "passes the safety reviewer to the runner only under the flag",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "killed",
+      "reason": "RT-06 reviewer wiring. Green file baseline. M47 passed `safetyReview: makeCorpusSafetyReview()` unconditionally at tests/llm-eval/run.ts — this case FAILED, alone."
+    },
+    {
+      "id": "rt-M05",
+      "test": "prints the provider split (D5) and writes the evidence to --out",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Green file baseline only. The budget did not reach a mutant on printModerationReport or on writeReport."
+    },
+    {
+      "id": "rt-M06",
+      "test": "refuses to run when OPENAI_MODERATION_ENABLED is not true",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Green file baseline only. The budget did not reach a mutant on that refusal branch."
+    },
+    {
+      "id": "rt-M07",
+      "test": "refuses to run without --env, so evidence always names the environment it proves",
+      "file": "tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Green file baseline only. The budget did not reach a mutant on that refusal branch."
     }
   ],
   "findings": [
@@ -530,8 +624,8 @@
       "duty": 1,
       "at": "tests/llm-eval/run.ts:287",
       "title": "Uncovered change: the --with-safety-review CLI wiring and the new report printing still have no covering test",
-      "disposition": "open",
-      "reason": "PARTIALLY addressed. The fix moved `summariseProviders` out of run.ts into moderation-runner.ts as the exported `summariseSafetyProviders` and gave it two cases (rows rt-E14, rt-E15) — a real improvement, because the function is now reachable by a test at all. The REST of the hunk is unchanged in coverage: tests/llm-eval/__tests__/run.test.ts is not in the branch diff, and grep over it for `--with-safety-review`, `printModerationReport`, `assertSafetyModeEnvironment` and `makeCorpusSafetyReview` returns zero hits. The safety-mode CLI entry point — including the assertSafetyModeEnvironment call ordering that deviation D3 exists for — is still exercised only through the runner functions, never through the command an operator actually runs. Row rt-K03 stays inconclusive/oracle."
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation in round 3. The fix exported `runModerationCorpusMain` and added tests/llm-eval/__tests__/run-moderation-corpus-cli.test.ts (7 cases, every keyed dependency mocked, no provider reached). Green file baseline, then THREE mutants on tests/llm-eval/run.ts, all killed: M45 moved the deviation-D3 `assertSafetyModeEnvironment()` call at run.ts:307 to AFTER the runModerationCorpus await and the ordering case FAILED alone (\"expected 5 to be less than 4\") — a presence-only assertion survives that mutant and this one does not; M46 appended the safety corpus rows unconditionally and the composition case FAILED alone; M47 passed the safetyReview option unconditionally and the wiring case FAILED alone. Row rt-K03 moves from inconclusive/oracle to killed. Four of the seven new cases (rt-M02, rt-M05, rt-M06, rt-M07) hold a green baseline but no mutant — the 30-launch budget ran out — so the report-printing and both refusal branches remain skipped-budget."
     },
     {
       "id": "RT-07",
@@ -566,8 +660,8 @@
       "duty": 2,
       "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1734",
       "title": "The cleared test's `autoApprove: true` does not pin that a cleared verdict reaches the auto-approve commit — the comment's central claim is unasserted",
-      "disposition": "open",
-      "reason": "The masked-test fix itself IS verified: launch 11 mutated the gate to drop the safety row entirely (`...safetyReviewBlockReasons(input.safetyVerdict)` -> `...[]` at auto-approval.ts:368) and the end-to-end not-cleared test at persist.test.ts:1696 FAILED — before the fix, the commit message records that same deletion leaving the describe green, so OPENAI_MODERATION_ENABLED was indeed masking it and no longer does. What is NOT pinned is the cleared direction. Launch 10 mutated safetyReviewBlockReasons to return ['safety_review_not_cleared'] unconditionally (auto-approval.ts:426) and the cleared test at :1734 PASSED. `queuePersistRows({ autoApprove: true })` is a row SUPPLY, not an assertion: the fallback path consumes fewer rows, so a leftover queue raises nothing. The test's own comment claims the opposite — that `autoApprove: true` is there because a cleared verdict now genuinely reaches the auto-approve commit — and nothing in that describe would fail if it stopped being true. Behavioural replacement: assert the auto-approve side effects on the cleared case the way the not-cleared case asserts their absence (an approval audit row and a publish outbox row, via the existing txTexts() helper).",
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation in round 3. The cleared persist case now asserts the four auto-approve side effects (persist.test.ts: `auto_policy` in the transaction arguments, a PUBLISH_RESPONSE outbox row, no SEND_NOTIFICATION row, an `INSERT INTO approval_audit_log` statement). Green single-test baseline, then M43 — the exact round-2 survivor, safetyReviewBlockReasons returning ['safety_review_not_cleared'] unconditionally at worker/jobs/response-generation/auto-approval.ts:424 — and the test FAILED with \"expected [ … ] to include 'auto_policy'\". The same mutant was also run against the whole gate suite and killed rows rt-B02 and rt-B06 there.",
       "arbiter_reasoning": "Recorded as a Duty-2 finding rather than as row rt-D06's outcome, deliberately. The mutated line IS executed and the mutant is NOT equivalent, so by the letter it is a P0-candidate. But rt-D06's asserted behaviour is the spine step's status, which persist.ts computes from `safetyVerdict.cleared` entirely upstream of the gate — the mutation is off that test's oracle, and rt-D06 was killed by M24 on its own behaviour. The gate predicate itself is separately covered: auto-approval.test.ts carries `does not add safety_review_not_cleared when the verdict is cleared` (row rt-B02), which this mutant would fail. Severity is therefore P1 (an overclaiming assertion plus an unpinned direction), not P0. A reader who weights the letter of the rule over the oracle-scope argument would call it P0; the evidence to decide either way is above."
     },
     {
@@ -576,8 +670,8 @@
       "duty": 1,
       "at": "tests/llm-eval/moderation-runner.ts:106",
       "title": "The restored `source === 'llm'` clause in the extracted safetyFlagged helper is falsified by no test in the corpus lane",
-      "disposition": "open",
-      "reason": "The fix consolidated four spellings of one predicate into `safetyFlagged`, restoring the `&& safety.source === 'llm'` clause that one copy had dropped — its docstring states the defect it repairs: an OUTAGE row reported flagged-by=safety_review. Nothing pins the repair. Launch 16 dropped that clause and the most-covering case — `fails the safety-review corpus when an unsafe row receives source=failed instead of a model judgment` (row rt-E05), which supplies exactly a not-cleared source:'failed' verdict — PASSED. Launch 17 then ran the ENTIRE file under the same mutant: 39 cases, 0 failures. The reason is structural: the `safety.source !== 'llm'` check at moderation-runner.ts:127 short-circuits an outage row to `safety_error` before any label branch, so `outcome` and `verdict` are unchanged; the only thing the mutant changes is `flaggedBySafetyReview` on the emitted result, and no case asserts that field false. grep for `flaggedBySafetyReview` in moderation-corpus.test.ts returns exactly one assertion, `toBe(true)` at :342. Behavioural replacement: on the outage case, assert `report.results[0].flaggedBySafetyReview` is false and `caughtBy` is null. This is release-gate EVIDENCE (the `llm-eval` job is a required check), so a silent regression would make a recorded corpus run attribute a catch to a layer that was down."
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation in round 3. The outage case now asserts `report.results[0].flaggedBySafetyReview` is false and `caughtBy` is null. Green file baseline (39 of 39), then M44 dropped `&& safety.source === 'llm'` from safetyFlagged at tests/llm-eval/moderation-runner.ts:106 — the identical mutant round 2 measured leaving ALL 39 cases green. Under the fix EXACTLY ONE of 39 fails, and it is the outage case. Row rt-E05 moves from inconclusive/oracle to killed."
     },
     {
       "id": "RT-12",
@@ -585,8 +679,8 @@
       "duty": 2,
       "at": "src/lib/moderation/__tests__/safety-review.test.ts:158",
       "title": "The RT-03 rewrite retained two assertions that still cannot fail for any implementation",
-      "disposition": "open",
-      "reason": "safety-review.test.ts:158 `expect(Object.keys(INPUT)).not.toContain('reviewText')` asserts a property of a test-local object literal declared at :65 — it is an assertion about the FIXTURE, not about production code, and no change to safety-review.ts can make it fail. :159 `expect(serialized).not.toContain(REVIEW_TEXT)` is the original RT-03 line, retained: REVIEW_TEXT is still never passed to reviewSafety and ReviewSafetyInput still has no field to carry it. Recorded, not blocking, and consistent with the RT-08/RT-09 REJECT verdict (weak rather than wrong): the falsifiable half of the test now exists and was proven to kill M30, so the vacuous lines no longer stand alone. Removing :158 and keeping :159 as a documented canary would be the tidy end state."
+      "disposition": "fixed",
+      "reason": "FIXED by inspection in round 3, and the inspection is recorded rather than asserted. src/lib/moderation/__tests__/safety-review.test.ts no longer contains the `Object.keys(INPUT)).not.toContain('reviewText')` assertion about the test-local literal; in its place is an eight-line comment naming it as removed and naming the surviving line, src/lib/moderation/__tests__/safety-review.test.ts:164 `expect(serialized).not.toContain(REVIEW_TEXT)`, as a deliberate documented canary for ADR 0032 that turns into a real assertion the moment ReviewSafetyInput gains a field that could carry a review. That is exactly the end state the round-2 finding named. No launch was spent: the claim is about which lines exist, and grep answers it."
     },
     {
       "id": "RT-13",
@@ -594,8 +688,8 @@
       "duty": 3,
       "at": "docs/reviews/feat-safety-review-auto-approval/security.md:32",
       "title": "An unresolvable path:line citation in the security review report the fix commit added",
-      "disposition": "open",
-      "reason": "prevalidate-plan.py over the eight changed/added docs reports one genuine unresolved citation: `operator/policy-state.ts:251` — no such path exists at HEAD. The SUBSTANCE of the claim is TRUE and was hand-verified: the file is src/lib/agents/operator/policy-state.ts, line 251 is the `WHERE ar.account_id = ...` predicate and :256 is `AND s.step_key = ${INITIAL_MARKER_STEP}::text`, so the reader's claim (account-scoped, filters a different step_key) holds. Only the path prefix is missing, which is the round-1 RT-04 class and the same P1 severity — a stale coordinate, not a false claim. Every other citation in that file resolves (31 checked), as do spec-correctness.md (31), standards-maintainability.md (52), the plan (32) and the deviations file (8). The handoff's two stale-commit hits (01a0b358, d534a7a24b2d) are the KNOWN false positive — hex fragments of a quoted Codex session UUID, documented at handoff line 179 — and are not reported."
+      "disposition": "fixed",
+      "reason": "FIXED, re-derived at HEAD 2fccbe29f. prevalidate-plan.py over docs/reviews/feat-safety-review-auto-approval/security.md now reports 31 citations checked, 0 unresolved, PREVALIDATE: PASS — the unresolvable citation gained its missing path prefix and the substance was already true. The full sweep of all 17 changed Markdown files at HEAD finds no unresolved citation in any document this branch authored. Two residuals are NOT regressions and are recorded so a later reader does not re-chase them: .claude/reference/arch-review-log.md reports 9 issues, but the branch adds exactly 2 lines to that append-only log and neither carries a citation, so every one of them predates the fork; and the handoff's two stale-commit hits are the known false positive (hex fragments of a quoted session UUID) documented in the handoff itself."
     },
     {
       "id": "RT-14",
@@ -603,8 +697,8 @@
       "duty": 5,
       "at": "docs/runbooks/beta-launch-alerting.md:460",
       "title": "Duty 5 facet contradiction: rule 14 documents level `warning`, but the emitted signal is captureException at level `error`",
-      "disposition": "open",
-      "reason": "Six-facet comparison of rule 14 against the signal it describes. MATCH on four: signal identity (`reportCaughtError`, tag `endpoint` = `moderation/safety-review` — src/lib/shared/report-caught-error.ts calls `captureException(error, { tags: { endpoint } })`), filter, grouping (no custom fingerprint is set), and destination (Discord integration 443670, the same id all four rules in this runbook use). CONTRADICTION on level: the runbook's Level column says `warning`, but `captureException` records an exception at Sentry's default `error` level and nothing overrides it — worker/sentry.ts:12's `beforeSend` only calls `scrubSentryEvent` and never touches `level`. The two sibling rules that emit through the identical helper, rule 12 (:440) and rule 13 (:450), both correctly document `error`, so the correct value is established four lines away. An alert rule saved from this row with a `level:warning` condition would match nothing, which is the silent-failure mode the rule exists to prevent. TWO secondary observations on the same comparison: (a) the Level/grouping column also says the context carries `correlation_id` and the error kind only, but the `context` argument is passed to the structured LOG line, not to the Sentry event — the event carries only the `endpoint` tag and the exception (the Operator-action paragraph gets this right and points at the log); (b) threshold and grouping interact — 20 events in 1 hour is evaluated per ISSUE, while default exception-stack grouping will split a fail-closed storm across as many issues as there are distinct error types reaching that catch (provider failures, CostInfraUnavailableError, audit-write failures), so a mixed outage may never reach 20 in any single issue. Neither half of the alert path is missing; the documented facets need correcting before the rule is configured."
+      "disposition": "fixed",
+      "reason": "FIXED on the facet that mattered, re-derived by a fresh six-facet comparison in round 3. docs/runbooks/beta-launch-alerting.md:460 now reads `error`. Verified against the emitting code rather than against the round-2 note: src/lib/shared/report-caught-error.ts calls `captureException(error, { tags: { endpoint } })` with no level argument, and grep for `fingerprint`, `setLevel` and `level:` across worker/sentry.ts, src/lib/shared/report-caught-error.ts and src/lib/moderation/safety-review.ts returns nothing, so the event is at Sentry's default `error` level with default exception-stack grouping. Facet by facet at HEAD: signal identity MATCHES (reportCaughtError, tag `endpoint` = `moderation/safety-review`, emitted at src/lib/moderation/safety-review.ts:293); filter MATCHES; level MATCHES (`error`); grouping MATCHES (no custom fingerprint or title); destination MATCHES (Discord integration 443670, the same id rules 12 and 13 use). Both secondary observations are also corrected: the row now says the Sentry event carries the `endpoint` tag and the exception only and that `correlation_id` and the error kind reach the structured LOG line — which is what reportCaughtError does, passing `context` to createWorkerLogger and not to captureException — and the threshold now spans the tag rather than one issue, with a paragraph giving the reason. ONE residual on the threshold facet is recorded separately as RT-16 and does not reopen this finding."
     },
     {
       "id": "RT-15",
@@ -612,33 +706,59 @@
       "duty": 3,
       "at": "worker/jobs/ResponseGeneratorWorker.ts:142",
       "title": "The security axis finding was applied by half — the star-rating pre-filter it also names has no recorded disposition",
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation in round 3, and the boundary is pinned from both sides. worker/jobs/ResponseGeneratorWorker.ts:162 now carries `&& ctx.normalizedReview.starRating >= 4` with a 20-line comment recording the reasoning, and deviation D15 records the owner's choice to apply rather than defer. Green file baseline (13 of 13), then THREE mutants, all killed: M40 deleted the conjunct and M41 weakened it to `>= 1` — under each, EXACTLY the three non-positive cases failed and the other ten passed; M42 tightened it to `> 4` and EXACTLY the four-star case failed. The too-wide direction is the one that would otherwise be invisible, because it only stops buying calls, and M42 proves it is pinned. Duty 4 sibling search recorded under RT-15 in findings.md: zero siblings."
+    },
+    {
+      "id": "RT-16",
+      "severity": "P2",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:460",
+      "title": "The corrected rule-14 threshold names a counting semantics no other rule in the runbook uses and no mechanism to configure it",
       "disposition": "open",
-      "reason": "Security finding S3 (docs/reviews/feat-safety-review-auto-approval/security.md:18) and spec finding F1 both name TWO cheap pre-LLM discriminators already in hand before the transaction: `ctx.subscriptionTier` AND `ctx.starRating`. The fix applied only the tier half (`&& tierGrantsAutopilot(ctx.subscriptionTier)` at :142, measured and killed this round as row rt-C07). The rating half is not applied, and grep over the deviations file (D1-D14), the handoff's ACCEPT list and its two recorded REJECTs finds no entry for it — so a later session cannot tell whether it was decided or overlooked, which is the condition the project's own accepted-findings checklist calls out and which the handoff states as a rule (a silent skip is forbidden). The concrete scenario S3 records is unchanged by the tier fix: a burst of one-star reviews at an AUTOPILOT business each buys a paid safety_review call plus a 1c reservation, every verdict then discarded by `rating_below_positive_quadrant`, with `withConcurrency: false` removing the per-business concurrency slot. `ctx.starRating` exists at worker/jobs/response-generation/load-context.ts:213. Not a correctness defect — a skip is fail-safe in both directions — so this is an adjudication item, not a blocker on the code."
+      "reason": "Residual on the one facet RT-14 changed, found by the round-3 six-facet re-comparison and recorded as P2 because it is documentation-grade and cannot produce a false claim about the code. The RT-14 fix correctly moved the count off a single issue — the reasoning paragraph beneath the table is sound and the failure mode it describes is real. What the row does not do is say HOW. Every other rule in this runbook expresses its trigger in per-issue vocabulary — rules 4, 6 and 9 as \"seen more than N times in one hour\", rules 10, 11, 12 and 13 as \"every event, action throttle 60 minutes per issue\" — and rule 14 alone asks for \"20 events in 1 hour counted ACROSS the tag, not per issue\" while keeping \"action throttle 60 minutes\", a phrase the rest of the document uses only per issue. The runbook names no alert type, no query and no configuration path for a cross-issue count, so the operator who must configure and read this rule back before the AUTO_APPROVAL_ENABLED flip has no instruction they can follow, and the two halves of the cadence facet are written in two different alerting vocabularies. This blocks nothing: the rule is explicitly marked NOT CONFIGURED, and the emitted signal is correct. It is recorded so the configuration step does not rediscover it. Deliberately NOT asserted here: what the Sentry product can or cannot express — that was not measured in this pass and is not something the repository can answer."
+    },
+    {
+      "id": "RT-17",
+      "severity": "P2",
+      "duty": 2,
+      "at": "worker/jobs/response-generation/persist.ts:248",
+      "title": "The safety-evaluation log line's `disposition` discriminator is asserted by no test — a surviving mutant makes an off-spine evaluation claim it was recorded on the spine",
+      "disposition": "open",
+      "reason": "Measured, not inferred. Row rt-D04 held a green file baseline (70 of 70); M57 replaced `disposition: activeRun ? 'recorded_on_spine' : 'no_active_run'` at worker/jobs/response-generation/persist.ts:248 with the constant 'recorded_on_spine' and ALL 70 cases stayed green. Arbiter confirmation: the branch IS executed — rt-D04 mocks findActiveReviewRun to null, so the ternary's false arm is precisely the one the mutant replaces — and the mutation is NOT equivalent: the emitted structured log line then states that an evaluation with no spine step was recorded on the spine. The reason it is P2 rather than P0 is that both covering cases, rt-D03 and rt-D04, assert the log record through `safetyLogRecords(logged)).not.toHaveLength(0)`, which pins PRESENCE and not content, so the three dispositions (`recorded_on_spine`, `no_active_run`, `discarded_stale_review_content`) are interchangeable to every oracle in the suite while the verdict fields on the same line — cleared, concern, source, provider — are unaffected. The observability promise the module's own docstring names (those paid evaluations not disappearing from the verdict ratio) therefore still holds; only the diagnostic label can lie. rt-D04's own tested behaviour is separately real: M59 deleted the whole logSafetyEvaluation call on that path and rt-D04 failed alone, which is why the row is recorded killed rather than survived. Behavioural replacement: assert the disposition value on each of the three paths, as the cases already assert the verdict fields. SCOPE NOTE for the adjudicator: this line is branch-added code and an existing inventory row (rt-D04) that round 3 was directed to measure, not a new front against unchanged code — but it sits outside the fix hunks of 2fccbe29f, so reject it in one line if that boundary is meant strictly."
     }
   ],
   "authorizations": [
     {
       "id": "owner-safety-review-third-round-2026-09-18",
       "date": "2026-09-18",
-      "finding_ids": [],
-      "text": "Owner authorized a THIRD round on feat/safety-review-auto-approval on 2026-09-18, in answer to the recorded question \"Round 2 ended INCOMPLETE_ORACLE with 49 rows still unmeasured for budget and 2 inconclusive... A third round needs your authorization recorded in the sidecar before it opens.\" The owner chose the option \"Round 3, budget ~150 launches\", whose text reads: \"The only path to CLEAR. 51 unresolved rows at round 2 observed rate of about 1.3 launches per row needs roughly 70 launches, plus re-measuring whatever the P1 fixes touch. 150 gives headroom. Matches the shape of the Run C, D and E grants already in the skill. I would fix the P1s first, then measure everything in one round.\" The runner grants no generic budget extension for round 3 (authorizedBudget returns null for any round that is not 1, 2 or 4), so this authorization opens the third round at the standard 30-launch cap. It waives no finding, accepts no risk, and grants no fourth round."
+      "finding_ids": [
+        "RT-06",
+        "RT-10",
+        "RT-11",
+        "RT-12",
+        "RT-13",
+        "RT-14",
+        "RT-15"
+      ],
+      "text": "Owner authorized a THIRD round on feat/safety-review-auto-approval on 2026-09-18, in answer to the recorded question \"Round 2 ended INCOMPLETE_ORACLE with 49 rows still unmeasured for budget and 2 inconclusive... A third round needs your authorization recorded in the sidecar before it opens.\" The owner chose the option \"Round 3, budget ~150 launches\", whose text reads: \"The only path to CLEAR. 51 unresolved rows at round 2 observed rate of about 1.3 launches per row needs roughly 70 launches, plus re-measuring whatever the P1 fixes touch. 150 gives headroom. Matches the shape of the Run C, D and E grants already in the skill. I would fix the P1s first, then measure everything in one round.\" The runner grants no generic budget extension for round 3 (authorizedBudget returns null for any round that is not 1, 2 or 4), so this authorization opens the third round at the standard 30-launch cap. It waives no finding, accepts no risk, and grants no fourth round. SCOPE, NOT ACCEPTANCE: finding_ids names the seven findings this round was authorized to re-measure after their fixes, because the schema requires a non-empty list and the empty-list exemption is hard-pinned to one unrelated grant. No finding carries disposition accepted-risk, so nothing here is waived; every one of the seven is disposition fixed, verified by measurement or by inspection in round 3."
     }
   ],
   "counts": {
-    "inventory_total": 74,
-    "killed": 22,
+    "inventory_total": 85,
+    "killed": 56,
     "survived_confirmed_p0": 1,
     "equivalent": 0,
-    "inconclusive": 2,
-    "skipped_budget": 49,
+    "inconclusive": 0,
+    "skipped_budget": 28,
     "excluded": 0,
-    "findings_total": 15,
+    "findings_total": 17,
     "p0_open": 0,
-    "p1_open": 6,
-    "p2_open": 1,
+    "p1_open": 0,
+    "p2_open": 2,
     "accepted_risk": 0,
-    "fixed": 6,
+    "fixed": 13,
     "rejected": 2
   },
-  "status": "INCOMPLETE_ORACLE"
+  "status": "INCOMPLETE_BUDGET"
 }
