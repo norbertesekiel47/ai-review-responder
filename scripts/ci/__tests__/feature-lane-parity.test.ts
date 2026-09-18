@@ -73,6 +73,36 @@ describe('the plan is a behavior contract', () => {
   });
 });
 
+// An unnamed Claude subagent inherits the LEAD's model, so one frontier session
+// made every grep helper a frontier call. The tier table has one owner; the
+// project default catches a dispatch that forgets to name its model.
+describe('model routing', () => {
+  it('execution-lanes.md owns the tier table for both harnesses', () => {
+    expect(executionLanes).toContain('## Model routing');
+    for (const model of ['haiku', 'sonnet', 'opus', 'fable', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-6-astra']) {
+      expect(executionLanes).toContain(`\`${model}\``);
+    }
+    expect(executionLanes).toContain('A reviewer is never weaker than the author');
+  });
+
+  it.each(ROUTERS)('%s cites the routing section', (_name, router) => {
+    expect(router).toContain('§ Model routing');
+  });
+
+  it('the small lane runs on Sonnet', () => {
+    expect(smallLane).toContain('/model sonnet');
+  });
+
+  it('the project default for an unnamed subagent is Sonnet, and is not forced', () => {
+    const settings = JSON.parse(readFileSync(resolve(root, '.claude/settings.json'), 'utf8')) as {
+      env?: Record<string, string>;
+    };
+    expect(settings.env?.CLAUDE_CODE_SUBAGENT_MODEL).toBe('sonnet');
+    // FORCE would stop the lead from escalating a review axis to opus or fable.
+    expect(settings.env?.CLAUDE_CODE_SUBAGENT_MODEL_FORCE).toBeUndefined();
+  });
+});
+
 describe('both routers cite the shared rule set', () => {
   it.each(ROUTERS)('%s cites working-rules.md', (_name, router) => {
     expect(router).toContain('working-rules.md');

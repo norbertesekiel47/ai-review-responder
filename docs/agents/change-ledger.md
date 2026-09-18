@@ -18,7 +18,7 @@ column is for.
 | PR | Number |
 | Lane | `trivial`, `small`, `standard`, `high` |
 | Risk | `normal` or `high` |
-| Lead | Harness and model that owned the change |
+| Lead | Harness and model tier that owned the change, e.g. `claude/sonnet`, `codex/gpt-5.6-sol` (tiers: `execution-lanes.md` § Model routing) |
 | Minutes | Intake posted → PR ready, wall clock, rounded to 5 |
 | Repairs | Gate-fail rounds plus review fix rounds |
 | Named debt | Compromises named in the review record, or `none` |
