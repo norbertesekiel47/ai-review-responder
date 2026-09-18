@@ -118,6 +118,21 @@ Do not restate them here. What is worth knowing before reading the plan:
 - Enforcement ARMED. No surface overlap with other worktrees.
 - Tracers registered, 0/8 done. T0 is in `progress.json`.
 
+## Two traps a resumed session walks into here
+
+**The handoff's own prevalidate reports 2 stale commits. Both are false.**
+`01a0b358` and `d534a7a24b2d` are hex fragments of the WRONG Codex session UUID
+quoted in the warning note below — the prevalidator reads any 8+ hex run as a
+git SHA. Do not "fix" them by deleting the note; the note is the reason the
+right id is recorded.
+
+**When #1309 merges and this branch rebases, RE-PROVISION the test DB.**
+`origin/main` is 2 commits ahead and one of them is **migration 122**
+(`fix(db): migration 122 revokes client-role grants`, #1306). This worktree is
+provisioned to 121. Live-DB suites `assertSchemaReady` rather than migrating
+themselves, so a behind-head DB fails loudly — run `pnpm test:db:setup` after
+the rebase, before reading anything into a gate result.
+
 ## Base branch — do not rebase onto main
 
 This branch is cut from `feat/provider-moderation-corpus` (PR #1309, CI green,
