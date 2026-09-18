@@ -420,7 +420,7 @@ so injection still works.
 
 ```ts
   try {
-    const result = await runTask('safety_review', prompt);
+    const result = await runTask(prompt);
     const usd = calculateCostUsd(result.model, result.usage.promptTokens, result.usage.completionTokens);
     return {
       value: { kind: 'ok' as const, result, usd },
@@ -799,3 +799,45 @@ existing policies keep approving and publishing. **The runtime rollback is
 otherwise; that was a false operational promise and D4 corrects it.
 
 `AUTO_APPROVAL_ENABLED` is **not** flipped by this work.
+
+---
+
+## Review appendix
+
+Three rounds, one Codex session resumed twice. Findings files:
+`.feature/plan-round{1,2,3}-findings.md`. Briefs: `.feature/plan-round{1,2,3}-brief.md`.
+
+| Round | Kind | Result |
+|---|---|---|
+| 1 | full plan-skeptic | REVISE — 6 P1, 7 P2 |
+| 2 | verification-only | REVISE — 10 closed; 9, 10, 13 open; 3 new (A, B, C) |
+| 3 | verification-only (cap) | REVISE — all 6 closed; 1 new, a one-line arity slip |
+
+**Round 3's single remaining finding, self-verified.** Revision 3 narrowed the
+injected seam to `RunSafetyTask = (prompt: ChatPrompt) => …` and instructed
+`runTask(prompt)`, but left one guarded-body example calling
+`runTask('safety_review', prompt)`. Codex confirmed TS2554 against the installed
+compiler. Applied as revision 3a: that line now reads `await runTask(prompt)`.
+
+Self-verification, per `feature-state.sh contract-changed`'s own instruction when
+it answers UNCHANGED:
+
+- `grep -n "runTask(" plan.md` returns four hits. One is the fixed call site.
+  One is the instruction at T3 that it now matches. **Two are prose describing
+  the defect** — the round-2 change-map row and the `defaultRunTask` doc comment
+  — and both must keep the two-argument spelling, because they explain what the
+  tripwire cannot see. Changing them would delete the reason the wrapper exists.
+- `contract-changed` answers **UNCHANGED**: the fix moved no
+  `allowed_edit_surface` entry, no `tests_to_add` title, and no tracer boundary.
+  No further round is owed.
+- `PREVALIDATE: PASS` — 32 citations, 9 fixtures, 0 stale.
+
+**No round 4 was opened.** RISK is `high`, so the cap escalates rather than
+iterates; the escalation is this appendix plus the owner report, and the finding
+it carried was a confirmed one-line typo with no design content.
+
+### What every round upheld
+
+The transaction placement (the LLM call outside `sql.begin`), the lock ordering,
+and the no-migration claim for the new run-spine step key. Round 1 checked them,
+and neither later round reopened them.
