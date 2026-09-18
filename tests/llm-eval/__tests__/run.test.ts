@@ -1,7 +1,7 @@
 // tests/llm-eval/__tests__/run.test.ts
 import { describe, expect, it } from 'vitest';
 import { loadEvalSet } from '../load';
-import { parseRunMode, runEval } from '../run';
+import { parseRunMode, readFlagValue, runEval } from '../run';
 import type { EvalRow } from '../types';
 
 describe('parseRunMode', () => {
@@ -16,6 +16,41 @@ describe('parseRunMode', () => {
 
   it('rejects --structured-only without --live', () => {
     expect(() => parseRunMode(['node', 'run.ts', '--structured-only'])).toThrow(/requires --live/);
+  });
+
+  it('routes --live --moderation-corpus to the moderation lane', () => {
+    expect(parseRunMode(['node', 'run.ts', '--live', '--moderation-corpus'])).toBe(
+      'moderation-corpus',
+    );
+  });
+
+  it('rejects --moderation-corpus without --live', () => {
+    expect(() => parseRunMode(['node', 'run.ts', '--moderation-corpus'])).toThrow(
+      /requires --live/,
+    );
+  });
+
+  it('rejects combining the two keyed lanes', () => {
+    expect(() =>
+      parseRunMode(['node', 'run.ts', '--live', '--structured-only', '--moderation-corpus']),
+    ).toThrow(/one at a time/);
+  });
+});
+
+describe('readFlagValue', () => {
+  it('reads the value that follows the flag', () => {
+    expect(readFlagValue(['node', 'run.ts', '--env', 'staging'], '--env')).toBe('staging');
+  });
+
+  it('returns undefined when the flag is absent', () => {
+    expect(readFlagValue(['node', 'run.ts'], '--env')).toBeUndefined();
+  });
+
+  it('throws when the flag has no value', () => {
+    expect(() => readFlagValue(['node', 'run.ts', '--env'], '--env')).toThrow(/requires a value/);
+    expect(() => readFlagValue(['node', 'run.ts', '--env', '--out'], '--env')).toThrow(
+      /requires a value/,
+    );
   });
 });
 
