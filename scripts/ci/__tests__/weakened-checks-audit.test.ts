@@ -94,6 +94,17 @@ describe('FAIL tier — prohibited relaxations', () => {
     expect(findings[0]).toMatchObject({ tier: 'FAIL', rule: 'coverage-floor-lowered', detail: '80 → 50' });
   });
 
+  it('reads a shell default as a floor', () => {
+    const findings = findingsFor(diffFor('scripts/verify-gate.sh', [], ['MIN="${DIFF_COVERAGE_MIN:-70}"']));
+    expect(findings[0]).toMatchObject({ tier: 'FAIL', rule: 'coverage-floor-lowered', detail: '80 → 70' });
+  });
+
+  it('does not read a bare mention, or a fixture in a test file, as a floor', () => {
+    const mention = findingsFor(diffFor('scripts/diff-coverage.ts', [], ['// default $DIFF_COVERAGE_MIN or 80; was 60']));
+    const fixture = findingsFor(diffFor(TEST_FILE, [], ["const line = 'DIFF_COVERAGE_MIN=10';"]));
+    expect([...mention, ...fixture].filter((finding) => finding.tier === 'FAIL')).toEqual([]);
+  });
+
   it('passes a RAISED floor', () => {
     const findings = findingsFor(diffFor(
       'scripts/diff-coverage.ts',
@@ -135,6 +146,16 @@ describe('REVIEW tier — reported, never failed', () => {
   ])('reports unfinished work in production code: %s', (line) => {
     const [finding] = findingsFor(diffFor('src/lib/billing/quota.ts', [], [line]));
     expect(finding).toMatchObject({ tier: 'REVIEW', rule: 'unfinished-work' });
+  });
+
+  it('does not read a disabled-test call or a todo identifier as unfinished work', () => {
+    const findings = findingsFor(diffFor('src/lib/billing/quota.ts', [], ['const todoList = items.filter(isOpen);']));
+    expect(findings).toEqual([]);
+  });
+
+  it('does not read a suppression quoted in a skill or a doc as a suppression', () => {
+    const line = `A new \`${'eslint'}-disable\` comment deserves suspicion.`;
+    expect(findingsFor(diffFor('.claude/skills/x/SKILL.md', [], [line]))).toEqual([]);
   });
 
   it('does not read a note in a doc as unfinished work', () => {
