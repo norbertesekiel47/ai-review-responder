@@ -197,3 +197,31 @@ stubbed `runTask`.
 
 **Verdict:** ACCEPT — it removes a contradiction inside the locked file. Found
 by the resume reconciliation, not by a review round.
+
+---
+
+## D9 — Surface amendment: a safety-mode-only corpus file (round-2 NEW A)
+
+**What.** `tests/llm-eval/moderation-corpus-safety.jsonl` is added to
+`allowed_edit_surface`. `tests/llm-eval/moderation-corpus.jsonl` stays in the
+surface but is **not modified**.
+
+**Why.** Revision 2 put the two injection-resistance rows (round-1 finding 10)
+into the shared corpus and added `maxSafetyErrors` to the shared acceptance
+object, while the same tracer promised the default mode stays byte-identical.
+Round 2 proved those cannot both be true: `loadModerationCorpus` returns every
+row in the file it reads (`moderation-corpus-load.ts:101`), and the report prints
+`total: results.length` (`moderation-runner.ts:151`). The ordinary command would
+have scored 55 rows against the recorded 53 and emitted a different acceptance
+shape — silently invalidating the 2026-09-17 evidence this feature exists to
+supersede.
+
+**Alternatives weighed.** Tag the new rows in the shared file and filter them out
+of the default load — declined: it turns a byte-identical promise into a
+filtered one, which is weaker and is the exact class of claim round 2 rejected.
+
+**Classification.** A surface AMENDMENT — a new fixture file in a directory
+already heavily in scope, forced by a confirmed defect. `surfaceAmendments=3`.
+
+**Verdict:** ACCEPT — it is the smaller correction, and it keeps the recorded
+evidence reproducible by construction rather than by care.

@@ -104,7 +104,8 @@
     "docs/reviews/feat-safety-review-auto-approval/*.md",
     "src/__tests__/cost-guard-contract.test.ts",
     "scripts/verify-gate.sh",
-    "scripts/ci/__tests__/*.test.ts"
+    "scripts/ci/__tests__/*.test.ts",
+    "tests/llm-eval/moderation-corpus-safety.jsonl"
   ],
   "tests_to_add": [
     "returns not-cleared when the LLM task throws",
@@ -150,6 +151,9 @@
     "refuses the live safety-review corpus before external calls when MOCK_EXTERNAL_APIS=true",
     "records which provider answered each safety-review corpus row",
     "requires zero false negatives on the injection-resistant safety corpus rows",
+    "a safety catch does not erase a provider miss on a row that still requires provider moderation",
+    "injection-targeted rows fail when the safety reviewer clears them even if another moderation layer flags them",
+    "loads the default corpus from disk with the recorded row count and report shape",
     "promised-tests discovers promised corpus titles under tests/llm-eval"
   ],
   "verification_commands": [
@@ -158,7 +162,7 @@
     "pnpm typecheck"
   ],
   "estimated_prod_lines": 340,
-  "estimated_test_lines": 950,
+  "estimated_test_lines": 1020,
   "dependencies_added": [],
   "rollback_plan": "THE RUNTIME LEVER IS AUTO_APPROVAL_ENABLED=false PLUS A WORKER REDEPLOY. That is the only control that stops drafts already covered by an existing policy from being approved and published; the publisher's runtime check reads it (auto-policy-publish.ts:555). AUTO_APPROVAL_PROVIDER_MODERATION_READY is an EXPANSION control, not a runtime kill: it feeds buildAutoApprovalReadiness, which settings.ts:328 enforces when an owner enables or widens a policy, and the generation evaluator never reads it. Unsetting it stops new opt-ins while existing policies keep running. This wording corrects a factually wrong earlier rollback claim, caught by plan round-1 finding 6; the owner chose to fix the wording rather than add a runtime readiness gate, because the existing AUTO_APPROVAL_ENABLED gate is sufficient. Ship-time posture: AUTO_APPROVAL_ENABLED=false in every environment, so the safety review never runs and the gate is unreachable until Autopilot is deliberately turned on. There is no migration, so code revert is a plain git revert plus a worker redeploy. The only new persisted artefact is a safety_reviewed run-spine step, which is append-only and read by nothing that would break on its absence.",
   "observability": [

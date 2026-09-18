@@ -5,12 +5,18 @@ A resumed session bootstraps from this file. It never needs the prior transcript
 
 ## Where to pick up
 
-**Step 3, mid-gate. Plan revision 2 is written; the verification round is OWED
-and not yet dispatched.**
+**Step 3, mid-gate. Plan revision 3 is written; round 3 is the LAST permitted
+review round.**
 
-`bash scripts/feature-state.sh contract-changed <plan.md>` answers **CHANGED** —
-the round-1 fixes moved `allowed_edit_surface`, `tests_to_add` and the tracer
-decomposition, so round 2 is not optional. Dispatch it, then triage its findings.
+Round 1 (full) returned REVISE with 13 findings. Round 2 (verification) closed
+10, left 9, 10 and 13 open, and found three defects revision 2 itself had
+introduced. Revision 3 applies all six. `planReviewRounds=2`.
+
+Round 3 is verification-only and is the cap — 1 full + 2 verification. **RISK is
+`high`, so feature.md's round-3 rule ESCALATES to the owner rather than
+decide-and-record.** If round 3 returns REVISE, do not open a round 4: bring its
+findings to the owner with a recommendation.
+
 No implementation has started. No tracer has moved. Phase is `worktree_ready`.
 
 ## This run is NOT parked
@@ -24,13 +30,14 @@ future session parks it again, park it the same way (`mv .feature/intake.json
 
 | What | Path |
 |---|---|
-| Locked intake (signed off, then corrected — D1, D4, D5, D8; amended — D6, D7) | `docs/superpowers/plans/feat-safety-review-auto-approval-intake.json` |
+| Locked intake (corrected — D1, D4, D5, D8; amended — D6, D7, D9) | `docs/superpowers/plans/feat-safety-review-auto-approval-intake.json` |
 | Arming copy (byte-identical, verified) | `.feature/intake.json` |
-| The plan, **revision 2** | `docs/superpowers/plans/feat-safety-review-auto-approval-plan.md` |
+| The plan, **revision 3** | `docs/superpowers/plans/feat-safety-review-auto-approval-plan.md` |
 | Round-1 findings, 13 of them | `.feature/plan-round1-findings.md` |
-| Round-1 raw transcript | `.feature/logs/plan-round1.jsonl` |
-| The brief round 1 was given | `.feature/plan-round1-brief.md` |
-| Deviations, D1–D8 | `docs/superpowers/plans/feat-safety-review-auto-approval-deviations.md` |
+| Round-2 findings — 10 closed, 3 open, 3 new | `.feature/plan-round2-findings.md` |
+| Raw transcripts | `.feature/logs/plan-round1.jsonl`, `.feature/logs/plan-round2.jsonl` |
+| The briefs each round was given | `.feature/plan-round1-brief.md`, `.feature/plan-round2-brief.md` |
+| Deviations, D1–D9 | `docs/superpowers/plans/feat-safety-review-auto-approval-deviations.md` |
 | Why the feature exists | `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md` |
 | Glossary owner for the new term | `docs/context/core-reviews-responses.md` |
 
@@ -58,34 +65,37 @@ rebuild it.
 > `.feature/sessions` holds `c5bedad5-…`, which is a third id and is not the
 > Codex thread either.
 
-## What revision 2 changed
+## What revisions 2 and 3 changed
 
-Plan § "What round 1 changed" is the authoritative map from each of the 13
-findings to the tracer that now carries its fix. Do not restate it here. The
-four structural changes worth knowing before reading the plan:
+The plan's two sections — § "What round 1 changed" and § "What round 2 changed" —
+are the authoritative maps from each finding to the tracer that carries its fix.
+Do not restate them here. What is worth knowing before reading the plan:
 
 1. **A new T0** fixes `promised-tests` before anything measures anything.
-2. **`tests_to_add` grew 20 → 44.** Every round-1 `MISSING FAILING TEST` is now
-   a locked title. Three round-1 titles were removed or narrowed because they
+2. **`tests_to_add` grew 20 → 47.** Every `MISSING FAILING TEST` from both rounds
+   is a locked title. Three round-1 titles were removed or narrowed because they
    asserted something the code does not do — the circuit-breaker no-call title
    (D5 kept the fallback), the vacuous superset invariant (finding 4), and the
    unconditional spine-step title (finding 11).
-3. **Finding 9 was fatal** and is now answered in T7 with explicit safety-mode
-   layer semantics. Without it the plan could never reach `VERDICT: PASS`, so
-   step 8's flag flip was unreachable.
-4. **Two surface amendments**, owner-approved 2026-09-18, D6 and D7.
-   `surfaceAmendments=2`.
+3. **Round-1 finding 9 was fatal** to the stated goal; round 2 then showed
+   revision 2's answer to it was unbounded. It is now a named, closed set of the
+   two G4-F1 row ids.
+4. **Revision 2 introduced three defects of its own** (NEW A, B, C) — the
+   shared-corpus row count, the removed local schema parse, and a mutation check
+   that demanded the wrong outcome. All three are applied. This is why a
+   verification round is not a formality.
+5. **Three surface amendments**, D6, D7 (owner-approved 2026-09-18) and D9
+   (forced by NEW A). `surfaceAmendments=3`.
 
 ## State of the run
 
-- Phase `worktree_ready`. `planReviewRounds=1`; round 2 is owed and uncounted.
-  Two rounds remain before feature.md's stop rule. RISK is **high**, so round 3
-  escalates rather than decides-and-records.
-- `PREVALIDATE: PASS` on revision 2 — 26 citations, 9 fixtures, 0 stale.
-- All 44 locked titles appear verbatim in the plan. Re-check with the parity
-  script in the run log if the plan is edited again.
+- Phase `worktree_ready`. `planReviewRounds=2`. Round 3 is the LAST one; on a
+  REVISE, escalate rather than iterate (RISK = high).
+- `PREVALIDATE: PASS` on revision 3 — 32 citations, 9 fixtures, 0 stale.
+- All 47 locked titles appear verbatim in the plan. Re-check parity whenever the
+  plan or the intake is edited — the two drift silently otherwise.
 - Enforcement ARMED. No surface overlap with other worktrees.
-- Tracers registered, 0/7 done. T0 is new and is not yet in `progress.json`.
+- Tracers registered, 0/8 done. T0 is in `progress.json`.
 
 ## Base branch — do not rebase onto main
 
@@ -104,7 +114,7 @@ zero production lines.
 
 | Row | State | Why |
 |---|---|---|
-| `promised-tests` | FAIL | Correct before T1. T1 IS the task that creates them. Note the count is now 44, and 10 of them live under `tests/` — which the gate could not see until T0. |
+| `promised-tests` | FAIL | Correct before T1. T1 IS the task that creates them. Note the count is now 47, and 13 of them live under `tests/` — which the gate could not see until T0. |
 | `feature-surface` | FAIL | Two `allowed_edit_surface` entries match no file: `src/lib/moderation/safety-review.ts` and `safety-review-schema.ts`. They are the files T2 and T3 CREATE. Same class as `promised-tests`; both rows go green when those tracers land. |
 | `rls-audit` | FAIL | Environmental. Static coverage PASSES (48 tenant tables enable RLS in migrations). The live check fails with "test DB provisioning incomplete or behind head". The parent checkout has no `TEST_DATABASE_POOL_URL` and so skips it and passes. **Fix at step 5: `pnpm test:db:setup`.** Not run at plan time because it drops schema `public` on the test DB and this feature is `db_touching: false`. |
 | `reclassify` | WARN | **False trigger — do NOT re-run step 0 on it.** It diffs against `origin/main` while this branch is cut from the unmerged `feat/provider-moderation-corpus`, so it counts PR #1309's 3,566 insertions as this branch's. The number becomes honest once #1309 merges and this branch rebases. Re-check the trigger then; it is a real signal on a correct fork point. |
@@ -130,9 +140,9 @@ does not need to re-ask.
   corpus measured OpenAI, so **every verdict and every corpus row now records
   which provider answered**. That mitigation is written into T2, T3 and T7.
 
-## The two surface amendments from revision 2 — ANSWERED, already applied
+## The three surface amendments — ANSWERED, already applied
 
-Owner-approved 2026-09-18. Recorded as **D6** and **D7**.
+D6 and D7 were owner-approved 2026-09-18. D9 is forced by round-2 NEW A.
 
 - **D6 — `src/__tests__/cost-guard-contract.test.ts`.** Forced, with no
   alternative: it is a tripwire that reads every production `runLlmTask` call
@@ -144,6 +154,11 @@ Owner-approved 2026-09-18. Recorded as **D6** and **D7**.
   records the identical fix made once before for `scripts/` at #611. A separate
   PR off `main` was weighed and declined — this branch already waits on #1309,
   and a second unmerged dependency would block the gate on two PRs.
+- **D9 — `tests/llm-eval/moderation-corpus-safety.jsonl`.** Round-2 NEW A proved
+  the injection rows cannot live in the shared corpus: the loader returns every
+  row and the report prints `total: results.length`, so the default command would
+  have scored 55 rows against the recorded 53. `moderation-corpus.jsonl` is now
+  explicitly NOT modified.
 
 ## What round 1 confirmed as sound
 
