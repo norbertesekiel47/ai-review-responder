@@ -10,7 +10,7 @@ A resumed session bootstraps from this file. It never needs the prior transcript
 |---|---|
 | 3 plan | 3 review rounds, all findings closed. Cap spent — **no round 4.** |
 | 4 execute | 8/8 tracers |
-| 5 gate | **GREEN at `f7d956aee`** (this file's own commit) — 34/35 PASS, 1 WARN |
+| 5 gate | **GREEN**, 34/35 PASS, 1 WARN. Confirm with `verify-gate.sh --status` and check `lastGreenGateSha == HEAD` before trusting it. |
 | 6 deviations | D1–D14, every verdict ACCEPT |
 | 7 review wave | **Round 1 closed REVISE.** 16 findings, all triaged, 14 ACCEPT / 2 REJECT, 0 open. Fixes applied and committed. |
 | 7.5 red-team | **ROUND 2 OWED — this is the next action.** |
@@ -42,7 +42,7 @@ committed under `docs/reviews/feat-safety-review-auto-approval/`.
 
 ## What round 2 must do
 
-1. Re-measure the round-1 inventory at HEAD `f7d956aee`.
+1. Re-measure the round-1 inventory at the CURRENT HEAD.
 2. **Verify the fixes** listed under "What the wave found" below. Each names the
    mutant that must now die.
 3. Report new findings **only inside the fix hunks and their directly affected
@@ -66,11 +66,21 @@ committed under `docs/reviews/feat-safety-review-auto-approval/`.
 Pins for round 2:
 ```
 FORK_SHA / MERGE_BASE = e0c3ceb1331dee7bf7eb92dc6128879c860b5805
-HEAD_SHA              = f7d956aee585bea54298607d9f83646a0372c440
 risk = high   mode = feature   round = 2
 run_id = feature-feat-safety-review-auto-approval-5e21bf
 ```
-`intake_sha256` — re-derive it, do not copy: the intake moved with amendment 7.
+
+**DERIVE `HEAD_SHA` and `intake_sha256`; never copy them from this file.** Both
+move every time anything is committed, including a correction to this very
+document — which is how the stale-gate trap above kept re-arming:
+
+```bash
+git rev-parse HEAD
+shasum -a 256 .feature/intake.json | cut -d' ' -f1
+```
+
+Only `FORK_SHA` is safe to copy: it is frozen at the fork point and this branch
+must not rebase (see "Base branch" below).
 
 ## What the wave found, and what the fix was
 
