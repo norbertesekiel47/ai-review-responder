@@ -1637,13 +1637,13 @@ describe('ledger attribution (#1083)', () => {
 //
 // Plan round-1 finding 5: module, gate and step tests can all be green while
 // the worker threads the wrong verdict, routes not-cleared into the
-// moderation-hold branch (persist.ts:173) or drops the owner notification
-// (persist.ts:236). Those are separate branches, so they are asserted here
+// moderation-hold branch or drops the owner notification — separate branches
+// in `persist.ts`. They are asserted here
 // against real persistence rather than through a stub.
 //
-// Round-1 finding 11 bounds what may be promised: persist.ts:134 discards stale
-// work with ZERO writes, and persist.ts:462 skips spine writes with no active
-// run. So the DURABLE step is promised only for a persisted draft with an
+// Round-1 finding 11 bounds what may be promised: the content-freshness gate
+// discards stale work with ZERO writes, and `recordDraftSpineCheckpoints` skips
+// spine writes with no active run. So the DURABLE step is promised only for an
 // active run; every EXECUTED check is accounted for by a sanitized completion
 // log event instead. Moving a spine write ahead of the freshness gate would
 // break ADR 0017 and is not the fix.
@@ -1679,12 +1679,18 @@ describe('persistResponseAndNotify — safety review', () => {
     txQueue.length = 0;
     gateOverride.blockReasons = null;
     process.env.AUTO_APPROVAL_ENABLED = 'true';
+    // BOTH flags, as all four sibling describes in this file set. Without the
+    // moderation one, `provider_moderation_disabled` blocks unconditionally and
+    // every case below passes for the wrong reason — deleting the safety row
+    // from the gate left them green. (spec-correctness F2)
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
     (findActiveReviewRun as unknown as { mockResolvedValue: (v: unknown) => void })
       .mockResolvedValue({ id: 'run-1' });
   });
 
   afterEach(() => {
     delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
   });
 
   it('persists a not-cleared safety verdict as pending_approval with one owner notification and no moderation hold, approval audit, or publish outbox', async () => {
@@ -1708,6 +1714,10 @@ describe('persistResponseAndNotify — safety review', () => {
 
     const steps = safetySteps();
     expect(steps).toHaveLength(1);
+    // RT-02: the STATUS, not just the detail. `cleared ? 'completed' : 'failed'`
+    // mutated to a constant 'completed' survived the whole suite, and this is
+    // the value D12's `failedLabel: 'Held for you'` renders from.
+    expect(steps[0]).toMatchObject({ status: 'failed' });
     // The payload carries the verdict and its provenance — never the draft
     // text (CLAUDE.md structured-logging rule, and ADR 0032's input rule).
     expect(steps[0]).toMatchObject({
@@ -1719,6 +1729,27 @@ describe('persistResponseAndNotify — safety review', () => {
       }),
     });
     expect(JSON.stringify(steps[0])).not.toContain(RESULT.responseText);
+  });
+
+  it('records the safety_reviewed step as completed when the verdict cleared', async () => {
+    // The other half of RT-02. Without this, a constant 'failed' also survives,
+    // and the timeline would show every cleared draft as "Held for you".
+    //
+    // `autoApprove: true` because a cleared verdict now genuinely reaches the
+    // auto-approve commit — which is itself evidence that the missing
+    // OPENAI_MODERATION_ENABLED was masking this whole describe.
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(
+      mockSql,
+      baseInput({
+        safetyVerdict: { cleared: true, concern: null, source: 'llm', provider: 'openai' } as const,
+      }),
+    );
+
+    const steps = safetySteps();
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ status: 'completed', detail: expect.objectContaining({ cleared: true }) });
   });
 
   it('a completed safety review followed by stale content creates no response, spine step, or follow-up work and records the discarded evaluation', async () => {
@@ -1748,7 +1779,8 @@ describe('persistResponseAndNotify — safety review', () => {
   });
 
   it('a not-cleared safety review without an active run still notifies the owner and records its evaluation outside the spine', async () => {
-    // A legacy review has no run row, so persist.ts:462 writes no step. The
+    // A legacy review has no run row, so `recordDraftSpineCheckpoints` writes
+    // no step. The
     // owner must still be told, and the paid check must still be accounted for.
     (findActiveReviewRun as unknown as { mockResolvedValue: (v: unknown) => void })
       .mockResolvedValue(null);
@@ -1771,7 +1803,7 @@ describe('persistResponseAndNotify — safety review', () => {
 
   it('a safety_reviewed spine-write failure rolls back the response and follow-up outbox work and propagates the persistence error', async () => {
     // The no-retry rule is scoped to CHECK failures. A PERSISTENCE failure is
-    // the opposite case: run-spine.ts:5 makes the step write transactional, so
+    // the opposite case: `recordStep`'s contract makes the write transactional, so
     // swallowing this to satisfy "does not retry" would leave a response with
     // no spine record and no retry to repair it.
     queuePersistRows();

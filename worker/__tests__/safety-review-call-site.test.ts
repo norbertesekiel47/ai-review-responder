@@ -8,7 +8,8 @@ import type { GenerationResult } from '../../src/lib/responses/types';
 // Plan round-1 finding 5: T1's module, gate and step tests can all pass while
 // the worker threads the WRONG verdict, treats not-cleared as a moderation
 // hold, drops owner notification, or holds the review/business/entitlement
-// locks (persist.ts:395) across provider latency. Those are separate branches,
+// locks (`persistResponseAndNotify`'s `sql.begin`) across provider latency.
+// Those are separate branches,
 // so they need worker-level assertions of their own.
 //
 // This file owns the ORDERING and SKIP half. The persistence half — what the
@@ -120,7 +121,17 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'deterministic-uuid-v7') }));
 
 vi.mock('../../src/lib/moderation/safety-review', () => ({ reviewSafety: mockReviewSafety }));
 
+// A partial mock, so real persistence still runs; the spy exists only so the
+// THREADING can be observed. Red-team RT-01: replacing the threaded verdict
+// with a constant `{cleared:true}` left 2449 tests green, because nothing
+// asserted that what reviewSafety returned is what the gate was given.
+vi.mock('../jobs/response-generation/persist', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../jobs/response-generation/persist')>();
+  return { ...actual, persistResponseAndNotify: vi.fn(actual.persistResponseAndNotify) };
+});
+
 import { handleResponseGeneration } from '../jobs/ResponseGeneratorWorker';
+import { persistResponseAndNotify } from '../jobs/response-generation/persist';
 import {
   makeLoadContextReviewRow as mockReviewRow,
   makeLoadContextBusinessRow as mockBusinessRow,
@@ -180,7 +191,8 @@ describe('safety review call site', () => {
   });
 
   it('finishes the safety-review LLM call before opening the persist transaction', async () => {
-    // The locks begin at persist.ts:395. An LLM call placed inside sql.begin
+    // The locks are taken inside `persistResponseAndNotify`'s `sql.begin`. An
+    // LLM call placed in there
     // would hold the review, business and entitlement locks across provider
     // latency — seconds, on a pooled connection. Round 1 upheld the placement
     // and asked for the assertion that pins it.
@@ -190,6 +202,43 @@ describe('safety review call site', () => {
 
     expect(callOrder).toContain('safety:done');
     expect(callOrder.indexOf('safety:done')).toBeLessThan(callOrder.indexOf('tx:open'));
+  });
+
+  it('threads the verdict reviewSafety returned, by identity, into persistence', async () => {
+    // RT-01. IDENTITY (`toBe`), not shape: a constant `{cleared:true,...}`
+    // threaded in place of the real verdict satisfies any structural
+    // assertion, and that mutant survived the entire suite. Only identity
+    // kills it. This is the claim this file's own header makes.
+    primeContext();
+    const verdict = {
+      cleared: false,
+      concern: 'implied_threat',
+      source: 'llm',
+      provider: 'openai',
+    } as const;
+    mockReviewSafety.mockResolvedValue(verdict);
+
+    await handleResponseGeneration(makeJob());
+
+    const persistMock = persistResponseAndNotify as unknown as {
+      mock: { calls: Array<[unknown, { safetyVerdict: unknown }]> };
+    };
+    expect(persistMock.mock.calls).toHaveLength(1);
+    expect(persistMock.mock.calls[0]![1].safetyVerdict).toBe(verdict);
+  });
+
+  it('threads null when the safety review was skipped, never a synthesised clearance', async () => {
+    // The other half of RT-01: the skip path must hand the gate ABSENCE, which
+    // blocks as safety_review_unavailable. A synthesised cleared verdict here
+    // would open the lane for every draft the check never saw.
+    primeContext();
+
+    await handleResponseGeneration(makeJob({ origin_lane: 'on_demand_generate' }));
+
+    const persistMock = persistResponseAndNotify as unknown as {
+      mock: { calls: Array<[unknown, { safetyVerdict: unknown }]> };
+    };
+    expect(persistMock.mock.calls[0]![1].safetyVerdict).toBeNull();
   });
 
   it('skips the safety review and makes no LLM call when moderation already flagged the draft', async () => {
@@ -216,7 +265,7 @@ describe('safety review call site', () => {
     ['a regeneration', { version: 2 }],
     ['a suppressed notification', { suppress_notification: true }],
   ])(
-    'skips the safety review and makes no LLM call when the draft is not an auto-approval candidate',
+    'skips the safety review and makes no LLM call when the draft is not an auto-approval candidate (%s)',
     async (_case, overrides) => {
       // Every draft today, since AUTO_APPROVAL_ENABLED is false everywhere.
       // The skip is what keeps this feature's cost at zero until the flag flips.
@@ -227,6 +276,20 @@ describe('safety review call site', () => {
       expect(mockReviewSafety).not.toHaveBeenCalled();
     },
   );
+
+  it('skips the safety review and makes no LLM call for a Copilot account', async () => {
+    // AUTO_APPROVAL_ENABLED is GLOBAL. Without the tier in the skip, every
+    // Copilot live-ingest draft pays for this call at go-live and is then
+    // blocked by autopilot_tier_required anyway. Skipping hands the gate null,
+    // which blocks — it can cost a post, never buy one.
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ subscription_tier: 'copilot' })]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockReviewSafety).not.toHaveBeenCalled();
+  });
 
   it('does not retry the job when the safety review fails', async () => {
     // The draft is already generated and PAID FOR. A BullMQ retry would buy a

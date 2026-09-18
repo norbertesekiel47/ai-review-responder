@@ -366,3 +366,78 @@ the check working, and the map's own header says that is exactly what
 `surfaceAmendments=4`.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D13 — `user_visible_behavior[3]` overpromised the durable step (found at review)
+
+**What.** The locked intake says every safety review writes a `safety_reviewed`
+step. Two paths that RUN the check write none: a draft discarded by the
+content-freshness gate (ADR 0017's zero-write path) and a review with no active
+run.
+
+**Why it was not caught earlier.** Plan round-1 finding 11 identified the
+behaviour and T6 implemented the correct narrowing, with the sanitized
+completion log as the accounting. But the correction was written into code
+comments and the plan — never into the deviations file, and never back into the
+intake field it contradicts. The spec-correctness axis caught that gap.
+
+**Why it matters beyond bookkeeping.** The intake's `observability` field names
+the not-cleared RATE as the silent-failure signal to watch. If that rate is
+derived from spine steps, its denominator silently omits exactly the paid
+evaluations that happened but could not be recorded — so the metric reads
+healthier than reality in precisely the situation it exists to detect.
+
+**Correction.** The durable guarantee is narrowed to "a persisted draft with an
+active run". Every EXECUTED check emits `safety review evaluated` with its
+verdict, source, provider and disposition
+(`recorded_on_spine` / `no_active_run` / `discarded_stale_review_content`), and
+THAT is the authoritative denominator. Alerting rule 14 thresholds on the
+fail-closed signal rather than on a spine-derived ratio, for the same reason.
+
+Moving a spine write ahead of the freshness gate would "fix" the promise and
+break ADR 0017's zero-write contract; it is not the answer.
+
+**Classification.** Intake CORRECTION. No path changed.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D14 — The contradiction is resolved by DERIVATION, not by schema rejection (review wave, high)
+
+**What.** `SafetyReviewOutputSchema` no longer carries the `.refine` that
+rejected `{ cleared: true, concern: 'implied_threat' }`. `deriveSafetyVerdict`
+computes `cleared = output.cleared && output.concern === null` instead.
+
+**Why the refine was wrong, and it is not a style call.** The security axis
+traced what a refine failure actually does. `validateStructured` runs inside
+`completeAttempt`, which runs inside `attemptProvider`'s `try` — so a rejection
+returns `{ kind: 'error' }`, and with a fallback registered (deviation D5 keeps
+one) that is a **provider FAILOVER, not a block**. Anthropic is then asked the
+same prompt fresh, is never told the primary named a threat, and a
+`{ cleared: true, concern: null }` answer opens the auto-approval lane. The
+model that caught the threat is silently overruled. Reproduced and confirmed
+before applying.
+
+The schema's own comment asserted the opposite — "lands in reviewSafety's
+fail-closed catch, exactly like malformed JSON" — on the exact line the defect
+lived. Three plan-review rounds read that sentence and none traced it.
+
+**Why derivation is the right branch.** Plan round-1 finding 2 offered both:
+"reject the contradictory combination during local validation, OR derive
+clearance from a single authoritative concern/verdict field." Revision 2 chose
+rejection. Derivation keeps a contradiction INSIDE the verdict — not-cleared,
+`source: 'llm'`, concern preserved — so no failover can launder it, and the
+model's finding survives into the run spine instead of being discarded as a
+failed attempt.
+
+**Bonus.** `deriveSafetyVerdict` and `FAILED_SAFETY_VERDICT` are exported and
+shared with the corpus lane, which had re-spelled both. A second spelling there
+would have let the recorded evidence describe a check production does not run.
+
+**Classification.** A correctness fix accepted from the review wave. No path
+changed; `tests_to_add` unchanged (the locked title still describes the
+behaviour, which is now stronger).
+
+**Verdict:** ACCEPT.

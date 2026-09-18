@@ -32,6 +32,9 @@ vi.mock('@/lib/costs/audit', () => ({
 const isMockMode = vi.hoisted(() => vi.fn(() => false));
 vi.mock('@/lib/shared/mock-mode', () => ({ isMockMode }));
 
+const reportCaughtError = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError }));
+
 // The two providers and the breaker, for the tests that must run the REAL
 // runLlmTask rather than an injected double (round-1 finding 7 / deviation D5:
 // a stubbed runTask cannot show that a blocked primary reaches the fallback).
@@ -56,6 +59,7 @@ vi.mock('@/lib/llm/circuit-breaker', () => ({
 import { reviewSafety } from '../safety-review';
 import type { SafetyVerdict } from '../safety-review-schema';
 import { LLMStructuredOutputError } from '@/lib/llm/run-task';
+import type { ChatPrompt } from '@/lib/llm/types';
 import { CostInfraUnavailableError } from '@/lib/costs/errors';
 
 const INPUT = {
@@ -129,16 +133,30 @@ describe('reviewSafety', () => {
   });
 
   it('passes only the draft text to the LLM task, never the review text', async () => {
+    // ADR 0032's central claim. The first version asserted the absence of a
+    // string that was never passed in and that `ReviewSafetyInput` has no field
+    // to carry — it could not fail for ANY implementation.
+    //
+    // What is actually assertable is that the prompt is built from the draft
+    // and NOTHING ELSE the caller handed over. Every other input field is a
+    // real value here, so interpolating any of them into the prompt — the
+    // shape a "give the model more context" change would take — fails this.
     const runTask = runTaskReturning(CLEARED);
-    await reviewSafety(
-      mockSql as never,
-      { ...INPUT, draftText: `${INPUT.draftText}` },
-      { runTask },
-    );
-    const [firstCall] = runTask.mock.calls as unknown as Array<[unknown]>;
-    const prompt = JSON.stringify(firstCall?.[0] ?? {});
-    expect(prompt).toContain(INPUT.draftText);
-    expect(prompt).not.toContain(REVIEW_TEXT);
+    await reviewSafety(mockSql as never, INPUT, { runTask });
+
+    const [firstCall] = runTask.mock.calls as unknown as Array<[ChatPrompt]>;
+    const prompt = firstCall![0];
+    const serialized = `${prompt.system}\n${prompt.user}`;
+
+    expect(serialized).toContain(INPUT.draftText);
+    for (const [field, value] of Object.entries(INPUT)) {
+      if (field === 'draftText') continue;
+      expect(serialized, `prompt leaked ${field}`).not.toContain(String(value));
+    }
+    // And the type carries the rest of the guarantee: there is no field a
+    // review could arrive through.
+    expect(Object.keys(INPUT)).not.toContain('reviewText');
+    expect(serialized).not.toContain(REVIEW_TEXT);
   });
 
   // ── schema and contradiction ─────────────────────────────────────────────
@@ -150,12 +168,39 @@ describe('reviewSafety', () => {
   });
 
   it('returns not-cleared when the model returns cleared=true with a non-null safety concern', async () => {
-    // Round-1 finding 2. The unrefined object accepted this, and the gate reads
-    // only `cleared` — so a model naming a threat could still permit posting.
+    // Round-1 finding 2: the gate reads only `cleared`, so a model naming a
+    // threat could otherwise permit posting.
+    //
+    // The verdict is DERIVED, not rejected, and `source` is what shows the
+    // difference. Revision 3a rejected this combination in the schema; the
+    // security review proved that a refine failure is a provider FAILOVER, so
+    // the fallback would be asked fresh and could clear the very draft the
+    // primary flagged. Deriving keeps the model's finding — `source: 'llm'`,
+    // the concern preserved — instead of discarding it as a failed attempt.
     const runTask = vi.fn(async () => llmResult({ cleared: true, concern: 'implied_threat' }));
     const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
     expect(verdict.cleared).toBe(false);
-    expect(verdict.source).toBe('failed');
+    expect(verdict.source).toBe('llm');
+    expect(verdict.concern).toBe('implied_threat');
+  });
+
+  it('never asks the fallback after the primary named a concern', async () => {
+    // The fix for the security axis's high finding, pinned. Runs the REAL
+    // executor: a contradiction must resolve inside the verdict, so the second
+    // provider is never given a fresh chance to clear the draft.
+    openaiComplete.mockResolvedValue(llmResult({ cleared: true, concern: 'implied_threat' }));
+    anthropicComplete.mockResolvedValue(llmResult(CLEARED, 'anthropic'));
+
+    const verdict = await reviewSafety(mockSql as never, INPUT);
+
+    expect(openaiComplete).toHaveBeenCalledTimes(1);
+    expect(anthropicComplete).not.toHaveBeenCalled();
+    expect(verdict).toMatchObject({
+      cleared: false,
+      concern: 'implied_threat',
+      source: 'llm',
+      provider: 'openai',
+    });
   });
 
   // ── cost boundary: reserve → spend → finalize ────────────────────────────
@@ -194,7 +239,7 @@ describe('reviewSafety', () => {
 
   it('returns not-cleared when the safety-review cost audit write fails', async () => {
     // Round-1 finding 1, the swallowed-audit path: tryRecordTriageCost logs and
-    // continues (triage.ts:114). A lost audit row must not become a clearance.
+    // continues (`tryRecordTriageCost`). A lost audit row must not become a clearance.
     recordApiCost.mockRejectedValueOnce(new Error('api_costs insert failed'));
 
     const verdict = await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(CLEARED) });
@@ -212,10 +257,10 @@ describe('reviewSafety', () => {
       { provider: 'anthropic' as const, model: 'claude-haiku-4-5-20251001', usage: { promptTokens: 200, completionTokens: 11 } },
     ]],
   ])(
-    'finalizes and audits billed invalid safety-review completions before returning not-cleared without retry',
+    'finalizes and audits billed invalid safety-review completions before returning not-cleared without retry (%s)',
     async (_case, billedAttempts) => {
       // Round-1 finding 8. These completions WERE billed. Letting the error
-      // escape the guarded callback makes cost-guard.ts:120 release the
+      // escape the guarded callback makes `withCostGuard`'s `finally` release the
       // reservation, so real spend vanishes from enforcement and the audit.
       const runTask = vi.fn(async () => {
         throw new LLMStructuredOutputError(
@@ -274,6 +319,32 @@ describe('reviewSafety', () => {
       concern: null,
       source: 'failed',
     });
+  });
+
+  it('reports a fail-closed outage to the alert sink, carrying no draft text', async () => {
+    // Failing closed is SILENT: the owner sees drafts arriving for approval,
+    // exactly as before the feature existed. Alerting rule 14 is the only way
+    // an outage becomes visible, and a rule with no emitter is half a path.
+    const runTask = vi.fn(async () => {
+      throw new Error('provider exploded');
+    });
+
+    const verdict = await reviewSafety(mockSql as never, INPUT, { runTask });
+
+    expect(verdict.source).toBe('failed');
+    expect(reportCaughtError).toHaveBeenCalledTimes(1);
+    const [endpoint, , context] = reportCaughtError.mock.calls[0] as [string, unknown, unknown];
+    expect(endpoint).toBe('moderation/safety-review');
+    // The filter in rule 14 is this exact tag; a rename silently unhooks it.
+    expect(JSON.stringify(context)).not.toContain(INPUT.draftText);
+  });
+
+  it('does not report a model-judged block to the alert sink', async () => {
+    // The other half. A not-cleared verdict the MODEL produced is the check
+    // working; paging on it would make the rule useless within a day.
+    await reviewSafety(mockSql as never, INPUT, { runTask: runTaskReturning(NOT_CLEARED) });
+
+    expect(reportCaughtError).not.toHaveBeenCalled();
   });
 
   it('never throws, for any injected failure', async () => {

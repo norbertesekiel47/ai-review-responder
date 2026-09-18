@@ -18,7 +18,7 @@ describe('LLM_TASKS registry', () => {
     expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
 
     // Deviation D5, the owner's decision: the Anthropic fallback is KEPT, so a
-    // blocked primary reaches it (run-task.ts:242) and only an all-attempts
+    // blocked primary reaches the fallback and only an all-attempts
     // failure yields not-cleared. Availability was chosen over the literal
     // no-call contract; the price is paid by recording the answering provider.
     expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
@@ -30,7 +30,7 @@ describe('LLM_TASKS registry', () => {
     // The verdict is {cleared, concern}, not prose.
     expect(task.maxTokens).toBe(120);
 
-    // The schema is the executor's authority (run-task.ts:101 safeParse), so
+    // The schema is the executor's authority (`validateStructured`'s safeParse), so
     // the contradiction refine only protects the gate if THIS schema is the one
     // registered here.
     expect(task.outputSchema).toBe(SafetyReviewOutputSchema);

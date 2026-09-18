@@ -7,6 +7,7 @@ import { completeRun, findActiveReviewRun } from '../../src/lib/agents/run-spine
 import { moderateResponse } from '../../src/lib/moderation/moderate';
 import { reviewSafety } from '../../src/lib/moderation/safety-review';
 import { isAutoApprovalCandidate } from './response-generation/auto-approval';
+import { tierGrantsAutopilot } from '../../src/lib/accounts/tier-config';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import { normalizeGenerateResponsePayload } from '../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -116,18 +117,30 @@ export async function handleResponseGeneration(
   // what keeps this feature's cost at zero until the flag flips.
   //
   // OUTSIDE sql.begin ON PURPOSE. An LLM call inside the transaction would hold
-  // the review, business and entitlement locks (persist.ts:395) across provider
+  // the review, business and entitlement locks (`persistResponseAndNotify`'s
+  // `sql.begin`) across provider
   // latency — seconds, on a pooled connection. Plan review upheld this
   // placement in round 1 and added the test that pins the ordering.
   //
   // reviewSafety NEVER throws: every failure returns a not-cleared verdict, so
   // a check failure cannot retry a draft that is already generated and paid for.
+  //
+  // The TIER is part of the skip, not only the lane. `AUTO_APPROVAL_ENABLED` is
+  // global, so at go-live every Copilot account's live-ingest draft would
+  // otherwise pay for this call and a 1¢ reservation, then be blocked by
+  // `autopilot_tier_required` regardless. `ctx.subscriptionTier` is a pre-LLM
+  // HINT — persist re-reads the authoritative tier in-transaction — and using a
+  // hint to SKIP is the safe direction: a stale Copilot hint on a real Autopilot
+  // account skips the check, which hands the gate `null` and blocks with
+  // `safety_review_unavailable`. It can cost a post; it can never buy one.
   const safetyVerdict =
     isAutoApprovalCandidate({
       originLane: payload.originLane,
       version,
       suppressNotification: payload.suppressNotification,
-    }) && !moderation.flagged
+    })
+    && tierGrantsAutopilot(ctx.subscriptionTier)
+    && !moderation.flagged
       ? await reviewSafety(
           sql,
           {

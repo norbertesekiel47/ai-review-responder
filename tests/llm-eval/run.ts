@@ -215,17 +215,10 @@ async function runStructuredMain(): Promise<void> {
   writeReport(report);
 }
 
-/** `openai x53, anthropic x2` — inlined so the offline lane imports nothing. */
-function summariseProviders(report: ModerationCorpusReport): string {
-  const counts = new Map<string, number>();
-  for (const result of report.results) {
-    const key = result.safetyProvider ?? 'none';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts.entries()].map(([provider, n]) => `${provider} x${n}`).join(', ');
-}
-
-function printModerationReport(report: ModerationCorpusReport): void {
+function printModerationReport(
+  report: ModerationCorpusReport,
+  summariseProviders: (r: ModerationCorpusReport) => string,
+): void {
   for (const result of report.results) {
     const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
     const layers = [
@@ -294,7 +287,7 @@ async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
   const [
     { loadModerationCorpus, loadSafetyCorpus },
     { moderateResponse },
-    { runModerationCorpus, assertSafetyModeEnvironment, makeCorpusSafetyReview },
+    { runModerationCorpus, assertSafetyModeEnvironment, makeCorpusSafetyReview, summariseSafetyProviders },
   ] = await Promise.all([
     import('./moderation-corpus-load'),
     import('../../src/lib/moderation/moderate'),
@@ -319,7 +312,7 @@ async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
     ...(withSafetyReview ? { safetyReview: makeCorpusSafetyReview() } : {}),
   });
 
-  printModerationReport(report);
+  printModerationReport(report, summariseSafetyProviders);
   writeReport(report, {
     outPath: readFlagValue(argv, '--out'),
     failed: report.verdict === 'FAIL',

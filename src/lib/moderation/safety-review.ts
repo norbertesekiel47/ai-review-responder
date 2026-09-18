@@ -25,19 +25,19 @@
 // and 8). Each one is a way a cost failure could have produced a CLEARANCE:
 //
 //   1. NO `onFinalizeError: 'log-and-return-value'`. That option makes
-//      cost-guard.ts:104 return the successful model value when finalization
+//      `withCostGuard` return the successful model value when finalization
 //      fails — so a Redis outage would hand back a clearance and the outer
 //      catch would never see it. The throwing default is what makes a
 //      finalize outage fail closed. `finalized` is already true there, so
 //      nothing double-releases.
 //   2. THE AUDIT WRITE IS OBSERVABLE. `tryRecordTriageCost` swallows its own
-//      failure (triage.ts:114). Here a lost `api_costs` row reaches the catch
+//      failure (`tryRecordTriageCost`). Here a lost `api_costs` row reaches the catch
 //      and becomes not-cleared, rather than a silent clearance.
 //   3. BILLED INVALID COMPLETIONS ARE HANDLED INSIDE THE GUARD.
 //      `LLMStructuredOutputError` carries `billedAttempts` — the providers
-//      charged for them. Letting it escape makes cost-guard.ts:120 RELEASE the
+//      charged for them. Letting it escape makes `withCostGuard`'s `finally` RELEASE the
 //      reservation, so real spend vanishes from enforcement and from the
-//      audit. Precedent: ask-generation.ts:500.
+//      audit. Precedent: `generateChildRender` in `solicitation/ask-generation.ts`.
 
 import type { Sql } from 'postgres';
 import { withCostGuard } from '@/lib/costs/cost-guard';
@@ -46,8 +46,11 @@ import { runLlmTask, LLMStructuredOutputError, type BilledLlmAttempt } from '@/l
 import type { ChatPrompt, LLMCallResult } from '@/lib/llm/types';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { isMockMode } from '@/lib/shared/mock-mode';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
+  FAILED_SAFETY_VERDICT,
   SafetyReviewOutputSchema,
+  deriveSafetyVerdict,
   type SafetyReviewOutput,
   type SafetyVerdict,
 } from './safety-review-schema';
@@ -82,9 +85,10 @@ export interface ReviewSafetyInput {
  *
  * THE LITERAL `runLlmTask(` CALL MUST STAY SPELLED OUT HERE. The cost-guard
  * caller tripwire discovers production call sites with
- * `/(?<!function )\brunLlmTask\s*\(/` (src/__tests__/cost-guard-contract.test.ts:54),
- * and once this file is on its CALLER_ALLOWLIST the stale-entry check at :96
- * fails an allowlisted file with no discoverable call site. Assigning
+ * its `CALL_SITE` regex (`src/__tests__/cost-guard-contract.test.ts`),
+ * and once this file is on its `CALLER_ALLOWLIST` the
+ * 'no stale entries' case fails an allowlisted file with no discoverable call
+ * site. Assigning
  * `runLlmTask` as a default parameter value instead — which is what the plan
  * said before round 2 — satisfies neither. (round-2 finding 13)
  */
@@ -127,14 +131,6 @@ export function buildSafetyPrompt(draftText: string): ChatPrompt {
     ].join('\n'),
   };
 }
-
-/** Every failure lands here. Identical shape, so a caller cannot branch on it. */
-const FAILED_VERDICT: SafetyVerdict = {
-  cleared: false,
-  concern: null,
-  source: 'failed',
-  provider: null,
-};
 
 type GuardedOutcome =
   | { kind: 'ok'; result: LLMCallResult; costUsd: number }
@@ -242,7 +238,7 @@ export async function reviewSafety(
         correlation_id: input.correlationId,
         billed_attempts: guarded.attempts.length,
       });
-      return FAILED_VERDICT;
+      return FAILED_SAFETY_VERDICT;
     }
 
     // Inversion 2: OUTSIDE any swallowing helper, so a failure here reaches
@@ -259,12 +255,11 @@ export async function reviewSafety(
       latencyMs: null,
     });
 
-    // Cheap revalidation rather than a cast, as triage.ts:186 does. The
-    // executor already validated (run-task.ts:101), but `structured` is
-    // optional and untyped on LLMCallResult and the seam is INJECTED — under a
-    // test double, or a future caller, output that never met the schema could
-    // reach here. Spend is finalized, so this falls back; it never retries.
-    // (round-2 NEW B — revision 2 deleted this parse and had to restore it.)
+    // Cheap revalidation rather than a cast, as `classifyReviewTriage` does.
+    // The executor already validated, but `structured` is optional and untyped
+    // on LLMCallResult and the seam is INJECTED — under a test double, or a
+    // future caller, output that never met the schema could reach here. Spend
+    // is finalized, so this falls back; it never retries.
     let output: SafetyReviewOutput;
     try {
       output = SafetyReviewOutputSchema.parse(guarded.result.structured);
@@ -272,15 +267,14 @@ export async function reviewSafety(
       logger?.warn('safety review output failed local revalidation', {
         correlation_id: input.correlationId,
       });
-      return FAILED_VERDICT;
+      return FAILED_SAFETY_VERDICT;
     }
 
-    return {
-      cleared: output.cleared,
-      concern: output.concern,
-      source: 'llm',
-      provider: guarded.result.provider,
-    };
+    // DERIVED, never copied. A model that named a concern has not cleared the
+    // draft whatever it put in `cleared`, and resolving that here rather than
+    // in the schema is what stops a contradiction becoming a failed attempt
+    // that the Anthropic fallback then answers fresh.
+    return deriveSafetyVerdict(output, guarded.result.provider);
   } catch (err) {
     // The error KIND only. Never the draft text, never the completion — the
     // structured-logging rule, and ADR 0032's reason for excluding the review
@@ -289,6 +283,16 @@ export async function reviewSafety(
       correlation_id: input.correlationId,
       error_kind: err instanceof Error ? err.name : typeof err,
     });
-    return FAILED_VERDICT;
+    // Failing closed is SILENT by construction: the owner just sees drafts
+    // arriving for approval, exactly as before this feature existed. So the
+    // outage needs a signal of its own — alerting rule 14, which thresholds on
+    // rate because one not-cleared verdict is the check working. Context is the
+    // correlation id and the error kind ONLY; `reportCaughtError` drops the
+    // cause chain, which is what keeps a provider error's echoed completion
+    // text out of Sentry.
+    reportCaughtError('moderation/safety-review', err, {
+      correlation_id: input.correlationId ?? null,
+    });
+    return FAILED_SAFETY_VERDICT;
   }
 }

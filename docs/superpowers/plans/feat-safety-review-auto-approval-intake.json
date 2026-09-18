@@ -111,7 +111,9 @@
     "worker/jobs/publisher/__tests__/*.test.ts",
     ".claude/reference/arch-review-log.md",
     "docs/directory.md",
-    "docs/directory/lib-moderation.md"
+    "docs/directory/lib-moderation.md",
+    "docs/runbooks/beta-launch-alerting.md",
+    "docs/reviews/finding-checklists/*.md"
   ],
   "tests_to_add": [
     "returns not-cleared when the LLM task throws",

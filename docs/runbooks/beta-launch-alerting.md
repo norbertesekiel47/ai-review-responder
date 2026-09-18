@@ -453,6 +453,20 @@ Operator action: inspect the affected response's approval-audit history under it
 
 Operator action: use the correlated structured error log to identify the proposal ID, then inspect the account-scoped source receipt, deployment, preparation transaction and read projection for the missing row. Repair the invariant before retrying Restore. Do not fabricate a receipt, bypass the transaction, or log owner text. Read back the saved staging rule and its destination; record a delivery drill separately if performed. Production configuration is required before future enablement, and this rule grants no production flag change.
 
+**Rule 14 — Safety review failing closed (G4-F1). REQUIRED BEFORE `AUTO_APPROVAL_ENABLED` IS FLIPPED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE.**
+
+| Rule name | Emitted identity and filter | Level and grouping | Trigger and destination |
+|---|---|---|---|
+| `safety-review-failed-closed → discord` | Worker `reportCaughtError`, tag `endpoint` equals `moderation/safety-review`; scope to the deployment environment | `warning`; default exception-stack grouping, no custom fingerprint or title; the context carries `correlation_id` and the error kind only, never draft text | 20 events in 1 hour, action throttle 60 minutes per issue; the environment's existing Discord alerts channel via integration 443670 |
+
+The Safety review fails CLOSED: every failure of the check returns a not-cleared verdict, so a total outage of the provider, of the cost infrastructure, or of the `api_costs` write does not post anything — it silently routes every auto-approval candidate to owner review instead. That is the correct runtime behaviour and it is also invisible: the owner sees drafts arriving for approval, which is what they saw before the feature existed. The intake names the not-cleared RATE as the signal to watch, and nothing was emitting it.
+
+**Why a threshold rather than every event.** A single not-cleared verdict is the check WORKING — it is the whole point of the feature — and the emitting path cannot distinguish "the model judged this unsafe" from "the check broke", because both return `cleared: false`. Only `source` separates them, and only `source: 'failed'` emits here. A frequency is therefore required: 20 in an hour against a lane that is expected to fail rarely. A first-seen rule on this signal would page on the first provider hiccup.
+
+**Scope.** This is the operational half of a check that does not run today — `AUTO_APPROVAL_ENABLED` is `false` in both deploy environments, so the rule can be configured and read back but cannot be delivery-drilled until the ordered go-live flip. Configure staging first, read the saved rule and destination back, and record a delivery drill separately if performed. This rule grants no flag change.
+
+Operator action: read the structured `safety review failed closed` log lines for the correlated `correlation_id` and `error_kind`, then check provider health and the cost-guard Redis before anything else — a fail-closed storm is nearly always one of those two. Do NOT respond by disabling the check; the correct lever if posting must continue is the owner's decision to turn the Auto-approval lane off (`AUTO_APPROVAL_ENABLED=false` plus a worker redeploy), which is the documented runtime rollback. Keep draft and review text out of the incident record.
+
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:
 

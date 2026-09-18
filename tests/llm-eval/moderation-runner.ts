@@ -4,7 +4,11 @@ import type { SafetyVerdict } from '../../src/lib/moderation/safety-review-schem
 import { SAFETY_MODE_RESCUABLE, loadSafetyCorpus } from './moderation-corpus-load';
 import { runLlmTask } from '../../src/lib/llm/run-task';
 import { buildSafetyPrompt } from '../../src/lib/moderation/safety-review';
-import { SafetyReviewOutputSchema } from '../../src/lib/moderation/safety-review-schema';
+import {
+  FAILED_SAFETY_VERDICT,
+  SafetyReviewOutputSchema,
+  deriveSafetyVerdict,
+} from '../../src/lib/moderation/safety-review-schema';
 import type {
   ModerationAcceptance,
   ModerationCorpusReport,
@@ -90,6 +94,18 @@ function readProviderMarkers(decision: ModerationDecision): {
   return { flaggedByProvider, errored, reached: flaggedByProvider || errored || clean };
 }
 
+/**
+ * The ONE spelling of "the safety reviewer itself flagged this row".
+ *
+ * It was written out four times and one copy dropped the `source === 'llm'`
+ * clause, so an OUTAGE row reported `flagged-by=safety_review` — the exact
+ * overclaim the attribution rules here exist to prevent. A predicate used in
+ * four places is a function.
+ */
+function safetyFlagged(safety: SafetyVerdict | undefined): boolean {
+  return safety !== undefined && !safety.cleared && safety.source === 'llm';
+}
+
 function classify(
   row: ModerationCorpusRow,
   decision: ModerationDecision,
@@ -102,7 +118,7 @@ function classify(
   const { flaggedByProvider, errored, reached } = readProviderMarkers(decision);
   // NEVER widened by the safety pass — raw attribution is what stops the
   // evidence claiming a provider classification that did not happen (f.9).
-  const flaggedBySafety = safety !== undefined && !safety.cleared && safety.source === 'llm';
+  const flaggedBySafety = safetyFlagged(safety);
   const flagged = decision.flagged || flaggedBySafety;
 
   // An unanswered safety verdict voids the row, exactly as a provider error
@@ -234,13 +250,13 @@ export async function runModerationCorpus(
       outcome,
       flaggedByLocal,
       flaggedByProvider,
-      flagged: decision.flagged || (safety !== undefined && !safety.cleared && safety.source === 'llm'),
+      flagged: decision.flagged || safetyFlagged(safety),
       decision,
       // Spread, never assigned: an undefined key still changes the object's
       // shape, and the default mode's results must compare equal to before.
       ...(safetyMode
         ? {
-            flaggedBySafetyReview: safety !== undefined && !safety.cleared,
+            flaggedBySafetyReview: safetyFlagged(safety),
             caughtBy,
             safetyProvider: safety?.provider ?? null,
             safetySource: safety?.source ?? null,
@@ -265,7 +281,7 @@ export async function runModerationCorpus(
     ? results.filter(
         (result) =>
           INJECTION_TARGETED.has(result.id)
-          && !(result.safetySource === 'llm' && result.flaggedBySafetyReview === true),
+          && result.flaggedBySafetyReview !== true,
       ).length
     : 0;
 
@@ -321,14 +337,28 @@ export function makeCorpusSafetyReview(): (text: string) => Promise<SafetyVerdic
     try {
       const result = await runLlmTask('safety_review', buildSafetyPrompt(text));
       const output = SafetyReviewOutputSchema.parse(result.structured);
-      return {
-        cleared: output.cleared,
-        concern: output.concern,
-        source: 'llm',
-        provider: result.provider,
-      };
+      // The SAME derivation the deployed check uses, imported rather than
+      // re-spelled: a second spelling here would let the recorded evidence
+      // describe a check production does not run.
+      return deriveSafetyVerdict(output, result.provider);
     } catch {
-      return { cleared: false, concern: null, source: 'failed', provider: null };
+      return FAILED_SAFETY_VERDICT;
     }
   };
+}
+
+/**
+ * `openai x53, anthropic x2` — which provider actually answered each row.
+ *
+ * Lives here rather than in `run.ts` so it is reachable by a test: deviation
+ * D5 keeps the Anthropic fallback, so an evidence doc that does not state the
+ * tally is claiming coverage of a provider the run may never have exercised.
+ */
+export function summariseSafetyProviders(report: ModerationCorpusReport): string {
+  const counts = new Map<string, number>();
+  for (const result of report.results) {
+    const key = result.safetyProvider ?? 'none';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([provider, n]) => `${provider} x${n}`).join(', ');
 }

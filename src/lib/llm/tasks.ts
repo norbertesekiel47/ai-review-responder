@@ -40,7 +40,7 @@ const LLM_TASKS: Record<LLMTaskId, LLMTaskDescriptor> = {
     taskId: 'safety_review',
     primary: { provider: 'openai', model: OPENAI_MODEL },
     // KEPT deliberately (deviation D5, owner decision 2026-09-18). A blocked
-    // primary proceeds here (run-task.ts:242) and a healthy fallback returns
+    // primary proceeds to the fallback (`attemptProvider`) and a healthy one returns
     // normally, so ONLY an all-attempts failure yields not-cleared. The locked
     // intake said "open circuit -> no call attempted"; that was never true of
     // this executor. Availability was chosen over the literal contract, and the

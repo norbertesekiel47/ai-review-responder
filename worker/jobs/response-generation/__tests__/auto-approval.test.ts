@@ -540,9 +540,10 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
 // vacuous. The oracle below is INDEPENDENT — it derives the expected pre-safety
 // reasons from the input without calling the evaluator at all.
 //
-// The evaluator is synchronous but NOT input-pure: it reads AUTO_APPROVAL_ENABLED
-// and OPENAI_MODERATION_ENABLED (auto-approval.ts:345-346) and can reach the
-// wall clock through past-due-recovery.ts:95. Every comparison below therefore
+// The evaluator is synchronous but NOT input-pure: `evaluateAutoApprovalCandidate`
+// reads AUTO_APPROVAL_ENABLED and OPENAI_MODERATION_ENABLED from the environment
+// on every call, and subscription evaluation can reach the wall clock through
+// `checkSubscription`. Every comparison below therefore
 // pins both flags and `now`.
 
 const CLEARED_VERDICT: SafetyVerdict = {
@@ -666,7 +667,7 @@ describe('evaluateAutoApprovalCandidate — safety review', () => {
     ['missing cleared', { concern: null, source: 'llm', provider: 'openai' }],
     ['a mock clearance that never reaches production', { cleared: true, concern: null, source: 'mock', provider: null }],
   ])(
-    'blocks auto-approval when the safety verdict is null, undefined, or missing cleared',
+    'blocks auto-approval when the safety verdict is null, undefined, or missing cleared (%s)',
     (_case, verdict) => {
       // Round-1 finding 4: `false` is not the only non-clearance. Absence is
       // not clearance either — the check is skipped only when the gate already

@@ -267,6 +267,7 @@ describe('runModerationCorpus verdict', () => {
 import {
   assertSafetyModeEnvironment,
   MODERATION_CORPUS_SAFETY_ACCEPTANCE,
+  summariseSafetyProviders,
 } from '../moderation-runner';
 import { loadSafetyCorpus, SAFETY_MODE_RESCUABLE } from '../moderation-corpus-load';
 import type { SafetyVerdict } from '../../../src/lib/moderation/safety-review-schema';
@@ -398,7 +399,7 @@ describe('safety-review corpus mode', () => {
   });
 
   it.each(['mock', 'skipped'] as const)(
-    'rejects safety-review corpus evidence containing mock or skipped verdicts',
+    'rejects safety-review corpus evidence containing mock or skipped verdicts (%s)',
     async (source) => {
       // Deviation D2: reviewSafety returns a mock CLEARANCE under
       // MOCK_EXTERNAL_APIS. A corpus that accepted it would record a PASS that
@@ -455,7 +456,8 @@ describe('safety-review corpus mode', () => {
   });
 
   it('injection-targeted rows fail when the safety reviewer clears them even if another moderation layer flags them', async () => {
-    // Round-2 finding 10, the masking path. output-filter.ts:67 already flags
+    // Round-2 finding 10, the masking path. `output-filter.ts`'s
+    // `injection_compliance` rules already flag
     // "ignore previous" and "system prompt" at HIGH severity, so the combined
     // decision can be correct while the layer under test obeyed the injection.
     const injectionRows = loadSafetyCorpus();
@@ -484,8 +486,8 @@ describe('safety-review corpus mode', () => {
   it('loads the default corpus from disk with the recorded row count and report shape', async () => {
     // Round-2 NEW A. Hand-built rows handed to the scorer twice cannot detect
     // the real regression: the injection rows landing in the SHARED file, which
-    // loadModerationCorpus returns wholesale (moderation-corpus-load.ts:101)
-    // and the report counts as `total` (moderation-runner.ts:151). 53 is the
+    // `loadModerationCorpus` returns wholesale and the report counts as
+    // `total`. 53 is the
     // number the 2026-09-17 evidence doc records.
     expect(loadModerationCorpus()).toHaveLength(53);
 
@@ -504,5 +506,27 @@ describe('safety-review corpus mode', () => {
     for (const injectionRow of loadSafetyCorpus()) {
       expect(ids.has(injectionRow.id)).toBe(false);
     }
+  });
+});
+
+describe('summariseSafetyProviders', () => {
+  it('names every provider that answered, with its count', async () => {
+    // Deviation D5 keeps the Anthropic fallback, so an evidence doc that does
+    // not state the tally claims coverage of a provider the run may never have
+    // exercised. Untested until now because it lived inside the CLI file.
+    const report = await runModerationCorpus([G4F1_THREAT, G4F1_SEXUAL], cleanFn, 'test', {
+      safetyReview: async (text: string) =>
+        unsafeVerdict({ provider: text === G4F1_SEXUAL.text ? 'anthropic' : 'openai' }),
+    });
+
+    expect(summariseSafetyProviders(report)).toBe('openai x1, anthropic x1');
+  });
+
+  it('reports none for rows no provider answered', async () => {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict({ source: 'failed', provider: null }),
+    });
+
+    expect(summariseSafetyProviders(report)).toBe('none x1');
   });
 });

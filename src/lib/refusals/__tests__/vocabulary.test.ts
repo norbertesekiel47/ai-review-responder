@@ -850,7 +850,7 @@ describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
 //
 // Plan round-1 finding 12: mapping the reason is NOT sufficient.
 // `AUTO_APPROVAL_BLOCK_PRECEDENCE` is a second, separately compile-enforced
-// seam (`_PrecedenceIsTotal`, vocabulary.ts:660), and `resolvePolicyGateRefusal`
+// seam (`_PrecedenceIsTotal` in `vocabulary.ts`), and `resolvePolicyGateRefusal`
 // reads BOTH — the map for the veto, the tuple for the winner. A test that
 // exercised only the map would pass while `pnpm typecheck` stayed red.
 

@@ -113,8 +113,9 @@ export function hasStaleReviewContent(
  *
  * The durable `safety_reviewed` step is promised only for a persisted draft
  * with an active run. Two paid checks fall outside that: a review whose content
- * changed under the job (persist.ts's freshness gate returns with zero writes,
- * ADR 0017) and a legacy review with no active run (the spine writer skips).
+ * changed under the job (the content-freshness gate returns with zero writes,
+ * ADR 0017) and a legacy review with no active run (`recordDraftSpineCheckpoints`
+ * skips).
  * Without this line those evaluations disappear from the verdict ratio the
  * intake's `observability` field promises to watch.
  *
