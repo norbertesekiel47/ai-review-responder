@@ -2,10 +2,20 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import ts from 'typescript';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { generateRequestSchemas } from '../admin-contract-schemas';
 import { describeRouteHandlers } from '../admin-aal2-audit';
+
+// See red-team-status.test.ts for the full reasoning. Short version: these CI
+// audit suites build a fixture tree on disk and run a real TypeScript program
+// over it, so a single case costs far more than a unit test. `refuses unmodeled
+// request-derived parser inputs and follows imported body parsers` is the
+// slowest here at ~1.5s on an idle machine, and it timed out at 5,000ms on a
+// loaded CI runner. Two cases in this file already carry per-test timeouts; a
+// file-scoped setting covers the rest instead of adding them one failure at a
+// time.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
