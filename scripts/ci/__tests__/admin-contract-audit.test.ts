@@ -2,8 +2,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSyn
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { auditContractFiles, checkRouteTable, emitPortableDeclarations, generateAdminContract } from '../admin-contract-audit';
+
+// See red-team-status.test.ts for the full reasoning. These CI audit suites
+// build a fixture tree on disk and shell out, so one case costs far more than a
+// unit test. The two contract-regeneration cases here measure ~2.7s and ~2.6s
+// on an idle machine, which a loaded CI runner pushes past the 5,000ms default.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
