@@ -21,7 +21,6 @@ import type { GenerationResult } from '../../src/lib/responses/types';
 const {
   sqlReturnQueue,
   mockSql,
-  mockTx,
   mockIsMockMode,
   mockSanitizeText,
   mockGenerateResponse,
@@ -80,7 +79,6 @@ const {
   return {
     sqlReturnQueue,
     mockSql,
-    mockTx,
     callOrder,
     mockIsMockMode: vi.fn(() => false),
     mockSanitizeText: vi.fn((text: string) => text),
