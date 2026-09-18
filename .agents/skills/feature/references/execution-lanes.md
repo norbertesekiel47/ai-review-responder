@@ -49,8 +49,10 @@ closed, never waives.
   must touch, or when starting from a long-lived branch. Isolation is a tool,
   not a ceremony; the arming scripts are not run on this lane at normal risk.
 - Implement in the root context. No plan document or implementation delegation.
-- Gate with the pre-push subset plus the full test run
-  (`lint`, `typecheck`, `test`, and `build`, as required by AGENTS.md).
+- Gate by RUNNING the pre-push hook, then the full suite and the build:
+  `pnpm exec lefthook run pre-push --no-tty && pnpm test && pnpm build`.
+  `lefthook.yml` owns the audit list; never re-spell it. Skip the build only
+  for a docs-only change.
 - Perform one fresh spec/correctness review after the gate.
 - Claude lane: `/feature-small` owns this lane end to end at normal risk;
   small work at high risk stays in the full router with an abbreviated intake.
@@ -237,10 +239,12 @@ once the wave is open.
 
 A verification-only round (plan rounds 2-3, branch rounds 2-3) exists to
 confirm that the fixes for round 1 did not break what round 1 approved. When
-the fixes moved nothing the artifact contracts on, the round re-reads
-unchanged prose at full cost.
+the fixes moved nothing, the round re-reads unchanged material at full cost.
 
-Decide it mechanically, never by judgement:
+Decide it mechanically, never by judgement. The two artifacts need two
+different questions.
+
+**Plan rounds** — did the reviewed plan's contract move?
 
 ```bash
 bash scripts/feature-state.sh record-contract <plan.md>   # at round start
@@ -250,9 +254,23 @@ bash scripts/feature-state.sh contract-changed <plan.md>  # after the fixes
 The contract is the intake's `allowed_edit_surface`, the intake's
 `tests_to_add`, and the plan's heading structure. `CHANGED` owes a round.
 `UNCHANGED` skips it — self-verify each fix against the findings table and
-record that decision in the artifact's review appendix, so a reader sees a
+record that decision in the plan's review appendix, so a reader sees a
 skipped round and its reason rather than a silent gap. A missing snapshot
-reads as `CHANGED`, so the failure direction is always "review it".
+reads as `CHANGED`. Intake `risk=high` always reads `CHANGED`: a prose-only fix
+can rewrite an invariant under an unchanged heading.
+
+**Branch rounds** — did the tree move since the SHA round 1 reviewed?
+
+```bash
+bash scripts/feature-state.sh branch-round-owed <reviewed-sha>
+```
+
+`OWED` when any tracked file differs from that SHA, committed or not
+(`docs/reviews/` excluded — a staged report is not a fix). Scope the round to
+the fix hunks and their callers. `NOT_OWED` only when nothing was fixed. Never
+answer a branch round with `contract-changed`: a code fix touches neither the
+intake nor the plan headings, so that hash reads `UNCHANGED` after every fix
+and would skip the one round that verifies it. An unknown SHA reads `OWED`.
 
 This changes WHEN a round is owed. It never raises the caps: three plan
 rounds, three branch rounds, two red-team rounds.

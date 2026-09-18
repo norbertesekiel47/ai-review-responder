@@ -208,8 +208,10 @@ question or do not fan out; and RESUME round 1's session for a
 verification-only round (`codex exec resume <id> "<delta>"`), never for round 1
 and never for an independent axis. Record the session id when round 1 returns.
 
-A verification round after the fixes is owed only when the fixes moved the
-plan's contract. Snapshot it at round start and re-derive it after — read
+A plan verification round after the fixes is owed only when the fixes moved
+the plan's contract, and always at high risk. A branch verification round is
+decided by `branch-round-owed <reviewed-sha>`, never by the plan hash. Snapshot
+the contract at round start and re-derive it after — read
 [execution-lanes.md](references/execution-lanes.md) § Conditional verification
 rounds for what counts and how to record a skip:
 

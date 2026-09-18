@@ -56,8 +56,8 @@
 # `--fast` mode (the unattended fix loop ONLY, speed lane build 5): the same
 # row set, with exactly two rows narrowed against the last green SHA —
 #   test  — `vitest run --changed <since>` instead of the full suite
-#   build — skipped when no UI path changed since <since>, because the last
-#           green gate already proved the build at that SHA
+#   build — skipped when nothing it compiles changed since <since>, because
+#           the last green gate already proved the build at that SHA
 # It writes .feature/gate-fast.json and NEVER .feature/gate-status.json, so a
 # fast green can never be mistaken for review evidence: the Stop hook reads
 # only gate-status.json's `passed` + `timestamp` and ignores `mode`, so a fast
@@ -190,7 +190,6 @@ command -v row_slug >/dev/null 2>&1 && [ -n "${GATE_ROW_HASH_CMD:-}" ] \
   || gate_abort "row-identity" \
        "scripts/gate-rows.sh did not load (see above) — row names cannot be made collision-free."
 
-SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
 DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
 
 BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
@@ -375,8 +374,13 @@ while IFS= read -r SCRIPT; do
   launch "${SCRIPT#ci:}" pnpm "$SCRIPT"
 done < <(jq -r '.scripts | keys[] | select(startswith("ci:")) | select(startswith("ci:fallow") | not)' package.json)
 
+# The build runs for EVERY surface, not only ui/mixed. AGENTS.md requires it
+# before any behavior-affecting completion claim, and "backend" is not a
+# boundary the build respects: src/lib is shared with the Next.js app, and the
+# build catches server/client boundary breaks that typecheck does not. Only a
+# docs-only change skips it; fast mode narrows it below.
 BUILD_SKIPPED=false
-if { [ "$SURFACE" = "ui" ] || [ "$SURFACE" = "mixed" ]; } && [ "$DOCS_ONLY" = false ]; then
+if [ "$DOCS_ONLY" = false ]; then
   if [ "$FAST_MODE" = true ] && [ "$FAST_UI_CHANGED" = false ]; then
     BUILD_SKIPPED=true
   else
