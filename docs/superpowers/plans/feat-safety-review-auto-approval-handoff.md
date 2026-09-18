@@ -5,19 +5,23 @@ A resumed session bootstraps from this file. It never needs the prior transcript
 
 ## Where to pick up
 
-**Step 3, mid-gate. Plan revision 3 is written; round 3 is the LAST permitted
-review round.**
+**Step 4 — execute the tracers. The plan is APPROVED and the review wave is
+closed.** Phase is `plan_approved`. Start at T0.
 
-Round 1 (full) returned REVISE with 13 findings. Round 2 (verification) closed
-10, left 9, 10 and 13 open, and found three defects revision 2 itself had
-introduced. Revision 3 applies all six. `planReviewRounds=2`.
+Three rounds ran against one resumed Codex session, and every finding is closed.
+`planReviewRounds=3` — the cap is spent. **Do not open a round 4.** If new doubt
+arises about the plan, it goes to the owner, not to another round.
 
-Round 3 is verification-only and is the cap — 1 full + 2 verification. **RISK is
-`high`, so feature.md's round-3 rule ESCALATES to the owner rather than
-decide-and-record.** If round 3 returns REVISE, do not open a round 4: bring its
-findings to the owner with a recommendation.
+| Round | Kind | Result |
+|---|---|---|
+| 1 | full plan-skeptic | REVISE — 6 P1, 7 P2 |
+| 2 | verification-only | REVISE — 10 closed; 9, 10, 13 open; 3 new (A, B, C) |
+| 3 | verification-only (cap) | REVISE — all 6 closed; 1 new, a one-line arity slip, fixed as revision 3a |
 
-No implementation has started. No tracer has moved. Phase is `worktree_ready`.
+`contract-changed` answers **UNCHANGED** after 3a, so nothing further is owed.
+The plan's § "Review appendix" carries that self-verification.
+
+No implementation has started. No tracer has moved.
 
 ## This run is NOT parked
 
@@ -32,11 +36,12 @@ future session parks it again, park it the same way (`mv .feature/intake.json
 |---|---|
 | Locked intake (corrected — D1, D4, D5, D8; amended — D6, D7, D9) | `docs/superpowers/plans/feat-safety-review-auto-approval-intake.json` |
 | Arming copy (byte-identical, verified) | `.feature/intake.json` |
-| The plan, **revision 3** | `docs/superpowers/plans/feat-safety-review-auto-approval-plan.md` |
+| The plan, **revision 3a** | `docs/superpowers/plans/feat-safety-review-auto-approval-plan.md` |
 | Round-1 findings, 13 of them | `.feature/plan-round1-findings.md` |
 | Round-2 findings — 10 closed, 3 open, 3 new | `.feature/plan-round2-findings.md` |
-| Raw transcripts | `.feature/logs/plan-round1.jsonl`, `.feature/logs/plan-round2.jsonl` |
-| The briefs each round was given | `.feature/plan-round1-brief.md`, `.feature/plan-round2-brief.md` |
+| Round-3 findings — all 6 closed, 1 arity slip | `.feature/plan-round3-findings.md` |
+| Raw transcripts | `.feature/logs/plan-round{1,2,3}.jsonl` |
+| The briefs each round was given | `.feature/plan-round{1,2,3}-brief.md` |
 | Deviations, D1–D9 | `docs/superpowers/plans/feat-safety-review-auto-approval-deviations.md` |
 | Why the feature exists | `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md` |
 | Glossary owner for the new term | `docs/context/core-reviews-responses.md` |
@@ -65,6 +70,12 @@ rebuild it.
 > `.feature/sessions` holds `c5bedad5-…`, which is a third id and is not the
 > Codex thread either.
 
+## Execution order
+
+T0 first — it fixes `promised-tests` before anything measures anything. Then T1
+(blocks everything). T2 and T4 are independent of each other and may run in
+parallel. T3 needs T2. T5 needs T4. T6 needs T3 and T5. T7 needs T6.
+
 ## What revisions 2 and 3 changed
 
 The plan's two sections — § "What round 1 changed" and § "What round 2 changed" —
@@ -89,9 +100,8 @@ Do not restate them here. What is worth knowing before reading the plan:
 
 ## State of the run
 
-- Phase `worktree_ready`. `planReviewRounds=2`. Round 3 is the LAST one; on a
-  REVISE, escalate rather than iterate (RISK = high).
-- `PREVALIDATE: PASS` on revision 3 — 32 citations, 9 fixtures, 0 stale.
+- Phase `plan_approved`. `planReviewRounds=3` — spent. `surfaceAmendments=3`.
+- `PREVALIDATE: PASS` on revision 3a — 32 citations, 9 fixtures, 0 stale.
 - All 47 locked titles appear verbatim in the plan. Re-check parity whenever the
   plan or the intake is edited — the two drift silently otherwise.
 - Enforcement ARMED. No surface overlap with other worktrees.
