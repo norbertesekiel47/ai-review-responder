@@ -1,9 +1,12 @@
 # Progress and live view
 
-Two surfaces report a run. Both read the same durable state, so neither can
-drift from the other or from the worktree.
+Three surfaces report a run. All read the same durable state, so none can
+drift from another or from the worktree. There is ONE progress ledger; a new
+surface is a new reader of it, never a second file.
 
 - **Terminal block** — a rendered step ladder printed at every phase boundary.
+- **Status line** — one line, always visible between boundaries:
+  `/feature 54% ▸ 4 execute 1/3`.
 - **Live view** — a local page showing that ladder plus the Claude/Codex
   review exchange as it arrives.
 
@@ -50,6 +53,34 @@ node .agents/skills/feature/scripts/progress.mjs cost
 Every write command prints the block, so a phase boundary is one command, not
 two. Use `render` when nothing changed — on resume, or when the user asks
 where the run stands.
+
+### Status line
+
+`progress.mjs statusline [<repo-root>]` prints the current step on one line,
+for a status bar that refreshes constantly and from any directory:
+
+```text
+/feature 54% ▸ 4 execute 1/3      the active step; execute shows its tracer ratio
+/feature 69% ▸ 5 gate (running)   while .feature/gate-heartbeat.json exists
+/feature 63% ✗ 5 gate blocked     a blocked step outranks an active one
+/feature 100% ✓ done
+```
+
+It prints NOTHING and exits 0 when no ladder exists, outside a repository, or
+over a half-written `progress.json` — an error here would replace the whole
+bar on every refresh; `render` reports the same state loudly. It skips the
+fingerprint check (which spawns a process), so the gate's freshness is the
+block's job, not the bar's. About 35 ms.
+
+Wiring is per machine, not per repository. In Claude Code, the `statusLine`
+command in `~/.claude/settings.json` calls it when
+`<root>/.feature/progress.json` exists, passing the root so it need not `cd`:
+
+```bash
+node "$ROOT/.agents/skills/feature/scripts/progress.mjs" statusline "$ROOT" 2>/dev/null
+```
+
+Lightweight Codex runs create no ladder, so they show nothing here by design.
 
 ### Phase cost
 
