@@ -3,6 +3,23 @@
 Written at the step 3 boundary, plan round 1 returned **VERDICT: REVISE**.
 A resumed session bootstraps from this file. It never needs the prior transcript.
 
+## FIRST ACTION ON RESUME — un-park the run
+
+This run is **parked**. The arming copy was deliberately renamed at the step 3
+boundary so the Stop hook would let the session end without gate evidence, which
+is correct: no code exists yet, so the gate is RED by construction.
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-safety-review-auto-approval
+mv .feature/intake.parked.json .feature/intake.json
+bash scripts/arm-check.sh   # must print ARMED
+```
+
+Nothing else is disarmed. The committed audit copy at
+`docs/superpowers/plans/feat-safety-review-auto-approval-intake.json` is the
+authority, and the parked copy is byte-identical to it — verify with `diff` if
+in doubt.
+
 ## Where to pick up
 
 **Step 3, mid-gate.** The plan exists and pre-validated clean, but round 1
