@@ -54,6 +54,66 @@ describe('feature lane selection', () => {
   });
 });
 
+// The status bar refreshes constantly and from any directory, so the one-line
+// form has two jobs: agree with the block (same snapshot), and never break the
+// bar. It owns no state — the project rule is one progress ledger.
+describe('progress statusline', () => {
+  const init = () => feature('progress', 'init', '--size', 'standard', '--risk', 'high', '--surface', 'backend');
+
+  it('prints nothing when no run exists', () => {
+    const result = feature('progress', 'statusline');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+    expect(existsSync(join(root, '.feature'))).toBe(false);
+  });
+
+  it('prints nothing and exits 0 outside a repository or over a corrupt ladder', () => {
+    const outside = spawnSync('node', [join(root, '.agents/skills/feature/scripts/progress.mjs'), 'statusline'], { cwd: tmpdir(), env, encoding: 'utf8' });
+    expect([outside.status, outside.stdout]).toEqual([0, '']);
+
+    mkdirSync(join(root, '.feature'));
+    writeFileSync(join(root, '.feature/progress.json'), '{ half-written');
+    const corrupt = feature('progress', 'statusline');
+    expect([corrupt.status, corrupt.stdout]).toEqual([0, '']);
+  });
+
+  it('shows the active step and the tracer ratio, and agrees with the block', () => {
+    expect(init().status).toBe(0);
+    for (const step of ['intake', 'armed', 'plan']) expect(feature('progress', 'step', step, 'done').status).toBe(0);
+    feature('progress', 'tracers', 'set', 'T1 gate constant|T2 veto window|T3 judge precondition');
+    feature('progress', 'tracer', 'T1', 'done');
+    feature('progress', 'tracer', 'T2', 'active');
+
+    const line = feature('progress', 'statusline').stdout;
+    expect(line).toBe('/feature 54% ▸ 4 execute 1/3');
+    expect(feature('progress', 'render').stdout).toContain(' 54%');
+  });
+
+  it('accepts the repository root as an argument, so the bar need not cd', () => {
+    expect(init().status).toBe(0);
+    const result = spawnSync('node', [join(root, '.agents/skills/feature/scripts/progress.mjs'), 'statusline', root], { cwd: tmpdir(), env, encoding: 'utf8' });
+    expect(result.stdout).toMatch(/^\/feature \d+% ▸ 1 intake$/);
+  });
+
+  it('marks a gate as running only while its heartbeat exists', () => {
+    expect(init().status).toBe(0);
+    for (const step of ['intake', 'armed', 'plan', 'execute']) feature('progress', 'step', step, 'done');
+    expect(feature('progress', 'statusline').stdout).toMatch(/▸ 5 gate$/);
+    writeFileSync(join(root, '.feature/gate-heartbeat.json'), '{}');
+    expect(feature('progress', 'statusline').stdout).toMatch(/▸ 5 gate \(running\)$/);
+  });
+
+  it('puts a blocked step ahead of everything else, and reports done at the end', () => {
+    expect(init().status).toBe(0);
+    feature('progress', 'step', 'intake', 'blocked', '--note', 'owner sign-off');
+    expect(feature('progress', 'statusline').stdout).toMatch(/✗ 1 intake blocked$/);
+
+    for (const step of ['intake', 'armed', 'plan', 'execute', 'gate', 'review', 'ready']) feature('progress', 'step', step, 'done');
+    expect(feature('progress', 'statusline').stdout).toBe('/feature 100% ✓ done');
+  });
+});
+
 describe('native Codex workflow', () => {
   it('requires plan approval before a guarded small/high run can execute', () => {
     mkdirSync(join(root, '.feature'));

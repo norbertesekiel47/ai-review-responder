@@ -9,6 +9,7 @@
 //   progress.mjs tracer <id> <status> [--note "..."]
 //   progress.mjs render
 //   progress.mjs json
+//   progress.mjs statusline [<repo-root>]
 //
 // It stores ONLY the facts no other file owns. Phase, branch, SHAs and review
 // round counters stay in .feature/state.json and are read, never copied.
@@ -29,6 +30,7 @@ import {
   STEP_STATUSES,
   buildSnapshot,
   featureDir,
+  renderStatusLine,
   renderTerminal,
   repoRoot,
 } from './lib/feature-snapshot.mjs';
@@ -48,6 +50,7 @@ const USAGE = `usage:
   progress.mjs tracer <id> <${TRACER_STATUSES.join('|')}> [--note "..."]
   progress.mjs render
   progress.mjs json
+  progress.mjs statusline [<repo-root>]
   progress.mjs cost`;
 
 function fail(message) {
@@ -71,6 +74,24 @@ function parseFlags(argv) {
     }
   }
   return { flags, positional };
+}
+
+// `statusline` runs on every status-bar refresh, from any directory. It is
+// handled before the root is resolved for the write commands because it must
+// never fail the bar: no run, no repository and a half-written progress.json
+// all print nothing and exit 0. It skips the fingerprint check, which spawns a
+// process, and reads the gate heartbeat, which exists only while a gate is alive.
+if (process.argv[2] === 'statusline') {
+  try {
+    const statusRoot = process.argv[3] || repoRoot();
+    const gateRunning = existsSync(join(featureDir(statusRoot), 'gate-heartbeat.json'));
+    const snapshot = buildSnapshot(statusRoot, { skipFingerprint: true });
+    process.stdout.write(renderStatusLine(snapshot, { gateRunning }));
+  } catch {
+    // Deliberately quiet: an error printed here would replace the user's whole
+    // status bar on every refresh. `render` reports the same state loudly.
+  }
+  process.exit(0);
 }
 
 const root = repoRoot();
