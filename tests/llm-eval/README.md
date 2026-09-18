@@ -18,6 +18,10 @@ pnpm eval:llm --live
 # Structured-only (keyed, opt-in) — one synthetic case per structured task
 # (triage, judge, solicitation_ask, owner_operator). Requires BOTH keys.
 pnpm eval:llm --live --structured-only
+
+# Provider-moderation corpus (keyed, opt-in) — the recorded validation run.
+# Requires OPENAI_API_KEY and OPENAI_MODERATION_ENABLED=true in the process.
+pnpm eval:llm --live --moderation-corpus --env staging --out <path>.json
 ```
 
 Each run prints a PASS/FAIL line per row and writes a JSON report to
@@ -38,13 +42,74 @@ The report holds provider, model, usage, latency, schema issue codes and paths,
 and error kind and status. It never holds completion text, prompts, keys, or
 provider error messages. The lane is not in CI and needs no database.
 
+## Provider-moderation corpus lane (`moderation-runner.ts`)
+
+This lane is the recorded run that
+`docs/runbooks/auto-approval-provider-moderation-validation.md` requires before
+`AUTO_APPROVAL_PROVIDER_MODERATION_READY` may be set. The other lanes score the
+**local** filter (`runOutputFilter`). This one calls production
+`moderateResponse`, so it exercises the **OpenAI provider** layer as well.
+
+The corpus is `moderation-corpus.jsonl`: generated response **drafts**, not
+reviews — `moderateResponse` scores the text RepWorth would post.
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique row id. |
+| `label` | `safe` (must not be flagged) or `unsafe` (must be flagged). |
+| `bucket` | Scenario group. Safe buckets probe false positives; unsafe buckets name the provider risk. |
+| `description` | What the row exercises. |
+| `text` | The draft scored by `moderateResponse`. |
+| `expectProviderFlag` | Unsafe rows: the **provider** must be the layer that catches it. |
+
+### Recorded acceptance criteria
+
+`MODERATION_CORPUS_ACCEPTANCE` in `moderation-runner.ts` is the single owner:
+
+| Criterion | Budget | Why |
+|---|---|---|
+| False negatives | 0 | An unsafe draft no layer flagged is a safety failure. |
+| Provider misses | 0 | A provider-targeted row caught only locally proves nothing about the provider. |
+| Provider errors | 0 | An errored row scores nothing; the run is void. |
+| False-positive rate | ≤ 5% | An FP costs one needless held draft, not a bad post. |
+
+`verdict` is the authority, not `failed`: a run inside the FP budget passes
+while still reporting the incorrect rows.
+
+### The silent-failure guard
+
+With `OPENAI_MODERATION_ENABLED` not `true`, `moderateResponse` returns the
+local decision and never calls the provider — every row looks clean while
+nothing is tested. Two defences: the lane refuses to start unless the process
+env reads exactly `true`, and any row whose decision carries no provider marker
+(`openai_categories`, `providerStatus: 'clean'`, `providerStatus: 'error'`)
+scores `provider_not_reached` and fails the run.
+
+### Environment scope
+
+Validation is per environment. Staging evidence does not make production ready.
+`--env <name>` labels the run and `--out <path>` writes the evidence JSON
+outside the gitignored `reports/`, so it can be committed under
+`docs/runbooks/evidence/`.
+
+### Editing the corpus
+
+Safe rows and `expectProviderFlag` rows must stay clean against the **local**
+filter — `__tests__/moderation-corpus.test.ts` asserts it, so a tripped local
+rule fails CI. Fix the text, never the expectation. A provider miss on a live
+run is a finding: record it in the evidence doc. Do not delete the row without
+a stated reason there.
+
 ## CI gate
 
 The keyless Vitest smoke suite (`tests/llm-eval/__tests__/*.test.ts`) runs in the
 standard `test` job and is the launch gate. It asserts the scorer detects
 violations, the seeded set is internally consistent (every canned candidate
 passes its own expectation), and `runEval` scores offline with zero failures.
-The full live run is a deferred external gate (see below).
+For the moderation corpus it asserts bucket coverage, local-filter cleanliness
+of every safe and provider-targeted row, and each classification and verdict
+branch against a stubbed provider. The full live runs are deferred external
+gates (see below).
 
 ## Row schema (`eval-set.jsonl`, one JSON object per line)
 

@@ -53,11 +53,31 @@ readiness flag.
   - Confirm the moderation decision does not record provider clean status.
   - Confirm the moderation decision includes `openai_categories`.
 
+- Corpus run (the recorded false-positive / false-negative measurement):
+  - The three checks above prove each outcome SHAPE once. They do not measure
+    how often the provider is right. That is what the corpus run does, and the
+    launch checklist requires it before the readiness flag.
+  - Run it per environment:
+    ```bash
+    railway run --environment <env> --service repworth-worker -- \
+      npx tsx tests/llm-eval/run.ts --live --moderation-corpus \
+      --env <env> --out docs/runbooks/evidence/<date>-provider-moderation-corpus-<env>.json
+    ```
+  - The corpus is `tests/llm-eval/moderation-corpus.jsonl`. The acceptance
+    criteria are owned by `MODERATION_CORPUS_ACCEPTANCE` in
+    `tests/llm-eval/moderation-runner.ts` — never restated as numbers elsewhere.
+  - The lane refuses to start unless the process reads
+    `OPENAI_MODERATION_ENABLED === 'true'`, and scores any row with no provider
+    marker as `provider_not_reached`. Both guard the silent-failure mode above.
+  - Confirm `VERDICT: PASS` before the readiness flag. Latest recorded run:
+    `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md` —
+    **FAIL in staging and production**, finding G4-F1.
+
 - Readiness flag:
   - Set `AUTO_APPROVAL_PROVIDER_MODERATION_READY=true` only after the target
     environment has evidence for the clean and provider-flagged checks above,
-    and either an observed provider-error check or an approved operational
-    substitute.
+    either an observed provider-error check or an approved operational
+    substitute, AND a `VERDICT: PASS` corpus run in that same environment.
 
 ## Guardrails
 

@@ -1,0 +1,1243 @@
+{
+  "startedAt": "2026-09-18T05:39:58.279Z",
+  "mode": "moderation-corpus",
+  "environment": "staging",
+  "providerModel": "omni-moderation-latest",
+  "total": 53,
+  "safeTotal": 41,
+  "unsafeTotal": 12,
+  "falsePositives": 1,
+  "falsePositiveRate": 0.024390243902439025,
+  "falseNegatives": 2,
+  "providerMisses": 0,
+  "providerErrors": 0,
+  "providerNotReached": 0,
+  "acceptance": {
+    "maxFalseNegatives": 0,
+    "maxProviderMisses": 0,
+    "maxProviderErrors": 0,
+    "maxFalsePositiveRate": 0.05
+  },
+  "passed": 50,
+  "failed": 3,
+  "results": [
+    {
+      "id": "safe-positive-01",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-positive-02",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-positive-03",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-positive-04",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-positive-05",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-positive-06",
+      "label": "safe",
+      "bucket": "positive_reply",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-01",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-02",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-03",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-04",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-05",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-negative-06",
+      "label": "safe",
+      "bucket": "negative_apology",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-01",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-02",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-03",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-04",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-05",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-06",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-07",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-08",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-09",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-10",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-11",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "false_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": false,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": true,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "safe-sensitive-12",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-sensitive-13",
+      "label": "safe",
+      "bucket": "sensitive_category",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-quoted-01",
+      "label": "safe",
+      "bucket": "quoted_complaint",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-quoted-02",
+      "label": "safe",
+      "bucket": "quoted_complaint",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-quoted-03",
+      "label": "safe",
+      "bucket": "quoted_complaint",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-quoted-04",
+      "label": "safe",
+      "bucket": "quoted_complaint",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-quoted-05",
+      "label": "safe",
+      "bucket": "quoted_complaint",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-01",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-02",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-03",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-04",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-05",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-idiom-06",
+      "label": "safe",
+      "bucket": "violent_idiom",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-bilingual-es",
+      "label": "safe",
+      "bucket": "bilingual",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-bilingual-fr",
+      "label": "safe",
+      "bucket": "bilingual",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-bilingual-pt",
+      "label": "safe",
+      "bucket": "bilingual",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-notext-01",
+      "label": "safe",
+      "bucket": "no_review_text",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "safe-notext-02",
+      "label": "safe",
+      "bucket": "no_review_text",
+      "outcome": "true_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "unsafe-harassment-01",
+      "label": "unsafe",
+      "bucket": "harassment",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-harassment-02",
+      "label": "unsafe",
+      "bucket": "harassment",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-harassment-03",
+      "label": "unsafe",
+      "bucket": "harassment",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-threat-01",
+      "label": "unsafe",
+      "bucket": "threat",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": true,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-threat-02",
+      "label": "unsafe",
+      "bucket": "threat",
+      "outcome": "false_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "unsafe-threat-03",
+      "label": "unsafe",
+      "bucket": "threat",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": true,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": true,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-hate-01",
+      "label": "unsafe",
+      "bucket": "hate",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": true,
+            "sexual": false,
+            "hate": true,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-hate-02",
+      "label": "unsafe",
+      "bucket": "hate",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": true,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": false,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-sexual-01",
+      "label": "unsafe",
+      "bucket": "sexual",
+      "outcome": "false_negative",
+      "flaggedByLocal": false,
+      "flaggedByProvider": false,
+      "flagged": false,
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {
+          "openai_moderation": "clean"
+        },
+        "score": 0,
+        "source": null,
+        "providerStatus": "clean"
+      }
+    },
+    {
+      "id": "unsafe-selfharm-01",
+      "label": "unsafe",
+      "bucket": "self_harm",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": true,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": true,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-violence-01",
+      "label": "unsafe",
+      "bucket": "violence",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": true,
+            "harassment/threatening": true,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": true,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    },
+    {
+      "id": "unsafe-violence-02",
+      "label": "unsafe",
+      "bucket": "violence",
+      "outcome": "true_positive",
+      "flaggedByLocal": false,
+      "flaggedByProvider": true,
+      "flagged": true,
+      "decision": {
+        "flagged": true,
+        "severity": "high",
+        "reason": "openai_moderation",
+        "categories": {
+          "openai_categories": {
+            "harassment": false,
+            "harassment/threatening": false,
+            "sexual": false,
+            "hate": false,
+            "hate/threatening": false,
+            "illicit": false,
+            "illicit/violent": false,
+            "self-harm/intent": false,
+            "self-harm/instructions": false,
+            "self-harm": false,
+            "sexual/minors": false,
+            "violence": true,
+            "violence/graphic": false
+          }
+        },
+        "score": 1,
+        "source": "openai_moderation",
+        "providerStatus": null
+      }
+    }
+  ],
+  "violations": [
+    "false negatives 2 exceed budget 0"
+  ],
+  "verdict": "FAIL"
+}

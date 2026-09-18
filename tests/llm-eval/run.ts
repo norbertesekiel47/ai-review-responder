@@ -107,14 +107,17 @@ function printLaneResults(lane: string, results: PrintableEvalResult[]): void {
   }
 }
 
-export type RunMode = 'offline' | 'live' | 'structured';
+export type RunMode = 'offline' | 'live' | 'structured' | 'moderation-corpus';
 
 /**
- * `--structured-only` is an opt-in KEYED lane, never a default: it requires
- * `--live` because it calls both real providers.
+ * `--structured-only` and `--moderation-corpus` are opt-in KEYED lanes, never a
+ * default: both require `--live` because both call a real provider.
  */
 export function parseRunMode(argv: readonly string[]): RunMode {
   const live = argv.includes('--live');
+  if (argv.includes('--structured-only') && argv.includes('--moderation-corpus')) {
+    throw new Error('--structured-only and --moderation-corpus are separate lanes; run one at a time');
+  }
   if (argv.includes('--structured-only')) {
     if (!live) {
       throw new Error(
@@ -124,19 +127,49 @@ export function parseRunMode(argv: readonly string[]): RunMode {
     }
     return 'structured';
   }
+  if (argv.includes('--moderation-corpus')) {
+    if (!live) {
+      throw new Error(
+        '--moderation-corpus requires --live: it calls the real OpenAI Moderation API ' +
+          '(OPENAI_API_KEY, OPENAI_MODERATION_ENABLED=true). ' +
+          'Run `pnpm eval:llm --live --moderation-corpus`.',
+      );
+    }
+    return 'moderation-corpus';
+  }
   return live ? 'live' : 'offline';
 }
 
-function writeReport(report: { startedAt: string; failed: number }): void {
-  mkdirSync(REPORTS_DIR, { recursive: true });
-  const reportPath = resolve(
-    REPORTS_DIR,
-    `${report.startedAt.replace(/[:.]/g, '-')}.json`,
-  );
+/** Read `--flag <value>`. Returns undefined when the flag is absent. */
+export function readFlagValue(argv: readonly string[], flag: string): string | undefined {
+  const index = argv.indexOf(flag);
+  if (index === -1) return undefined;
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+interface WriteReportOptions {
+  /** Write here instead of the gitignored reports directory. */
+  outPath?: string;
+  /** Overrides the default `failed > 0` exit signal. */
+  failed?: boolean;
+}
+
+function writeReport(
+  report: { startedAt: string; failed: number },
+  options: WriteReportOptions = {},
+): void {
+  const reportPath =
+    options.outPath ??
+    resolve(REPORTS_DIR, `${report.startedAt.replace(/[:.]/g, '-')}.json`);
+  mkdirSync(dirname(reportPath), { recursive: true });
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`report written: ${reportPath}`);
 
-  if (report.failed > 0) {
+  if (options.failed ?? report.failed > 0) {
     process.exitCode = 1;
   }
 }
@@ -181,10 +214,85 @@ async function runStructuredMain(): Promise<void> {
   writeReport(report);
 }
 
+/**
+ * The provider-moderation corpus lane. Calls the real OpenAI Moderation API
+ * through the production `moderateResponse`, so it is keyed and opt-in.
+ *
+ * Validation is environment-specific: staging evidence never makes production
+ * ready. `--env` labels the recorded run, and `--out` writes the evidence JSON
+ * outside the gitignored reports directory so it can be committed.
+ */
+async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
+  const environment = readFlagValue(argv, '--env');
+  if (!environment) {
+    throw new Error(
+      '--moderation-corpus requires --env <name> (for example: staging, production). ' +
+        'The evidence records which environment it proves.',
+    );
+  }
+  // Fail loudly rather than record a clean-looking run that tested nothing:
+  // with the flag off, moderateResponse returns the local decision and never
+  // calls the provider.
+  if (process.env.OPENAI_MODERATION_ENABLED !== 'true') {
+    throw new Error(
+      'OPENAI_MODERATION_ENABLED is not "true" in this process. ' +
+        'moderateResponse would skip the provider entirely and every row would look clean. ' +
+        'Set it in the target environment and re-run.',
+    );
+  }
+
+  // Keyed deps load only here, so the offline default stays import-light.
+  const [{ loadModerationCorpus }, { moderateResponse }, { runModerationCorpus }] =
+    await Promise.all([
+      import('./moderation-corpus-load'),
+      import('../../src/lib/moderation/moderate'),
+      import('./moderation-runner'),
+    ]);
+
+  const report = await runModerationCorpus(
+    loadModerationCorpus(),
+    moderateResponse,
+    environment,
+  );
+
+  for (const result of report.results) {
+    const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
+    const layers = [
+      result.flaggedByLocal ? 'local' : null,
+      result.flaggedByProvider ? 'provider' : null,
+    ]
+      .filter(Boolean)
+      .join('+');
+    console.log(
+      `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
+        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}`,
+    );
+  }
+
+  console.log(
+    `\n${report.passed}/${report.total} rows correct  ` +
+      `FP=${report.falsePositives}/${report.safeTotal} ` +
+      `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
+      `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
+      `providerErrors=${report.providerErrors}`,
+  );
+  for (const violation of report.violations) console.log(`VIOLATION  ${violation}`);
+  console.log(`VERDICT: ${report.verdict} (${report.environment})`);
+
+  writeReport(report, {
+    outPath: readFlagValue(argv, '--out'),
+    failed: report.verdict === 'FAIL',
+  });
+}
+
 async function main(): Promise<void> {
   const mode = parseRunMode(process.argv);
   if (mode === 'structured') {
     await runStructuredMain();
+    return;
+  }
+  if (mode === 'moderation-corpus') {
+    await runModerationCorpusMain(process.argv);
     return;
   }
   const live = mode === 'live';

@@ -348,11 +348,17 @@ Pre-invite actions from these decisions:
   preserve Vercel's Sensitive flag — production went from 9 `Secret` to 4, and
   the 4 survivors are exactly the 4 the vault does not manage. Original text: stand-up
   Phase G5.
-- [ ] Validate provider moderation on a representative corpus with recorded
-  false-positive/negative acceptance criteria
-  (`docs/runbooks/auto-approval-provider-moderation-validation.md` — the
-  provider check is **binary** `flagged`; there is no threshold knob), then
-  flip `OPENAI_MODERATION_ENABLED` in prod — stand-up Phase G4.
+- [x] Validate provider moderation on a representative corpus with recorded
+  false-positive/negative acceptance criteria — ✅ **RUN 2026-09-17, both
+  environments. VERDICT: FAIL.** `OPENAI_MODERATION_ENABLED` was already
+  flipped in prod on 2026-08-31, and the three outcome checks passed then. The
+  corpus run that was still open is now done: 53 drafts, staging and
+  production, identical results. FP 1/41 (2.4%, inside the 5% budget); **FN 2
+  against a budget of 0**. Evidence and both findings:
+  `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md`. Lane:
+  `pnpm eval:llm --live --moderation-corpus`. The provider check is **binary**
+  `flagged`; there is no threshold knob. The open consequence is the readiness
+  flag below, not this box — stand-up Phase G4.
 
 ---
 
@@ -362,13 +368,17 @@ Pre-invite actions from these decisions:
   activation funnel (Wave 2, mig 046/049) are no-ops until this is set.
 - [ ] **`IMPERSONATION_COOKIE_SECRET`** (≥32 chars) — required for the admin
   "view-as" support flow (Wave 2, mig 048).
-- [ ] **`OPENAI_MODERATION_ENABLED` + corpus validation** (Spec 10) — turns on
-  the second moderation layer. Local regex rules always run; this adds the
-  OpenAI Moderation pass. The provider decision is **binary** (`flagged` →
-  high severity; `src/lib/moderation/moderate.ts`) — there is no threshold
-  knob. Before relying on it, validate against a representative sample corpus
-  with recorded FP/FN acceptance criteria
-  (`docs/runbooks/auto-approval-provider-moderation-validation.md`).
+- [ ] **`AUTO_APPROVAL_PROVIDER_MODERATION_READY`** (Spec 10) — **BLOCKED on
+  finding G4-F1.** `OPENAI_MODERATION_ENABLED=true` is live in both
+  environments and the corpus run is recorded (2026-09-17). The run FAILED:
+  `omni-moderation-latest` returns clean on veiled threats and sexual
+  innuendo, and the local regex layer does not cover either class, so the
+  merged decision misses them. Provider moderation is a veto against
+  **explicit** unsafe text only. Do not set this flag — and do not flip
+  `AUTO_APPROVAL_ENABLED` — until that gap is closed or the residual risk is
+  accepted in writing. Evidence, both findings, and the compensating controls:
+  `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md`. Procedure:
+  `docs/runbooks/auto-approval-provider-moderation-validation.md`.
 - [ ] **Help Scout inboxes** (Spec 13) — set up `support@` / `billing@` /
   `security@` / `report@` before first paying customer. Finish the macro catalog
   (6 of 20 shipped).
