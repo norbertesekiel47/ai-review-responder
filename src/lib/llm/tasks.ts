@@ -3,6 +3,7 @@ import { TriageOutputSchema } from '@/lib/reviews/triage-schema';
 import { JudgeOutputSchema } from '@/lib/responses/judge-schema';
 import { SolicitationAskOutputSchema } from '@/lib/solicitation/ask-schema';
 import { OperatorModelOutputSchema } from '@/lib/agents/operator/schema';
+import { SafetyReviewOutputSchema } from '@/lib/moderation/safety-review-schema';
 
 // Pinned snapshots — never a bare alias like 'gpt-4o-mini' (silent-regression
 // risk). Guarded by model-pinning.test.ts. Single owner: consumers import
@@ -34,6 +35,23 @@ const LLM_TASKS: Record<LLMTaskId, LLMTaskDescriptor> = {
     maxTokens: 200,
     temperature: 0,
     outputSchema: TriageOutputSchema,
+  },
+  safety_review: {
+    taskId: 'safety_review',
+    primary: { provider: 'openai', model: OPENAI_MODEL },
+    // KEPT deliberately (deviation D5, owner decision 2026-09-18). A blocked
+    // primary proceeds to the fallback (`attemptProvider`) and a healthy one returns
+    // normally, so ONLY an all-attempts failure yields not-cleared. The locked
+    // intake said "open circuit -> no call attempted"; that was never true of
+    // this executor. Availability was chosen over the literal contract, and the
+    // price is paid by recording `provider` on every verdict and corpus row.
+    fallback: { provider: 'anthropic', model: ANTHROPIC_MODEL },
+    // 120 is enough for {cleared, concern}: a verdict, not prose.
+    maxTokens: 120,
+    // 0, like triage and judge. This decides whether a draft POSTS, so the
+    // same draft must not clear on one call and block on the next.
+    temperature: 0,
+    outputSchema: SafetyReviewOutputSchema,
   },
   judge: {
     taskId: 'judge',

@@ -5,6 +5,9 @@ import { markOutboxCompleted, markOutboxCompletedWithReason, markOutboxFailed, e
 import { OUTBOX_COMPLETION_REASON } from '../../src/lib/shared/outbox-completion-reason';
 import { completeRun, findActiveReviewRun } from '../../src/lib/agents/run-spine';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
+import { reviewSafety } from '../../src/lib/moderation/safety-review';
+import { isAutoApprovalCandidate } from './response-generation/auto-approval';
+import { tierGrantsAutopilot } from '../../src/lib/accounts/tier-config';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import { normalizeGenerateResponsePayload } from '../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -104,6 +107,74 @@ export async function handleResponseGeneration(
   // ── Output moderation (local rules always; provider if configured) ───
   const moderation = await moderateResponse(draft.result.responseText);
 
+  // ── Safety review (auto-approval lane only) ──────────────────────────
+  // Closes G4-F1: the provider classifier returns "clean" on veiled threats
+  // and on innuendo, and the local filter covers business risks rather than
+  // interpersonal abuse. This is the layer that reads what a reply IMPLIES.
+  //
+  // Skipped — with NO LLM call — whenever the gate already blocks, which is
+  // every draft today (AUTO_APPROVAL_ENABLED is false everywhere). That skip is
+  // what keeps this feature's cost at zero until the flag flips.
+  //
+  // OUTSIDE sql.begin ON PURPOSE. An LLM call inside the transaction would hold
+  // the review, business and entitlement locks (`persistResponseAndNotify`'s
+  // `sql.begin`) across provider
+  // latency — seconds, on a pooled connection. Plan review upheld this
+  // placement in round 1 and added the test that pins the ordering.
+  //
+  // reviewSafety NEVER throws: every failure returns a not-cleared verdict, so
+  // a check failure cannot retry a draft that is already generated and paid for.
+  //
+  // The TIER is part of the skip, not only the lane. `AUTO_APPROVAL_ENABLED` is
+  // global, so at go-live every Copilot account's live-ingest draft would
+  // otherwise pay for this call and a 1¢ reservation, then be blocked by
+  // `autopilot_tier_required` regardless. `ctx.subscriptionTier` is a pre-LLM
+  // HINT — persist re-reads the authoritative tier in-transaction — and using a
+  // hint to SKIP is the safe direction: a stale Copilot hint on a real Autopilot
+  // account skips the check, which hands the gate `null` and blocks with
+  // `safety_review_unavailable`. It can cost a post; it can never buy one.
+  //
+  // The STAR RATING is the second half of that same argument. Security finding
+  // S3 and spec finding F1 both named two cheap pre-LLM discriminators; only
+  // the tier half shipped, and red-team RT-15 caught the omission.
+  // `evaluateAutoApprovalCandidate` blocks `<= 3` with
+  // `rating_below_positive_quadrant`, so only a positive rating can reach an
+  // approval — this predicate mirrors that floor. The gate's own
+  // `currentStarRating` is nullable and it blocks `null` with
+  // `current_rating_missing`; the pre-LLM hint is not, because
+  // `GenerationReviewRow.star_rating` is `number`, so there is no null branch
+  // to mirror here. Without it, a burst of one-star reviews at an Autopilot
+  // business each buys a paid call plus a 1¢ reservation against that business's
+  // daily budget, every verdict then discarded by a gate that was knowable
+  // before the call; `withConcurrency: false` removes the per-business slot, so
+  // the burst issues them unbounded-concurrently. `ctx.normalizedReview
+  // .starRating` is a pre-LLM HINT exactly as the tier is, and the skip
+  // direction is fail-safe for the same reason: a stale non-positive hint on a
+  // truly positive review skips the check, hands the gate `null`, and blocks
+  // with `safety_review_unavailable`.
+  const safetyVerdict =
+    isAutoApprovalCandidate({
+      originLane: payload.originLane,
+      version,
+      suppressNotification: payload.suppressNotification,
+    })
+    && tierGrantsAutopilot(ctx.subscriptionTier)
+    && ctx.normalizedReview.starRating >= 4
+    && !moderation.flagged
+      ? await reviewSafety(
+          sql,
+          {
+            draftText: draft.result.responseText,
+            businessId,
+            accountId: ctx.accountId,
+            subscriptionTier: ctx.subscriptionTier,
+            correlationId: payload.correlationId,
+          },
+          {},
+          logger,
+        )
+      : null;
+
   // ── Persist response + outbox + cost link + moderation hold in one tx ─
   // (invariant #4: a high-severity flag holds the draft + skips notification,
   // atomically with response persistence). DB failure throws → BullMQ retry.
@@ -118,6 +189,7 @@ export async function handleResponseGeneration(
     originLane: payload.originLane,
     loadedReviewContentHash: ctx.loadedReviewContentHash,
     moderation,
+    safetyVerdict,
     accountId: ctx.accountId,
     preLlmSubscriptionTier: ctx.subscriptionTier,
     logger,

@@ -249,6 +249,26 @@ if [ -z "${TEST_DATABASE_POOL_URL:-}" ] && [ -f .env.local ]; then
   [ -n "$ENV_URL" ] && export TEST_DATABASE_POOL_URL="$ENV_URL"
 fi
 
+# Point the APPLICATION client at the same test database, and FORCE it.
+#
+# ci.yml:48 sets DATABASE_POOL_URL and TEST_DATABASE_POOL_URL to the same
+# ephemeral Postgres, so a live-DB suite that reaches `src/lib/db/server.ts`'s
+# singleton — as the publisher entitlement-linearization suite does through
+# `applyTierChange` — finds a real database there. The local gate exported only
+# the TEST url, so the singleton fell back to postgres.js's own default
+# (localhost:5432) and the row failed ECONNREFUSED: a false RED indistinguishable
+# from a genuine failure, which is the same defect class as the promised-tests
+# search roots above.
+#
+# FORCED, not defaulted, and that is the load-bearing half. `.env.local`'s own
+# DATABASE_POOL_URL is the PRODUCTION pooler; a shell that had sourced it would
+# otherwise hand the gate's test suites a production client. The gate runs
+# tests, and no test may reach production, so overriding is strictly safer than
+# honouring an inherited value.
+if [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
+  export DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL"
+fi
+
 # Serial DB provisioning — a precondition, never a parallel peer. Fail fast:
 # every DB row downstream of a failed provision is noise.
 DB_PROVISION_RESULT=""
@@ -453,11 +473,17 @@ run_sync() {
 # processes don't have it, and a swallowed `command not found` reads as
 # "every title missing".
 #
-# Search `scripts` too, not just src/worker: the CI audits under scripts/ci/
-# carry their own suites (scripts/ci/__tests__/*.test.ts), and an intake may
-# legitimately promise titles there. Omitting it reported every such title as
-# missing while the tests existed and passed — a false RED that is
-# indistinguishable from a genuinely unwritten test (#611 feature, 2026-07-28).
+# Search `scripts` and `tests` too, not just src/worker. This is one defect that
+# has now been found twice, so treat it as a pattern rather than two accidents:
+# a promised title is reported missing whenever its suite lives under a root
+# this line does not name, and a false RED there is indistinguishable from a
+# genuinely unwritten test.
+#   - `scripts`: the CI audits under scripts/ci/ carry their own suites
+#     (scripts/ci/__tests__/*.test.ts). Added at #611 (2026-07-28).
+#   - `tests`: the LLM-eval suites live at tests/llm-eval/__tests__/. Added by
+#     feat/safety-review-auto-approval (plan round-1 finding 13), whose intake
+#     promises 13 corpus titles there.
+# Adding a root is cheap; the grep is fixed-string and bounded by --include.
 #
 # Matching is fixed-string against the file, so a promised title must appear
 # UNESCAPED in source: write a title containing an apostrophe with double
@@ -465,7 +491,7 @@ run_sync() {
 MISSING_TITLES=""
 while IFS= read -r TITLE; do
   [ -n "$TITLE" ] || continue
-  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts 2>/dev/null && continue
+  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts tests 2>/dev/null && continue
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)

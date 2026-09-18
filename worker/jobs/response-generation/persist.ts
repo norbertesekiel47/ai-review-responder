@@ -11,6 +11,7 @@ import { v7 as uuidv7 } from 'uuid';
 import * as Sentry from '@sentry/node';
 import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
+import type { SafetyVerdict } from '../../../src/lib/moderation/safety-review-schema';
 import type { GenerationResult } from '../../../src/lib/responses/types';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
@@ -74,6 +75,13 @@ export interface PersistResponseInput {
   originLane: GenerateResponseOriginLane | null;
   loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
+  /**
+   * The Safety review verdict (G4-F1), or null when the check did not run.
+   * Threaded exactly as `moderation` is: the worker computes it OUTSIDE this
+   * transaction and hands it in, because an LLM call inside `sql.begin` would
+   * hold the review, business and entitlement locks across provider latency.
+   */
+  safetyVerdict: SafetyVerdict | null;
   accountId: string;
   /** Diagnostic pre-LLM tier. Grant authority comes from runtimeState only. */
   preLlmSubscriptionTier: SubscriptionTierValue;
@@ -98,11 +106,49 @@ export function hasStaleReviewContent(
     && loadedReviewContentHash !== currentReviewContentHash;
 }
 
+
+/**
+ * Account for EVERY executed Safety review, including the ones no spine step
+ * can record (round-1 finding 11).
+ *
+ * The durable `safety_reviewed` step is promised only for a persisted draft
+ * with an active run. Two paid checks fall outside that: a review whose content
+ * changed under the job (the content-freshness gate returns with zero writes,
+ * ADR 0017) and a legacy review with no active run (`recordDraftSpineCheckpoints`
+ * skips).
+ * Without this line those evaluations disappear from the verdict ratio the
+ * intake's `observability` field promises to watch.
+ *
+ * Moving a spine write ahead of the freshness gate would "fix" the first case
+ * and break ADR 0017's zero-write contract. A log line is the correct cost.
+ *
+ * SANITIZED: verdict, provenance and disposition only. Never the draft text,
+ * never the concern text — ADR 0032 keeps the draft out of the check's input,
+ * and the same reasoning governs what is written down about it.
+ */
+function logSafetyEvaluation(
+  logger: Pick<WorkerLogger, 'log'>,
+  verdict: SafetyVerdict | null,
+  facts: { reviewId: string; businessId: string; version: number; disposition: string },
+): void {
+  if (!verdict) return;
+  logger.log('safety review evaluated', {
+    review_id: facts.reviewId,
+    business_id: facts.businessId,
+    version: facts.version,
+    safety_verdict_cleared: verdict.cleared,
+    safety_verdict_concern: verdict.concern,
+    safety_verdict_source: verdict.source,
+    safety_verdict_provider: verdict.provider,
+    disposition: facts.disposition,
+  });
+}
+
 export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<PersistResponseOutcome> {
   const {
     result, retryCostId, reviewId, businessId, version,
     correlationId, suppressNotification, originLane, loadedReviewContentHash,
-    moderation, accountId, preLlmSubscriptionTier, logger,
+    moderation, safetyVerdict, accountId, preLlmSubscriptionTier, logger,
   } = input;
 
   const responseId = uuidv7();
@@ -142,6 +188,12 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         business_id: businessId,
         version,
         origin_lane: originLane,
+      });
+      logSafetyEvaluation(logger, safetyVerdict, {
+        reviewId,
+        businessId,
+        version,
+        disposition: 'discarded_stale_review_content',
       });
       return { kind: 'skipped_stale_content' }; // tx commits with zero writes
     }
@@ -186,7 +238,14 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       responseId,
       version,
       moderation,
+      safetyVerdict,
       held,
+    });
+    logSafetyEvaluation(logger, safetyVerdict, {
+      reviewId,
+      businessId,
+      version,
+      disposition: activeRun ? 'recorded_on_spine' : 'no_active_run',
     });
 
     const { runtimeState, autoDecision } = await resolveAutoApprovalDecision(tx, {
@@ -200,6 +259,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       suppressNotification,
       loadedReviewContentHash,
       moderation,
+      safetyVerdict,
       held,
       preLlmSubscriptionTier,
       logger,
@@ -291,6 +351,7 @@ async function resolveAutoApprovalDecision(
     suppressNotification: boolean;
     loadedReviewContentHash: string | null;
     moderation: ModerationDecision;
+    safetyVerdict: SafetyVerdict | null;
     held: boolean;
     preLlmSubscriptionTier: SubscriptionTierValue;
     logger: Pick<WorkerLogger, 'log'>;
@@ -299,7 +360,7 @@ async function resolveAutoApprovalDecision(
   const {
     isAutoApprovalCandidate, reviewId, businessId, accountId, responseId,
     version, originLane, suppressNotification, loadedReviewContentHash,
-    moderation, held, preLlmSubscriptionTier, logger,
+    moderation, safetyVerdict, held, preLlmSubscriptionTier, logger,
   } = args;
 
   if (!isAutoApprovalCandidate) {
@@ -332,6 +393,7 @@ async function resolveAutoApprovalDecision(
     currentStarRating: runtimeState.currentStarRating,
     effectivePolicy: runtimeState.effectivePolicy,
     moderation,
+    safetyVerdict,
     held,
     subscriptionStatus: runtimeState.subscriptionStatus,
     subscriptionTier: runtimeState.subscriptionTier,
@@ -454,10 +516,11 @@ async function recordDraftSpineCheckpoints(
     responseId: string;
     version: number;
     moderation: ModerationDecision;
+    safetyVerdict: SafetyVerdict | null;
     held: boolean;
   },
 ): Promise<{ id: string; account_id: string } | null> {
-  const { reviewId, businessId, responseId, version, moderation, held } = args;
+  const { reviewId, businessId, responseId, version, moderation, safetyVerdict, held } = args;
 
   const activeRun = await findActiveReviewRun(tx, reviewId);
   if (activeRun) {
@@ -472,6 +535,29 @@ async function recordDraftSpineCheckpoints(
       status: held ? 'failed' : 'completed',
       detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
     });
+    // The Safety review (G4-F1). Skipped when the check did not run — there is
+    // nothing to record, and a step for a check that never happened would be
+    // worse than its absence.
+    //
+    // `failed` on a not-cleared verdict, matching moderation_checked's use of
+    // the same status: the timeline reads it through `failedLabel: 'Held for
+    // you'`, because a check that held a draft did its job.
+    //
+    // NEVER the draft text — ADR 0032 excludes it from the check's INPUT, and
+    // the same reasoning governs what is written down about it.
+    if (safetyVerdict) {
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'safety_reviewed',
+        status: safetyVerdict.cleared ? 'completed' : 'failed',
+        detail: {
+          cleared: safetyVerdict.cleared,
+          concern: safetyVerdict.concern,
+          source: safetyVerdict.source,
+          provider: safetyVerdict.provider,
+        },
+      });
+    }
     await recordOutcome(tx, {
       runId: activeRun.id,
       accountId: activeRun.account_id,

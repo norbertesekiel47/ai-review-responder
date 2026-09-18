@@ -51,6 +51,19 @@ const STEP_COPY = {
     explain: 'The draft was checked for anything unsafe before it could go anywhere.',
     failedLabel: 'Did not pass',
   },
+  // Deliberately NOT "Safety check" — `moderation_checked` above owns that
+  // label, and two steps with one name on the same timeline is worse than a
+  // slightly longer word. "Safety review" is the glossary term for this pass
+  // (core-reviews-responses.md), so the page and the domain agree.
+  safety_reviewed: {
+    label: 'Safety review',
+    explain:
+      'The draft was checked once more for harm that is hinted at rather than said outright, before it could post on its own.',
+    // A not-cleared verdict sends the draft to you instead of posting it. That
+    // is the check working, so "Failed" would tell the owner the opposite of
+    // what happened.
+    failedLabel: 'Held for you',
+  },
   policy_gate: {
     label: 'Approval decision',
     explain: 'Whether the draft could post on its own under your Autopilot policy, or needed you.',

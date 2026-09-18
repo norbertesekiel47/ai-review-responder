@@ -40,6 +40,17 @@ const CALLER_ALLOWLIST = new Set([
   // schema-invalid completion (LLMStructuredOutputError) is handled INSIDE the
   // guarded closure so its billed attempts finalize instead of releasing.
   'src/lib/agents/operator/model-call.ts',
+  // Safety review tenant (G4-F1) — reviewSafety wraps the pinned task in
+  // withCostGuard with withConcurrency:false and a 1¢ task-scoped estimate;
+  // the reserve precedes the call. Two departures from the neighbours above,
+  // both deliberate and both fail-CLOSED: finalization THROWS rather than
+  // log-and-return-value (a finalize outage must not hand back a clearance),
+  // and the api_costs write sits where the module's own catch can see it
+  // rather than behind a swallowing helper. LLMStructuredOutputError is
+  // handled INSIDE the guarded closure so its billed attempts finalize
+  // instead of releasing. The literal runLlmTask( call this scanner looks for
+  // lives in `defaultRunTask`; the injected seam is narrower on purpose.
+  'src/lib/moderation/safety-review.ts',
   // Optional WS6 live judge eval — deliberately bypasses tenant accounting in
   // the key-gated external harness; tests/llm-eval/live-runner.ts marks the
   // call site as the sanctioned demo/eval exception from llm/types.ts.
@@ -47,6 +58,15 @@ const CALLER_ALLOWLIST = new Set([
   // Run C keyed structured eval — synthetic, explicitly opt-in, no tenant DB
   // or tenant spend ledger; the same sanctioned eval exception as above.
   'tests/llm-eval/structured-runner.ts',
+  // Safety-review corpus lane (G4-F1) — `makeCorpusSafetyReview` calls the
+  // pinned task directly, with NO cost guard and no api_costs row, the same
+  // sanctioned eval exception as the two above: the rows are synthetic text
+  // with no tenant behind them, so reserving against a real business's daily
+  // budget would be wrong. It reuses the PRODUCTION prompt, task descriptor
+  // and schema (refine included), so the cost path is the only difference and
+  // the cost path cannot change a verdict. Tenant spend goes through
+  // src/lib/moderation/safety-review.ts, which is guarded and listed above.
+  'tests/llm-eval/moderation-runner.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker', 'tests/llm-eval'];

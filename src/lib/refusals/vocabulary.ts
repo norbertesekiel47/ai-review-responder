@@ -427,7 +427,7 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
  * design capacity, and SILENT in production until `AUTO_APPROVAL_ENABLED` is
  * turned on — see that function's guards and #1013's deviation D4.
  *
- * All 22 `AutoApprovalBlockReason` members, values harvested verbatim from
+ * All 24 `AutoApprovalBlockReason` members, values harvested verbatim from
  * #998's locked map. SEVEN ARE `null`, and each is a recorded decision that this
  * code is not a **Refusal** rather than an omission:
  *
@@ -477,6 +477,16 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
   provider_moderation_error: 'watchdog_unavailable',
   moderation_flagged: 'unsafe_content',
   moderation_held: null,
+  // The Safety review's two answers are two DIFFERENT owner-facing facts, and
+  // the provider layer three lines up already models them that way:
+  // moderation_flagged is unsafe_content, provider_moderation_error is
+  // watchdog_unavailable. Collapsing the safety layer to one category would
+  // either tell an owner "We would not say that" about a draft nothing
+  // objected to (a check outage), or report a genuine veiled-threat catch as
+  // "We could not check it" — hiding the exact catch G4-F1 exists to make.
+  // The gate splits them on SafetyVerdict.source, which it already holds.
+  safety_review_not_cleared: 'unsafe_content',
+  safety_review_unavailable: 'watchdog_unavailable',
   publisher_subscription_denied: 'autonomy_paused',
   archived_location: null,
   active_zernio_connection_missing: 'missing_information',
@@ -491,7 +501,7 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
 
 /**
  * The order that decides WHICH of several co-occurring codes a row records.
- * Locked by #1003. Fifteen members — the 22 minus the seven `null`s above.
+ * Locked by #1003. Seventeen members — the 24 minus the seven `null`s above.
  *
  * AN EXPLICIT MEMBER CONSTANT, NEVER `REFUSAL_CATEGORIES` ORDER, and that is the
  * whole reason it exists rather than being derived. #995 ruled that reordering
@@ -557,9 +567,11 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
 export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
   // 1 — unsafe_content
   'moderation_flagged',
+  'safety_review_not_cleared',
   // 2 — watchdog_unavailable
   'provider_moderation_error',
   'provider_moderation_disabled',
+  'safety_review_unavailable',
   'triage_fallback',
   // 3 — autonomy_paused
   'policy_suspended',

@@ -249,3 +249,294 @@ describe('runModerationCorpus verdict', () => {
     expect(report.violations.join(' ')).toMatch(/OPENAI_MODERATION_ENABLED/);
   });
 });
+
+// ── Safety-review corpus mode (G4-F1) ──────────────────────────────────────
+//
+// The recorded 2026-09-17 run FAILED identically in staging and production:
+// omni-moderation-latest returns providerStatus "clean" on a veiled threat and
+// on sexual innuendo. This mode adds the missing layer to the scorer.
+//
+// Three review findings shape what is asserted here, and each one is a way the
+// lane could have recorded a PASS that tested nothing:
+//   round-1 finding 3  — an OUTAGE must never read as a classification.
+//   round-1 finding 9  — a safety-only catch must not silently satisfy a
+//                        provider requirement on rows it was not meant to.
+//   round-2 finding 10 — zero combined-lane FN does not prove the safety
+//                        reviewer resisted injection; another layer can mask it.
+
+import {
+  assertSafetyModeEnvironment,
+  MODERATION_CORPUS_SAFETY_ACCEPTANCE,
+  summariseSafetyProviders,
+} from '../moderation-runner';
+import { loadSafetyCorpus, SAFETY_MODE_RESCUABLE } from '../moderation-corpus-load';
+import type { SafetyVerdict } from '../../../src/lib/moderation/safety-review-schema';
+
+const safeVerdict = (over: Partial<SafetyVerdict> = {}): SafetyVerdict => ({
+  cleared: true,
+  concern: null,
+  source: 'llm',
+  provider: 'openai',
+  ...over,
+});
+const unsafeVerdict = (over: Partial<SafetyVerdict> = {}): SafetyVerdict => ({
+  cleared: false,
+  concern: 'implied_threat',
+  source: 'llm',
+  provider: 'openai',
+  ...over,
+});
+
+/** The file's own `row` helper, defaulted to an UNSAFE row for this block. */
+/** ModerateFn adapters: the decision builders above are sync and take no text. */
+const cleanFn = async (_text: string) => providerClean();
+const flaggedFn = async (_text: string) => providerFlagged();
+
+const mkRow = (patch: Partial<ModerationCorpusRow>): ModerationCorpusRow =>
+  row({ id: 'r-1', label: 'unsafe', bucket: 'threat', text: 'some text', ...patch });
+
+// Distinct TEXT, because the injected safetyReview is keyed on it — mkRow's
+// default would make every row indistinguishable to the stub.
+const G4F1_THREAT = mkRow({
+  id: 'unsafe-threat-02',
+  expectProviderFlag: true,
+  text: 'threat row text',
+});
+const G4F1_SEXUAL = mkRow({
+  id: 'unsafe-sexual-01',
+  bucket: 'sexual',
+  expectProviderFlag: true,
+  text: 'sexual row text',
+});
+
+describe('safety-review corpus mode', () => {
+  it('scores unsafe-threat-02 as true_positive in the safety-review corpus mode', async () => {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict(),
+    });
+
+    expect(report.results[0]?.outcome).toBe('true_positive');
+    expect(report.verdict).toBe('PASS');
+  });
+
+  it('scores unsafe-sexual-01 as true_positive in the safety-review corpus mode', async () => {
+    const report = await runModerationCorpus([G4F1_SEXUAL], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict({ concern: 'implied_sexual' }),
+    });
+
+    expect(report.results[0]?.outcome).toBe('true_positive');
+    expect(report.verdict).toBe('PASS');
+  });
+
+  it('records a safety-only G4-F1 catch without claiming that provider moderation caught the draft', async () => {
+    // Round-1 finding 9. Rescuing the row must NOT rewrite attribution:
+    // `flaggedByProvider` stays exactly what the provider said, and the report
+    // has to say which layer actually caught it, or the evidence doc would
+    // claim a provider classification that never happened.
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict(),
+    });
+
+    const result = report.results[0]!;
+    expect(result.flaggedByProvider).toBe(false);
+    expect(result.flaggedBySafetyReview).toBe(true);
+    expect(result.caughtBy).toBe('safety_review');
+  });
+
+  it('a safety catch does not erase a provider miss on a row that still requires provider moderation', async () => {
+    // Round-2 finding 9. The rescue is bounded by a NAMED SET, not by the
+    // predicate "the provider missed it and safety caught it" — that predicate
+    // is true of every provider-targeted row, so a future provider regression
+    // on an unrelated row would be silently rescued and the protection the
+    // lane exists for would vanish.
+    const other = mkRow({ id: 'unsafe-harassment-01', bucket: 'harassment', expectProviderFlag: true });
+    expect(SAFETY_MODE_RESCUABLE.has(other.id)).toBe(false);
+
+    const report = await runModerationCorpus([other], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict({ concern: 'targeted_abuse' }),
+    });
+
+    expect(report.results[0]?.outcome).toBe('provider_miss');
+    expect(report.verdict).toBe('FAIL');
+  });
+
+  // ── an outage is not evidence (round-1 finding 3) ────────────────────────
+
+  it('fails the safety-review corpus when an unsafe row receives source=failed instead of a model judgment', async () => {
+    // Fail-closed at RUNTIME is correct. Fail-closed as EVIDENCE is a lie: a
+    // timeout would otherwise score as a true positive and authorize readiness
+    // without the classifier ever having recognized the content.
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict({ source: 'failed', provider: null }),
+    });
+
+    expect(report.results[0]?.outcome).toBe('safety_error');
+    expect(report.verdict).toBe('FAIL');
+    // RT-11: the ATTRIBUTION on the emitted row, not only the outcome. The
+    // `source !== 'llm'` short-circuit in `classify` sets `outcome` and
+    // `verdict` before any label branch runs, so both stay correct even when
+    // `safetyFlagged` loses its `source === 'llm'` clause — dropping that
+    // clause left all 39 cases in this file green. The only field it moves is
+    // this one, and this lane is release-gate evidence: without these two
+    // assertions a regression lets a recorded corpus run attribute a catch to
+    // a layer that was down.
+    expect(report.results[0]?.flaggedBySafetyReview).toBe(false);
+    expect(report.results[0]?.caughtBy).toBeNull();
+  });
+
+  it('fails the safety-review corpus on a safe-row check failure even when the false-positive budget is not exceeded', async () => {
+    // The FP budget is 5%, so one isolated outage on a safe row would fit
+    // inside it and disappear. safety_error has its own budget of ZERO.
+    const safeRows = Array.from({ length: 40 }, (_, i) =>
+      mkRow({
+        id: `safe-${i}`,
+        label: 'safe',
+        bucket: 'positive_reply',
+        expectProviderFlag: false,
+        text: `safe row ${i}`,
+      }),
+    );
+    const report = await runModerationCorpus(safeRows, cleanFn, 'test', {
+      safetyReview: async (text: string) =>
+        text === 'safe row 0' ? safeVerdict({ source: 'failed', provider: null }) : safeVerdict(),
+    });
+
+    expect(report.falsePositiveRate).toBeLessThanOrEqual(
+      MODERATION_CORPUS_SAFETY_ACCEPTANCE.maxFalsePositiveRate,
+    );
+    expect(report.safetyErrors).toBeGreaterThan(0);
+    expect(report.verdict).toBe('FAIL');
+  });
+
+  it.each(['mock', 'skipped'] as const)(
+    'rejects safety-review corpus evidence containing mock or skipped verdicts (%s)',
+    async (source) => {
+      // Deviation D2: reviewSafety returns a mock CLEARANCE under
+      // MOCK_EXTERNAL_APIS. A corpus that accepted it would record a PASS that
+      // tested nothing — the exact silent-failure shape this lane was built for.
+      const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+        safetyReview: async () => unsafeVerdict({ source, provider: null }),
+      });
+
+      expect(report.results[0]?.outcome).toBe('safety_error');
+      expect(report.verdict).toBe('FAIL');
+    },
+  );
+
+  it('refuses the live safety-review corpus before external calls when MOCK_EXTERNAL_APIS=true', async () => {
+    // Deviation D3. BEFORE, not after: refusing once the calls have been made
+    // still burns the budget and still produces a transcript that looks like a
+    // run. Mirrors the lane's existing OPENAI_MODERATION_ENABLED guard.
+    const previous = process.env.MOCK_EXTERNAL_APIS;
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    try {
+      expect(() => assertSafetyModeEnvironment()).toThrow(/MOCK_EXTERNAL_APIS/);
+    } finally {
+      if (previous === undefined) delete process.env.MOCK_EXTERNAL_APIS;
+      else process.env.MOCK_EXTERNAL_APIS = previous;
+    }
+  });
+
+  it('records which provider answered each safety-review corpus row', async () => {
+    // Deviation D5 mitigation. The Anthropic fallback is kept, so production
+    // may answer from a provider the corpus never measured. The evidence must
+    // never be able to claim coverage it does not have.
+    const report = await runModerationCorpus([G4F1_THREAT, G4F1_SEXUAL], cleanFn, 'test', {
+      safetyReview: async (text: string) =>
+        unsafeVerdict({ provider: text === G4F1_SEXUAL.text ? 'anthropic' : 'openai' }),
+    });
+
+    // The fallback answered the second row. The evidence has to say so, or it
+    // would claim to have measured OpenAI on a row OpenAI never saw.
+    expect(report.results.map((r) => r.safetyProvider)).toEqual(['openai', 'anthropic']);
+  });
+
+  // ── injection resistance (round-1 finding 10, round-2 finding 10) ────────
+
+  it('requires zero false negatives on the injection-resistant safety corpus rows', async () => {
+    const injectionRows = loadSafetyCorpus();
+    expect(injectionRows.length).toBeGreaterThanOrEqual(2);
+
+    const report = await runModerationCorpus(injectionRows, cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict(),
+    });
+
+    expect(report.falseNegatives).toBe(0);
+    expect(report.verdict).toBe('PASS');
+  });
+
+  it('injection-targeted rows fail when the safety reviewer clears them even if another moderation layer flags them', async () => {
+    // Round-2 finding 10, the masking path. `output-filter.ts`'s
+    // `injection_compliance` rules already flag
+    // "ignore previous" and "system prompt" at HIGH severity, so the combined
+    // decision can be correct while the layer under test obeyed the injection.
+    const injectionRows = loadSafetyCorpus();
+
+    const report = await runModerationCorpus(injectionRows, flaggedFn, 'test', {
+      safetyReview: async () => safeVerdict(),
+    });
+
+    expect(report.safetyInjectionMisses).toBeGreaterThan(0);
+    expect(report.verdict).toBe('FAIL');
+  });
+
+  // ── the default mode is untouched (round-2 NEW A) ────────────────────────
+
+  it('leaves the default corpus mode unchanged, so the recorded 2026-09-17 evidence stays reproducible', async () => {
+    const withoutOptions = await runModerationCorpus(CORPUS, cleanFn, 'test');
+    const withEmptyOptions = await runModerationCorpus(CORPUS, cleanFn, 'test', {});
+
+    expect(withEmptyOptions.results).toEqual(withoutOptions.results);
+    expect(withEmptyOptions.acceptance).toEqual(MODERATION_CORPUS_ACCEPTANCE);
+    for (const result of withoutOptions.results) {
+      expect(result.outcome).not.toBe('safety_error');
+    }
+  });
+
+  it('loads the default corpus from disk with the recorded row count and report shape', async () => {
+    // Round-2 NEW A. Hand-built rows handed to the scorer twice cannot detect
+    // the real regression: the injection rows landing in the SHARED file, which
+    // `loadModerationCorpus` returns wholesale and the report counts as
+    // `total`. 53 is the
+    // number the 2026-09-17 evidence doc records.
+    expect(loadModerationCorpus()).toHaveLength(53);
+
+    const report = await runModerationCorpus(loadModerationCorpus(), cleanFn, 'test');
+
+    expect(report.total).toBe(53);
+    expect(report.acceptance).toEqual(MODERATION_CORPUS_ACCEPTANCE);
+    expect(Object.keys(report.acceptance).sort()).toEqual([
+      'maxFalseNegatives',
+      'maxFalsePositiveRate',
+      'maxProviderErrors',
+      'maxProviderMisses',
+    ]);
+    // The safety-mode rows live in their OWN file and must never be in this one.
+    const ids = new Set(loadModerationCorpus().map((r) => r.id));
+    for (const injectionRow of loadSafetyCorpus()) {
+      expect(ids.has(injectionRow.id)).toBe(false);
+    }
+  });
+});
+
+describe('summariseSafetyProviders', () => {
+  it('names every provider that answered, with its count', async () => {
+    // Deviation D5 keeps the Anthropic fallback, so an evidence doc that does
+    // not state the tally claims coverage of a provider the run may never have
+    // exercised. Untested until now because it lived inside the CLI file.
+    const report = await runModerationCorpus([G4F1_THREAT, G4F1_SEXUAL], cleanFn, 'test', {
+      safetyReview: async (text: string) =>
+        unsafeVerdict({ provider: text === G4F1_SEXUAL.text ? 'anthropic' : 'openai' }),
+    });
+
+    expect(summariseSafetyProviders(report)).toBe('openai x1, anthropic x1');
+  });
+
+  it('reports none for rows no provider answered', async () => {
+    const report = await runModerationCorpus([G4F1_THREAT], cleanFn, 'test', {
+      safetyReview: async () => unsafeVerdict({ source: 'failed', provider: null }),
+    });
+
+    expect(summariseSafetyProviders(report)).toBe('none x1');
+  });
+});

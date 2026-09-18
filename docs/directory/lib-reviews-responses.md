@@ -139,14 +139,3 @@ AI response generation.
 **Connection:** `ResponseGeneratorWorker` calls `generateResponse()`. `DemoGenerationWorker` calls it in `demo` mode.
 
 
-### `moderation/`
-
-Output moderation for generated drafts — the always-on local regex filter, the optional OpenAI Moderation call, and the held-draft gate that makes a high-severity flag binding (invariant #4).
-
-| File | What it does |
-|------|--------------|
-| `flags.ts` | `openaiModerationEnabled()` — `OPENAI_MODERATION_ENABLED` accessor over `readFlag` for the inline moderation path. Auto-approval's `providerModerationEnabled()` reads the same flag for a different gate; two named accessors over one flag is intentional. |
-| `held-draft.ts` | The held-draft gate: `openFlagExistsSql(db, ref)` — the one composable spelling of "response has an OPEN `flagged_responses` row" (`'open'` is a literal, matching migration 051's partial index byte-for-byte) — `hasOpenFlag(tx, responseId)` (in-tx, post-lock), and `HeldForReviewError`. Every owner-facing release path must call it; admin, health-alert, purge and producer consumers stay deliberately separate (#725). |
-| `moderate.ts` | Worker-only `moderateResponse(text)` — always runs the local filter; when `OPENAI_MODERATION_ENABLED` also calls `omni-moderation-latest` (10s timeout) and merges (provider flag → `high`). Never throws: a provider outage falls back to the local decision with `providerStatus: 'error'`. |
-| `output-filter.ts` | `runOutputFilter(text)` — the local regex filter: word-boundaried rule table (refund/discount, legal fault, injection compliance, profanity → `high`; competitor, advice → `medium`) producing a `ModerationDecision` (`flagged`, `severity`, `reason`, `categories`, `score`, `source`, `providerStatus`). Also owns `SEVERITY_RANK`. |
-

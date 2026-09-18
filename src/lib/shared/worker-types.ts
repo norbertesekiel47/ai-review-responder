@@ -206,6 +206,8 @@ export type AutoApprovalBlockReason =
   | 'provider_moderation_error'
   | 'moderation_flagged'
   | 'moderation_held'
+  | 'safety_review_not_cleared'
+  | 'safety_review_unavailable'
   | 'publisher_subscription_denied'
   | 'archived_location'
   | 'active_zernio_connection_missing'

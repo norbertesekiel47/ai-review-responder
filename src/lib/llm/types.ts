@@ -17,7 +17,8 @@ export type LLMTaskId =
   | 'judge'
   | 'insights'
   | 'solicitation_ask'
-  | 'owner_operator';
+  | 'owner_operator'
+  | 'safety_review';
 
 export type LLMProviderId = 'openai' | 'anthropic';
 
