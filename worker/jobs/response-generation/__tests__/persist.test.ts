@@ -1750,6 +1750,18 @@ describe('persistResponseAndNotify — safety review', () => {
     const steps = safetySteps();
     expect(steps).toHaveLength(1);
     expect(steps[0]).toMatchObject({ status: 'completed', detail: expect.objectContaining({ cleared: true }) });
+
+    // RT-10: `queuePersistRows({ autoApprove: true })` SUPPLIES rows, it does
+    // not assert them — the fallback path just consumes fewer, so a leftover
+    // queue raises nothing and the comment above was an unpinned claim. A gate
+    // mutated to return ['safety_review_not_cleared'] unconditionally left this
+    // test green. These four assertions are the cleared direction of what the
+    // not-cleared case asserts absent via `assertManualNotificationFallback`,
+    // and they fail under that mutant.
+    expect(txArgs()).toContain('auto_policy');
+    expect(txArgs()).toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
+    expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
+    expect(txTexts().some((text) => text.includes('INSERT INTO approval_audit_log'))).toBe(true);
   });
 
   it('a completed safety review followed by stale content creates no response, spine step, or follow-up work and records the discarded evaluation', async () => {

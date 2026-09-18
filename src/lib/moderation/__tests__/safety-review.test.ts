@@ -153,9 +153,14 @@ describe('reviewSafety', () => {
       if (field === 'draftText') continue;
       expect(serialized, `prompt leaked ${field}`).not.toContain(String(value));
     }
-    // And the type carries the rest of the guarantee: there is no field a
-    // review could arrive through.
-    expect(Object.keys(INPUT)).not.toContain('reviewText');
+    // RT-12: the removed line here asserted `Object.keys(INPUT)` lacks
+    // `reviewText` — a property of the test-local literal at :65, which no
+    // change to safety-review.ts can falsify. The falsifiable half is the loop
+    // above, which pins that the prompt carries the draft and NOTHING else in
+    // the input. The line below is kept deliberately as a documented canary for
+    // ADR 0032's "never the review text" rule: it cannot fail while
+    // `ReviewSafetyInput` has no field to carry a review, and it turns into a
+    // real assertion the moment one is added.
     expect(serialized).not.toContain(REVIEW_TEXT);
   });
 

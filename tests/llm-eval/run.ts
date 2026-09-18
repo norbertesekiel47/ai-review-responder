@@ -261,8 +261,13 @@ function printModerationReport(
  * Validation is environment-specific: staging evidence never makes production
  * ready. `--env` labels the recorded run, and `--out` writes the evidence JSON
  * outside the gitignored reports directory so it can be committed.
+ *
+ * Exported for tests only (red-team RT-06). The safety-mode wiring — the
+ * `--with-safety-review` flag, the deviation-D3 `assertSafetyModeEnvironment`
+ * ordering, and whether the safety corpus rows are appended — was reachable
+ * only through the command an operator runs, so nothing covered it.
  */
-async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
+export async function runModerationCorpusMain(argv: readonly string[]): Promise<void> {
   const environment = readFlagValue(argv, '--env');
   if (!environment) {
     throw new Error(

@@ -133,6 +133,25 @@ export async function handleResponseGeneration(
   // hint to SKIP is the safe direction: a stale Copilot hint on a real Autopilot
   // account skips the check, which hands the gate `null` and blocks with
   // `safety_review_unavailable`. It can cost a post; it can never buy one.
+  //
+  // The STAR RATING is the second half of that same argument. Security finding
+  // S3 and spec finding F1 both named two cheap pre-LLM discriminators; only
+  // the tier half shipped, and red-team RT-15 caught the omission.
+  // `evaluateAutoApprovalCandidate` blocks `<= 3` with
+  // `rating_below_positive_quadrant`, so only a positive rating can reach an
+  // approval — this predicate mirrors that floor. The gate's own
+  // `currentStarRating` is nullable and it blocks `null` with
+  // `current_rating_missing`; the pre-LLM hint is not, because
+  // `GenerationReviewRow.star_rating` is `number`, so there is no null branch
+  // to mirror here. Without it, a burst of one-star reviews at an Autopilot
+  // business each buys a paid call plus a 1¢ reservation against that business's
+  // daily budget, every verdict then discarded by a gate that was knowable
+  // before the call; `withConcurrency: false` removes the per-business slot, so
+  // the burst issues them unbounded-concurrently. `ctx.normalizedReview
+  // .starRating` is a pre-LLM HINT exactly as the tier is, and the skip
+  // direction is fail-safe for the same reason: a stale non-positive hint on a
+  // truly positive review skips the check, hands the gate `null`, and blocks
+  // with `safety_review_unavailable`.
   const safetyVerdict =
     isAutoApprovalCandidate({
       originLane: payload.originLane,
@@ -140,6 +159,7 @@ export async function handleResponseGeneration(
       suppressNotification: payload.suppressNotification,
     })
     && tierGrantsAutopilot(ctx.subscriptionTier)
+    && ctx.normalizedReview.starRating >= 4
     && !moderation.flagged
       ? await reviewSafety(
           sql,

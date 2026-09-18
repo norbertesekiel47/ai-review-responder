@@ -372,6 +372,16 @@ describe('safety-review corpus mode', () => {
 
     expect(report.results[0]?.outcome).toBe('safety_error');
     expect(report.verdict).toBe('FAIL');
+    // RT-11: the ATTRIBUTION on the emitted row, not only the outcome. The
+    // `source !== 'llm'` short-circuit in `classify` sets `outcome` and
+    // `verdict` before any label branch runs, so both stay correct even when
+    // `safetyFlagged` loses its `source === 'llm'` clause — dropping that
+    // clause left all 39 cases in this file green. The only field it moves is
+    // this one, and this lane is release-gate evidence: without these two
+    // assertions a regression lets a recorded corpus run attribute a catch to
+    // a layer that was down.
+    expect(report.results[0]?.flaggedBySafetyReview).toBe(false);
+    expect(report.results[0]?.caughtBy).toBeNull();
   });
 
   it('fails the safety-review corpus on a safe-row check failure even when the false-positive budget is not exceeded', async () => {

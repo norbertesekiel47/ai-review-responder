@@ -441,3 +441,53 @@ changed; `tests_to_add` unchanged (the locked title still describes the
 behaviour, which is now stronger).
 
 **Verdict:** ACCEPT.
+
+---
+
+## D15 — the star-rating pre-filter, the half of security finding S3 that did not ship
+
+**What changed.** `worker/jobs/ResponseGeneratorWorker.ts` gains
+`ctx.normalizedReview.starRating !== null && ctx.normalizedReview.starRating >= 4`
+in the safety-review skip, beside the `tierGrantsAutopilot` clause added by the
+review wave. `worker/__tests__/safety-review-call-site.test.ts` gains four cases
+that pin it from both sides: an `it.each` over one, two and three stars, plus a
+four-star case asserting the check DOES run.
+
+**Why.** Security finding S3 and spec finding F1 both named TWO cheap pre-LLM
+discriminators already in hand before the transaction — `ctx.subscriptionTier`
+AND the star rating. The wave applied only the tier half. Red-team round 2 found
+that the rating half had no recorded disposition anywhere: not in D1–D14, not in
+the handoff's ACCEPT list, not in its two REJECTs (RT-15). A later session could
+not tell whether it was decided or overlooked, which is the condition the
+project's accepted-findings checklist calls out and the handoff states as a rule.
+
+**The exposure S3 records is unchanged by the tier fix.** A burst of one-star
+reviews at an AUTOPILOT business each buys a paid `safety_review` call plus a 1¢
+pessimistic reservation against that business's daily cost budget, and every
+verdict is then discarded by `rating_below_positive_quadrant`. `withConcurrency:
+false` removes the per-business concurrency slot, so the burst issues those calls
+unbounded-concurrently.
+
+**Why the predicate is shaped this way.** It mirrors
+`evaluateAutoApprovalCandidate`, which blocks `<= 3` with
+`rating_below_positive_quadrant` — so only a positive rating can reach an
+approval at all. The gate's `currentStarRating` is nullable and blocks `null`
+with `current_rating_missing`; the pre-LLM hint is not, because
+`GenerationReviewRow.star_rating` is `number`, so there is no null branch to
+mirror in the skip. The rating is a
+pre-LLM HINT exactly as the tier is, and the skip direction is fail-safe for the
+identical reason: a stale non-positive hint on a truly positive review skips the
+check, hands the gate `null`, and blocks with `safety_review_unavailable`. It can
+cost a post; it can never buy one.
+
+**Owner decision.** Recorded 2026-09-18. Asked whether to apply the rating half
+or record a REJECT and defer, the owner chose to apply it. The test came with it
+because the tier half it mirrors is itself mutation-pinned, and shipping an
+unpinned production predicate would have been a new uncovered-change finding in
+round 3.
+
+**Classification.** A correctness and cost fix accepted from the red-team pass.
+No new path, no new file, no schema change. Adds one test file case group to a
+file already on the edit surface.
+
+**Verdict:** ACCEPT.

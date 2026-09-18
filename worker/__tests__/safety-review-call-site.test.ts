@@ -291,6 +291,44 @@ describe('safety review call site', () => {
     expect(mockReviewSafety).not.toHaveBeenCalled();
   });
 
+  // RT-15: security finding S3 named TWO cheap pre-LLM discriminators and only
+  // the tier half shipped. `evaluateAutoApprovalCandidate` blocks `<= 3` with
+  // `rating_below_positive_quadrant`, so none of these ratings can reach an
+  // approval — buying the call for them spends a paid request plus a 1¢
+  // reservation against the business's daily budget for a verdict the gate
+  // discards. The title carries `(%s)` so each case is individually selectable:
+  // round 1 could not measure four `it.each` blocks whose cases all collected
+  // under one byte-identical full name.
+  it.each([
+    ['one star — the abuse burst S3 describes', 1],
+    ['two stars', 2],
+    ['three stars — the top of the blocked band', 3],
+  ])(
+    'skips the safety review and makes no LLM call for a non-positive rating (%s)',
+    async (_label, starRating) => {
+      sqlReturnQueue.push([mockReviewRow({ star_rating: starRating })]);
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+      await handleResponseGeneration(makeJob());
+
+      expect(mockReviewSafety).not.toHaveBeenCalled();
+    },
+  );
+
+  it('runs the safety review for a four-star review, the bottom of the positive quadrant', async () => {
+    // The other direction of RT-15. A skip predicate that is too wide is
+    // invisible — it just stops buying calls — so the boundary is pinned from
+    // both sides. Four is the lowest rating the gate can approve.
+    sqlReturnQueue.push([mockReviewRow({ star_rating: 4 })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockReviewSafety).toHaveBeenCalledTimes(1);
+  });
+
   it('does not retry the job when the safety review fails', async () => {
     // The draft is already generated and PAID FOR. A BullMQ retry would buy a
     // second paid draft to fix a gate failure. reviewSafety never throws, so
