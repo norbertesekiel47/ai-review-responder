@@ -68,12 +68,16 @@ docs/**/*.zip
 .agents/skills/*
 !.agents/skills/approval-security/
 !.agents/skills/approval-security/**
+!.agents/skills/constraint-driven-development/
+!.agents/skills/constraint-driven-development/**
 !.agents/skills/cost-guard/
 !.agents/skills/cost-guard/**
 !.agents/skills/doctor-explain/
 !.agents/skills/doctor-explain/**
 !.agents/skills/document-feature/
 !.agents/skills/document-feature/**
+!.agents/skills/doubt-driven-development/
+!.agents/skills/doubt-driven-development/**
 !.agents/skills/feature/
 !.agents/skills/feature/**
 !.agents/skills/feature-resume/
@@ -96,6 +100,8 @@ docs/**/*.zip
 !.agents/skills/repworth-brand-design/**
 !.agents/skills/runbook/
 !.agents/skills/runbook/**
+!.agents/skills/security-and-hardening/
+!.agents/skills/security-and-hardening/**
 !.agents/skills/verify-spec/
 !.agents/skills/verify-spec/**
 

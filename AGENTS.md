@@ -72,7 +72,11 @@ ownership rule and "how to add" procedure are in
 
 - RepWorth-owned workflows are versioned under `.agents/skills/`;
   `.claude/skills/` is the source when a skill is updated. Third-party media
-  skills are intentionally not loaded from this coding repository.
+  skills are intentionally not loaded from this coding repository. Three
+  engineering skills are adapted from a third-party pack
+  (`security-and-hardening`, `constraint-driven-development`,
+  `doubt-driven-development`); provenance and licence are in
+  `docs/agents/third-party-skills.md`.
 - Codex feature guards are active under `.codex/hooks/` and registered in
   `.codex/hooks.json`. Their compatibility notes and trust procedure live in
   `.codex/HOOKS.md`. `pnpm ci:agent-config` validates the hooks, skill

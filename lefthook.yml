@@ -78,3 +78,6 @@ pre-push:
       run: pnpm ci:merge-ledger
     db-imports:
       run: pnpm ci:db-imports
+    # Diff-based, like merge-ledger: skipped when `origin/main` is unfetched.
+    weakened-checks:
+      run: pnpm ci:weakened-checks

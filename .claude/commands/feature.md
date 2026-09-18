@@ -207,21 +207,18 @@ who is skilled but knows nothing of this codebase or domain:
   files that change together live together. Follow the existing patterns —
   plan a split only for a file this feature already has to touch and that has
   become unwieldy.
-- **Every task names its files exactly**: `Create:`, `Modify: path:lines`,
-  `Test:`. Its steps are checkboxes (`- [ ]`), one 2–5 minute action each:
-  write the failing test → run it and see the expected failure → write the
-  minimal code → run it and see it pass → commit. Code steps show the code;
-  command steps show the command and the expected output.
+- **Every task names its files exactly**: `Create:`, `Modify: path`, `Test:`.
+- **Every task is a behavior contract, not an implementation** — the fields,
+  the security contract, and the two rules that follow are owned by
+  `execution-lanes.md` § Tracer bullets and TDD; read it before writing the
+  first task. In short: state behavior, negative cases, owner, precedent,
+  invariants, seam and test titles; show code only where a sentence would stay
+  ambiguous; map every `tests_to_add` title to its task, and let each slice
+  author its own failing tests.
 - **No placeholders.** These are plan failures: "TBD", "TODO", "add
   appropriate error handling", "handle edge cases", "write tests for the
-  above" without the test code, "similar to Task N" (repeat the content —
+  above" without the test titles, "similar to Task N" (repeat the content —
   tasks get read out of order), or a type or function that no task defines.
-- **The FIRST task is the eval task.** Author the `tests_to_add` bodies as
-  failing tests, committed before any implementation task — the spec in
-  executable form. Slices not yet buildable may use `.todo`/`.fails`. Each
-  implementation task names the failing tests it turns green. Prefer
-  code-shaped spec everywhere: a test suite, an HTML mockup, or an
-  `@`-referenced precedent file beats a paragraph describing the same thing.
 - Each task is a **tracer bullet** — a thin vertical slice that runs end to
   end, never a horizontal layer.
 - Each task declares its **blocking edges**, uses the glossary's terms
@@ -239,9 +236,11 @@ dispatch. Fix what it finds inline; no re-review is needed:
 1. **Intake coverage** — every `user_visible_behavior` entry, edge case and
    `tests_to_add` title maps to a task. Add a task for any gap.
 2. **Placeholder scan** — search the plan for the patterns above.
-3. **Name consistency** — types, signatures and property names in later
-   tasks match their definitions in earlier ones (`clearLayers()` in T3 and
-   `clearFullLayers()` in T7 is a bug).
+3. **Security coverage** — every task that crosses a trust boundary states
+   its security contract and owns at least one negative test title
+   (wrong tenant, missing authorization, replayed or stale input).
+4. **Name consistency** — a type or signature one task defines and another
+   consumes is spelled identically in both.
 
 Register the tracers:
 
@@ -346,8 +345,8 @@ resolve, an ambiguity that prevents progress, or a finished plan.
 the plan file — paste what it needs: the task's full text from the plan, where
 it fits (blocking-edge context), the glossary excerpt (the relevant
 `docs/context/*.md` terms), the precedent paths from
-`existing_patterns_to_follow`, and the failing eval tests this task turns
-green — code references, never prose descriptions of them. The full
+`existing_patterns_to_follow`, and the test titles and seam this task must
+turn green — it writes those failing tests first, then the code. The full
 delegation contract is in `execution-lanes.md` § Delegation contract. The
 prompt also tells the subagent to:
 
@@ -379,8 +378,8 @@ this session — dispatch a fix subagent with specific instructions.
 
 **Spec check per task — do not trust the report.** Read the diff, not the
 summary. Compare it to the task text line by line: anything missing, anything
-extra that was not requested, anything misread. Confirm its failing eval tests
-are now green. A gap goes back to a subagent and is checked again; never move
+extra that was not requested, anything misread. Confirm its promised tests
+exist, failed first, and are now green. A gap goes back to a subagent and is checked again; never move
 to the next task with a gap open. Code-quality review of the whole branch is
 step 7's wave, not a per-task stage.
 
@@ -575,7 +574,8 @@ The wave, per `execution-lanes.md` § The review wave (read it — it carries th
 three rules that make the wave safe):
 
 - **Spec & correctness agent** — the diff against the intake contract, field by
-  field, plus `blast-radius.md`. Prompt in `review-prompts.md`.
+  field, plus `blast-radius.md`. Prompt in `review-prompts.md`, with its
+  § Weakened checks brief appended on every lane.
 - **Standards & maintainability agent (RISK = high, or a large diff)** —
   invoke `/thermo-nuclear-code-quality-review` on the branch directly. If
   unavailable or it errors, fall back to `/code-review` at high effort. On
@@ -788,6 +788,8 @@ section becomes visible.
   `.claude/reference/arch-review-log.md`. At ≥ 5 merges since the last
   architecture pass, remind the owner to schedule one. Never start one
   automatically.
+- **Change ledger**: add this change's row to `docs/agents/change-ledger.md`
+  (the file defines the columns). `Named debt` comes from the review record.
 
 ```bash
 node .agents/skills/feature/scripts/progress.mjs step ready done

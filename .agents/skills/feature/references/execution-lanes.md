@@ -74,7 +74,13 @@ closed, never waives.
 
 - Apply the standard lane plus rollback, observability, and authority-boundary
   requirements.
-- Require a read-only plan skeptic before execution.
+- When a `risk_reason` names a trust boundary (authorization, tenancy, billing,
+  public posting, a webhook, a token, LLM input or output, personal data), read
+  the `security-and-hardening` skill BEFORE writing the plan. Its output is the
+  security contract on each tracer and the negative test titles in
+  `tests_to_add` — security shapes the design; it is not a final-review step.
+- Require a read-only plan skeptic before execution. It is this lane's doubt
+  step; do not stack `doubt-driven-development` on top.
 - Add only the relevant risk review: security/authorization, database/tenancy,
   billing, async/operations, or UI accessibility.
 - Stop review-ready. Never infer staging or production authority.
@@ -91,13 +97,31 @@ closed, never waives.
 
 Each tracer bullet must include:
 
-- one vertical observable behavior
+- one vertical observable behavior, with its negative cases
+- the owning module and the repository precedent it follows
+- the security contract, when the slice crosses a trust boundary: actor,
+  tenant boundary, authorization, untrusted input, side effects, failure and
+  recovery — with at least one negative test title (wrong tenant, missing
+  authorization, replayed or stale input)
+- the invariants it must not break
 - the public test seam
 - exact test title or deterministic check
 - blocking edges
-- repository precedent
 - allowed files
 - completion evidence
+
+**The plan is a behavior contract, not an implementation.** It carries enough
+to prevent architectural improvisation and no more. A plan of complete code
+steps is a plan failure: code written before a test has run is a first draft
+that execution then writes again, and the plan and the code must then both be
+maintained. Show code only where a sentence would stay ambiguous — a tricky
+interface signature, a SQL shape an invariant depends on, a type another
+tracer consumes.
+
+**Validate the test strategy first; write tests per slice.** The plan maps
+every promised test title to its tracer and seam. Each tracer authors its own
+failing tests at its start. Do not author every test body before the first
+tracer: those bodies encode guesses about seams the first slice corrects.
 
 For new behavior or a bug fix, run red → minimal green one tracer at a time.
 For a behavior-preserving refactor, establish characterization coverage and

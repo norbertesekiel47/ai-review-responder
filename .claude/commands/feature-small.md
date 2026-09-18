@@ -109,8 +109,11 @@ node .agents/skills/feature/scripts/progress.mjs step gate done
 
 ## 5. One review pass
 
-Invoke `/code-review` on the branch: spec and correctness only. Triage the
-findings as claims to verify, not orders:
+Invoke `/code-review` on the branch: spec and correctness only, with the
+`review-prompts.md` § Weakened checks brief appended — every REVIEW row from
+`pnpm ci:weakened-checks` gets a reason, and any compromise the change makes
+is named (`working-rules.md` § No unacknowledged debt). Triage the findings as
+claims to verify, not orders:
 
 - Read them all first. If any is unclear, clarify it before fixing any.
 - Check each against the code: correct for THIS codebase, safe to change,
@@ -143,6 +146,9 @@ node .agents/skills/feature/scripts/progress.mjs step ready done
 node .agents/skills/feature/scripts/phase-cost.mjs
 rm -rf .feature
 ```
+
+Add this change's row to `docs/agents/change-ledger.md` before deleting
+`.feature/` — the file says what each column means.
 
 Read the cost table before deleting it. If a step cost more than the
 whole change was worth, say so in one line — that is the measurement the
