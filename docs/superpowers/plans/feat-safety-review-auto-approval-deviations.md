@@ -125,3 +125,75 @@ to have measured a path it did not exercise.
 **Classification.** Intake correction, not a surface amendment. No path changed.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D6 — Surface amendment: the cost-guard caller tripwire (owner-approved, 2026-09-18)
+
+**What.** `src/__tests__/cost-guard-contract.test.ts` is added to
+`allowed_edit_surface`, and `src/lib/moderation/safety-review.ts` is registered
+in its `CALLER_ALLOWLIST`.
+
+**Why.** Plan round-1 finding 13b. That file is a tripwire: it reads every
+production `runLlmTask` call site off disk and fails unless the file is listed
+by name. It exists to force human review of each new LLM caller. `reviewSafety`
+is a new caller, so the test goes red the moment T3 lands, and the gate can
+never reach green without the registration.
+
+**Alternatives.** None. The tripwire has no bypass, and it should not — that is
+the whole governance value.
+
+**Classification.** A surface AMENDMENT. It consumes the amendment budget;
+`surfaceAmendments=1` records it.
+
+**Verdict:** ACCEPT — owner-approved 2026-09-18. It is the sanctioned way to add
+an LLM caller, and the entry carries the guard-shape comment the neighbouring
+tenants carry.
+
+---
+
+## D7 — Surface amendment: `promised-tests` never searched `tests/` (owner-approved, 2026-09-18)
+
+**What.** `scripts/verify-gate.sh` and `scripts/ci/__tests__/*.test.ts` are added
+to `allowed_edit_surface`. The gate's promised-title discovery gains `tests` as a
+search root, and `scripts/ci/__tests__/gate-rows.test.ts` gains the covering test.
+
+**Why.** Plan round-1 finding 13a. `verify-gate.sh:472` greps `src worker
+scripts` only. The three promised corpus titles live in
+`tests/llm-eval/__tests__/`, so `promised-tests` reports them missing even when
+they exist and pass — a false RED that cannot be told apart from an unwritten
+test. The script's own header records the identical defect being fixed once
+before, for `scripts/`, at #611.
+
+**Why the test glob rides along.** A change to `verify-gate.sh` that no test may
+cover is a change nothing verifies. `gate-rows.test.ts` already exercises this
+script, so the covering test has a home and the two paths are one amendment, not
+two.
+
+**Alternatives weighed.** A separate PR off `main` first — declined: this branch
+already forks from the unmerged #1309, and a second unmerged dependency would
+block the gate on two PRs. Dropping the three titles from `tests_to_add` —
+declined: the gate would go green by having nothing to look for.
+
+**Classification.** A surface AMENDMENT. `surfaceAmendments=2` records it.
+
+**Verdict:** ACCEPT — owner-approved 2026-09-18.
+
+---
+
+## D8 — `test_seams[0]` still described the pre-D1 signature
+
+**What.** D1 corrected the module contract to `reviewSafety(sql, input, deps?)`
+and said both intake copies were updated. The `invariants` field was, but
+`test_seams[0]` still read `reviewSafety(text, deps)`.
+
+**Correction.** The seam string now names the real signature, says the client
+arrives explicitly per invariant #15, and adds that the cost reservation,
+finalization and `api_costs` write sit inside the injected seam — which is what
+makes round-1 finding 1 testable at the real boundary instead of through a
+stubbed `runTask`.
+
+**Classification.** Intake CORRECTION, not a surface amendment. No path changed.
+
+**Verdict:** ACCEPT — it removes a contradiction inside the locked file. Found
+by the resume reconciliation, not by a review round.
