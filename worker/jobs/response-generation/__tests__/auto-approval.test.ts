@@ -520,3 +520,178 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
     expect(countCall.values).toEqual(expect.arrayContaining(['auto_approved_by_policy', 'biz-1']));
   });
 });
+
+// ── Safety review gate (G4-F1) ─────────────────────────────────────────────
+//
+// Plan round-1 finding 4: the first version of these properties evaluated the
+// NEW evaluator twice, once per verdict, and asserted a superset. Removing a
+// pre-existing veto from both sides preserves that, so the property was
+// vacuous. The oracle below is INDEPENDENT — it derives the expected pre-safety
+// reasons from the input without calling the evaluator at all.
+//
+// The evaluator is synchronous but NOT input-pure: it reads AUTO_APPROVAL_ENABLED
+// and OPENAI_MODERATION_ENABLED (auto-approval.ts:345-346) and can reach the
+// wall clock through past-due-recovery.ts:95. Every comparison below therefore
+// pins both flags and `now`.
+
+import type { SafetyVerdict } from '../../../../src/lib/moderation/safety-review-schema';
+
+const CLEARED_VERDICT: SafetyVerdict = {
+  cleared: true,
+  concern: null,
+  source: 'llm',
+  provider: 'openai',
+};
+const NOT_CLEARED_VERDICT: SafetyVerdict = {
+  cleared: false,
+  concern: 'implied_threat',
+  source: 'llm',
+  provider: 'openai',
+};
+
+/** The veto axes this oracle covers. Every other field stays approvable. */
+interface SafetyOracleAxes {
+  moderationFlagged: boolean;
+  held: boolean;
+  activeLocationNow: boolean;
+  activeZernioConnectionNow: boolean;
+  triageHigh: boolean;
+  triageFallback: boolean;
+  policySuspended: boolean;
+}
+
+/**
+ * The pre-feature expectation, written out rather than computed by the code
+ * under test. Deliberately BOUNDED to the axes the generator varies: every
+ * other input field is held at its approvable value, so no other reason can
+ * arise. That bound is what keeps the oracle honest — widen the generator and
+ * this function must be widened with it, which is the point.
+ */
+function expectedPreSafetyReasons(axes: SafetyOracleAxes): AutoApprovalBlockReason[] {
+  const reasons: AutoApprovalBlockReason[] = [];
+  if (axes.moderationFlagged) reasons.push('moderation_flagged');
+  if (axes.held) reasons.push('moderation_held');
+  if (!axes.activeLocationNow) reasons.push('archived_location');
+  if (!axes.activeZernioConnectionNow) reasons.push('active_zernio_connection_missing');
+  if (axes.triageHigh) reasons.push('triage_high_severity');
+  if (axes.triageFallback) reasons.push('triage_fallback');
+  if (axes.policySuspended) reasons.push('policy_suspended');
+  return reasons;
+}
+
+function inputForAxes(
+  axes: SafetyOracleAxes,
+  safetyVerdict: SafetyVerdict | null,
+): AutoApprovalCandidateInput {
+  return baseInput({
+    moderation: axes.moderationFlagged
+      ? { ...CLEAN_MODERATION, flagged: true, severity: 'medium', reason: 'test' }
+      : CLEAN_MODERATION,
+    held: axes.held,
+    activeLocationNow: axes.activeLocationNow,
+    activeZernioConnectionNow: axes.activeZernioConnectionNow,
+    triageSeverity: axes.triageHigh ? 'high' : null,
+    triageSource: axes.triageFallback ? TRIAGE_SOURCE.FALLBACK : null,
+    effectivePolicy: { ...ENABLED_POLICY, suspended: axes.policySuspended },
+    safetyVerdict,
+  });
+}
+
+const axesArbitrary = fc.record<SafetyOracleAxes>({
+  moderationFlagged: fc.boolean(),
+  held: fc.boolean(),
+  activeLocationNow: fc.boolean(),
+  activeZernioConnectionNow: fc.boolean(),
+  triageHigh: fc.boolean(),
+  triageFallback: fc.boolean(),
+  policySuspended: fc.boolean(),
+});
+
+describe('evaluateAutoApprovalCandidate — safety review', () => {
+  beforeEach(() => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
+  });
+
+  it('blocks auto-approval with safety_review_not_cleared when the verdict is not cleared', () => {
+    const decision = evaluateAutoApprovalCandidate(baseInput({ safetyVerdict: NOT_CLEARED_VERDICT }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toContain('safety_review_not_cleared');
+  });
+
+  it('does not add safety_review_not_cleared when the verdict is cleared', () => {
+    const decision = evaluateAutoApprovalCandidate(baseInput({ safetyVerdict: CLEARED_VERDICT }));
+
+    expect(decision.blockReasons).not.toContain('safety_review_not_cleared');
+    expect(decision.approved).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['missing cleared', { concern: null, source: 'llm', provider: 'openai' }],
+    ['cleared: false', { cleared: false, concern: null, source: 'failed', provider: null }],
+  ])(
+    'blocks auto-approval when the safety verdict is null, undefined, or missing cleared',
+    (_case, verdict) => {
+      // Round-1 finding 4: `false` is not the only non-clearance. Absence is
+      // not clearance either — the check is skipped only when the gate already
+      // blocks, so a missing verdict must never open the lane.
+      const decision = evaluateAutoApprovalCandidate(
+        baseInput({ safetyVerdict: verdict as SafetyVerdict | null }),
+      );
+
+      expect(decision.approved).toBe(false);
+      expect(decision.blockReasons).toContain('safety_review_not_cleared');
+    },
+  );
+
+  describe('invariants', () => {
+    it('invariants: a not-cleared verdict never produces approved=true', () => {
+      fc.assert(
+        fc.property(axesArbitrary, (axes) => {
+          const decision = evaluateAutoApprovalCandidate(inputForAxes(axes, NOT_CLEARED_VERDICT));
+          expect(decision.approved).toBe(false);
+        }),
+      );
+    });
+
+    it('invariants: a cleared safety verdict preserves every pre-safety approval decision and block reason', () => {
+      fc.assert(
+        fc.property(axesArbitrary, (axes) => {
+          const expected = expectedPreSafetyReasons(axes);
+          const decision = evaluateAutoApprovalCandidate(inputForAxes(axes, CLEARED_VERDICT));
+
+          // Exactly the pre-feature set: no reason added, and — the half the
+          // round-1 property could not see — no reason silently removed.
+          expect(new Set(decision.blockReasons)).toEqual(new Set(expected));
+          expect(decision.blockReasons).toHaveLength(expected.length);
+          expect(decision.approved).toBe(expected.length === 0);
+        }),
+      );
+    });
+
+    it('invariants: a not-cleared safety verdict adds exactly safety_review_not_cleared to the pre-safety block set', () => {
+      fc.assert(
+        fc.property(axesArbitrary, (axes) => {
+          const expected = new Set<AutoApprovalBlockReason>([
+            ...expectedPreSafetyReasons(axes),
+            'safety_review_not_cleared',
+          ]);
+          const decision = evaluateAutoApprovalCandidate(inputForAxes(axes, NOT_CLEARED_VERDICT));
+
+          // "Exactly", not "a superset". The superset form is what finding 4
+          // proved vacuous: it survives a veto being deleted from both sides.
+          expect(new Set(decision.blockReasons)).toEqual(expected);
+          expect(decision.blockReasons).toHaveLength(expected.size);
+        }),
+      );
+    });
+  });
+});

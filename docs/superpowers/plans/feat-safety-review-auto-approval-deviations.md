@@ -225,3 +225,40 @@ already heavily in scope, forced by a confirmed defect. `surfaceAmendments=3`.
 
 **Verdict:** ACCEPT — it is the smaller correction, and it keeps the recorded
 evidence reproducible by construction rather than by care.
+
+---
+
+## D10 — Six T1 tests pass at the RED phase, and must
+
+**What.** T1's rule is "every new test FAILS or is `.todo`. A new test that
+PASSES here is a broken test." Six of the 47 pass at T1 with no implementation:
+
+| Test | Why it passes now |
+|---|---|
+| `does not add safety_review_not_cleared when the verdict is cleared` | Asserts the reason is ABSENT. With no gate row, it is absent. |
+| `invariants: a cleared safety verdict preserves every pre-safety approval decision and block reason` | Asserts the pre-feature block set is unchanged. With no gate row, it is unchanged. |
+| `skips the safety review and makes no LLM call when the draft is not an auto-approval candidate` (×3 cases) | Asserts `reviewSafety` is NOT called. With no call site, it is not called. |
+| `persists a not-cleared safety verdict as pending_approval with one owner notification and no moderation hold, approval audit, or publish outbox` | Asserts the manual-notification fallback. That is already the behaviour for this fixture. |
+
+**Why this is not the defect the rule guards against.** The rule exists to catch
+a test that asserts nothing — one that would pass against any implementation.
+These six are **preservation** assertions: their job is to fail when the feature
+breaks something that used to work, so passing before the feature exists is the
+correct reading, not a vacuous one.
+
+Round-2 **NEW C** settled this exact question for the invariant pair. It proved
+that demanding both rewritten properties fail under the "delete the safety row"
+mutation was wrong, because the preservation property must still PASS there.
+T1's RED phase is the same condition as that mutation: no safety row. A test
+cannot be required to fail under a mutation it is defined to survive.
+
+**How they are kept honest instead.** Each is mutation-checked at its own tracer
+rather than at T1 — T5's two-mutation table for the invariants, and the skip
+tests by deleting the call-site guard at T6. A preservation test that cannot be
+made to fail by SOME mutation is the real defect, and that is what the tracers
+check.
+
+**Classification.** A deviation from T1's stated expectation, disclosed rather
+than absorbed. No path or title changed.
+
+**Verdict:** pending — resolve at step 6.

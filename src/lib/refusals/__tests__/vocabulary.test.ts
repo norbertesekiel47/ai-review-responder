@@ -32,15 +32,18 @@ import { describe, expect, it } from 'vitest';
 import { WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
 import {
   ASK_WITHHELD_REFUSAL_CATEGORIES,
+  AUTO_APPROVAL_BLOCK_PRECEDENCE,
   AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
   AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES,
   BATCH_HALTED_REFUSAL_CATEGORIES,
   OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES,
   OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES,
+  POLICY_GATE_HELD_REFUSAL_CATEGORIES,
   REFUSAL_CATEGORIES,
   REFUSAL_SOURCES,
   REFUSAL_SUBJECT_TYPES,
   REFUSAL_VOCABULARY_VERSION,
+  resolvePolicyGateRefusal,
 } from '../vocabulary';
 // NAMESPACE import for the four exports #1013 T3 and T4 add. A named import of
 // an export that does not exist yet fails the whole FILE at collection, which at
@@ -839,6 +842,50 @@ describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
       );
       // (3) The category is the map's.
       expect(forward?.refusalCategory, `tier ${tier} reported the wrong category`).toBe(tier);
+    }
+  });
+});
+
+// ── Safety review block reason (G4-F1) ─────────────────────────────────────
+//
+// Plan round-1 finding 12: mapping the reason is NOT sufficient.
+// `AUTO_APPROVAL_BLOCK_PRECEDENCE` is a second, separately compile-enforced
+// seam (`_PrecedenceIsTotal`, vocabulary.ts:660), and `resolvePolicyGateRefusal`
+// reads BOTH — the map for the veto, the tuple for the winner. A test that
+// exercised only the map would pass while `pnpm typecheck` stayed red.
+
+describe('safety_review_not_cleared', () => {
+  it('maps safety_review_not_cleared to a refusal category', () => {
+    expect(Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, 'safety_review_not_cleared')).toBe(
+      true,
+    );
+    // It is a SAFETY veto, not a structural one: the draft named unsafe content
+    // (or the check that looks for it failed), so it belongs with
+    // moderation_flagged and triage_high_severity rather than with the
+    // "we could not evaluate the policy" reasons.
+    expect(POLICY_GATE_HELD_REFUSAL_CATEGORIES.safety_review_not_cleared).toBe(
+      POLICY_GATE_HELD_REFUSAL_CATEGORIES.moderation_flagged,
+    );
+    expect(AUTO_APPROVAL_BLOCK_PRECEDENCE).toContain('safety_review_not_cleared');
+  });
+
+  it('resolves safety_review_not_cleared through the production refusal resolver with the declared category precedence', () => {
+    // Alone: the production resolver, not the map, is what runs in the
+    // deciding transaction.
+    const alone = resolvePolicyGateRefusal(['safety_review_not_cleared']);
+    expect(alone).not.toBeNull();
+    expect(alone?.refusalCode).toBe('safety_review_not_cleared');
+
+    // Alongside another category: this is the half that exercises the tuple's
+    // POSITION. `moderation_flagged` is precedence tier 1, so it wins whichever
+    // order the gate emitted them in.
+    for (const order of [
+      ['safety_review_not_cleared', 'moderation_flagged'],
+      ['moderation_flagged', 'safety_review_not_cleared'],
+    ] as const) {
+      const together = resolvePolicyGateRefusal(order);
+      expect(together?.refusalCode).toBe('moderation_flagged');
+      expect(together?.allRefusalCodes).toEqual(expect.arrayContaining(['safety_review_not_cleared']));
     }
   });
 });

@@ -1617,3 +1617,155 @@ describe('ledger attribution (#1083)', () => {
     expect(captureExceptionSpy, 'nothing to attribute: nothing ran').not.toHaveBeenCalled();
   });
 });
+
+// ── Safety review, through REAL persistence (G4-F1) ────────────────────────
+//
+// Plan round-1 finding 5: module, gate and step tests can all be green while
+// the worker threads the wrong verdict, routes not-cleared into the
+// moderation-hold branch (persist.ts:173) or drops the owner notification
+// (persist.ts:236). Those are separate branches, so they are asserted here
+// against real persistence rather than through a stub.
+//
+// Round-1 finding 11 bounds what may be promised: persist.ts:134 discards stale
+// work with ZERO writes, and persist.ts:462 skips spine writes with no active
+// run. So the DURABLE step is promised only for a persisted draft with an
+// active run; every EXECUTED check is accounted for by a sanitized completion
+// log event instead. Moving a spine write ahead of the freshness gate would
+// break ADR 0017 and is not the fix.
+
+const NOT_CLEARED_VERDICT = {
+  cleared: false,
+  concern: 'implied_threat',
+  source: 'llm',
+  provider: 'openai',
+} as const;
+
+function safetySteps(): unknown[] {
+  return (recordStep as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    .map((call) => call[1])
+    .filter(
+      (arg): arg is { stepKey?: string } =>
+        !!arg && typeof arg === 'object' && (arg as { stepKey?: string }).stepKey === 'safety_reviewed',
+    );
+}
+
+function safetyLogRecords(logged: unknown[][]): Record<string, unknown>[] {
+  return logged
+    .map((call) => call[1])
+    .filter(
+      (arg): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && 'safety_verdict_source' in (arg as object),
+    );
+}
+
+describe('persistResponseAndNotify — safety review', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txQueue.length = 0;
+    gateOverride.blockReasons = null;
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    (findActiveReviewRun as unknown as { mockResolvedValue: (v: unknown) => void })
+      .mockResolvedValue({ id: 'run-1' });
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+  });
+
+  it('persists a not-cleared safety verdict as pending_approval with one owner notification and no moderation hold, approval audit, or publish outbox', async () => {
+    // The four things a wrong branch would do, all asserted at once: a
+    // moderation hold (invariant #4's lane, which this feature must NEVER
+    // enter), an approval audit row, a publish outbox row, or a lost
+    // notification. The draft is SAFE to show the owner — it just may not post
+    // itself.
+    queuePersistRows();
+
+    await persistResponseAndNotify(mockSql, baseInput({ safetyVerdict: NOT_CLEARED_VERDICT }));
+
+    assertManualNotificationFallback();
+    expect(txTexts().some((text) => text.includes('INSERT INTO flagged_responses'))).toBe(false);
+  });
+
+  it('records a safety_reviewed step on the run spine when the draft persists with an active run', async () => {
+    queuePersistRows();
+
+    await persistResponseAndNotify(mockSql, baseInput({ safetyVerdict: NOT_CLEARED_VERDICT }));
+
+    const steps = safetySteps();
+    expect(steps).toHaveLength(1);
+    // The payload carries the verdict and its provenance — never the draft
+    // text (CLAUDE.md structured-logging rule, and ADR 0032's input rule).
+    expect(steps[0]).toMatchObject({
+      detail: expect.objectContaining({
+        cleared: false,
+        concern: 'implied_threat',
+        source: 'llm',
+        provider: 'openai',
+      }),
+    });
+    expect(JSON.stringify(steps[0])).not.toContain(RESULT.responseText);
+  });
+
+  it('a completed safety review followed by stale content creates no response, spine step, or follow-up work and records the discarded evaluation', async () => {
+    // Round-1 finding 11. The check ran and was PAID FOR, then the review text
+    // changed underneath it. ADR 0017's zero-write path stands — but the paid
+    // evaluation must not vanish from the record.
+    queuePersistRows({ state: { review_content_hash: 'hash-CHANGED' } });
+    const logged: unknown[][] = [];
+    const logger = {
+      log: (...args: unknown[]) => logged.push(args),
+      warn: (...args: unknown[]) => logged.push(args),
+    };
+
+    const outcome = await persistResponseAndNotify(
+      mockSql,
+      baseInput({ safetyVerdict: NOT_CLEARED_VERDICT, logger }),
+    );
+
+    expect(outcome.kind).toBe('skipped_stale_content');
+    expect(txTexts().some((text) => text.includes('INSERT INTO responses'))).toBe(false);
+    expect(safetySteps()).toHaveLength(0);
+    expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
+    // The discard is recorded, with the verdict's provenance.
+    expect(safetyLogRecords(logged)).not.toHaveLength(0);
+  });
+
+  it('a not-cleared safety review without an active run still notifies the owner and records its evaluation outside the spine', async () => {
+    // A legacy review has no run row, so persist.ts:462 writes no step. The
+    // owner must still be told, and the paid check must still be accounted for.
+    (findActiveReviewRun as unknown as { mockResolvedValue: (v: unknown) => void })
+      .mockResolvedValue(null);
+    queuePersistRows();
+    const logged: unknown[][] = [];
+    const logger = {
+      log: (...args: unknown[]) => logged.push(args),
+      warn: (...args: unknown[]) => logged.push(args),
+    };
+
+    await persistResponseAndNotify(
+      mockSql,
+      baseInput({ safetyVerdict: NOT_CLEARED_VERDICT, logger }),
+    );
+
+    expect(safetySteps()).toHaveLength(0);
+    expect(sendNotificationPayloads()).toHaveLength(1);
+    expect(safetyLogRecords(logged)).not.toHaveLength(0);
+  });
+
+  it('a safety_reviewed spine-write failure rolls back the response and follow-up outbox work and propagates the persistence error', async () => {
+    // The no-retry rule is scoped to CHECK failures. A PERSISTENCE failure is
+    // the opposite case: run-spine.ts:5 makes the step write transactional, so
+    // swallowing this to satisfy "does not retry" would leave a response with
+    // no spine record and no retry to repair it.
+    queuePersistRows();
+    (recordStep as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
+      async (_tx: unknown, step: { stepKey?: string }) => {
+        if (step?.stepKey === 'safety_reviewed') throw new Error('spine write failed');
+      },
+    );
+
+    await expect(
+      persistResponseAndNotify(mockSql, baseInput({ safetyVerdict: NOT_CLEARED_VERDICT })),
+    ).rejects.toThrow('spine write failed');
+  });
+});
