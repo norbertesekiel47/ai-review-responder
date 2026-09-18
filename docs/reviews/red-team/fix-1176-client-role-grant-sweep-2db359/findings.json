@@ -5,95 +5,95 @@
   "branch": "fix-1176-client-role-grant-sweep",
   "fork_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
   "merge_base_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
-  "head_sha": "2dd74a20fcf7cc761a46b183f7b88268768c9710",
+  "head_sha": "8a944908ad0d0afc9664f76cbca6b1c005614a8d",
   "intake_sha256": "13cc93ffdfcc6bc74bcb87d280b73e4b94332edaf485bfa48870a4400c4203b2",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-17T12:58:04Z",
+  "round": 3,
+  "generated_at": "2026-09-18T01:40:00Z",
   "inventory": [
     {
       "id": "INV-1",
-      "test": "migration 122 removes TRUNCATE, REFERENCES, TRIGGER and MAINTAIN from anon and authenticated on every public table",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B1-pg17 green, exactly one test. M8a (supabase/migrations/122_client_role_grant_sweep.sql:111 deleted, table-level REVOKE MAINTAIN) -> failed: revoked right survives on account_audit_log (anon:MAINTAIN). M8c (supabase/migrations/122_client_role_grant_sweep.sql:110 version gate 170000 -> 180000, branch never runs) -> failed the same way. Round-1 PG16 kills M1a/M1b stand; the migration blob 6f48261d is unchanged since round 1."
+      "test": "supabase/migrations/122_client_role_grant_sweep.sql — production surface, covered by the 122 integration suite",
+      "file": "supabase/migrations/122_client_role_grant_sweep.sql",
+      "outcome": "excluded",
+      "reason": "Not in round 3's scope and not mutatable for signal: the blob is IDENTICAL between round 2's measured head 2dd74a20f and HEAD 8a944908a (git rev-parse <sha>:<path> = 6f48261d359931c9ffae9a9f7207b35ae4b718be on both). Round 2 killed 10 of 10 executed mutants against this exact blob. Re-mutating an unchanged blob would re-measure round 2, not this delta."
     },
     {
       "id": "INV-2",
-      "test": "migration 122 removes every anon and authenticated privilege from the twenty deny-all tables",
+      "test": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts — changed test surface",
       "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B2 green, exactly one test. M2a (supabase/migrations/122_client_role_grant_sweep.sql:99 solicitation_unsubscribe_tokens replaced, so it leaves the REVOKE ALL list) -> failed: client privileges on solicitation_unsubscribe_tokens not empty."
+      "outcome": "excluded",
+      "reason": "Direction A yields no candidate: the suite blob is IDENTICAL across the delta (0aa2fe41eb04538c442a55ddf5925340d8e5bd4e at both 2dd74a20f and HEAD). No test case was added, modified or deleted, and no helper, fixture, snapshot or golden it imports changed."
     },
     {
       "id": "INV-3",
-      "test": "migration 122 keeps anon and authenticated DML on tables outside the deny-all list and leaves owner and service_role privileges unchanged",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B3 green, exactly one test. M3a (supabase/migrations/122_client_role_grant_sweep.sql:88 adds DELETE to the revoke) -> failed: client privileges on reviews lose DELETE."
+      "test": "scripts/ci/live-db-suites-audit.ts MIGRATION_SHAPE_FILES entry — oracle pnpm ci:live-db-suites",
+      "file": "scripts/ci/live-db-suites-audit.ts",
+      "outcome": "excluded",
+      "reason": "Blob IDENTICAL across the delta (4a517b27d22458da1a6e06d4775b6770f8d7a6ef at both). Round 2 carried round 1's kill MA1 against this blob."
     },
     {
       "id": "INV-4",
-      "test": "migration 122 changes no RLS flag, policy or column grant on any public table",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B4-pg17 green, exactly one test. M4b (ALTER TABLE agent_runs FORCE ROW LEVEL SECURITY before COMMIT) -> failed: agent_runs force expected false. M4c (ALTER TABLE reviews DISABLE ROW LEVEL SECURITY before COMMIT) -> failed: reviews rls expected true. After each mutant run the container read 0 forced / 58 RLS-enabled public tables, identical to before: the RT-3 flag restore works."
+      "test": ".claude/reference/migrations-log.md entry 122 — doc claims (duty 3)",
+      "file": ".claude/reference/migrations-log.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable: no mutation candidate exists. Verified by duty 3 instead — every claim in the rewritten entry 122 was re-resolved against the committed snapshots, the migration blob and a live read-only introspection of both Supabase projects. Result: RT-5 (P2) only."
     },
     {
       "id": "INV-5",
-      "test": "migration 122 removes the four rights from the owning role's default table privileges and keeps default DML",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured on the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass. Baseline B5-pg17 green, exactly one test. M8b (supabase/migrations/122_client_role_grant_sweep.sql:112 deleted, ALTER DEFAULT PRIVILEGES REVOKE MAINTAIN) -> failed: default probe still includes anon:MAINTAIN. M8c (version gate 170000 -> 180000) -> failed the same way."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/README.md — doc claims (duty 3)",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/README.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable. Verified by duty 3: counts 766/12/300, 98 TRUNCATE = 49x2, the 1080 -> 526 set difference, the migration sha256 prefix and the branch SHA 92bf95797 all re-derived from the committed files and git. No unresolved claim."
     },
     {
       "id": "INV-6",
-      "test": "migration 122 is a no-op when applied a second time",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B6 green, exactly one test. M6a (DO block before COMMIT toggling anon SELECT on public.reviews) -> failed: afterSecond differs from after."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/README.md — doc claims (duty 3)",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/README.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable. Verified by duty 3: pre-apply snapshots byte-identical across projects, post-apply snapshots byte-identical, 62-minute gap, Railway deployment ids and the Sentry claim all re-derived. No unresolved claim."
     },
     {
       "id": "INV-7",
-      "test": "migration 122 refuses to run when a public table is owned by a role other than the applier",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Round 2 re-measured at HEAD on the local test DB (localhost, postgres:16, server_version_num 160014, the CI major). Baseline B7 green, exactly one test. M7a (supabase/migrations/122_client_role_grant_sweep.sql:82 RAISE EXCEPTION -> RAISE WARNING) -> failed: ownerGuardError null."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/pre-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/pre-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code: nothing executes it, so there is no oracle to mutate. Checked as data: 1080 rows (1 identity, 1 owners, 766 table, 12 column, 300 default), sha256 14ecf474d519ef98 identical to the production pre-apply file."
     },
     {
       "id": "INV-8",
-      "test": "PG17 MAINTAIN branch (supabase/migrations/122_client_role_grant_sweep.sql:108-114), measured through INV-1 and INV-5 on PostgreSQL 17",
-      "file": "supabase/migrations/122_client_role_grant_sweep.sql",
-      "outcome": "killed",
-      "reason": "Resolves round-1 inconclusive row. On the disposable postgres:17-alpine container (localhost:5517, server_version_num 170010) provisioned by the repo driver (scripts/test-db-setup.sh --print-driver: test-db-bootstrap.sql then all 122 migrations, marker head 122_client_role_grant_sweep.sql), removed after the pass the suite derives revokedRights from acldefault, which there includes MAINTAIN, so the degrade grants MAINTAIN and the assertions cover it. Whole-suite baseline BS-pg17: 8 passed. Mutants of each MAINTAIN statement separately: M8a (:111) killed by INV-1; M8b (:112) killed by INV-5; the gate mutant M8c (:110) killed by both. 4 of 4 killed. CI stays PG16, so no CI run executes this oracle (RT-4)."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/post-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/post-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 526 rows, sha256 23738012b23727cd, and BYTE-IDENTICAL to a fresh read-only introspection of the live staging project performed in this pass."
     },
     {
       "id": "INV-9",
-      "test": "migration 122 fails fast with a lock timeout when another session holds a catalogue row lock",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
-      "outcome": "killed",
-      "reason": "Resolves round-1 inconclusive row for supabase/migrations/122_client_role_grant_sweep.sql:70. On the local test DB (localhost, postgres:16, server_version_num 160014, the CI major): baseline B9 green, exactly one test. M9a (:70 SET LOCAL lock_timeout deleted) -> failed: expected 57014 to be 55P03 (run took 15 s, the applier statement timeout). M9b (the SET LOCAL moved after step 4, so steps 1-3 run unbounded) -> failed the same way. Also green on PG17 in BS-pg17."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/pre-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/pre-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 1080 rows, sha256 14ecf474d519ef98, byte-identical to staging's pre-apply file, which is the lockstep premise the entry asserts."
     },
     {
       "id": "INV-10",
-      "test": "pnpm ci:live-db-suites (audit over the real tree) — MIGRATION_SHAPE_FILES entry for the 122 suite",
-      "file": "scripts/ci/live-db-suites-audit.ts",
-      "outcome": "killed",
-      "reason": "Round-1 kill MA1 carried: scripts/ci/live-db-suites-audit.ts is unchanged between the round-1 head and HEAD. Round 2 re-ran the audit baseline BA at HEAD against the changed suite (new holder/applier connections and GRANT): passed."
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/post-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/post-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 526 rows, sha256 23738012b23727cd, and BYTE-IDENTICAL to a fresh read-only introspection of the live production project performed in this pass."
     },
     {
       "id": "INV-11",
-      "test": "scripts/ci/__tests__/live-db-suites-audit.test.ts (reverse-import hit)",
-      "file": "scripts/ci/__tests__/live-db-suites-audit.test.ts",
+      "test": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.json — the sidecar's own authorizations entry",
+      "file": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.json",
       "outcome": "excluded",
-      "reason": "Unchanged importer of the changed module. Every case feeds synthetic file content and never reads the real MIGRATION_SHAPE_FILES membership of the 122 path. INV-10 measures that hunk."
+      "reason": "The sidecar is this pass's own artifact and is rewritten by it, so it carries no mutation candidate. Checked for consistency instead: the appended authorization owner-third-round-2026-09-17 is well formed, names RT-4, its text names the third round, and mutation-runner round-start accepted it (round 3 open, 30 runs available)."
     },
     {
       "id": "INV-12",
-      "test": "restore(): rowSecurityStatements flag restore and restore verification (RT-3 fix hunk, suite beforeAll)",
-      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
+      "test": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md — rendered faithfulness against the sidecar",
+      "file": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md",
       "outcome": "excluded",
-      "reason": "Test-infrastructure hunk with no assertion of its own: it runs inside beforeAll, so no single it() can execute it as an oracle and assert-one-test cannot apply. Measured out-of-suite instead: after M4b and M4c (INV-4) the PG17 container read 0 forced / 58 RLS tables; with the flag-apply line (test file :354) removed AND M4b applied (MR1), beforeAll failed and 0 tests ran, so the verification at :385 fails loud. agent_runs FORCE was then reset by hand on the disposable container."
+      "reason": "This pass's own artifact; rewritten here. Checked for faithfulness at HEAD before rewriting: all 12 round-2 inventory ids, outcomes, the 4 finding ids, severities, dispositions and file:line locations matched the JSON, and the header counts matched the counts block. One divergence, recorded as RT-6."
     }
   ],
   "findings": [
@@ -104,7 +104,7 @@
       "at": "supabase/migrations/122_client_role_grant_sweep.sql:110",
       "duty": 1,
       "disposition": "fixed",
-      "arbiter_reasoning": "Round 2: both hunks now have covering tests that kill mutants. lock_timeout (:70): the new lock-contention case kills M9a and M9b on PG16, the CI major. MAINTAIN branch (:108-114): on a disposable PostgreSQL 17 container provisioned the repo way, INV-1 and INV-5 kill each MAINTAIN statement mutant and the version-gate mutant (4/4). The uncovered-change condition no longer holds. The CI residual is recorded separately as RT-4."
+      "arbiter_reasoning": "Fixed in round 2 and unchanged since: the covering blobs are byte-identical between 2dd74a20f and HEAD (migration 6f48261d, suite 0aa2fe41), so round 2's kills still describe HEAD. Round 3 adds live confirmation that the MAINTAIN branch really executed where it matters: a read-only introspection of both PostgreSQL 17 projects returns 0 effective (anon, authenticated) x (TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) grants over all 58 public tables."
     },
     {
       "id": "RT-2",
@@ -113,7 +113,7 @@
       "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:4",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "Verified at HEAD: handoff:4 now records fork 889c8be6e at creation and merge-base b73c6a001 (git merge-base agrees); b39178a60 is the merge commit with parents 19f23491e and b73c6a001; b73c6a001 subject names #1302/#1303; findings commit 762233bbb exists; D6 now records the owner decision. D7 claims hold: both intake copies byte-identical (cmp), the eighth title matches the suite it() verbatim, 55P03 vs 57014 reproduced by M9a. prevalidate-plan.py: deviations PASS; handoff flags 01a0adcc and 8ede960e87ee, which are Codex session UUID fragments (false positives, as in round 1)."
+      "arbiter_reasoning": "Fixed in round 2; the handoff and deviations files are outside round 3's delta and unchanged. Re-checked at HEAD that the handoff carries no stale application-status claim: its only apply-related line (:38) says remote migration needs explicit approval at step 8, which the two apply READMEs record as given."
     },
     {
       "id": "RT-3",
@@ -122,7 +122,7 @@
       "at": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:323",
       "duty": 1,
       "disposition": "fixed",
-      "arbiter_reasoning": "Verified: under M4b (FORCE on agent_runs) and M4c (RLS disabled on reviews) the container read 0 forced / 58 RLS-enabled tables after the run, identical to before. With the flag-apply line removed plus M4b, beforeAll failed on the verification, so the check is not vacuous. No defect introduced: flags are computed after the ROLLBACK, applied inside the same restore transaction, and re-read before the grant comparison."
+      "arbiter_reasoning": "Fixed in round 2; the suite blob is identical at HEAD (0aa2fe41), so the fix is intact. Nothing in round 3's delta touches it."
     },
     {
       "id": "RT-4",
@@ -131,7 +131,25 @@
       "at": ".github/workflows/ci.yml:252",
       "duty": 1,
       "disposition": "open",
-      "arbiter_reasoning": "Residual of RT-1. P2, not P1: the branch now has a covering test that kills every MAINTAIN mutant when run on PG17 (INV-8), so this is not an uncovered change. What is missing is a lane that runs it on PG17: a later edit to the file would pass CI unchecked on that branch. Mitigations in the contract: the migration is applied once, staging first, and the mandatory PG17 four-right post-apply query in migrations-log entry 122 must return 0 on each project. If the owner treats the CI gap as blocking, it needs an accepted-risk authorization or a PG17 CI job; this pass records neither."
+      "arbiter_reasoning": "Still open, and unchanged by round 3's delta. Its stated mitigation has now fired for real: the mandatory PG17 four-right post-apply query returned 0 on both projects, re-derived live in this pass rather than read from the evidence files. The residual is unchanged — a future edit to the MAINTAIN branch would still pass CI unexercised. The owner's third-round authorization explicitly does NOT accept this risk, so the disposition stays open."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "migrations-log entry 122 still closes its mandatory-preflight paragraph with \"production's defaults were not read\", which the same entry's new top text contradicts.",
+      "at": ".claude/reference/migrations-log.md:2942",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Not P1 and not false: the clause is date-scoped to the 2026-09-16 baseline read, where production's defaults genuinely were not read, and the entry's new header states \"Preflight on both: zero global pg_default_acl rows\" (:2879). But the paragraph it closes is written in pre-apply imperative (\"Before apply, ... must\") and is labelled mandatory, so a later auditor of that paragraph alone can conclude the production preflight is still owed. The underlying fact is verified true three ways in this pass: neither committed pre-apply snapshot contains a single pg_default_acl row outside a named schema (all 300 rows are in auth/extensions/graphql/graphql_public/public/realtime/storage), the production-apply README records the PASS, and a live read-only query returned 0 rows with defaclnamespace = 0 on BOTH projects. Remedy is one clause: date-qualify or drop it. P2 because the worst action it can provoke is re-running a read-only query that returns 0."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "The round-2 findings.md rendered \"Authorizations: None.\" while findings.json already carried the owner's third-round authorization.",
+      "at": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md:56",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "At HEAD before this pass rewrote it, findings.md:54-56 said \"## Authorizations\" / \"None.\" while findings.json carried owner-third-round-2026-09-17. The skill requires that section to be RENDERED from the array, so the two had drifted. Not P1: the JSON is the authoritative side and is correct, red-team-status.mjs never parses the Markdown (it reads the array), and the drift is inherent to the protocol requiring the grant to land in the sidecar BEFORE round 3 opens, which necessarily happens after the round-2 Markdown was written. Resolved in practice by this round-3 findings.md, which renders the authorization. Recorded so the orchestrator can decide whether the round-2 rendering also deserved an amendment; every other round-2 field was faithfully rendered."
     }
   ],
   "authorizations": [
@@ -144,16 +162,16 @@
   ],
   "counts": {
     "inventory_total": 12,
-    "killed": 10,
+    "killed": 0,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 2,
-    "findings_total": 4,
+    "excluded": 12,
+    "findings_total": 6,
     "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 1,
+    "p2_open": 3,
     "accepted_risk": 0,
     "fixed": 3,
     "rejected": 0
