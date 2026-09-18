@@ -10,7 +10,7 @@ A resumed session bootstraps from this file. It never needs the prior transcript
 |---|---|
 | 3 plan | 3 review rounds, all findings closed. Cap spent — **no round 4.** |
 | 4 execute | 8/8 tracers |
-| 5 gate | **GREEN at `41160a59b`** — 34/35 PASS, 1 WARN |
+| 5 gate | **GREEN at `f7d956aee`** (this file's own commit) — 34/35 PASS, 1 WARN |
 | 6 deviations | D1–D14, every verdict ACCEPT |
 | 7 review wave | **Round 1 closed REVISE.** 16 findings, all triaged, 14 ACCEPT / 2 REJECT, 0 open. Fixes applied and committed. |
 | 7.5 red-team | **ROUND 2 OWED — this is the next action.** |
@@ -28,7 +28,7 @@ two rounds without an owner authorization, and both are now spent, so **a round
 3 needs the owner.**
 
 **2. The red-team sidecar does NOT exist yet, and round 1's measurements are
-STALE.** Round 1 measured `9c4a1ab4a`; HEAD is now `41160a59b` because the wave's
+STALE.** Round 1 measured `9c4a1ab4a`; HEAD has moved past it because the wave's
 accepted fixes landed. That staleness is expected — the skill says so explicitly:
 "a round-2 finding whose fix touches the tree makes the sidecar stale by
 construction." Round 2 exists to re-measure at the new HEAD.
@@ -42,7 +42,7 @@ committed under `docs/reviews/feat-safety-review-auto-approval/`.
 
 ## What round 2 must do
 
-1. Re-measure the round-1 inventory at HEAD `41160a59b`.
+1. Re-measure the round-1 inventory at HEAD `f7d956aee`.
 2. **Verify the fixes** listed under "What the wave found" below. Each names the
    mutant that must now die.
 3. Report new findings **only inside the fix hunks and their directly affected
@@ -66,7 +66,7 @@ committed under `docs/reviews/feat-safety-review-auto-approval/`.
 Pins for round 2:
 ```
 FORK_SHA / MERGE_BASE = e0c3ceb1331dee7bf7eb92dc6128879c860b5805
-HEAD_SHA              = 41160a59b9c6853c550f07bd63a2d6f791b1358d
+HEAD_SHA              = f7d956aee585bea54298607d9f83646a0372c440
 risk = high   mode = feature   round = 2
 run_id = feature-feat-safety-review-auto-approval-5e21bf
 ```
@@ -148,6 +148,20 @@ exported and shared with the corpus lane, which had re-spelled both.
 | Review log | `.feature/review-transcript.jsonl` (`review-log.mjs render`) |
 | ADR | `docs/adr/0032-safety-review-draft-only-input.md` |
 | Glossary owner | `docs/context/core-reviews-responses.md` → **Safety review** |
+
+## A trap this run hit THREE times — read before you commit anything
+
+**A docs-only commit after a green gate silently invalidates the evidence, and
+`feature-state.sh set-phase gate_green` then RELABELS `lastGreenGateSha` to the
+new HEAD as if a gate had run there.** It does not re-run anything. The state
+file ends up asserting a green gate at a SHA no gate ever saw, and nothing
+downstream can tell the difference.
+
+This happened three times on this run and was caught and corrected each time by
+re-running the gate. The rule that prevents it: **run `set-phase gate_green`
+only immediately after a gate that actually passed at the current HEAD**, and
+if you commit anything afterwards — even one documentation line — either re-run
+the gate or do not touch the phase.
 
 ## Reconciliation traps — all three are known, do not re-investigate
 
