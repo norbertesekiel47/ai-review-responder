@@ -2938,8 +2938,10 @@ Revisit triggers:
   `pg_default_acl` rows with `defaclnamespace = 0`, `defaclobjtype = 'r'`,
   `defaclrole = current_user` must grant `anon`/`authenticated` none of the
   four rights; after apply, a rolled-back `CREATE TABLE` probe as the applying
-  role must show none of them. Staging had no global entry on 2026-09-16;
-  production's defaults were not read.
+  role must show none of them. **Both checks PASSED on both projects at apply
+  time** (2026-09-17): zero global rows on each, and the probe showed none of
+  the four rights. (At the 2026-09-16 baseline read only staging's defaults had
+  been read; production's were read as part of its own preflight.)
   **Rollback inverse (migration 123, staging first) — exact, never blanket.**
   Before applying 122, save each project's client-role table ACL (per table,
   role, privilege, grant option) and full `pg_default_acl`. The inverse
