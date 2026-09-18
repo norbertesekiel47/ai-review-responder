@@ -1,4 +1,5 @@
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
+import type { SafetyVerdict } from '../../../src/lib/moderation/safety-review-schema';
 import {
   resolveDailyCap,
   resolveEffectivePolicy,
@@ -53,6 +54,13 @@ export interface AutoApprovalCandidateInput {
   currentStarRating: number | null;
   effectivePolicy: EffectiveAutoApprovalPolicy;
   moderation: ModerationDecision;
+  /**
+   * The Safety review verdict for this draft (G4-F1), or null when the check
+   * did not run — which is NEVER a clearance. The caller skips it only when
+   * the gate already blocks for another reason, so absence means "unanswered",
+   * and an unanswered safety question cannot open the auto-approval lane.
+   */
+  safetyVerdict: SafetyVerdict | null;
   held: boolean;
   subscriptionStatus: string;
   /** Authoritative same-transaction tier, never the pre-LLM hint. */
@@ -357,6 +365,7 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(input.currentStarRating === null, 'current_rating_missing'),
     providerModerationBlockReason(input.moderation, providerEnabled),
     when(input.moderation.flagged, 'moderation_flagged'),
+    ...safetyReviewBlockReasons(input.safetyVerdict),
     when(input.held, 'moderation_held'),
     when(!publisherSubscription.allowed, 'publisher_subscription_denied'),
     when(!tierGrantsAutopilot(input.subscriptionTier), 'autopilot_tier_required'),
@@ -380,6 +389,41 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     providerModerationEnabled: providerEnabled,
     runtimeEnabled,
   };
+}
+
+/**
+ * The Safety review's two answers are two DIFFERENT owner-facing facts, so they
+ * are two block reasons (deviation D11). The Refusal ledger reads
+ * `unsafe_content` as "We would not say that" and `watchdog_unavailable` as
+ * "We could not check it, so we did not post" — and because the module fails
+ * CLOSED, a provider outage and a model-named threat both arrive as
+ * `cleared: false`. Only `source` separates them, and the gate has it.
+ *
+ * ONLY A MODEL ANSWER CAN CLEAR. `answered` is the whole gate: a verdict clears
+ * the lane only when a model produced it (`source: 'llm'`) AND it carries a real
+ * boolean. Three cases this refuses that a bare `cleared === true` would admit:
+ *
+ *   - `source: 'mock'`, which is a CLEARANCE by construction (deviation D2, so
+ *     local dev can exercise this lane). MOCK_EXTERNAL_APIS is false in CI and
+ *     in both deploy environments, so it is unreachable where a draft can post
+ *     — but "unreachable" is a property of the environment, and this is the
+ *     gate. It does not lean on the environment for a one-condition check.
+ *   - `source: 'skipped'`, same reasoning.
+ *   - a malformed verdict with no boolean `cleared`. `reviewSafety` cannot
+ *     produce one, but a caller can, and no valid answer exists in it.
+ *
+ * Everything that is not an answer is `safety_review_unavailable`, not
+ * `safety_review_not_cleared` — the second is a claim ABOUT THE DRAFT, and
+ * nothing objected to a draft that was never judged (deviation D11).
+ *
+ * Total and mutually exclusive, so exactly one row fires.
+ */
+function safetyReviewBlockReasons(
+  verdict: SafetyVerdict | null,
+): Array<AutoApprovalBlockReason | null> {
+  const answered = verdict?.source === 'llm' && typeof verdict.cleared === 'boolean';
+  if (!answered) return ['safety_review_unavailable'];
+  return verdict.cleared ? [] : ['safety_review_not_cleared'];
 }
 
 function thresholdBlockReason(input: Pick<

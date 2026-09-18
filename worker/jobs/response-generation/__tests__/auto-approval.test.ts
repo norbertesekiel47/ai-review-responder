@@ -22,6 +22,7 @@ import {
 // `auto-approval.ts` — see the comment there where the union used to sit
 // (#1013 deviation D2).
 import type { AutoApprovalBlockReason } from '../../../../src/lib/shared/worker-types';
+import type { SafetyVerdict } from '../../../../src/lib/moderation/safety-review-schema';
 
 const CLEAN_MODERATION: ModerationDecision = {
   flagged: false,
@@ -63,6 +64,16 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     currentStarRating: 5,
     effectivePolicy: ENABLED_POLICY,
     moderation: CLEAN_MODERATION,
+    // The APPROVABLE default, so every pre-existing case keeps testing the gate
+    // it is about rather than tripping the new safety row. Absence is not
+    // clearance (that is the point of the row), so the fixture has to say so
+    // explicitly — it cannot be left undefined.
+    safetyVerdict: {
+      cleared: true,
+      concern: null,
+      source: 'llm',
+      provider: 'openai',
+    } satisfies SafetyVerdict,
     held: false,
     subscriptionStatus: 'active',
     subscriptionTier: 'autopilot',
@@ -533,8 +544,6 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
 // and OPENAI_MODERATION_ENABLED (auto-approval.ts:345-346) and can reach the
 // wall clock through past-due-recovery.ts:95. Every comparison below therefore
 // pins both flags and `now`.
-
-import type { SafetyVerdict } from '../../../../src/lib/moderation/safety-review-schema';
 
 const CLEARED_VERDICT: SafetyVerdict = {
   cleared: true,
