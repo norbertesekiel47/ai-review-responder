@@ -69,9 +69,16 @@ readiness flag.
   - The lane refuses to start unless the process reads
     `OPENAI_MODERATION_ENABLED === 'true'`, and scores any row with no provider
     marker as `provider_not_reached`. Both guard the silent-failure mode above.
+  - Safety-review mode adds `--with-safety-review`, which appends the two
+    injection rows and scores the check that closes G4-F1. It refuses to start
+    when `MOCK_EXTERNAL_APIS=true`, because the check returns a mock clearance
+    under it and the run would record a PASS that tested nothing.
   - Confirm `VERDICT: PASS` before the readiness flag. Latest recorded run:
-    `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md` —
-    **FAIL in staging and production**, finding G4-F1.
+    `docs/runbooks/evidence/2026-09-18-provider-moderation-corpus.md` —
+    **PASS in staging and production**, 54/55 rows, FP 1/41 (2.4%), FN 0.
+    G4-F1 is closed by the Safety review. G4-F2 (one provider false positive,
+    `safe-sensitive-11`) is carried and inside budget. The superseded failing
+    run is `2026-09-17-provider-moderation-corpus.md`.
 
 - Readiness flag:
   - Set `AUTO_APPROVAL_PROVIDER_MODERATION_READY=true` only after the target
