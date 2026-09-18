@@ -37,13 +37,26 @@ future session parks it again, park it the same way (`mv .feature/intake.json
 ## Codex session id — RESUME it, never start cold
 
 ```
-01a0b358-a8ec-7b52-9425-d534a7a24b2d
+01a0b34f-e1f1-7821-b28d-2815d54ec5b8
 ```
 
 Rounds 2–3 RESUME this session (`codex exec resume <id> "<delta>"`). A
 verification round checks whether its OWN findings were addressed, so round 1's
 context is exactly what it needs, and a cold start pays about 1M input tokens to
 rebuild it.
+
+> **Revision 1 recorded the WRONG id** (`01a0b358-a8ec-7b52-9425-d534a7a24b2d`).
+> That is an unrelated **Codex Desktop** session — `originator: "Codex Desktop"`,
+> cwd `~/Documents/Codex/2026-09-18/new-chat`, CLI `0.154.0-alpha.6.2` — started
+> at 00:08, after round 1 had already returned at 00:10 from a different thread.
+> Resuming it would have anchored a verification round on a conversation that
+> never saw this plan, and the round would have looked like it worked.
+>
+> The id above is taken from the transcript itself, which is the only place that
+> cannot drift: `grep -oE '"thread_id":\s*"[a-f0-9-]+"' .feature/logs/plan-round1.jsonl`.
+> **Re-derive it that way rather than trusting this line.** Note that
+> `.feature/sessions` holds `c5bedad5-…`, which is a third id and is not the
+> Codex thread either.
 
 ## What revision 2 changed
 
