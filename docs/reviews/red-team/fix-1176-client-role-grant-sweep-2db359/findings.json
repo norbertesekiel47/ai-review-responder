@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1176-client-role-grant-sweep-2db359",
+  "branch": "fix-1176-client-role-grant-sweep",
+  "fork_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
+  "merge_base_sha": "b73c6a001b7467b6ac3811fa5ddbc5e30e3bfb58",
+  "head_sha": "8a944908ad0d0afc9664f76cbca6b1c005614a8d",
+  "intake_sha256": "13cc93ffdfcc6bc74bcb87d280b73e4b94332edaf485bfa48870a4400c4203b2",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-18T01:40:00Z",
+  "inventory": [
+    {
+      "id": "INV-1",
+      "test": "supabase/migrations/122_client_role_grant_sweep.sql — production surface, covered by the 122 integration suite",
+      "file": "supabase/migrations/122_client_role_grant_sweep.sql",
+      "outcome": "excluded",
+      "reason": "Not in round 3's scope and not mutatable for signal: the blob is IDENTICAL between round 2's measured head 2dd74a20f and HEAD 8a944908a (git rev-parse <sha>:<path> = 6f48261d359931c9ffae9a9f7207b35ae4b718be on both). Round 2 killed 10 of 10 executed mutants against this exact blob. Re-mutating an unchanged blob would re-measure round 2, not this delta."
+    },
+    {
+      "id": "INV-2",
+      "test": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts — changed test surface",
+      "file": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Direction A yields no candidate: the suite blob is IDENTICAL across the delta (0aa2fe41eb04538c442a55ddf5925340d8e5bd4e at both 2dd74a20f and HEAD). No test case was added, modified or deleted, and no helper, fixture, snapshot or golden it imports changed."
+    },
+    {
+      "id": "INV-3",
+      "test": "scripts/ci/live-db-suites-audit.ts MIGRATION_SHAPE_FILES entry — oracle pnpm ci:live-db-suites",
+      "file": "scripts/ci/live-db-suites-audit.ts",
+      "outcome": "excluded",
+      "reason": "Blob IDENTICAL across the delta (4a517b27d22458da1a6e06d4775b6770f8d7a6ef at both). Round 2 carried round 1's kill MA1 against this blob."
+    },
+    {
+      "id": "INV-4",
+      "test": ".claude/reference/migrations-log.md entry 122 — doc claims (duty 3)",
+      "file": ".claude/reference/migrations-log.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable: no mutation candidate exists. Verified by duty 3 instead — every claim in the rewritten entry 122 was re-resolved against the committed snapshots, the migration blob and a live read-only introspection of both Supabase projects. Result: RT-5 (P2) only."
+    },
+    {
+      "id": "INV-5",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/README.md — doc claims (duty 3)",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/README.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable. Verified by duty 3: counts 766/12/300, 98 TRUNCATE = 49x2, the 1080 -> 526 set difference, the migration sha256 prefix and the branch SHA 92bf95797 all re-derived from the committed files and git. No unresolved claim."
+    },
+    {
+      "id": "INV-6",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/README.md — doc claims (duty 3)",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/README.md",
+      "outcome": "excluded",
+      "reason": "Documentation, not executable. Verified by duty 3: pre-apply snapshots byte-identical across projects, post-apply snapshots byte-identical, 62-minute gap, Railway deployment ids and the Sentry claim all re-derived. No unresolved claim."
+    },
+    {
+      "id": "INV-7",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/pre-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/pre-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code: nothing executes it, so there is no oracle to mutate. Checked as data: 1080 rows (1 identity, 1 owners, 766 table, 12 column, 300 default), sha256 14ecf474d519ef98 identical to the production pre-apply file."
+    },
+    {
+      "id": "INV-8",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/post-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/staging-apply/post-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 526 rows, sha256 23738012b23727cd, and BYTE-IDENTICAL to a fresh read-only introspection of the live staging project performed in this pass."
+    },
+    {
+      "id": "INV-9",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/pre-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/pre-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 1080 rows, sha256 14ecf474d519ef98, byte-identical to staging's pre-apply file, which is the lockstep premise the entry asserts."
+    },
+    {
+      "id": "INV-10",
+      "test": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/post-apply-acl-snapshot.txt — evidence artifact",
+      "file": "docs/reviews/fix-1176-client-role-grant-sweep/production-apply/post-apply-acl-snapshot.txt",
+      "outcome": "excluded",
+      "reason": "Captured evidence, not code. Checked as data: 526 rows, sha256 23738012b23727cd, and BYTE-IDENTICAL to a fresh read-only introspection of the live production project performed in this pass."
+    },
+    {
+      "id": "INV-11",
+      "test": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.json — the sidecar's own authorizations entry",
+      "file": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.json",
+      "outcome": "excluded",
+      "reason": "The sidecar is this pass's own artifact and is rewritten by it, so it carries no mutation candidate. Checked for consistency instead: the appended authorization owner-third-round-2026-09-17 is well formed, names RT-4, its text names the third round, and mutation-runner round-start accepted it (round 3 open, 30 runs available)."
+    },
+    {
+      "id": "INV-12",
+      "test": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md — rendered faithfulness against the sidecar",
+      "file": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md",
+      "outcome": "excluded",
+      "reason": "This pass's own artifact; rewritten here. Checked for faithfulness at HEAD before rewriting: all 12 round-2 inventory ids, outcomes, the 4 finding ids, severities, dispositions and file:line locations matched the JSON, and the header counts matched the counts block. One divergence, recorded as RT-6."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P1",
+      "title": "Two production hunks in migration 122 had no executable covering test: the PG17 MAINTAIN branch and the lock_timeout backstop.",
+      "at": "supabase/migrations/122_client_role_grant_sweep.sql:110",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed in round 2 and unchanged since: the covering blobs are byte-identical between 2dd74a20f and HEAD (migration 6f48261d, suite 0aa2fe41), so round 2's kills still describe HEAD. Round 3 adds live confirmation that the MAINTAIN branch really executed where it matters: a read-only introspection of both PostgreSQL 17 projects returns 0 effective (anon, authenticated) x (TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) grants over all 58 public tables."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P2",
+      "title": "Handoff and deviation D6 were stale after the #1302 merge.",
+      "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-handoff.md:4",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed in round 2; the handoff and deviations files are outside round 3's delta and unchanged. Re-checked at HEAD that the handoff carries no stale application-status claim: its only apply-related line (:38) says remote migration needs explicit approval at step 8, which the two apply READMEs record as given."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P2",
+      "title": "The suite restore reverted only grants and the default ACL, so an RLS-flipping mutant left the shared test DB dirty.",
+      "at": "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts:323",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed in round 2; the suite blob is identical at HEAD (0aa2fe41), so the fix is intact. Nothing in round 3's delta touches it."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P2",
+      "title": "CI runs the 122 suite on PostgreSQL 16 only, so no CI run executes the MAINTAIN branch; its kill evidence exists only from a local PostgreSQL 17 container in this pass.",
+      "at": ".github/workflows/ci.yml:252",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Still open, and unchanged by round 3's delta. Its stated mitigation has now fired for real: the mandatory PG17 four-right post-apply query returned 0 on both projects, re-derived live in this pass rather than read from the evidence files. The residual is unchanged — a future edit to the MAINTAIN branch would still pass CI unexercised. The owner's third-round authorization explicitly does NOT accept this risk, so the disposition stays open."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "migrations-log entry 122 still closes its mandatory-preflight paragraph with \"production's defaults were not read\", which the same entry's new top text contradicts.",
+      "at": ".claude/reference/migrations-log.md:2942",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Not P1 and not false: the clause is date-scoped to the 2026-09-16 baseline read, where production's defaults genuinely were not read, and the entry's new header states \"Preflight on both: zero global pg_default_acl rows\" (:2879). But the paragraph it closes is written in pre-apply imperative (\"Before apply, ... must\") and is labelled mandatory, so a later auditor of that paragraph alone can conclude the production preflight is still owed. The underlying fact is verified true three ways in this pass: neither committed pre-apply snapshot contains a single pg_default_acl row outside a named schema (all 300 rows are in auth/extensions/graphql/graphql_public/public/realtime/storage), the production-apply README records the PASS, and a live read-only query returned 0 rows with defaclnamespace = 0 on BOTH projects. Remedy is one clause: date-qualify or drop it. P2 because the worst action it can provoke is re-running a read-only query that returns 0."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "The round-2 findings.md rendered \"Authorizations: None.\" while findings.json already carried the owner's third-round authorization.",
+      "at": "docs/reviews/red-team/fix-1176-client-role-grant-sweep-2db359/findings.md:56",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "At HEAD before this pass rewrote it, findings.md:54-56 said \"## Authorizations\" / \"None.\" while findings.json carried owner-third-round-2026-09-17. The skill requires that section to be RENDERED from the array, so the two had drifted. Not P1: the JSON is the authoritative side and is correct, red-team-status.mjs never parses the Markdown (it reads the array), and the drift is inherent to the protocol requiring the grant to land in the sidecar BEFORE round 3 opens, which necessarily happens after the round-2 Markdown was written. Resolved in practice by this round-3 findings.md, which renders the authorization. Recorded so the orchestrator can decide whether the round-2 rendering also deserved an amendment; every other round-2 field was faithfully rendered."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "owner-third-round-2026-09-17",
+      "date": "2026-09-17",
+      "finding_ids": ["RT-4"],
+      "text": "Owner, 2026-09-17, answering a message whose step 2 read: 'After the production evidence commit, authorize one scoped red-team round 3 that covers only those docs commits.' Owner reply, verbatim: 'Yes proceed with the remaining steps please.' This authorizes the third round, scoped to the staging and production evidence commits (docs and migrations-log only; no production or test code changed since round 2's head 2dd74a20fcf7cc761a46b183f7b88268768c9710). It does not accept RT-4's risk; RT-4's disposition stays open."
+    }
+  ],
+  "counts": {
+    "inventory_total": 12,
+    "killed": 0,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 12,
+    "findings_total": 6,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 3,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}

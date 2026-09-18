@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Schema migration applied to both Supabase projects in lockstep (staging first), which .claude/CLAUDE.md classifies as high risk.",
+    "It changes table privileges on all 58 tables in public on production, including autonomy-critical tables (auto_approval_policies, agent_runs, agent_run_steps, agent_outcomes, judge_verdicts). A revoke that reaches a role the application actually uses would break owner reads or worker writes in production.",
+    "It changes the default privileges of the table-owning role, which silently shapes the ACL of every table a future migration creates."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "On production, staging and the local test database, anon and authenticated hold no TRUNCATE, REFERENCES, TRIGGER or MAINTAIN privilege on any table in public, hold no privilege at all on the twenty deny-all tables, and new tables created by the owning role no longer receive those four privileges by default.",
+  "non_goals": [
+    "Do not change ci:rls-audit, ci:tenant-scope, TENANT_TABLES, REVIEWED_NOT_TENANT_SCOPED or docs/security/rls-inventory.md. That is issue #1300.",
+    "Do not add a guard that forces future deny-all tables to REVOKE client DML. That is issue #1300.",
+    "Do not rebuild the migration 048, 049, 051, 053, 057 or 117 suites, and do not add a migration 118 suite. That is issue #1301.",
+    "Do not revoke SELECT, INSERT, UPDATE or DELETE from anon or authenticated on any table that carries at least one RLS policy. Owner reads (users, and the policy-bearing tenant tables) depend on them.",
+    "Do not remove SELECT, INSERT, UPDATE or DELETE from the default privileges. Owner decision 2026-09-16: only the four rights leave the defaults.",
+    "Do not touch sequence or function privileges, or their default privileges. Recorded on issue #1300.",
+    "Do not touch the supabase_admin default ACL. The postgres role cannot alter it, and migrations do not create tables as supabase_admin.",
+    "Do not touch column-level grants (businesses and channel_enrollments column UPDATE for authenticated, migration 040).",
+    "Do not add, drop or change any RLS policy, and do not change relrowsecurity or relforcerowsecurity on any table.",
+    "Do not change service_role or table-owner privileges anywhere.",
+    "No TypeScript production code changes."
+  ],
+  "user_visible_behavior": [
+    "Operational: a PostgREST request with the anon or authenticated key against any of the twenty deny-all tables (for example /rest/v1/auto_approval_policies) returns a permission error instead of an empty result.",
+    "Operational: owner sign-in and dashboard reads are unchanged. The only supabase-js table read with a client role is users, which keeps its SELECT grant and its policies.",
+    "Operational: worker behavior is unchanged in every environment. Every worker and route write reaches Postgres through Postgres.js as the table owner.",
+    "Developer: after this migration lands, pnpm test:db:setup must be re-run before the live-DB suites pass locally."
+  ],
+  "invariants": [
+    "Invariant #8 holds: browser code never receives SUPABASE_SERVICE_KEY, and owner reads stay RLS-scoped. No policy changes.",
+    "Invariant #14 holds, and is strengthened: client roles can no longer reach auto_approval_policies even at the privilege layer.",
+    "After apply, no table in public grants TRUNCATE, REFERENCES, TRIGGER or MAINTAIN to anon or authenticated, measured through effective privilege (has_table_privilege), not only the ACL text.",
+    "After apply, the twenty deny-all tables grant no privilege to anon or authenticated.",
+    "SELECT, INSERT, UPDATE and DELETE grants for anon and authenticated on every table outside the twenty are unchanged.",
+    "The table owner's and service_role's table privileges are unchanged on every table.",
+    "relrowsecurity, relforcerowsecurity, policy definitions and column ACLs are unchanged on every table.",
+    "The owning role's default privileges in public no longer grant TRUNCATE, REFERENCES, TRIGGER or MAINTAIN to anon or authenticated, and still grant SELECT, INSERT, UPDATE and DELETE where they did before.",
+    "No production code path reaches any of the twenty tables through supabase-js. Verified 2026-09-16: rg found only .from('users') in src and worker."
+  ],
+  "edge_cases": [
+    "Production and staging were measured identical on 2026-09-16: 58 tables, 20 deny-all tables with client grants, anon and authenticated hold TRUNCATE on 49, RLS on for all 58. The earlier 21st production table was job_outbox, fixed by migration 119.",
+    "Both Supabase projects run PostgreSQL 17 (server_version_num 170006), where MAINTAIN exists. The local and CI test container runs PostgreSQL 16, where REVOKE MAINTAIN raises a syntax error. The MAINTAIN statements run only when server_version_num >= 170000, inside a DO block.",
+    "All 58 tables are owned by postgres on staging, and postgres is the grantor of every client TRUNCATE, REFERENCES, TRIGGER and MAINTAIN grant, so a REVOKE issued as postgres removes them.",
+    "The local test database user is test, not postgres, and it is a superuser. ALTER DEFAULT PRIVILEGES therefore names no fixed role: it applies to the role running the migration, which is the table-creating role in every environment (postgres on Supabase, test locally).",
+    "The test container carries no Supabase default grants for anon or authenticated, so a post-state read there is vacuous. The execute case first degrades the container to the measured Supabase posture, proves the degrade landed, then applies the file verbatim.",
+    "The nine tables that already deny client TRUNCATE (account_offboarding_tokens, account_offboardings, admin_audit_log, agent_conversations, agent_proposals, agent_turns, agent_unsupported_requests, job_outbox, poller_heartbeats) receive idempotent REVOKEs that change nothing.",
+    "REVOKE ... ON ALL TABLES IN SCHEMA public also covers views, materialized views and foreign tables. Staging has none in public (58 relations, all relkind r).",
+    "REVOKE on a table takes no relation lock (migration 119 header, reviewed against the live catalogues), so the migration does not block writes. lock_timeout is still set, as on 119.",
+    "Revoking a table privilege does not revoke a different column-level privilege. The migration 040 column UPDATE grants for authenticated are not among the revoked rights and stay.",
+    "Re-running the migration is a no-op: REVOKE of an absent privilege and ALTER DEFAULT PRIVILEGES REVOKE of an absent default both succeed silently.",
+    "The migration is immutable once applied. Any correction is migration 123.",
+    "The Supabase migration ledger does not track RepWorth's 0xx migrations. Application is proven by schema introspection only."
+  ],
+  "existing_patterns_to_follow": [
+    "supabase/migrations/119_job_outbox_rls.sql - header shape (what was wrong, why safe, locking, transaction, idempotent/lockstep), BEGIN plus SET LOCAL lock_timeout, REVOKE naming anon and authenticated only.",
+    "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts - execute-not-parse suite: degrade, assert the degrade landed, apply verbatim via db.unsafe on a max: 1 client, diff every public table against a BEFORE, restore from the BEFORE in finally, privilege list derived from acldefault.",
+    "scripts/ci/live-db-suites-audit.ts MIGRATION_SHAPE_FILES - register the new suite with a reason comment.",
+    ".claude/reference/migrations-log.md entry 119 and the head line - log entry format and head bump.",
+    ".claude/rules/migrations.md Traps - a guard suite executes the file, and unchanged needs a BEFORE."
+  ],
+  "test_seams": [
+    "has_table_privilege for anon and authenticated over the privilege list derived from acldefault('r', owner), per table in public.",
+    "aclexplode over pg_class.relacl, expanded with acldefault when relacl is NULL, keyed by table, grantee and privilege, for the BEFORE/AFTER diff of owner and service_role entries.",
+    "pg_attribute.attacl, pg_class.relrowsecurity, pg_class.relforcerowsecurity and pg_policy for the unchanged-elsewhere diff.",
+    "pg_default_acl for the current role in schema public (defaclobjtype 'r'), read through aclexplode.",
+    "The checked-in migration file, applied verbatim through postgres.js unsafe."
+  ],
+  "allowed_edit_surface": [
+    "supabase/migrations/122_client_role_grant_sweep.sql",
+    "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts",
+    "scripts/ci/live-db-suites-audit.ts",
+    ".claude/reference/migrations-log.md",
+    ".claude/reference/arch-review-log.md",
+    "docs/superpowers/plans/fix-1176-client-role-grant-sweep-*",
+    "docs/reviews/fix-1176-client-role-grant-sweep/*",
+    "docs/reviews/red-team/1176-*/*"
+  ],
+  "tests_to_add": [
+    "migration 122 removes TRUNCATE, REFERENCES, TRIGGER and MAINTAIN from anon and authenticated on every public table",
+    "migration 122 removes every anon and authenticated privilege from the twenty deny-all tables",
+    "migration 122 keeps anon and authenticated DML on tables outside the deny-all list and leaves owner and service_role privileges unchanged",
+    "migration 122 changes no RLS flag, policy or column grant on any public table",
+    "migration 122 removes the four rights from the owning role's default table privileges and keeps default DML",
+    "migration 122 is a no-op when applied a second time",
+    "migration 122 refuses to run when a public table is owned by a role other than the applier",
+    "migration 122 fails fast with a lock timeout when another session holds a catalogue row lock"
+  ],
+  "verification_commands": [
+    "pnpm ci:rls-audit",
+    "pnpm ci:tenant-scope",
+    "pnpm ci:live-db-suites"
+  ],
+  "estimated_prod_lines": 170,
+  "estimated_test_lines": 420,
+  "dependencies_added": [],
+  "rollback_plan": "An applied migration is immutable, so the undo is migration 123, applied staging first. Before applying 122 to each project, save that project's full client-role table ACL and default ACL (aclexplode over relacl and pg_default_acl for anon and authenticated in public) to the PR evidence. The inverse is EXACT and generated per project from that snapshot: re-grant precisely the (table, role, privilege, grant option) entries present before 122 and absent after it, plus the exact default-ACL entries 122 removed. Never GRANT ALL on the twenty: migrations 055 and 076 had already revoked authenticated INSERT/UPDATE/DELETE on auto_approval_policies and judge_verdicts, so a blanket grant would widen them (branch review round 1). Rollback is warranted only if a real code path turns out to need one of the revoked privileges, which would show as a 42501 permission error in Sentry or Railway logs after the staging apply. The staging ride is the detector.",
+  "observability": [
+    "MANDATORY PREFLIGHT on BOTH projects before apply: no global (defaclnamespace = 0) table default entry for the applying role grants anon or authenticated TRUNCATE, REFERENCES, TRIGGER or MAINTAIN, because migration 122's schema-level revoke cannot subtract a global grant. After apply, a rolled-back CREATE TABLE probe as the applying role must show none of the four rights (branch review round 1).",
+    "MANDATORY PG17 pass/fail evidence on BOTH Supabase projects after apply: count of (anon|authenticated) x (TRUNCATE|REFERENCES|TRIGGER|MAINTAIN) x every table in public where has_table_privilege is true must be 0 (exact query in the plan, step 8). The PG16 test container cannot execute the MAINTAIN branch, so this query is its only proof.",
+    "Post-apply introspection on BOTH Supabase projects with the scratch posture query: deny-all tables with client grants = 0, anon TRUNCATE = 0, authenticated TRUNCATE = 0, RLS off = 0, table count still 58. Recorded in the PR body. This is also the only detector of a half-applied lockstep.",
+    "pg_default_acl for postgres in public on both projects shows anon and authenticated without D, x, t and m, and still with a, r, w and d.",
+    "A PostgREST probe with the staging anon key against /rest/v1/auto_approval_policies returns a permission error (42501) instead of an empty array.",
+    "Staging owner sign-in and dashboard load succeed after apply (the users read through authenticated).",
+    "No new 42501 permission-denied events in Sentry or the staging Railway worker logs in the hour after apply, and OutboxPoller keeps dispatching."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "remote_migration",
+    "merge"
+  ],
+  "open_questions": []
+}
