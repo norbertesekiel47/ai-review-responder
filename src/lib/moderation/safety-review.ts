@@ -61,8 +61,11 @@ import {
  * above the real cost — the tracker's 15¢ reply-generation default would
  * reserve an order of magnitude too much of the owner's daily budget for a
  * check that runs on every auto-approval candidate.
+ *
+ * Module-private on purpose: the only consumer is the reservation below, so
+ * exporting it only gave fallow an unused export to report.
  */
-export const SAFETY_REVIEW_ESTIMATE_CENTS = 1;
+const SAFETY_REVIEW_ESTIMATE_CENTS = 1;
 
 /** The injected seam. Narrow on purpose: the task id is not the caller's. */
 export type RunSafetyTask = (prompt: ChatPrompt) => Promise<LLMCallResult>;

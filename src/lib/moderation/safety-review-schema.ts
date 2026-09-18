@@ -5,8 +5,15 @@ import type { LLMProviderId } from '@/lib/llm/types';
 // registry (src/lib/llm/tasks.ts) can hold the schema without importing the
 // worker-only module and its cost-guard graph. Precedent: judge-schema.ts.
 
-/** The concern classes G4-F1 proved the provider classifier misses. */
-export const SAFETY_CONCERNS = [
+/**
+ * The concern classes G4-F1 proved the provider classifier misses.
+ *
+ * Module-private on purpose: every consumer wants the `SafetyConcern` type or
+ * the schema below, never the tuple, so exporting it only gave fallow an unused
+ * export to report. Export it again when something outside this file needs to
+ * enumerate the classes.
+ */
+const SAFETY_CONCERNS = [
   'implied_threat',
   'implied_sexual',
   'targeted_abuse',
