@@ -1,0 +1,644 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-safety-review-auto-approval-5e21bf",
+  "branch": "feat/safety-review-auto-approval",
+  "fork_sha": "e0c3ceb1331dee7bf7eb92dc6128879c860b5805",
+  "merge_base_sha": "e0c3ceb1331dee7bf7eb92dc6128879c860b5805",
+  "head_sha": "6a787c037d767dfa5af79ef2450766e02996c785",
+  "intake_sha256": "3841dd8f03a6661a340257da094baf685e86fc39715fc8230d8cc93e94e9c724",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-18T13:19:53.077Z",
+  "inventory": [
+    {
+      "id": "rt-A01",
+      "test": "returns cleared with no concern for an ordinary safe draft",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A02",
+      "test": "returns not-cleared with the concern the model named for an unsafe draft",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A03",
+      "test": "records the answering provider on every safety verdict",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A04",
+      "test": "passes only the draft text to the LLM task, never the review text",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A05",
+      "test": "returns not-cleared when the model output fails the schema",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A06",
+      "test": "returns not-cleared when the model returns cleared=true with a non-null safety concern",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A07",
+      "test": "makes no LLM call when cost reservation is denied or unavailable",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A08",
+      "test": "returns not-cleared when the cost reservation fails, and does not rethrow",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A09",
+      "test": "returns not-cleared when cost finalization fails after a cleared model verdict",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A10",
+      "test": "returns not-cleared when the safety-review cost audit write fails",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A11",
+      "test": "finalizes and audits billed invalid safety-review completions before returning not-cleared without retry",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-A12",
+      "test": "clears from the Anthropic fallback when the primary safety-review circuit is open",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A13",
+      "test": "returns not-cleared when every safety-review provider attempt fails",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A14",
+      "test": "returns not-cleared when the LLM task throws",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A15",
+      "test": "never throws, for any injected failure",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-A16",
+      "test": "short-circuits to a distinguishable mock clearance under MOCK_EXTERNAL_APIS",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-B01",
+      "test": "blocks auto-approval with safety_review_not_cleared when the verdict is not cleared",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-B02",
+      "test": "does not add safety_review_not_cleared when the verdict is cleared",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-B03",
+      "test": "blocks auto-approval with safety_review_unavailable when the check itself failed",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-B04",
+      "test": "blocks auto-approval when the safety verdict is null, undefined, or missing cleared",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-B05",
+      "test": "invariants: a not-cleared verdict never produces approved=true",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-B06",
+      "test": "invariants: a cleared safety verdict preserves every pre-safety approval decision and block reason",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-B07",
+      "test": "invariants: a not-cleared safety verdict adds exactly safety_review_not_cleared to the pre-safety block set",
+      "file": "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-C01",
+      "test": "finishes the safety-review LLM call before opening the persist transaction",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-01"
+    },
+    {
+      "id": "rt-C02",
+      "test": "skips the safety review and makes no LLM call when moderation already flagged the draft",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-C03",
+      "test": "skips the safety review and makes no LLM call when the draft is not an auto-approval candidate",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-C04",
+      "test": "does not retry the job when the safety review fails",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-D01",
+      "test": "persists a not-cleared safety verdict as pending_approval with one owner notification and no moderation hold, approval audit, or publish outbox",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-D02",
+      "test": "records a safety_reviewed step on the run spine when the draft persists with an active run",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-D03",
+      "test": "a completed safety review followed by stale content creates no response, spine step, or follow-up work and records the discarded evaluation",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-D04",
+      "test": "a not-cleared safety review without an active run still notifies the owner and records its evaluation outside the spine",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-D05",
+      "test": "a safety_reviewed spine-write failure rolls back the response and follow-up outbox work and propagates the persistence error",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E01",
+      "test": "scores unsafe-threat-02 as true_positive in the safety-review corpus mode",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E02",
+      "test": "scores unsafe-sexual-01 as true_positive in the safety-review corpus mode",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E03",
+      "test": "records a safety-only G4-F1 catch without claiming that provider moderation caught the draft",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-E04",
+      "test": "a safety catch does not erase a provider miss on a row that still requires provider moderation",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-E05",
+      "test": "fails the safety-review corpus when an unsafe row receives source=failed instead of a model judgment",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-11",
+      "reason": "Green baseline at HEAD 6a787c037. Mutation M29 dropped `&& safety.source === 'llm'` from the extracted `safetyFlagged` helper (moderation-runner.ts:106) — the exact clause the fix restored. This test PASSED under the mutant, and so did the whole file: a second supervised launch ran all 39 cases of moderation-corpus.test.ts under M29 with 0 failures. The branch IS executed (the case supplies source:'failed'), and the mutant is not equivalent — it makes an OUTAGE row report flaggedBySafetyReview=true, the overclaim the helper's own docstring says it exists to prevent. No oracle in the covering set falsifies the clause, so this is a claim about the ORACLE, not a proven behaviour-preserving mutant."
+    },
+    {
+      "id": "rt-E06",
+      "test": "fails the safety-review corpus on a safe-row check failure even when the false-positive budget is not exceeded",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-E07",
+      "test": "rejects safety-review corpus evidence containing mock or skipped verdicts",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "rt-E08",
+      "test": "refuses the live safety-review corpus before external calls when MOCK_EXTERNAL_APIS=true",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E09",
+      "test": "records which provider answered each safety-review corpus row",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E10",
+      "test": "requires zero false negatives on the injection-resistant safety corpus rows",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E11",
+      "test": "injection-targeted rows fail when the safety reviewer clears them even if another moderation layer flags them",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E12",
+      "test": "leaves the default corpus mode unchanged, so the recorded 2026-09-17 evidence stays reproducible",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E13",
+      "test": "loads the default corpus from disk with the recorded row count and report shape",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-F01",
+      "test": "registers safety_review with the declared pinned model policy, zero temperature, and SafetyReviewOutputSchema",
+      "file": "src/lib/llm/__tests__/tasks.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-G01",
+      "test": "promised-tests discovers promised corpus titles under tests/llm-eval",
+      "file": "scripts/ci/__tests__/gate-rows.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-G02",
+      "test": "keeps discovering titles under the roots it already searched",
+      "file": "scripts/ci/__tests__/gate-rows.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-G03",
+      "test": "still reports a genuinely unwritten title as missing",
+      "file": "scripts/ci/__tests__/gate-rows.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-H01",
+      "test": "every runLlmTask call site is in the reviewed-caller allowlist",
+      "file": "src/__tests__/cost-guard-contract.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-H02",
+      "test": "the allowlist carries no stale entries (files without a call site)",
+      "file": "src/__tests__/cost-guard-contract.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-I01",
+      "test": "maps safety_review_not_cleared to a refusal category",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-I02",
+      "test": "maps the two safety block reasons to unsafe_content and watchdog_unavailable",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-I03",
+      "test": "resolves safety_review_not_cleared through the production refusal resolver with the declared category precedence",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-J01",
+      "test": "(whole suite; modified by the added cleared-safetyVerdict fixture)",
+      "file": "worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Round-1 class `infra` no longer applies: this round wired a validated localhost TEST_DATABASE_POOL_URL (docker repworth-testdb-recovery-20260914, migrations head 121) into every supervised launch, so the suite was executable. The 30-launch budget went to fix verification first."
+    },
+    {
+      "id": "rt-J02",
+      "test": "(whole suite; modified by the added cleared-safetyVerdict fixture)",
+      "file": "worker/jobs/response-generation/__tests__/content-freshness-gate.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Round-1 class `infra` no longer applies: this round wired a validated localhost TEST_DATABASE_POOL_URL (docker repworth-testdb-recovery-20260914, migrations head 121) into every supervised launch, so the suite was executable. The 30-launch budget went to fix verification first."
+    },
+    {
+      "id": "rt-J03",
+      "test": "(whole suite; modified by the added cleared-safetyVerdict fixture)",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Round-1 class `infra` no longer applies: this round wired a validated localhost TEST_DATABASE_POOL_URL (docker repworth-testdb-recovery-20260914, migrations head 121) into every supervised launch, so the suite was executable. The 30-launch budget went to fix verification first."
+    },
+    {
+      "id": "rt-J04",
+      "test": "(whole suite; modified by the added `safetyVerdict: null` fixture)",
+      "file": "worker/jobs/response-generation/__tests__/on-demand-lane.property.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-K01",
+      "test": "src/lib/agents/run-spine.ts:68 — STEP_PERSONA['safety_reviewed'] = 'system'",
+      "file": "(no covering test)",
+      "outcome": "skipped-budget",
+      "reason": "RT-05 fix: src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx now carries a non-tautological covering assertion (`expect(STEP_PERSONA.safety_reviewed).toBe('system')`), recorded as row rt-L04. The uncovered-change condition is resolved; budget did not reach the mutation."
+    },
+    {
+      "id": "rt-K02",
+      "test": "src/components/dashboard/timeline/step-facts.ts:58-65 — STEP_COPY['safety_reviewed'] label/explain/failedLabel",
+      "file": "(no covering test)",
+      "outcome": "skipped-budget",
+      "reason": "RT-05 fix: step-facts-safety.test.tsx asserts the label, the explain, the label/moderation_checked collision and the `Held for you` failedLabel directly (rows rt-L01..rt-L03). The uncovered-change condition is resolved; budget did not reach the mutation."
+    },
+    {
+      "id": "rt-K03",
+      "test": "tests/llm-eval/run.ts:218-232,251-258,291,300-320 — summariseProviders, the safety fields in printModerationReport and the --with-safety-review CLI wiring",
+      "file": "(no covering test)",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-06",
+      "reason": "PARTIALLY resolved. `summariseProviders` moved out of run.ts into moderation-runner.ts as `summariseSafetyProviders` and gained two cases (rows rt-E14, rt-E15). The REST of the hunk is still uncovered: tests/llm-eval/__tests__/run.test.ts is unchanged on this branch and grep over it for `--with-safety-review`, `printModerationReport`, `assertSafetyModeEnvironment` and `makeCorpusSafetyReview` returns zero hits, so the CLI entry point and the new report printing have no covering candidate."
+    },
+    {
+      "id": "rt-A17",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "test": "never asks the fallback after the primary named a concern",
+      "outcome": "killed",
+      "reason": "D14. Green baseline. TWO mutants, both killed: M27 restored the `.refine()` contradiction rejection onto SafetyReviewOutputSchema (the exact pre-fix code, which turns a contradiction into a provider failover) — test failed; M28 dropped `&& output.concern === null` from deriveSafetyVerdict (safety-review-schema.ts:92) — test failed."
+    },
+    {
+      "id": "rt-A18",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "test": "reports a fail-closed outage to the alert sink, carrying no draft text",
+      "outcome": "skipped-budget",
+      "reason": "RT-07 emitting half. Not executed; see RT-14 for a static facet contradiction found by Duty 5 without a launch."
+    },
+    {
+      "id": "rt-A19",
+      "file": "src/lib/moderation/__tests__/safety-review.test.ts",
+      "test": "does not report a model-judged block to the alert sink",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-C05",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "test": "threads the verdict reviewSafety returned, by identity, into persistence",
+      "outcome": "killed",
+      "reason": "RT-01. Green baseline. TWO mutants, both killed: M20 replaced the threaded `safetyVerdict` at ResponseGeneratorWorker.ts:172 with an unconditional {cleared:true,concern:null,source:\"llm\",provider:null} — the round-1 survivor — test failed; M21 threaded a bare `null` — test failed. The identity assertion (`toBe`) is what kills the constant; a structural assertion would not."
+    },
+    {
+      "id": "rt-C06",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "test": "threads null when the safety review was skipped, never a synthesised clearance",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-C07",
+      "file": "worker/__tests__/safety-review-call-site.test.ts",
+      "test": "skips the safety review and makes no LLM call for a Copilot account",
+      "outcome": "killed",
+      "reason": "Tier-blind skip. M36 deleted `&& tierGrantsAutopilot(ctx.subscriptionTier)` from the worker skip predicate and the WHOLE file ran under it: 9 cases, exactly 1 failure, and it was this case. Attribution is unambiguous and the other 8 cases passing shows the file is healthy under the mutant. DEVIATION recorded honestly: budget was exhausted, so this case has no individual HEAD baseline of its own — the file-level evidence stands in for it."
+    },
+    {
+      "id": "rt-D06",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "test": "records the safety_reviewed step as completed when the verdict cleared",
+      "outcome": "killed",
+      "finding_id": "RT-10",
+      "reason": "RT-02 second half. Green baseline. M24 replaced `status: safetyVerdict.cleared ? 'completed' : 'failed'` (persist.ts:552) with a constant 'failed' — test failed, so the completed half is pinned. A SECOND mutant on this row, M25 (safetyReviewBlockReasons always returns ['safety_review_not_cleared']), SURVIVED; that mutation is outside this test's oracle (the step status is computed upstream of the gate), so it is recorded as finding RT-10 rather than as this row's outcome."
+    },
+    {
+      "id": "rt-E14",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "test": "names every provider that answered, with its count",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-E15",
+      "file": "tests/llm-eval/__tests__/moderation-corpus.test.ts",
+      "test": "reports none for rows no provider answered",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-L01",
+      "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
+      "test": "renders a label and explanation rather than a de-snake-cased database word",
+      "outcome": "skipped-budget",
+      "reason": "New file added by the RT-05 fix; covers rt-K02."
+    },
+    {
+      "id": "rt-L02",
+      "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
+      "test": "says a held draft was held for you, never that the check failed",
+      "outcome": "skipped-budget",
+      "reason": "Covers the `Held for you` failedLabel named in RT-05."
+    },
+    {
+      "id": "rt-L03",
+      "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
+      "test": "shows no status chip for a completed check",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "rt-L04",
+      "file": "src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx",
+      "test": "is registered on the run spine as a system step",
+      "outcome": "skipped-budget",
+      "reason": "Covers rt-K01; replaces the tautological Object.entries loop with a direct value assertion."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "duty": 1,
+      "at": "worker/jobs/ResponseGeneratorWorker.ts:172",
+      "title": "No changed test pinned that the REAL safety verdict reaches the gate — a worker that hands persist an unconditional clearance was green",
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation in round 2. worker/__tests__/safety-review-call-site.test.ts:207 now asserts IDENTITY (`expect(persistMock.mock.calls[0][1].safetyVerdict).toBe(verdict)`), with a partial mock of the persist module so real persistence still runs. Round-2 launches 1-3 (row rt-C05): green baseline, then M20 (the round-1 survivor — an unconditional {cleared:true,concern:null,source:\"llm\",provider:null} in place of the threaded verdict) FAILED the test, and M21 (a bare `null`) FAILED it too. Both named mutants die. Note that the round-1 candidate rt-C01 (the ordering test) still does not kill them; the fix added a new candidate rather than strengthening that one.",
+      "arbiter_reasoning": "Carried from round 1, for the row that still holds the outcome (rt-C01, the ordering test). The branch IS executed: primeContext() makes the draft an auto-approval candidate with unflagged moderation, so the mutated expression is evaluated and its value is handed to the REAL persistResponseAndNotify (persist was not mocked in that file at the time). The mutation is not equivalent and is semantically maximal — it discards the model's verdict at the only seam that carries it, so a cleared:false draft would reach the auto_policy gate as cleared. The covering set was re-derived by reverse import search and none of safety-review-call-site.test.ts, persist.test.ts, auto-approval.test.ts or the pre-existing ResponseGeneratorWorker.test.ts read the verdict handed to persist. Round 2 confirms the mutant now dies against the NEW candidate rt-C05; rt-C01 itself is unchanged and still does not kill it, which is why the row keeps its outcome."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P0",
+      "duty": 1,
+      "at": "worker/jobs/response-generation/persist.ts:552",
+      "title": "The safety_reviewed spine step's status was unasserted — 'failed' could become 'completed' with every test green",
+      "disposition": "fixed",
+      "reason": "FIXED, both halves confirmed by mutation in round 2. persist.test.ts now asserts `toMatchObject({ status: 'failed' })` on the not-cleared case and adds a cleared case asserting `status: 'completed'`. Launches 6-7 (row rt-D02): green baseline, then M22 (`status: 'completed'` constant — the round-1 survivor) FAILED the test. Launches 8-9 (row rt-D06): green baseline, then M24 (`status: 'failed'` constant) FAILED the test. Neither constant survives now."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "duty": 2,
+      "at": "src/lib/moderation/__tests__/safety-review.test.ts:147",
+      "title": "Vacuous negative assertion: the ADR 0032 'never the review text' claim was not pinned by any input",
+      "disposition": "fixed",
+      "reason": "FIXED, confirmed by mutation. The test now iterates every field of INPUT other than draftText and asserts the serialized prompt contains none of them. Launches 18-19 (row rt-A04): green baseline, then M30 interpolated `input.accountId` into the prompt built at safety-review.ts:195 — exactly the shape a \"give the model more context\" change would take — and the test FAILED. Two vacuous lines were RETAINED as canaries and are recorded separately as RT-12."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "duty": 3,
+      "at": "src/lib/agents/run-spine.ts:66",
+      "title": "Seven stale path:line citations in the change's own code comments",
+      "disposition": "fixed",
+      "reason": "FIXED and re-verified at HEAD 6a787c037. A sweep of every .ts/.tsx file changed on this branch for the pattern `[A-Za-z0-9_/.-]+\\.(ts|tsx):[0-9]+` returns ZERO matches — all 18 line citations became symbol citations and none regressed. prevalidate-plan.py also passes clean on the plan (32 citations), the deviations file (8) and ADR 0032. A NEW unresolvable citation appeared in one of the review-wave reports the fix added; that is RT-13, not a regression of this one."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P1",
+      "duty": 1,
+      "at": "src/components/dashboard/timeline/step-facts.ts:58",
+      "title": "Uncovered change: the new STEP_COPY entry and STEP_PERSONA entry had no falsifiable test",
+      "disposition": "fixed",
+      "reason": "FIXED by inspection, NOT by mutation — stated plainly because the distinction matters. src/components/dashboard/timeline/__tests__/step-facts-safety.test.tsx (new, 4 cases) asserts the label literally (`toBe('Safety review')`), asserts it differs from the moderation_checked label, asserts `stepStatusLabel({stepKey:'safety_reviewed', status:'failed'})` is `Held for you`, asserts the completed case yields null, and asserts `STEP_PERSONA.safety_reviewed` is `'system'` directly rather than through the tautological Object.entries loop. These are value assertions that a changed constant would fail. The four covering rows rt-L01..rt-L04 are `skipped-budget`: the 30-launch budget did not reach them."
+    },
+    {
+      "id": "RT-06",
+      "severity": "P1",
+      "duty": 1,
+      "at": "tests/llm-eval/run.ts:287",
+      "title": "Uncovered change: the --with-safety-review CLI wiring and the new report printing still have no covering test",
+      "disposition": "open",
+      "reason": "PARTIALLY addressed. The fix moved `summariseProviders` out of run.ts into moderation-runner.ts as the exported `summariseSafetyProviders` and gave it two cases (rows rt-E14, rt-E15) — a real improvement, because the function is now reachable by a test at all. The REST of the hunk is unchanged in coverage: tests/llm-eval/__tests__/run.test.ts is not in the branch diff, and grep over it for `--with-safety-review`, `printModerationReport`, `assertSafetyModeEnvironment` and `makeCorpusSafetyReview` returns zero hits. The safety-mode CLI entry point — including the assertSafetyModeEnvironment call ordering that deviation D3 exists for — is still exercised only through the runner functions, never through the command an operator actually runs. Row rt-K03 stays inconclusive/oracle."
+    },
+    {
+      "id": "RT-07",
+      "severity": "P1",
+      "duty": 5,
+      "at": "src/lib/moderation/safety-review.ts:292",
+      "title": "Duty 5: the fail-closed safety-review outage had NEITHER half of an alert path",
+      "disposition": "fixed",
+      "reason": "FIXED. Both halves now exist: the emitting half is `reportCaughtError('moderation/safety-review', err, { correlation_id })` in reviewSafety's outer catch (safety-review.ts:292), and the documented half is rule 14 in docs/runbooks/beta-launch-alerting.md:456-470, with a 20-events-in-1-hour threshold, a 60-minute per-issue throttle, a named destination and an operator action. Two new tests (rows rt-A18, rt-A19) assert that an outage reports and that a model-judged block does not. One of the six facets CONTRADICTS the emitted signal; that is recorded separately as RT-14."
+    },
+    {
+      "id": "RT-08",
+      "severity": "P2",
+      "duty": 2,
+      "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1731",
+      "title": "Leak canary that cannot fail against the current structure",
+      "disposition": "rejected",
+      "reason": "REJECTED by the review-wave triage: weak rather than wrong — a canary against a future widening of `detail` cannot produce a false green about behaviour. Evidence at HEAD: worker/jobs/response-generation/__tests__/persist.test.ts:1731 `expect(JSON.stringify(steps[0])).not.toContain(RESULT.responseText)`, against a `detail` built from four scalar verdict fields at worker/jobs/response-generation/persist.ts:553-558. Verdict recorded at docs/superpowers/plans/feat-safety-review-auto-approval-handoff.md:138-145."
+    },
+    {
+      "id": "RT-09",
+      "severity": "P2",
+      "duty": 2,
+      "at": "tests/llm-eval/__tests__/moderation-corpus.test.ts:472",
+      "title": "Loose count where the exact value is known",
+      "disposition": "rejected",
+      "reason": "REJECTED by the review-wave triage under the same verdict as RT-08: weak rather than wrong; it cannot produce a false green about behaviour. Evidence at HEAD: tests/llm-eval/__tests__/moderation-corpus.test.ts:472 `expect(report.safetyInjectionMisses).toBeGreaterThan(0)` where the same test loads the full injection set. Verdict recorded at docs/superpowers/plans/feat-safety-review-auto-approval-handoff.md:138-145."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P1",
+      "duty": 2,
+      "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1734",
+      "title": "The cleared test's `autoApprove: true` does not pin that a cleared verdict reaches the auto-approve commit — the comment's central claim is unasserted",
+      "disposition": "open",
+      "reason": "The masked-test fix itself IS verified: launch 11 mutated the gate to drop the safety row entirely (`...safetyReviewBlockReasons(input.safetyVerdict)` -> `...[]` at auto-approval.ts:368) and the end-to-end not-cleared test at persist.test.ts:1696 FAILED — before the fix, the commit message records that same deletion leaving the describe green, so OPENAI_MODERATION_ENABLED was indeed masking it and no longer does. What is NOT pinned is the cleared direction. Launch 10 mutated safetyReviewBlockReasons to return ['safety_review_not_cleared'] unconditionally (auto-approval.ts:426) and the cleared test at :1734 PASSED. `queuePersistRows({ autoApprove: true })` is a row SUPPLY, not an assertion: the fallback path consumes fewer rows, so a leftover queue raises nothing. The test's own comment claims the opposite — that `autoApprove: true` is there because a cleared verdict now genuinely reaches the auto-approve commit — and nothing in that describe would fail if it stopped being true. Behavioural replacement: assert the auto-approve side effects on the cleared case the way the not-cleared case asserts their absence (an approval audit row and a publish outbox row, via the existing txTexts() helper).",
+      "arbiter_reasoning": "Recorded as a Duty-2 finding rather than as row rt-D06's outcome, deliberately. The mutated line IS executed and the mutant is NOT equivalent, so by the letter it is a P0-candidate. But rt-D06's asserted behaviour is the spine step's status, which persist.ts computes from `safetyVerdict.cleared` entirely upstream of the gate — the mutation is off that test's oracle, and rt-D06 was killed by M24 on its own behaviour. The gate predicate itself is separately covered: auto-approval.test.ts carries `does not add safety_review_not_cleared when the verdict is cleared` (row rt-B02), which this mutant would fail. Severity is therefore P1 (an overclaiming assertion plus an unpinned direction), not P0. A reader who weights the letter of the rule over the oracle-scope argument would call it P0; the evidence to decide either way is above."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P1",
+      "duty": 1,
+      "at": "tests/llm-eval/moderation-runner.ts:106",
+      "title": "The restored `source === 'llm'` clause in the extracted safetyFlagged helper is falsified by no test in the corpus lane",
+      "disposition": "open",
+      "reason": "The fix consolidated four spellings of one predicate into `safetyFlagged`, restoring the `&& safety.source === 'llm'` clause that one copy had dropped — its docstring states the defect it repairs: an OUTAGE row reported flagged-by=safety_review. Nothing pins the repair. Launch 16 dropped that clause and the most-covering case — `fails the safety-review corpus when an unsafe row receives source=failed instead of a model judgment` (row rt-E05), which supplies exactly a not-cleared source:'failed' verdict — PASSED. Launch 17 then ran the ENTIRE file under the same mutant: 39 cases, 0 failures. The reason is structural: the `safety.source !== 'llm'` check at moderation-runner.ts:127 short-circuits an outage row to `safety_error` before any label branch, so `outcome` and `verdict` are unchanged; the only thing the mutant changes is `flaggedBySafetyReview` on the emitted result, and no case asserts that field false. grep for `flaggedBySafetyReview` in moderation-corpus.test.ts returns exactly one assertion, `toBe(true)` at :342. Behavioural replacement: on the outage case, assert `report.results[0].flaggedBySafetyReview` is false and `caughtBy` is null. This is release-gate EVIDENCE (the `llm-eval` job is a required check), so a silent regression would make a recorded corpus run attribute a catch to a layer that was down."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "duty": 2,
+      "at": "src/lib/moderation/__tests__/safety-review.test.ts:158",
+      "title": "The RT-03 rewrite retained two assertions that still cannot fail for any implementation",
+      "disposition": "open",
+      "reason": "safety-review.test.ts:158 `expect(Object.keys(INPUT)).not.toContain('reviewText')` asserts a property of a test-local object literal declared at :65 — it is an assertion about the FIXTURE, not about production code, and no change to safety-review.ts can make it fail. :159 `expect(serialized).not.toContain(REVIEW_TEXT)` is the original RT-03 line, retained: REVIEW_TEXT is still never passed to reviewSafety and ReviewSafetyInput still has no field to carry it. Recorded, not blocking, and consistent with the RT-08/RT-09 REJECT verdict (weak rather than wrong): the falsifiable half of the test now exists and was proven to kill M30, so the vacuous lines no longer stand alone. Removing :158 and keeping :159 as a documented canary would be the tidy end state."
+    },
+    {
+      "id": "RT-13",
+      "severity": "P1",
+      "duty": 3,
+      "at": "docs/reviews/feat-safety-review-auto-approval/security.md:32",
+      "title": "An unresolvable path:line citation in the security review report the fix commit added",
+      "disposition": "open",
+      "reason": "prevalidate-plan.py over the eight changed/added docs reports one genuine unresolved citation: `operator/policy-state.ts:251` — no such path exists at HEAD. The SUBSTANCE of the claim is TRUE and was hand-verified: the file is src/lib/agents/operator/policy-state.ts, line 251 is the `WHERE ar.account_id = ...` predicate and :256 is `AND s.step_key = ${INITIAL_MARKER_STEP}::text`, so the reader's claim (account-scoped, filters a different step_key) holds. Only the path prefix is missing, which is the round-1 RT-04 class and the same P1 severity — a stale coordinate, not a false claim. Every other citation in that file resolves (31 checked), as do spec-correctness.md (31), standards-maintainability.md (52), the plan (32) and the deviations file (8). The handoff's two stale-commit hits (01a0b358, d534a7a24b2d) are the KNOWN false positive — hex fragments of a quoted Codex session UUID, documented at handoff line 179 — and are not reported."
+    },
+    {
+      "id": "RT-14",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:460",
+      "title": "Duty 5 facet contradiction: rule 14 documents level `warning`, but the emitted signal is captureException at level `error`",
+      "disposition": "open",
+      "reason": "Six-facet comparison of rule 14 against the signal it describes. MATCH on four: signal identity (`reportCaughtError`, tag `endpoint` = `moderation/safety-review` — src/lib/shared/report-caught-error.ts calls `captureException(error, { tags: { endpoint } })`), filter, grouping (no custom fingerprint is set), and destination (Discord integration 443670, the same id all four rules in this runbook use). CONTRADICTION on level: the runbook's Level column says `warning`, but `captureException` records an exception at Sentry's default `error` level and nothing overrides it — worker/sentry.ts:12's `beforeSend` only calls `scrubSentryEvent` and never touches `level`. The two sibling rules that emit through the identical helper, rule 12 (:440) and rule 13 (:450), both correctly document `error`, so the correct value is established four lines away. An alert rule saved from this row with a `level:warning` condition would match nothing, which is the silent-failure mode the rule exists to prevent. TWO secondary observations on the same comparison: (a) the Level/grouping column also says the context carries `correlation_id` and the error kind only, but the `context` argument is passed to the structured LOG line, not to the Sentry event — the event carries only the `endpoint` tag and the exception (the Operator-action paragraph gets this right and points at the log); (b) threshold and grouping interact — 20 events in 1 hour is evaluated per ISSUE, while default exception-stack grouping will split a fail-closed storm across as many issues as there are distinct error types reaching that catch (provider failures, CostInfraUnavailableError, audit-write failures), so a mixed outage may never reach 20 in any single issue. Neither half of the alert path is missing; the documented facets need correcting before the rule is configured."
+    },
+    {
+      "id": "RT-15",
+      "severity": "P1",
+      "duty": 3,
+      "at": "worker/jobs/ResponseGeneratorWorker.ts:142",
+      "title": "The security axis finding was applied by half — the star-rating pre-filter it also names has no recorded disposition",
+      "disposition": "open",
+      "reason": "Security finding S3 (docs/reviews/feat-safety-review-auto-approval/security.md:18) and spec finding F1 both name TWO cheap pre-LLM discriminators already in hand before the transaction: `ctx.subscriptionTier` AND `ctx.starRating`. The fix applied only the tier half (`&& tierGrantsAutopilot(ctx.subscriptionTier)` at :142, measured and killed this round as row rt-C07). The rating half is not applied, and grep over the deviations file (D1-D14), the handoff's ACCEPT list and its two recorded REJECTs finds no entry for it — so a later session cannot tell whether it was decided or overlooked, which is the condition the project's own accepted-findings checklist calls out and which the handoff states as a rule (a silent skip is forbidden). The concrete scenario S3 records is unchanged by the tier fix: a burst of one-star reviews at an AUTOPILOT business each buys a paid safety_review call plus a 1c reservation, every verdict then discarded by `rating_below_positive_quadrant`, with `withConcurrency: false` removing the per-business concurrency slot. `ctx.starRating` exists at worker/jobs/response-generation/load-context.ts:213. Not a correctness defect — a skip is fail-safe in both directions — so this is an adjudication item, not a blocker on the code."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "owner-safety-review-third-round-2026-09-18",
+      "date": "2026-09-18",
+      "finding_ids": [],
+      "text": "Owner authorized a THIRD round on feat/safety-review-auto-approval on 2026-09-18, in answer to the recorded question \"Round 2 ended INCOMPLETE_ORACLE with 49 rows still unmeasured for budget and 2 inconclusive... A third round needs your authorization recorded in the sidecar before it opens.\" The owner chose the option \"Round 3, budget ~150 launches\", whose text reads: \"The only path to CLEAR. 51 unresolved rows at round 2 observed rate of about 1.3 launches per row needs roughly 70 launches, plus re-measuring whatever the P1 fixes touch. 150 gives headroom. Matches the shape of the Run C, D and E grants already in the skill. I would fix the P1s first, then measure everything in one round.\" The runner grants no generic budget extension for round 3 (authorizedBudget returns null for any round that is not 1, 2 or 4), so this authorization opens the third round at the standard 30-launch cap. It waives no finding, accepts no risk, and grants no fourth round."
+    }
+  ],
+  "counts": {
+    "inventory_total": 74,
+    "killed": 22,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 2,
+    "skipped_budget": 49,
+    "excluded": 0,
+    "findings_total": 15,
+    "p0_open": 0,
+    "p1_open": 6,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 6,
+    "rejected": 2
+  },
+  "status": "INCOMPLETE_ORACLE"
+}
