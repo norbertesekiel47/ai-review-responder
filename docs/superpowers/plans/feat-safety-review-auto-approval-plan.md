@@ -492,22 +492,42 @@ Blocking edges: T1. **Independent of T2 and T3** — dispatch in parallel with T
 **Modify:** `src/lib/shared/worker-types.ts`, `src/lib/refusals/vocabulary.ts`,
 `src/lib/agents/run-spine.ts`
 
-- [ ] Add `| 'safety_review_not_cleared'` to `AutoApprovalBlockReason`
-      (`worker-types.ts:196`). Keep the existing header comment explaining why
-      the type is declared there and not in the worker.
-- [ ] Typecheck now. **Two** guards must go red, not one — that is finding 12.
+- [ ] Add **TWO** members to `AutoApprovalBlockReason` (`worker-types.ts:196`),
+      not one — **deviation D11, owner decision 2026-09-18**:
+      `| 'safety_review_not_cleared'` (a model named a concern) and
+      `| 'safety_review_unavailable'` (the check did not answer). One reason
+      cannot carry both: the category vocabulary reads `unsafe_content` as "We
+      would not say that" and `watchdog_unavailable` as "We could not check it,
+      so we did not post", and the Refusal ledger is owner-facing. The provider
+      layer already splits on this exact axis. Keep the existing header comment
+      explaining why the type is declared there and not in the worker.
+- [ ] Typecheck now. **THREE** guards must go red, not one. Two are finding 12;
+      the third the plan did not know about (**deviation D12**).
       `POLICY_GATE_HELD_REFUSAL_CATEGORIES` carries
       `satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>`, and
       `_PrecedenceIsTotal` (`vocabulary.ts:660`) separately proves
       `AUTO_APPROVAL_BLOCK_PRECEDENCE` covers every non-null mapped reason.
-      Confirm both fail — that is the exhaustiveness seam doing its job.
-- [ ] Map it in `vocabulary.ts`. Read the neighbouring entries first: it belongs
-      with the safety vetoes (`moderation_flagged`, `triage_high_severity`), not
-      with the structural ones. Update the `All 22 AutoApprovalBlockReason
-      members` count in the comment at `vocabulary.ts:430` to 23.
-- [ ] **Finding 12.** Add it to `AUTO_APPROVAL_BLOCK_PRECEDENCE`
-      (`vocabulary.ts:557`) in the tier matching the category chosen above. The
-      tuple is a separate seam from the map; mapping alone leaves typecheck red.
+      The third is `STEP_COPY` in `src/components/dashboard/timeline/step-facts.ts`,
+      `satisfies Record<AgentStepKey, StepCopy>` — the owner-facing timeline
+      demands a label and a one-sentence explanation for every step key.
+      Confirm all three fail — that is the exhaustiveness seam doing its job.
+- [ ] Map BOTH in `vocabulary.ts`, to DIFFERENT categories (D11):
+      `safety_review_not_cleared: 'unsafe_content'` beside `moderation_flagged`,
+      and `safety_review_unavailable: 'watchdog_unavailable'` beside
+      `provider_moderation_error`. Update the member counts: `All 22` at
+      `vocabulary.ts:430` → 24, and `Fifteen members — the 22 minus the seven
+      nulls` at `:504` → `Seventeen members — the 24`. The same two counts are
+      restated in `vocabulary.test.ts` and must move with them.
+- [ ] **Finding 12.** Add both to `AUTO_APPROVAL_BLOCK_PRECEDENCE`
+      (`vocabulary.ts:557`): `safety_review_not_cleared` in tier 1,
+      `safety_review_unavailable` in tier 2. An unsafe-content finding therefore
+      outranks a watchdog outage when a draft is both. The tuple is a separate
+      seam from the map; mapping alone leaves typecheck red.
+- [ ] **D12.** Add `safety_reviewed` to `STEP_COPY`. Label **"Safety review"**,
+      not "Safety check" — `moderation_checked` owns that label already, and the
+      glossary term is Safety review. `failedLabel: 'Held for you'`, because a
+      not-cleared verdict routes the draft to the owner, which is the check
+      working; "Failed" would say the opposite.
 - [ ] Add `safety_reviewed: 'system'` to `STEP_PERSONA` in `run-spine.ts`, beside
       `moderation_checked`. No migration — see the map's own header at line 77.
 - [ ] Run `pnpm exec vitest run src/lib/refusals src/lib/agents` and
@@ -537,8 +557,20 @@ Blocking edges: T1, T4. Turns green the 3 gate tests and all 3 property tests.
       `evaluateAutoApprovalCandidate`, beside the moderation rows:
 
 ```ts
-    when(input.safetyVerdict?.cleared !== true, 'safety_review_not_cleared'),
+    when(
+      input.safetyVerdict?.cleared !== true && input.safetyVerdict?.source === 'llm',
+      'safety_review_not_cleared',
+    ),
+    when(
+      input.safetyVerdict?.cleared !== true && input.safetyVerdict?.source !== 'llm',
+      'safety_review_unavailable',
+    ),
 ```
+
+> **Two rows, not one (D11).** Together they are total over "not cleared", and
+> they are mutually exclusive, so exactly one fires. The split is on `source`,
+> which the verdict already carries. A `null` verdict takes the second row —
+> the check did not run, which is a watchdog fact, not a claim about the draft.
 
 > `?.cleared !== true` and not `!input.safetyVerdict?.cleared` — both read the
 > same here, but the explicit form states that `null`, `undefined` and

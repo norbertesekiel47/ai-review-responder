@@ -262,3 +262,85 @@ check.
 than absorbed. No path or title changed.
 
 **Verdict:** pending — resolve at step 6.
+
+---
+
+## D11 — One block reason could not carry two owner-facing facts (owner decision, 2026-09-18)
+
+**What.** `AutoApprovalBlockReason` gains a SECOND member. The gate now emits
+`safety_review_not_cleared` when a model named a concern, and
+`safety_review_unavailable` when the check did not answer.
+
+**Why.** Found at T4, while mapping the reason to a Refusal category. The
+category vocabulary's own comments are the evidence:
+
+- `unsafe_content` — "We would not say that."
+- `watchdog_unavailable` — "We could not check it, so we did not post."
+
+A single `safety_review_not_cleared` covers both cases, because the module
+fails **closed**: a provider outage and a model-named threat produce the same
+`cleared: false`. The Refusal ledger is **owner-facing**, so the mapping is not
+bookkeeping — it is a sentence the owner reads about their own draft.
+
+Neither single mapping is defensible:
+
+- to `unsafe_content`: a check outage tells the owner "We would not say that"
+  about a draft that nothing objected to — an affirmative false statement;
+- to `watchdog_unavailable`: a genuine veiled-threat catch is reported as "We
+  could not check it", hiding the exact catch G4-F1 exists to make.
+
+**The precedent settles it.** The provider layer three lines up in the same map
+already splits on this axis: `moderation_flagged` is `unsafe_content`, while
+`provider_moderation_error` and `provider_moderation_disabled` are
+`watchdog_unavailable`. Collapsing the safety layer would be inconsistent with
+its own neighbour.
+
+**Cost.** `SafetyVerdict.source` already distinguishes the cases and the gate
+already holds it, so the split is two `when()` rows rather than new machinery.
+Precedence: `safety_review_not_cleared` joins tier 1 beside `moderation_flagged`;
+`safety_review_unavailable` joins tier 2 beside `provider_moderation_error`. An
+unsafe-content finding therefore outranks a watchdog outage, which is tested.
+
+**Why it was not caught by review.** All three rounds read the plan, and the
+plan said "map it with the safety vetoes" — which is true of one half. The
+conflation is only visible against the category COMMENTS, and those are read
+when writing the map entry, not when reviewing the instruction to write one.
+
+**Classification.** A contract change after the review cap: one new
+`AutoApprovalBlockReason` member, two new locked titles, and a surface
+amendment for the timeline copy seam (below). Escalated to the owner rather
+than decided here, per feature.md's round-3 rule for `risk: high`.
+
+**Owner decision, 2026-09-18.** Split the reason in two.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D12 — Surface amendment: the timeline step-copy seam (forced at T4)
+
+**What.** `src/components/dashboard/timeline/step-facts.ts` and its test glob
+are added to `allowed_edit_surface`.
+
+**Why.** A THIRD exhaustiveness seam, which the plan did not know about. T4 adds
+`safety_reviewed` to `STEP_PERSONA`, and `STEP_COPY` is
+`satisfies Record<AgentStepKey, StepCopy>` — so `pnpm typecheck` fails until the
+new step carries an owner-facing label and one-sentence explanation. The plan
+claimed the step key needed only the run-spine map.
+
+This is the seam working as designed: the timeline is the page that answers
+"why was this held?", and the guard exists so a new step cannot render as a
+de-snake-cased database word.
+
+**What the copy says, and one naming call.** The label is **"Safety review"**,
+NOT "Safety check" — `moderation_checked` already owns that label, and two steps
+with one name on the same timeline is worse than a longer word. "Safety review"
+is also the glossary term, so the page and the domain agree. `failedLabel` is
+"Held for you": a not-cleared verdict routes the draft to the owner, which is
+the check working, and the map's own header says that is exactly what
+`failedLabel` is for.
+
+**Classification.** A surface AMENDMENT, forced by a compile error.
+`surfaceAmendments=4`.
+
+**Verdict:** ACCEPT.

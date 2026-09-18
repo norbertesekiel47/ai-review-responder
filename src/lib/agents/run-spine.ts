@@ -60,6 +60,12 @@ export const STEP_PERSONA = {
   escalation_sent: 'guardian',
   draft_generated: 'reply',
   moderation_checked: 'system',
+  // The Safety review (G4-F1), beside the moderation step it supplements.
+  // 'system' like moderation_checked: it is a watchdog pass, not a persona
+  // acting. Written only for a PERSISTED draft with an active run — the stale
+  // path writes nothing (persist.ts:134) and a legacy review has no run
+  // (persist.ts:462); every EXECUTED check is accounted for in the log instead.
+  safety_reviewed: 'system',
   policy_gate: 'reply',
   owner_notified: 'reply',
   reply_posted: 'reply',

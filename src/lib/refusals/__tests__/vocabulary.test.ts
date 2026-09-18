@@ -9,7 +9,7 @@
 // category and the subject-type vocabularies. A test that re-typed the seven
 // lanes as literals would become a SECOND authority over the same fact and
 // would drift with the migration rather than against it — the precise defect
-// #1001 cites when it declines to CHECK the 22 `AutoApprovalBlockReason`
+// #1001 cites when it declines to CHECK the 24 `AutoApprovalBlockReason`
 // members. So titles 1-3 read `supabase/migrations/116_refusal_events.sql` and
 // compare what it admits against what TypeScript exports, IN THE MIGRATION'S
 // ORDER. Precedent: the parked `feat/refusal-log` branch's own
@@ -443,7 +443,7 @@ describe('Refusal ledger vocabulary', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * The 22-member map's authority is a bare TYPE union, which nothing can
+ * The 24-member map's authority is a bare TYPE union, which nothing can
  * enumerate at run time, so this parses it out of its owning module exactly as
  * title 4 does for `AutonomySuspensionTrigger`.
  *
@@ -523,7 +523,7 @@ const LOCKED_TIER_ORDER = [
 describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
   it('every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list', () => {
     const members = autoApprovalBlockReasons();
-    expect(members.length, 'parsed no AutoApprovalBlockReason members').toBe(22);
+    expect(members.length, 'parsed no AutoApprovalBlockReason members').toBe(24);
 
     const map = policyGateMap();
     expectLaneMap(map, members, 'policy_gate_held');
@@ -542,12 +542,12 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
     ).toEqual([]);
     expect(
       [...veto, ...precedence].sort(),
-      'veto + precedence is not exactly the 22 members',
+      'veto + precedence is not exactly the 24 members',
     ).toEqual([...members].sort());
 
     // The counts #1003 locked, stated so a silent re-partition is visible.
     expect(veto.length, 'the veto set is seven members').toBe(7);
-    expect(precedence.length, 'the precedence list is fifteen members').toBe(15);
+    expect(precedence.length, 'the precedence list is seventeen members').toBe(17);
   });
 
   it('AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category tiers in order', () => {
@@ -723,7 +723,7 @@ describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
     // ANTI-VACUITY, and it is the guard this case exists for. If
     // `AUTO_APPROVAL_BLOCK_PRECEDENCE` were ever respelled as a type ANNOTATION
     // — `const AUTO_APPROVAL_BLOCK_PRECEDENCE: readonly AutoApprovalBlockReason[]
-    // = [...]` — `Ranks[number]` would widen to the whole 22-member union,
+    // = [...]` — `Ranks[number]` would widen to the whole 24-member union,
     // `UnrankedIn<Ranks>` would be `never` for the WRONG reason, and `_Whole`
     // would pass while proving nothing. `'moderation_held'` would then be
     // assignable, the directive below would be unnecessary, and TS2578 would
@@ -867,6 +867,28 @@ describe('safety_review_not_cleared', () => {
       POLICY_GATE_HELD_REFUSAL_CATEGORIES.moderation_flagged,
     );
     expect(AUTO_APPROVAL_BLOCK_PRECEDENCE).toContain('safety_review_not_cleared');
+  });
+
+  it('maps the two safety block reasons to unsafe_content and watchdog_unavailable', () => {
+    // Deviation D11. One reason cannot carry both facts: unsafe_content reads
+    // "We would not say that" and watchdog_unavailable reads "We could not
+    // check it, so we did not post". A check outage is the second, a
+    // model-named threat the first. The provider layer already splits this way.
+    expect(POLICY_GATE_HELD_REFUSAL_CATEGORIES.safety_review_not_cleared).toBe('unsafe_content');
+    expect(POLICY_GATE_HELD_REFUSAL_CATEGORIES.safety_review_unavailable).toBe(
+      'watchdog_unavailable',
+    );
+    expect(POLICY_GATE_HELD_REFUSAL_CATEGORIES.safety_review_unavailable).toBe(
+      POLICY_GATE_HELD_REFUSAL_CATEGORIES.provider_moderation_error,
+    );
+
+    // Tier order: an unsafe-content finding outranks a watchdog outage, so a
+    // draft that is both flagged and unchecked records the finding.
+    const both = resolvePolicyGateRefusal([
+      'safety_review_unavailable',
+      'safety_review_not_cleared',
+    ]);
+    expect(both?.refusalCode).toBe('safety_review_not_cleared');
   });
 
   it('resolves safety_review_not_cleared through the production refusal resolver with the declared category precedence', () => {

@@ -105,7 +105,9 @@
     "src/__tests__/cost-guard-contract.test.ts",
     "scripts/verify-gate.sh",
     "scripts/ci/__tests__/*.test.ts",
-    "tests/llm-eval/moderation-corpus-safety.jsonl"
+    "tests/llm-eval/moderation-corpus-safety.jsonl",
+    "src/components/dashboard/timeline/step-facts.ts",
+    "src/components/dashboard/timeline/__tests__/*.test.tsx"
   ],
   "tests_to_add": [
     "returns not-cleared when the LLM task throws",
@@ -124,6 +126,8 @@
     "passes only the draft text to the LLM task, never the review text",
     "records the answering provider on every safety verdict",
     "blocks auto-approval with safety_review_not_cleared when the verdict is not cleared",
+    "blocks auto-approval with safety_review_unavailable when the check itself failed",
+    "maps the two safety block reasons to unsafe_content and watchdog_unavailable",
     "does not add safety_review_not_cleared when the verdict is cleared",
     "blocks auto-approval when the safety verdict is null, undefined, or missing cleared",
     "invariants: a not-cleared verdict never produces approved=true",

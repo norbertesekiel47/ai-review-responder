@@ -548,6 +548,13 @@ const NOT_CLEARED_VERDICT: SafetyVerdict = {
   source: 'llm',
   provider: 'openai',
 };
+/** The check itself failed — a DIFFERENT owner-facing fact (see D11). */
+const UNAVAILABLE_VERDICT: SafetyVerdict = {
+  cleared: false,
+  concern: null,
+  source: 'failed',
+  provider: null,
+};
 
 /** The veto axes this oracle covers. Every other field stays approvable. */
 interface SafetyOracleAxes {
@@ -632,23 +639,38 @@ describe('evaluateAutoApprovalCandidate — safety review', () => {
     expect(decision.approved).toBe(true);
   });
 
+  it('blocks auto-approval with safety_review_unavailable when the check itself failed', () => {
+    // Deviation D11. A check OUTAGE is not "we would not say that" — nothing
+    // objected to this draft. It is watchdog_unavailable, exactly as
+    // provider_moderation_error is, and telling the owner otherwise would be
+    // an affirmative false statement about their own draft.
+    const decision = evaluateAutoApprovalCandidate(baseInput({ safetyVerdict: UNAVAILABLE_VERDICT }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toContain('safety_review_unavailable');
+    expect(decision.blockReasons).not.toContain('safety_review_not_cleared');
+  });
+
   it.each([
     ['null', null],
     ['undefined', undefined],
     ['missing cleared', { concern: null, source: 'llm', provider: 'openai' }],
-    ['cleared: false', { cleared: false, concern: null, source: 'failed', provider: null }],
+    ['a mock clearance that never reaches production', { cleared: true, concern: null, source: 'mock', provider: null }],
   ])(
     'blocks auto-approval when the safety verdict is null, undefined, or missing cleared',
     (_case, verdict) => {
       // Round-1 finding 4: `false` is not the only non-clearance. Absence is
       // not clearance either — the check is skipped only when the gate already
       // blocks, so a missing verdict must never open the lane.
+      //
+      // All of these are the check not having ANSWERED, so they resolve to
+      // safety_review_unavailable rather than to an unsafe-content claim (D11).
       const decision = evaluateAutoApprovalCandidate(
         baseInput({ safetyVerdict: verdict as SafetyVerdict | null }),
       );
 
       expect(decision.approved).toBe(false);
-      expect(decision.blockReasons).toContain('safety_review_not_cleared');
+      expect(decision.blockReasons).toContain('safety_review_unavailable');
     },
   );
 
