@@ -273,7 +273,8 @@ node .agents/skills/feature/scripts/progress.mjs tracers set "T1 <title>|T2 <tit
    must be named as a missing failing test, not a prose objection. The brief
    MUST include the cited-artifact check: verify every file and section the
    plan cites exists on disk. Require `VERDICT: APPROVED` or `REVISE` with
-   reasons. Dispatch via direct `codex exec` and record the session id in the
+   reasons. Dispatch via direct `codex exec -m gpt-6-astra` (tier 4: this round
+   runs only at high risk) and record the session id in the
    handoff doc — the companion wrapper has lost task ids across resumes, and
    the verification round below resumes from that id.
 
@@ -364,9 +365,13 @@ prompt also tells the subagent to:
 - report `Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`, the
   files changed and the test results, inside the ≤10-line summary below.
 
-**Model per task**: a 1–2 file task with a complete spec → a fast model;
-multi-file integration → a standard model; design judgment or broad codebase
-reasoning → the most capable model.
+**Model per task — name it on EVERY dispatch** (`Agent(model: "…")`), per
+`execution-lanes.md` § Model routing, which owns the tiers and the escalation
+rules. In short: `haiku` for searches and mechanical edits; `sonnet` for a
+tracer with a complete behavior contract; `opus` for multi-module integration,
+hard debugging and every review axis; `fable` only for a high-risk plan, its
+skeptic, red-team adjudication, or an unresolved design decision. An unnamed
+dispatch falls to the project default (`sonnet`), never to this session's model.
 
 **Handle the status.** DONE → spec check below. DONE_WITH_CONCERNS → read the
 concerns; resolve correctness or scope concerns before the check, note mere
@@ -594,14 +599,16 @@ three rules that make the wave safe):
   the intake and triaged deviations paths. `--background` is not optional: the
   command otherwise stops on an `AskUserQuestion`, which parks the whole wave
   on an owner pause. If the plugin runtime errors, fall back to the codex
-  rescue agent via direct `codex exec`. It challenges the approach and its
-  assumptions, not line-level defects.
+  rescue agent via direct `codex exec -m gpt-5.6-sol` (tier 3; `gpt-6-astra`
+  at RISK = high). It challenges the approach and its assumptions, not
+  line-level defects.
 
   Write the brief per `review-prompts.md` § Dispatching a Codex round — context
   in the brief, no cloned delegates. Record its session id; a branch
   verification round in rounds 2–3 resumes it rather than starting cold.
 - **Red-team pass (RISK = high only)** — the `red-team` skill in a FRESH
-  subagent, on committed HEAD. It receives the locked intake, the pinned
+  subagent (`Agent(model: "opus")`; adjudication of a contested finding goes
+  to `fable`), on committed HEAD. It receives the locked intake, the pinned
   fork/merge-base/head SHAs and the claimed evidence — never your reasoning
   or the implementer's. Read `.claude/skills/red-team/SKILL.md` for the
   protocol. A RISK = normal wave carries no red-team member:
@@ -617,7 +624,9 @@ zero re-buys them.
 
 Route the mechanical passes — transcript logging, checklist sweeps, doc-claim
 greps, blast-radius reading — to Haiku subagents (`Agent(model: "haiku")`).
-The axes themselves keep the strong model.
+The axes themselves run on `Agent(model: "opus")`, named explicitly — the
+project default is `sonnet`, and a reviewer is never weaker than the author.
+RISK = high raises the red-team pass and any contested finding to `fable`.
 
 **Three wave rules, from the reference, restated because breaking one corrupts
 a red-team pass:**

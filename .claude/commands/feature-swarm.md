@@ -60,7 +60,10 @@ cd ../RepWorth-worktrees/<branch-i> && bash scripts/feature-setup.sh <intake-i>
 feature-setup arms the hooks, carries the ladder, and writes the autonomy
 profile (steps 4-6 run promptless inside each worktree; shipping boundary
 still prompts). Then dispatch N implementation runs IN ONE MESSAGE — one
-subagent per worktree (`Agent`, general-purpose), each briefed with:
+subagent per worktree (`Agent`, general-purpose, model NAMED per
+`execution-lanes.md` § Model routing — each is the lead of its own run, so
+`opus` for a standard ticket and `sonnet` for a small one; never left to the
+default), each briefed with:
 
 - its worktree root (every command `cd <worktree> && ...`; edits by absolute
   path — the edit-surface guard enforces the rest)
