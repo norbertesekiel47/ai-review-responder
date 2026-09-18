@@ -249,6 +249,26 @@ if [ -z "${TEST_DATABASE_POOL_URL:-}" ] && [ -f .env.local ]; then
   [ -n "$ENV_URL" ] && export TEST_DATABASE_POOL_URL="$ENV_URL"
 fi
 
+# Point the APPLICATION client at the same test database, and FORCE it.
+#
+# ci.yml:48 sets DATABASE_POOL_URL and TEST_DATABASE_POOL_URL to the same
+# ephemeral Postgres, so a live-DB suite that reaches `src/lib/db/server.ts`'s
+# singleton — as the publisher entitlement-linearization suite does through
+# `applyTierChange` — finds a real database there. The local gate exported only
+# the TEST url, so the singleton fell back to postgres.js's own default
+# (localhost:5432) and the row failed ECONNREFUSED: a false RED indistinguishable
+# from a genuine failure, which is the same defect class as the promised-tests
+# search roots above.
+#
+# FORCED, not defaulted, and that is the load-bearing half. `.env.local`'s own
+# DATABASE_POOL_URL is the PRODUCTION pooler; a shell that had sourced it would
+# otherwise hand the gate's test suites a production client. The gate runs
+# tests, and no test may reach production, so overriding is strictly safer than
+# honouring an inherited value.
+if [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
+  export DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL"
+fi
+
 # Serial DB provisioning — a precondition, never a parallel peer. Fail fast:
 # every DB row downstream of a failed provision is noise.
 DB_PROVISION_RESULT=""
