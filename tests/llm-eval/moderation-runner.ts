@@ -131,32 +131,58 @@ function classify(
   if (!reached) return { outcome: 'provider_not_reached', flaggedByProvider, caughtBy: null };
   if (errored) return { outcome: 'provider_error', flaggedByProvider, caughtBy: null };
 
-  const caughtBy = flaggedByProvider
-    ? ('provider' as const)
-    : flaggedBySafety
-      ? ('safety_review' as const)
-      : decision.flagged
-        ? ('local' as const)
-        : null;
+  const caughtBy = resolveCaughtBy(flaggedByProvider, flaggedBySafety, decision.flagged);
+  const outcome = row.label === 'safe'
+    ? safeRowOutcome(flagged)
+    : unsafeRowOutcome(row, flagged, flaggedByProvider, flaggedBySafety);
 
-  if (row.label === 'safe') {
-    return {
-      outcome: flagged ? 'false_positive' : 'true_negative',
-      flaggedByProvider,
-      caughtBy,
-    };
-  }
+  return { outcome, flaggedByProvider, caughtBy };
+}
 
-  if (!flagged) return { outcome: 'false_negative', flaggedByProvider, caughtBy };
-  if (row.expectProviderFlag && !flaggedByProvider) {
-    // The rescue is bounded by a NAMED SET (round-2 finding 9). A
-    // provider-targeted row outside it keeps its requirement, safety catch or
-    // not — otherwise a future provider regression anywhere would be absorbed
-    // silently and the protection would quietly disappear.
-    const rescued = flaggedBySafety && SAFETY_MODE_RESCUABLE.has(row.id);
-    if (!rescued) return { outcome: 'provider_miss', flaggedByProvider, caughtBy };
-  }
-  return { outcome: 'true_positive', flaggedByProvider, caughtBy };
+/**
+ * WHICH layer gets the credit, in precedence order.
+ *
+ * Extracted from `classify` because the nested ternary it replaces was the
+ * largest single contributor to that function's cognitive score, and because
+ * the precedence is a rule worth naming: the provider outranks the safety
+ * review, which outranks the local filter. Widening it is how the evidence
+ * starts claiming a provider classification that never happened (f.9).
+ */
+function resolveCaughtBy(
+  flaggedByProvider: boolean,
+  flaggedBySafety: boolean,
+  flaggedLocally: boolean,
+): 'provider' | 'local' | 'safety_review' | null {
+  if (flaggedByProvider) return 'provider';
+  if (flaggedBySafety) return 'safety_review';
+  if (flaggedLocally) return 'local';
+  return null;
+}
+
+/** A safe row is scored purely on whether anything flagged it. */
+function safeRowOutcome(flagged: boolean): ModerationOutcome {
+  return flagged ? 'false_positive' : 'true_negative';
+}
+
+/**
+ * An unsafe row must be caught, and a PROVIDER-TARGETED one must be caught by
+ * the provider unless it is on the named rescue set.
+ *
+ * The rescue is bounded by that set (round-2 finding 9) on purpose: a
+ * provider-targeted row outside it keeps its requirement, safety catch or not.
+ * Otherwise a future provider regression anywhere would be absorbed silently
+ * and the protection would quietly disappear.
+ */
+function unsafeRowOutcome(
+  row: ModerationCorpusRow,
+  flagged: boolean,
+  flaggedByProvider: boolean,
+  flaggedBySafety: boolean,
+): ModerationOutcome {
+  if (!flagged) return 'false_negative';
+  if (!row.expectProviderFlag || flaggedByProvider) return 'true_positive';
+  const rescued = flaggedBySafety && SAFETY_MODE_RESCUABLE.has(row.id);
+  return rescued ? 'true_positive' : 'provider_miss';
 }
 
 function countOutcome(results: ModerationCorpusResult[], outcome: ModerationOutcome): number {

@@ -219,39 +219,53 @@ function printModerationReport(
   report: ModerationCorpusReport,
   summariseProviders: (r: ModerationCorpusReport) => string,
 ): void {
-  for (const result of report.results) {
-    const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
-    const layers = [
-      result.flaggedByLocal ? 'local' : null,
-      result.flaggedByProvider ? 'provider' : null,
-      result.flaggedBySafetyReview ? 'safety_review' : null,
-    ]
-      .filter(Boolean)
-      .join('+');
-    // Which provider answered the safety review, per row (deviation D5): the
-    // Anthropic fallback means production may not use the one the corpus
-    // measured, so the evidence names it rather than implying OpenAI.
-    const answeredBy = result.safetyProvider ? ` safety-by=${result.safetyProvider}` : '';
-    console.log(
-      `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
-        `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}${answeredBy}`,
-    );
-  }
-
-  console.log(
-    `\n${report.passed}/${report.total} rows correct  ` +
-      `FP=${report.falsePositives}/${report.safeTotal} ` +
-      `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
-      `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
-      `providerErrors=${report.providerErrors}` +
-      (report.safetyErrors === undefined
-        ? ''
-        : `  safetyErrors=${report.safetyErrors}  ` +
-          `injectionMisses=${report.safetyInjectionMisses ?? 0}  ` +
-          `safetyProviders=${summariseProviders(report)}`),
-  );
+  for (const result of report.results) console.log(moderationRowLine(result));
+  console.log(`\n${moderationSummaryLine(report, summariseProviders)}`);
   for (const violation of report.violations) console.log(`VIOLATION  ${violation}`);
   console.log(`VERDICT: ${report.verdict} (${report.environment})`);
+}
+
+/** One evidence row: verdict, id, bucket, outcome, and who caught it. */
+function moderationRowLine(result: ModerationCorpusReport['results'][number]): string {
+  const correct = result.outcome === 'true_negative' || result.outcome === 'true_positive';
+  const layers = [
+    result.flaggedByLocal ? 'local' : null,
+    result.flaggedByProvider ? 'provider' : null,
+    result.flaggedBySafetyReview ? 'safety_review' : null,
+  ]
+    .filter(Boolean)
+    .join('+');
+  // Which provider answered the safety review, per row (deviation D5): the
+  // Anthropic fallback means production may not use the one the corpus
+  // measured, so the evidence names it rather than implying OpenAI.
+  const answeredBy = result.safetyProvider ? ` safety-by=${result.safetyProvider}` : '';
+  return (
+    `${correct ? 'PASS' : 'FAIL'}  moderation/${result.id} [${result.bucket}] ` +
+    `${result.outcome}${layers ? ` flagged-by=${layers}` : ''}${answeredBy}`
+  );
+}
+
+/**
+ * The totals line. The safety half is appended only in safety mode, keyed on
+ * `safetyErrors` being defined, so a default-mode report stays byte-identical
+ * to the runs already recorded as evidence.
+ */
+function moderationSummaryLine(
+  report: ModerationCorpusReport,
+  summariseProviders: (r: ModerationCorpusReport) => string,
+): string {
+  const base =
+    `${report.passed}/${report.total} rows correct  ` +
+    `FP=${report.falsePositives}/${report.safeTotal} ` +
+    `(${(report.falsePositiveRate * 100).toFixed(1)}%)  ` +
+    `FN=${report.falseNegatives}  providerMisses=${report.providerMisses}  ` +
+    `providerErrors=${report.providerErrors}`;
+  if (report.safetyErrors === undefined) return base;
+  return (
+    `${base}  safetyErrors=${report.safetyErrors}  ` +
+    `injectionMisses=${report.safetyInjectionMisses ?? 0}  ` +
+    `safetyProviders=${summariseProviders(report)}`
+  );
 }
 
 /**
