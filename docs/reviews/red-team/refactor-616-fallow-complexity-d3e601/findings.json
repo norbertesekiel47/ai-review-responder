@@ -749,7 +749,9 @@
       "id": "RT-010",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "accepted-risk",
+      "authorization": "issue-616-round-3-residual",
+      "reason": "FIXED in cceef6ff, but the proof is hand-run rather than journaled. The success-path test now seeds `mockExtractOutboxHandle.mockReturnValueOnce({ outboxId: 'outbox_from_payload', attempt: 5 })` and asserts 5 positionally as completeDemo's 5th argument (worker/jobs/__tests__/OnboardingDemoWorker.test.ts:251-258, 327-328). The mutant was run by hand and observed to fail (5 vs undefined). Recorded accepted-risk rather than fixed because no round remained to journal that measurement: the round budget (3, owner-authorized) was spent by the round that raised this finding, and the runner caps rounds at 3 outside the Run C grant. What a reviewer can check against the diff instead: the class is closed by ENUMERATION, not assertion — `grep -n outboxAttempt worker/jobs/OnboardingDemoWorker.ts` returns exactly four forwards (:111 guard, :121 markOutboxCompleted, :145 completeDemo, :179 outer-catch terminal), each asserted with a DISTINCT nonzero value (4/5/7/9), so a cross-wired forward fails as well as a dropped one, and a fifth site would appear in that grep.",
       "at": "worker/jobs/OnboardingDemoWorker.ts:145",
       "title": "The round-2 fix missed a FOURTH outboxAttempt site — the success path's completeDemo attempt is unasserted and `undefined` survives 2666 tests",
       "arbiter_reasoning": "Mutant (rt-091): `await completeDemo(sql, 'onboarding_demos', demoId, outboxId, outboxAttempt, {…})` -> `…, outboxId, undefined, {…}`. Run against the whole worker + src/lib/demos sweep: 2666 tests, exit 0, failure set byte-identical to the baseline sweep's 16 pre-existing failures (all Zernio/ingress cases that fail under the scrubbed dotenv env, unrelated to this line). NOT equivalent: completeDemo's 5th parameter is `outboxAttempt: number | undefined` (src/lib/demos/lifecycle.ts:108) and is forwarded verbatim to `markOutboxCompleted(tx, outboxId, outboxAttempt)` (lifecycle.ts:137), which reaches `dispatchedRow(exec, outboxId, attempt)` (src/lib/shared/outbox.ts:106-114) — the attempt is what adds the `AND attempts = $n` CAS predicate, and dropping it lets a stale worker mark a NEWER dispatch completed on the success path. The identical mutation on the sibling call site (rt-083, markOutboxCompleted on the leavesNoWorkToDo path) DIES, which proves the predicate is load-bearing and the difference is purely oracle coverage. NOT an unexecuted branch: the success-path test asserts completeDemo was called. ROOT CAUSE, same as RT-006: the only covering test asserts `toHaveBeenCalledWith(mockSql, 'onboarding_demos', 'demo_123', 'outbox-demo-1', undefined, {…})` — a literal `undefined` supplied by the shared harness default `extractOutboxHandle -> { attempt: undefined }` (OnboardingDemoWorker.test.ts:117-123), so the asserted value is indistinguishable from a dropped one. This also falsifies the fix commit's own claims that 'this is the last of the three' and 'Every authority-bearing argument on this lane is now asserted explicitly'. FIX: in the success-path test, override `mockExtractOutboxHandle.mockReturnValueOnce({ outboxId: 'outbox_from_payload', attempt: N })` with a non-zero N and assert that N as completeDemo's 5th argument — exactly the shape rt-080/082/083 already use."
@@ -758,7 +760,9 @@
       "id": "RT-011",
       "severity": "P1",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "accepted-risk",
+      "authorization": "issue-616-round-3-residual",
+      "reason": "FIXED in cceef6ff, but the rewritten row was never re-resolved mechanically. The arch-review-log row now carries no per-round mutation counts and points at findings.json, which owns them; it keeps only the durable lessons. Recorded accepted-risk rather than fixed because no round remained to re-run the Duty-3 citation pass over the new text — the same spent budget that blocks RT-010.",
       "at": ".claude/reference/arch-review-log.md:2016",
       "title": "The arch-review-log row's red-team summary is stale: 'ran 34 mutations and found three surviving mutants, all since killed' understates a three-round pass and is false at HEAD",
       "arbiter_reasoning": "Re-resolved at HEAD 20087a0cf. The branch's arch-review-log row states, unscoped by round: 'The red-team pass ran 34 mutations and found three surviving mutants, all since killed'. Measured against the sidecar it describes: the inventory now holds 49 executed rows (61 after this round), and SIX rows are `survived-confirmed-P0` across FOUR findings (RT-001, RT-002, RT-006, RT-007) — plus RT-010 from this round. 'all since killed' is false at HEAD while RT-010 is open. The row was accurate for round 1 only; rounds 2 and 3 each needed a further fix commit, which is the substantive fact the row is meant to carry. Graded P1, not P0: it understates review effort rather than misdescribing code behaviour, and the row itself ends 'Counter unchanged until merged', so it is a living row expected to be updated before the merge. FIX: restate as three rounds, ~50 mutations, five confirmed survivors, and note the count only after RT-010 is resolved. (Checked while here and all TRUE: root fn = 112 lines, +28 tests / 0 removed, CRAP 10²x0.6³+10 = 31.6, cognitive/cyclomatic base figures match .feature/fallow-health-base.json.)"
@@ -775,6 +779,15 @@
         "RT-009"
       ],
       "text": "Question: Red-team round 2's fixes moved HEAD, so its sidecar is stale and still reads OPEN_P0. Authorize a third round to re-verify mechanically? The option offered and chosen was: 'Authorize round 3 — the mechanism the checker documents for exactly this case. A scoped round re-mutates only the RT-006/007 fix hunks, resolves dispositions from real evidence, and recomputes status. Costs one more agent pass; it is the only path that clears OPEN_P0 honestly.' The two alternatives offered were recording the P0s as accepted-risk, and stopping at review with OPEN_P0 on record.\nOwner: Authorize round 3 (Recommended)"
+    },
+    {
+      "id": "issue-616-round-3-residual",
+      "date": "2026-09-19",
+      "finding_ids": [
+        "RT-010",
+        "RT-011"
+      ],
+      "text": "Question: The red-team sidecar cannot reach CLEAR on this branch without a round 4, and the runner caps rounds at 3. How do you want to close out #616? The option offered and chosen was: 'Ship with a recorded exception — record your authorization and set RT-010/RT-011 to accepted-risk, write the two residual errors (staleness, rt-078 oracle row) into the deviations file and the PR body, skip the reviewed transition deliberately and say so, then merge main, re-run the gate, ride staging, open the PR and pause before merge. Cost: one documented workflow exception. The refactor itself is behaviour-preserving and CI-provable.' The two alternatives offered were fixing the red-team round-cap and oracle-row tooling first and then running a round 4 here, and parking #616 again with the tooling gaps filed as issues.\nOwner: Ship with a recorded exception (Recommended)\n\nWhat this authorizes, precisely: both findings are FIXED in commit cceef6ff and each was hand-verified — the RT-010 mutant was run and observed to fail a named test. What is missing is the JOURNALED proof, because fixing RT-010 moved HEAD and no round remained to measure the fix. This is missing journaled proof, not an unfixed defect, and a reviewer can check both against the diff. It does NOT authorize the sidecar's other two residual errors, which stay on record unresolved: head_sha 20087a0c is stale against HEAD, and inventory row rt-078 is inconclusive/oracle, which holds the recomputed status at INCOMPLETE_ORACLE rather than CLEAR."
     }
   ],
   "counts": {
@@ -786,12 +799,12 @@
     "skipped_budget": 0,
     "excluded": 30,
     "findings_total": 11,
-    "p0_open": 1,
-    "p1_open": 1,
+    "p0_open": 0,
+    "p1_open": 0,
     "p2_open": 0,
-    "accepted_risk": 0,
+    "accepted_risk": 2,
     "fixed": 8,
     "rejected": 1
   },
-  "status": "OPEN_P0"
+  "status": "INCOMPLETE_ORACLE"
 }

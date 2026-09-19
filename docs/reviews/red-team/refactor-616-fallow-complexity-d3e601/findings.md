@@ -590,7 +590,34 @@ closed`. The journal records **round 3, 21 runs**, every mutation
 | id | date | findings | text |
 |---|---|---|---|
 | `issue-616-third-round` | 2026-09-19 | RT-006, RT-007, RT-008, RT-009 | Owner authorized a third red-team round to re-verify the round-2 fixes mechanically and recompute status, rather than recording the P0s as accepted-risk or stopping at review with `OPEN_P0` on record. (Rendered from `findings.json`; verbatim text lives there.) |
+| `issue-616-round-3-residual` | 2026-09-19 | RT-010, RT-011 | Owner authorized shipping with a recorded exception: both round-3 findings are FIXED in `cceef6ff` and hand-verified, but the round budget was spent by the round that raised them, so neither fix has journaled proof. The alternatives offered were fixing the round-cap and oracle-row tooling first and then running a round 4, and parking #616 again. (Rendered from `findings.json`; verbatim text lives there.) |
 
-No finding is accepted-risk.
+## Round-3 dispositions, resolved
+
+| id | sev | disposition | evidence |
+|---|---|---|---|
+| RT-010 | P0 | **accepted-risk** | Fixed in `cceef6ff`. The success-path test seeds `attempt: 5` and asserts it positionally as `completeDemo`'s 5th argument (`OnboardingDemoWorker.test.ts:251-258, 327-328`); the mutant was run by hand and observed to fail (5 vs `undefined`). Accepted-risk, not fixed, because the measurement is not journaled. A reviewer checks the class by ENUMERATION instead: `grep -n outboxAttempt worker/jobs/OnboardingDemoWorker.ts` returns exactly four forwards (`:111`, `:121`, `:145`, `:179`), each asserted with a distinct nonzero value — 4, 5, 7, 9 — so a cross-wired forward fails as well as a dropped one. |
+| RT-011 | P1 | **accepted-risk** | Fixed in `cceef6ff`. The arch-review-log row now cites no per-round counts and points at `findings.json`, which owns them. Accepted-risk, not fixed, because no round remained to re-resolve the rewritten row mechanically. |
+
+## Residual, NOT authorized — on record unresolved
+
+Two checker errors survive the authorization above. Neither is a defect in the
+#616 refactor; both are the same exhausted-budget fact seen from another angle.
+
+1. **Stale `head_sha`.** The sidecar was measured at `20087a0c`. Fixing RT-010
+   moved four paths since — `worker/jobs/__tests__/OnboardingDemoWorker.test.ts`
+   and three docs. The checker's staleness rule has no authorization escape, and
+   `SKILL.md` names hand-editing `head_sha` as the wrong path, so it stands.
+2. **`INCOMPLETE_ORACLE`.** Inventory row `rt-078` is `inconclusive`, class
+   `oracle` — a type-only annotation with no vitest oracle, recorded as RT-009.
+   `recomputeStatus` ranks `INCOMPLETE_ORACLE` above `OPEN_P1`, so the recomputed
+   status is `INCOMPLETE_ORACLE`, not `CLEAR`, even with every finding resolved.
+
+Both need a round 4. `cmdRoundStart` caps rounds at 3 outside the Run C grant and
+`red-team-status.mjs` re-checks that same condition, so the `reviewed` transition
+is unreachable on this branch. The owner waived the transition rather than raise
+the cap — raising it was tried on this branch and reverted, because the minimal
+generalisation collides with `RUN_C_FOURTH_TEXT` and breaks twelve tampering
+checks. See the deviations file.
 
 

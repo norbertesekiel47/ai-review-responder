@@ -417,6 +417,64 @@ site list by enumeration rather than by assertion.
 
 ---
 
+## D11 — the `reviewed` transition is waived, by owner decision
+
+**What the workflow asks for.** Step 7.5 finalizes the red-team pass, and the
+`reviewed` phase transition runs `red-team-status.mjs`. That checker requires a
+`CLEAR` status and a sidecar whose `head_sha` still matches the tree.
+
+**Why this branch cannot satisfy it.** Round 3 raised two findings of its own,
+RT-010 (P0) and RT-011 (P1). Fixing them was correct and both fixes landed in
+`cceef6ff`. But fixing RT-010 edited
+`worker/jobs/__tests__/OnboardingDemoWorker.test.ts`, which moved the tree past
+the sidecar's `head_sha`, and the round budget that would re-measure it was
+spent by the round that raised the findings. Three checker errors resulted. The
+owner authorization `issue-616-round-3-residual` clears the first. Two stand:
+
+1. **Stale `head_sha`** — `20087a0c` against four moved paths. The staleness
+   rule has no authorization escape. `red-team/SKILL.md` names hand-editing
+   `head_sha` as the wrong path ("an evidence file rewriting its own
+   provenance"), so it was not edited.
+2. **`INCOMPLETE_ORACLE`** — inventory row `rt-078` is `inconclusive`, class
+   `oracle`: a type-only annotation that no vitest case can measure, recorded as
+   RT-009. `recomputeStatus` ranks `INCOMPLETE_ORACLE` above `OPEN_P1`, so this
+   sidecar cannot reach `CLEAR` even with every finding resolved. This is a
+   general gap, not a #616 one — any branch that adds a type-only annotation
+   hits it.
+
+Both need a round 4. `cmdRoundStart` caps rounds at 3 outside the Run C grant,
+and `red-team-status.mjs` re-checks the same condition, so a sidecar can never
+claim a round the runner would have refused.
+
+**Why the cap was not raised.** It was tried on this branch and reverted. The
+minimal generalisation — a round above 2 opens on an authorization naming that
+round — breaks twelve deliberate tampering checks, because `RUN_C_FOURTH_TEXT`
+contains the literal phrase "approve the scoped fourth round", so a prose match
+on "fourth round" matches a *tampered* Run C admission that the `round > 3` cap
+previously refused outright. Raising the cap must be its own PR, designed around
+that interaction.
+
+**What bounds the risk.**
+
+- No CI job reads the sidecar, and the Stop hook reads only
+  `.feature/gate-status.json`. The checker is workflow discipline, not a machine
+  gate on the PR.
+- Both waived findings are fixed in the committed diff and are checkable by
+  reading it — see the "Round-3 dispositions, resolved" table in
+  `docs/reviews/red-team/refactor-616-fallow-complexity-d3e601/findings.md`.
+- The refactor is behaviour-preserving and carries 28 added tests.
+
+**Follow-ups this leaves open**, both tooling, neither blocking #616:
+
+- the red-team round cap versus the `RUN_C_FOURTH_TEXT` collision;
+- what an `oracle`-class inconclusive row should mean for `CLEAR`.
+
+**Verdict: ACCEPT** — owner-authorized on 2026-09-19, option "Ship with a
+recorded exception", chosen over fixing the tooling first and over parking #616
+again.
+
+---
+
 ## Read-back summary (step 6)
 
 D1–D7 resolved **ACCEPT** at step 6. D8 and D9 were added at step 7 from
