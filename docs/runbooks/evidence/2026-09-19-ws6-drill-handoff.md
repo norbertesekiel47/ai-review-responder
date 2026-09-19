@@ -1,5 +1,13 @@
 # Handoff — WS6 staging drills, 2026-09-19
 
+> **CLOSED 2026-09-19T03:18Z — the drills ran and PASSED.** Results:
+> `2026-09-18-provider-moderation-corpus.md` § "WS6 staging smoke — run of
+> 2026-09-19". Two facts below went stale during the run and are corrected
+> there: the two `auto_approval_policies` rows belonged to an account that was
+> offboarded at 01:51Z (D-1), and the admin unsuspend surface is the **Admin
+> app** at `admin.staging.repworth.net/admin/autonomy`, not `/admin/autonomy` in
+> this repo (D-4). This file is kept as the pre-run record.
+
 A fresh session starts here. It never needs the prior transcript. Trust git and
 the live environments over anything in this file; re-derive rather than copy.
 

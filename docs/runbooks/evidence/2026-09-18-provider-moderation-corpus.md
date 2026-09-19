@@ -196,7 +196,7 @@ both environments and `JUDGE_ENABLED` is unset in production — the ordered
 go-live flip (design doc §8.4) has not started. Readiness is an **expansion**
 control; it does not post.
 
-## Staging autonomy chain — flipped 2026-09-19, NOT yet drilled
+## Staging autonomy chain — flipped 2026-09-19, drilled the same day (PASS, see the last section)
 
 Separate from the readiness marker above, and **staging only**. The owner asked
 for the whole chain on in staging so the WS6 drills could run. Production was
@@ -224,6 +224,10 @@ auto-policy rows will not downgrade. Vercel redeploy READY with all five values
 confirmed by `env pull`.
 
 ### ⚠ THE WS6 DRILLS DID NOT RUN — read before claiming this chain is proven
+
+> **Superseded 2026-09-19T03:18Z.** The drills ran and passed — see "WS6 staging
+> smoke — run of 2026-09-19" at the end of this file. The text below is kept as
+> the record of the state BEFORE the run; both blockers are closed there.
 
 The spec's smoke is: **auto-post → judge verdict within minutes → forced-flag
 suspension drill → admin unsuspend** (`2026-07-13-ws6-judge-governor-design.md`
@@ -266,3 +270,217 @@ do the promotion themselves.**
    `PAST_REPLIES_VIEW_ENABLED`, retired 2026-08-08. It is a stale snapshot, not a
    live mirror, and writing to it would neither have reached Vercel nor been safe
    if a replace-all sync existed. Reconciling it is separate work.
+
+## WS6 staging smoke — run of 2026-09-19 — VERDICT: PASS
+
+Runbook: `docs/superpowers/specs/2026-07-13-ws6-judge-governor-design.md` § 2.13
+Rollout, with `agentic-staging-copilot-autopilot-e2e.md` §4 as the procedure.
+
+**Environment.** Staging only. Supabase `kubdiqdhqbhwmqfditeg` (production
+`udeyaqnvpojbwgoaxwdg`: one read-only aggregate, NEVER written). Git SHA at
+start `d3f871999`. UTC start 2026-09-19T02:20Z. Target account: Tanicia Resort
+`01a0acef-7ea3-7172-b415-fc2561de2614` (owner `norbertliverpool+e1`, `active`,
+1 active location, 13 posted responses). Live-surface posture: the auto-post
+lands on the real Google profile of the test location — one reply, expected.
+
+### Preflight
+
+| Check | Result | UTC |
+|---|---|---|
+| Staging worker flags (`railway run`, all seven) | ✅ all `true`, matches the table above | 02:20 |
+| Staging Vercel flags (`vercel env pull`) | ✅ the five Vercel-lane flags `true`; triage + judge absent by design | 02:20 |
+| Production worker flags | ✅ `AUTO_APPROVAL_ENABLED=false`, `AUTOPILOT_PURCHASABLE=false`, readiness `true`, the other four unset — untouched | 02:20 |
+| `judge_sweep` heartbeat | ✅ `age_seconds=51` (< 900) — judge reads AVAILABLE | 02:20:40 |
+| Autopilot account exists | ❌ **promotion did NOT land** — 5 accounts, all `copilot`; no `tier_changed` audit row; Tanicia's last audit row is 2026-09-17. Production also shows no Autopilot row, so it did not land there by mistake | 02:21 |
+| `judge_verdicts` / `auto_policy` responses | 0 / — (lane never reached) | 02:22 |
+| Autopilot account exists — RE-CHECK | ✅ owner promoted Tanicia through the billing UI: audit `tier_changed` `copilot→autopilot` @02:28:30Z, `actor_user_id` = the owner user, `base_price_cents=9900`; `accounts` + `businesses` both `autopilot`. No SQL. Heartbeat `age_seconds=7` | 02:28:56 |
+| Trust dial armed on Tanicia | ✅ armed by the owner in the UI at 02:31:09Z (see Step 1) | 02:45:39 |
+| Admin AAL2 session in the Claude-in-Chrome tab | ⏳ none — `/admin/autonomy` redirects to `/admin/login`. The owner signs in (password + TOTP); the agent never enters credentials | 02:26 |
+
+### Deviations
+
+- **D-1 (02:22Z) — the handoff's "runnable now" half is no longer true as
+  written.** The two `auto_approval_policies` rows belong to `Terry Blacks`
+  (`01a0b02b…`), which its owner offboarded (`delete_data`) at 01:51Z: status
+  `cancelled`, all three locations archived. Both rows are MANUAL
+  (`auto_approve_min_star` NULL). Not a drill target.
+- **D-2 (02:23Z) — the governor path ALSO needs the promotion.**
+  `listGovernorCandidates` only considers ARMED policies
+  (`governor.ts:79`, `auto_approve_min_star IS NOT NULL`), and arming is an
+  expansion edit that a `copilot` account cannot make (`autopilot_unavailable`).
+  So both halves of the smoke wait on the tier, not only the auto-post.
+- **D-3 (02:22Z) — only Tanicia is a confirmed owner test identity.** The
+  other four accounts have `robertrogers*` / `robert*rogers` owner emails and
+  were created or changed 01:35–01:58Z today; whose they are is NOT verified. A
+  suspension sends a real owner notice, so the drill targets Tanicia only.
+
+- **D-4 (03:12Z) — the spec's `/admin/autonomy` page no longer exists in this
+  repo.** WS6 §2.12 names `src/app/admin/autonomy/page.tsx`; ADR 0024 moved the
+  admin UI to the separate **Admin app**. Only the two API routes remain here
+  (`/api/admin/autonomy/{suspensions,unsuspend}`). The operator surface for
+  step 4 is therefore `https://admin.staging.repworth.net` (its `/autonomy`
+  route exists and redirects to `/login?next=%2Fautonomy` when signed out).
+  The handoff and the owner's prompt both still said `/admin/autonomy`.
+
+Owner decisions, 02:23Z: the owner promotes Tanicia through the billing UI
+(no SQL shortcut), and posts a real review for the auto-post half (organic, not
+seeded).
+
+### Step 1 — auto-post (ORGANIC: real Google review, live ingest; nothing seeded)
+
+- **02:31:09Z — trust dial armed BY THE OWNER through the settings UI** (no
+  SQL): policy `01a0b780-d9f0…`, account-level (`location_id` NULL),
+  `auto_approve_min_star=4`, `veto_window_minutes=15`, cap NULL (effective 10),
+  not suspended.
+- **02:44:50Z — live ingest.** Review `01a0b78d-6005-77e7-983b-73030fa3ab61`,
+  5★, `provider=zernio`, spine step `review_ingested`
+  `{"ingestion_origin":"live"}`. Owner posted it on the real Google profile.
+- **02:44:59Z — gate decision.** Run `01a0b78d-606c…` steps, in order:
+  `draft_generated` → `moderation_checked` `{"held":false,"flagged":false,"severity":"low"}`
+  → `safety_reviewed` `{"source":"llm","cleared":true,"concern":null,"provider":"openai"}`
+  → `policy_gate` `{"decision":"auto_approved"}`. Response
+  `01a0b78d-828b-740b-b3b8-cf8a7b12b796`: `status=approved`,
+  `approval_method=auto_policy`, `auto_post_scheduled_at=02:59:59.661Z`
+  (= approval + 15 min).
+- **Outbox.** `publish_response` `pending`, `available_at=02:59:59.661Z`
+  (delayed, attempts 0); `pending_post_notice` `completed` (the owner's cancel
+  window notice went out).
+- **Judge heartbeat at the decision:** `age_seconds=50` @02:45:39Z — AVAILABLE,
+  so no `judge_unhealthy` downgrade is expected at publish.
+
+- **03:00:12Z — POSTED. ✅ PASS (organic).** `responses.status=posted`,
+  `approval_method=auto_policy`, `posted_at=03:00:12.867957Z`, no
+  `posting_error`. The veto window ran its full 15 minutes; nobody cancelled.
+  Spine: step `reply_posted`, run `completed`; outcomes `reply_drafted`,
+  `reply_auto_posted`, `reply_posted`. Outbox: `auto_post_notice` `completed`
+  (the owner FYI). Two `publish_response` rows for the one response are the
+  designed two-phase publish, not a double post: the delayed row
+  (`01a0b78d-885a…`) completed at 03:00:01Z and enqueued the continuation
+  (`01a0b79b-4641…`, payload `_auto_policy_provider_attempt.phase="possible"`,
+  `outbox_attempt=1`) that made the single provider call.
+
+### Step 2 — judge verdict within minutes — ✅ PASS (organic)
+
+`judge_verdicts` `01a0b79c-116a-727a-ac68-cd7f4060d6d9`: `verdict=pass`,
+`reasons=[]`, model `gpt-4o-mini-2024-07-18`, prompt `2026-07-13.1`, created
+**03:00:53Z — 41 seconds after the post**. Outbox `judge_verdict` `completed`,
+1 attempt. Heartbeat at the time: `age_seconds=14`. `judge_verdicts` total went
+0 → 1: the first verdict the judge has produced in staging. Policy still
+unsuspended (a `pass` never suspends).
+
+### Step 3 — forced-flag suspension (SUBSTITUTE INPUT, REAL SCHEDULER)
+
+The real judge said `pass`, and nothing in the product forces a `flag`
+(`JudgeWorker.ts:135` suspends only on a model `flag`). Per
+`agentic-staging-phase-d-purchasability.md` §3 step 4, the flag signal is
+**synthetic**: 5 `flag` rows in `judge_verdicts`, tagged
+`model='e2e-ws6-drill-synthetic'` / `prompt_version='ws6-drill-2026-09-19'`,
+attached to 5 real, older, owner-approved posted responses on Tanicia. Expected
+rate 5/6 = 0.83 ≥ 0.4, sample 6 ≥ 5. **What is real:** the
+`AutonomyGovernorScheduler` finds the candidate at its own default 15-minute
+cadence (`GOVERNOR_INTERVAL_MS` NOT changed — no flag write, no redeploy, no
+judge warm-up) and calls `suspendAccountAutonomy` itself. **What is not:** the
+five verdicts. This is a substitute for the flag signal, never an organic flag.
+
+- **03:02:47Z — 5 synthetic `flag` rows inserted** (Supabase MCP, staging):
+  verdict ids `1cfd3855…`, `4fbf3795…`, `92aa77e4…`, `8b285c83…`, `5f71dfa1…`
+  on responses `af101205…`, `7acd0011…`, `05ddf51d…`, `46672ae6…`, `b544655b…`.
+- **03:09:50Z — the real scheduler suspended the account. ✅ PASS (substitute
+  input).** No agent call to the writer. Policy `01a0b780-d9f0…`:
+  `suspended_at=03:09:50.04064Z`, reason "Recent safety reviews exceeded the
+  auto-posting safety threshold.", `auto_approve_min_star=4` preserved. Audit
+  `autonomy_suspended`, actor NULL, `trigger=governor_judge_signal_rate`,
+  evidence `{"rate":0.8333,"numer":5,"denom":6,"windowDays":7}`,
+  `suspension_event_id=01a0b7a4-410c-750d-a7dd-c2cf1b88750d`. Refusal ledger:
+  one `refusal_events` row, `autonomy_suspended` /
+  `governor_judge_signal_rate` / `autonomy_paused`, `occurred_at` equal to the
+  audit `created_at` to the microsecond (the #1006 join holds). Outbox:
+  `autonomy_suspended_notice` + `autonomy_admin_alert`, both `completed`, 1
+  attempt, no error.
+
+- **03:13Z — owner surface shows it (Claude in Chrome, owner session).**
+  `/settings/auto-approval` renders the red banner "Auto-approval is suspended
+  for this account. New replies wait for owner review while suspended. Recent
+  safety reviews exceeded the auto-posting safety threshold." and the location
+  row carries a `SUSPENDED` chip. The 4–5★ / 15-minute dial stays visible,
+  not cleared.
+
+### Step 4 — admin unsuspend through the operator surface — ✅ PASS (Claude in Chrome, no SQL)
+
+- **Surface:** the Admin app, `https://admin.staging.repworth.net/admin/autonomy`
+  (D-4). The owner signed in themselves (password + TOTP); the sidebar read
+  `norbertesekiel@gmail.com · Step-up verified (AAL2)`. The agent entered no
+  credential.
+- **03:17:32Z — the page rendered the suspension.** "Autonomy suspensions —
+  Accounts the Governor has pulled out of Autopilot". Row: Tanicia Resort, "All
+  locations · account scope", chip `governor judge signal rate`, reason text,
+  "Sep 19, 2026, 03:09 UTC". Current rates: Edit 0.0% (0/0), Veto 0.0% (0/1),
+  **Judge 83.3% (5/6)**. Recent flag evidence: all five synthetic rows, each
+  labelled `ws6 drill synthetic` with its response id.
+- **Action.** `Unsuspend…` → a note field opened and the submit stayed disabled
+  until a note existed → note typed → `Unsuspend Tanicia Resort` clicked.
+- **03:17:54Z — UI result.** Green banner "Auto-posting is armed again."; list
+  empty: "No suspended policies — The autonomy watchdog has no open recovery
+  work."
+- **DB, read after the click.** Policy `01a0b780-d9f0…`: `suspended_at` NULL,
+  `suspended_reason` NULL, `auto_approve_min_star=4` and `veto=15` preserved
+  (ARMED, matching the banner). Audit `autonomy_unsuspended` @03:17:52.909248Z,
+  `actor_user_id=6b7a3503-1257-4f79-8e5e-6af46527f0a9` =
+  `norbertesekiel@gmail.com`, role `admin`; payload carries the note verbatim and
+  `previous_reason`.
+
+### Teardown — executed 03:18Z
+
+- 5 synthetic verdicts deleted @03:18:08Z (`deleted=5`); verified
+  `synthetic_left=0`, `judge_verdicts` = exactly the 1 real `pass`.
+- Policy unsuspended (`suspended_at` NULL). `judge_sweep` `age_seconds=24`.
+- No flag was changed during the run, so there is nothing to restore. Baseline
+  re-read after the run: staging worker all seven `true`,
+  `GOVERNOR_INTERVAL_MS=900000`; production `AUTO_APPROVAL_ENABLED=false`,
+  `AUTOPILOT_PURCHASABLE=false`, readiness `true`, the rest unset — identical to
+  preflight.
+- `auto_policy` posts in the run window: exactly 1 (the drill's own).
+- Permanent, expected residue: audit rows `tier_changed`, `autonomy_suspended`,
+  `autonomy_unsuspended`; one `refusal_events` row; one owner suspension notice
+  and one admin alert delivered; one real reply on the Google profile.
+
+### Verdict
+
+**PASS — all four links, 2026-09-19T02:20Z → 03:18Z.**
+
+| Link | Result | Nature |
+|---|---|---|
+| 1. Auto-post after the veto window | ✅ | ORGANIC — real Google review, live ingest, full 15-minute window |
+| 2. Judge verdict within minutes | ✅ `pass`, 41 s after the post | ORGANIC |
+| 3. Forced-flag suspension | ✅ | **SUBSTITUTE INPUT** (5 synthetic `flag` rows), REAL scheduler + writer + notices |
+| 4. Admin unsuspend | ✅ | REAL operator surface (Admin app, AAL2), driven in Chrome, no SQL |
+
+Not proven by this run, stated so nobody reads more into it: the `judge_flag`
+trigger (a real model `flag` suspending immediately, `JudgeWorker.ts:135`) — no
+real flag occurred; the veto-cancel path; the judge-unavailable downgrade.
+
+Unproven paths 1–4 above: all closed. Deviations: D-1…D-4, none a product
+defect. Runbook defect fixed in the same change: none needed in the spec, but
+the handoff's `/admin/autonomy` wording is corrected (D-4).
+
+**Resting state — the owner's call, left exactly as the owner made it:** Tanicia
+is `autopilot` with an ARMED 4–5★ dial and every staging autonomy flag is ON, so
+**the next 4–5★ review on that location will auto-post to the real Google
+profile.** Downgrade through the billing UI or set the dial to Off if that is
+not wanted.
+
+### Teardown ledger
+
+| Fixture | Identifier | How to remove | State |
+|---|---|---|---|
+| 5 synthetic `flag` judge_verdicts | `model='e2e-ws6-drill-synthetic'` | `DELETE FROM judge_verdicts WHERE model='e2e-ws6-drill-synthetic'`; verify count 0 and total back to 1 | [x] 03:18:08Z — deleted 5, verified 0 left, total back to 1 |
+| Owner-created account policy (4–5★ / 15 / NULL cap) | `01a0b780-d9f0…` | owner call at the end: keep, or set to Off in the settings UI | [~] left in place — owner-created through the UI; owner's call (see Resting state) |
+| Real auto-posted reply on the Google profile | response `01a0b78d-828b…` | expected product behaviour; owner may delete the review + reply on Google | [~] left in place — expected product behaviour; owner may remove it on Google |
+| Tanicia tier → `autopilot` (owner, billing UI) | `01a0acef…` | owner call at the end: keep or downgrade through the billing UI | [~] left in place — owner-made through the billing UI; owner's call (see Resting state) |
+
+### Unproven paths (all closed — see Verdict)
+
+1. Auto-post after the veto window (`approval_method='auto_policy'`, `posted`).
+2. Judge verdict within minutes of the post.
+3. Suspension through a real trigger.
+4. Admin unsuspend through `/admin/autonomy` under AAL2, driven in Chrome.
