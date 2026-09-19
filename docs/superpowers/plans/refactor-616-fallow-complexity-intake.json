@@ -79,6 +79,8 @@
     "worker/jobs/onboarding-demo/cost-reconcile.ts",
     "worker/jobs/onboarding-demo/terminal.ts",
     "worker/jobs/onboarding-demo/__tests__/**",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/directory/worker-jobs-a.md",
     "docs/directory/worker-jobs-c.md",
     "docs/directory/lib-db-config-shared.md",

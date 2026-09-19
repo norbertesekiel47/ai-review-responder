@@ -24,7 +24,12 @@ export async function guardOnboardingDemoSubscription(input: {
   releaseReservation: () => Promise<void>;
   failTerminal: typeof failOnboardingDemoTerminal;
 }): Promise<boolean> {
-  const [biz] = await input.sql<{ subscription_status: string }[]>`
+  // Destructured so the tag name is `sql`. `input.sql\`…\`` is invisible to the
+  // CI SQL scanners, which match on the tag spelling (#592) — the
+  // reviews-status, outbox-topics, outbox-status, response-status and
+  // tenant-scope audits would all silently skip this query.
+  const { sql } = input;
+  const [biz] = await sql<{ subscription_status: string }[]>`
     SELECT a.subscription_status
     FROM onboarding_demos od
     JOIN businesses b ON b.id = od.business_id
