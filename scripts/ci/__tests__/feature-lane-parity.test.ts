@@ -29,6 +29,30 @@ const ROUTERS = [
   ['Codex lane (.agents/skills/feature/SKILL.md)', codexLane],
 ] as const;
 
+const smallLane = readFileSync(resolve(root, '.claude/commands/feature-small.md'), 'utf8');
+
+// The small lane once claimed "this IS the lefthook pre-push subset" while
+// spelling out lint + typecheck + test by hand, which left out every ci:* audit
+// the hook runs. A hand-kept list drifts; running the hook cannot.
+describe('the small lane gate', () => {
+  it('runs the pre-push hook instead of re-listing it', () => {
+    expect(smallLane).toContain('pnpm exec lefthook run pre-push --force');
+    expect(smallLane).not.toMatch(/pnpm lint && pnpm typecheck/);
+  });
+
+  // Without --force, lefthook skips every check when no commit is waiting to be
+  // pushed and exits 0 in 0.3 s. Measured 2026-09-18 on an uncommitted worktree:
+  // a gate that ran nothing and reported green.
+  it('forces the hook, so an unpushed or uncommitted tree cannot skip every check', () => {
+    expect(executionLanes).toContain('pnpm exec lefthook run pre-push --force');
+    expect(`${smallLane}\n${executionLanes}`).not.toMatch(/lefthook run pre-push --no-tty/);
+  });
+
+  it('builds, because AGENTS.md requires a build for a behavior change', () => {
+    expect(smallLane).toContain('pnpm build');
+  });
+});
+
 describe('both routers cite the shared rule set', () => {
   it.each(ROUTERS)('%s cites working-rules.md', (_name, router) => {
     expect(router).toContain('working-rules.md');
@@ -67,6 +91,13 @@ describe('the speed-lane rules reached both lanes', () => {
   // Lever B — a verification round is owed only when the contract moved.
   it.each(ROUTERS)('%s decides verification rounds mechanically', (_name, router) => {
     expect(router).toContain('contract-changed');
+  });
+
+  // The plan hash reads UNCHANGED after every code fix, so a branch round is
+  // decided from the tree. A router that loses this goes back to skipping the
+  // one round that verifies a fix.
+  it.each(ROUTERS)('%s decides a branch round from the tree, not the plan hash', (_name, router) => {
+    expect(router).toContain('branch-round-owed');
   });
 
   // Lever C — the unattended fix loop runs the narrowed gate.

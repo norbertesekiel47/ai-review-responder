@@ -6,6 +6,9 @@
 #   bash scripts/feature-state.sh incr-amendment [--reason "<owner-approved reason>"]
 #   bash scripts/feature-state.sh incr-gate-round [--reason "<owner-approved reason>"]
 #   bash scripts/feature-state.sh reset-gate-rounds
+#   bash scripts/feature-state.sh record-contract <plan-path>
+#   bash scripts/feature-state.sh contract-changed <plan-path>
+#   bash scripts/feature-state.sh branch-round-owed <reviewed-sha>
 #
 # Phases (forward-only by convention; the enum is the contract):
 #   worktree_ready  plan_approved  executing  gate_green  reviewed  shipped
@@ -47,6 +50,16 @@
 # record-contract snapshots their hash at round start; contract-changed
 # re-derives it after the fixes and says whether a round is owed. Missing
 # snapshot reads as CHANGED, so the failure direction is always "review it".
+#
+# The hash answers ONE question: did the reviewed PLAN's contract move. Two
+# things it cannot certify, each closed here rather than narrated:
+#   - A prose-only fix can rewrite a security invariant under an unchanged
+#     heading. intake risk=high therefore always owes the plan round.
+#   - A CODE fix never touches the intake or the plan headings, so the hash
+#     reads UNCHANGED after every branch-review fix. It must not decide a
+#     branch round. branch-round-owed does: any tracked difference from the
+#     reviewed SHA (committed or not, docs/reviews/ excluded — a staged report
+#     is not a fix) owes the round. An unknown SHA reads OWED.
 set -uo pipefail
 
 COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch> | incr-amendment [--reason "..."]}
@@ -198,7 +211,11 @@ case "$COMMAND" in
     PLAN=${2:?usage: feature-state.sh contract-changed <plan-path>}
     HASH=$(contract_hash "$PLAN")
     RECORDED=$(printf '%s' "$PREV" | jq -r '.planContractSha256 // empty')
-    if [ -z "$RECORDED" ]; then
+    RISK=$(jq -r '.risk // empty' .feature/intake.json 2>/dev/null || echo "")
+    if [ "$RISK" = "high" ]; then
+      echo "CHANGED — intake risk=high always owes the verification round; a prose-only fix"
+      echo "  can move an invariant the heading hash cannot see. Dispatch the verification-only round."
+    elif [ -z "$RECORDED" ]; then
       echo "CHANGED — no contract recorded; run record-contract at round start."
     elif [ "$HASH" = "$RECORDED" ]; then
       echo "UNCHANGED — the fixes touched no contract surface. Skip the verification round;"
@@ -209,8 +226,20 @@ case "$COMMAND" in
     fi
     ;;
 
+  branch-round-owed)
+    REVIEWED=${2:?usage: feature-state.sh branch-round-owed <reviewed-sha>}
+    if ! git rev-parse --verify --quiet "${REVIEWED}^{commit}" >/dev/null; then
+      echo "OWED — '$REVIEWED' is not a commit here; the failure direction is \"review it\"."
+    elif git diff --quiet "$REVIEWED" -- . ':(exclude)docs/reviews'; then
+      echo "NOT_OWED — no tracked change since $REVIEWED. Nothing was fixed, so nothing needs verifying."
+    else
+      echo "OWED — the tree moved since $REVIEWED. Dispatch the verification-only round,"
+      echo "  scoped to the fix hunks and their callers."
+    fi
+    ;;
+
   *)
-    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment | incr-gate-round | reset-gate-rounds | record-contract | contract-changed)"
+    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment | incr-gate-round | reset-gate-rounds | record-contract | contract-changed | branch-round-owed)"
     exit 1
     ;;
 esac

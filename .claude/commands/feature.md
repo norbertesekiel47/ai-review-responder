@@ -292,7 +292,8 @@ node .agents/skills/feature/scripts/progress.mjs tracers set "T1 <title>|T2 <tit
    bash scripts/feature-state.sh contract-changed <plan.md>
    ```
 
-   `UNCHANGED` — the fixes moved no contract surface. Skip the round.
+   `UNCHANGED` — the fixes moved no contract surface (RISK = high never reads
+   UNCHANGED; its round is always owed). Skip the round.
    Self-verify each fix against the findings table and record the skip and its
    reason in the plan's review appendix. `CHANGED` — dispatch one
    verification-only round (`incr-round plan` first) by RESUMING round 1's
@@ -440,7 +441,8 @@ DB flags, runs the applicable checks in parallel, writes per-check logs to
 - Always: every `ci:*` audit in package.json except `ci:fallow*`, enumerated
   dynamically — the same set CI's lint job and the lefthook pre-push gate run,
   so a gate-green branch can never fail push-time audits.
-- Surface includes ui: `pnpm build`
+- Every surface except a docs-only change: `pnpm build` (AGENTS.md requires it;
+  `src/lib` is shared with the app, so "backend" is not a build boundary)
 - Changed `*.integration.test.ts` suites: RUN when `TEST_DATABASE_POOL_URL`
   resolves (the gate resolves it itself). Otherwise a loud `SKIP` row. A gate
   carrying that warning is NOT review-ready for DB-touching work.
@@ -648,8 +650,9 @@ and introduced nothing new. A Codex axis RESUMES its round-1 session here
 (`codex exec resume <id> "<delta>"`); a Claude axis gets a fresh agent, since
 only the Codex side pays a seven-figure token cost to rebuild context. It may
 NOT open new fronts; new unrelated findings go to the report appendix,
-untriaged. Ask `contract-changed` whether a round is owed at all (§3 step 3
-shows the shape). After round 3, stop looping:
+untriaged. Ask `bash scripts/feature-state.sh branch-round-owed <reviewed-sha>`
+whether a round is owed at all — never `contract-changed`, which hashes the
+plan and reads UNCHANGED after every code fix. After round 3, stop looping:
 RISK = high surfaces the disagreement to the owner; RISK = normal makes the
 call and records both positions in the review report AND the PR description.
 

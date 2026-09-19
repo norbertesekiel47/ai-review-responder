@@ -180,11 +180,11 @@ describe('gate-summary.sh', () => {
 describe('feature-state.sh plan-contract hash', () => {
   const PLAN = 'plan.md';
 
-  function writeIntake(surface: string[], tests: string[]): void {
+  function writeIntake(surface: string[], tests: string[], risk = 'normal'): void {
     mkdirSync(join(repo, '.feature'), { recursive: true });
     writeFileSync(
       join(repo, '.feature', 'intake.json'),
-      JSON.stringify({ allowed_edit_surface: surface, tests_to_add: tests }),
+      JSON.stringify({ allowed_edit_surface: surface, tests_to_add: tests, risk }),
     );
   }
 
@@ -233,5 +233,64 @@ describe('feature-state.sh plan-contract hash', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('CHANGED');
     expect(result.stdout).toContain('no contract recorded');
+  });
+
+  // A prose-only fix can rewrite an invariant under an unchanged heading. The
+  // hash cannot see that, so high risk never skips the round.
+  it('owes the round at risk=high even when the hash is identical', () => {
+    writeIntake(['src/lib/a.ts', 'src/lib/b.ts'], ['holds the veto window'], 'high');
+    run('scripts/feature-state.sh', 'record-contract', PLAN);
+    const result = run('scripts/feature-state.sh', 'contract-changed', PLAN);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).not.toContain('UNCHANGED');
+    expect(result.stdout).toContain('risk=high');
+  });
+});
+
+// The plan-contract hash reads UNCHANGED after every CODE fix: a fix touches
+// neither the intake nor the plan headings. Deciding a branch-review round with
+// it skipped the one round that verifies the fix. branch-round-owed decides it
+// from the tree instead.
+describe('feature-state.sh branch-round-owed', () => {
+  function commitFile(path: string, body: string, message: string): string {
+    mkdirSync(join(repo, path, '..'), { recursive: true });
+    writeFileSync(join(repo, path), body);
+    git('add', path);
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
+    return head.stdout.trim();
+  }
+
+  it('reads NOT_OWED when nothing moved since the reviewed SHA', () => {
+    const reviewed = commitFile('src/a.ts', 'export const a = 1;\n', 'reviewed');
+    const result = run('scripts/feature-state.sh', 'branch-round-owed', reviewed);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain('NOT_OWED');
+  });
+
+  it('reads OWED after a fix commit, though the plan contract never moved', () => {
+    const reviewed = commitFile('src/a.ts', 'export const a = 1;\n', 'reviewed');
+    commitFile('src/a.ts', 'export const a = 2;\n', 'fix');
+    const result = run('scripts/feature-state.sh', 'branch-round-owed', reviewed);
+    expect(result.stdout).toMatch(/^OWED/);
+  });
+
+  it('reads OWED for an uncommitted fix', () => {
+    const reviewed = commitFile('src/a.ts', 'export const a = 1;\n', 'reviewed');
+    writeFileSync(join(repo, 'src/a.ts'), 'export const a = 3;\n');
+    expect(run('scripts/feature-state.sh', 'branch-round-owed', reviewed).stdout).toMatch(/^OWED/);
+  });
+
+  it('does not count a committed review report as a fix', () => {
+    const reviewed = commitFile('src/a.ts', 'export const a = 1;\n', 'reviewed');
+    commitFile('docs/reviews/feat-x.md', '# review\n', 'report');
+    expect(run('scripts/feature-state.sh', 'branch-round-owed', reviewed).stdout).toContain('NOT_OWED');
+  });
+
+  it('reads OWED for an unknown SHA, so the failure direction is "review it"', () => {
+    commitFile('src/a.ts', 'export const a = 1;\n', 'reviewed');
+    const result = run('scripts/feature-state.sh', 'branch-round-owed', 'deadbeef');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^OWED/);
   });
 });

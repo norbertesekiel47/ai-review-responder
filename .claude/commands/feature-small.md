@@ -84,16 +84,24 @@ signal to stop and re-run step 0.
 node .agents/skills/feature/scripts/progress.mjs step execute done
 ```
 
-## 4. Gate — the same set the pre-push hook and CI run
+## 4. Gate — the pre-push hook itself, then the full suite
 
 ```bash
-pnpm lint && pnpm typecheck && pnpm test
+pnpm exec lefthook run pre-push --force --no-tty && pnpm test && pnpm build
 ```
 
-Add `pnpm build` when the surface includes `ui`. This IS the lefthook
-pre-push subset plus the full test run, so a green gate here cannot fail at
-push time. Read back only failing names and the log tail — never the whole
-log. The same failure class twice means stop patching and diagnose.
+`--force` is load-bearing. Without it lefthook skips every check when no commit
+is waiting to be pushed (`(skip) no matching push files`) and exits 0 in 0.3 s —
+a green gate that ran nothing. If the summary shows a check as skipped, the gate
+did not run.
+
+The first command RUNS `lefthook.yml` — lint, typecheck, every `ci:*` audit,
+the guard tests — so this gate cannot list a different set from the hook and a
+green gate here cannot fail at push time. Never re-spell that list on this
+page. `pnpm test` is the full run the hook leaves to CI. Drop `pnpm build` only
+when every changed path is `docs/`, `.claude/`, or `*.md`. Read back only
+failing names and the log tail — never the whole log. The same failure class
+twice means stop patching and diagnose.
 
 ```bash
 node .agents/skills/feature/scripts/progress.mjs step gate done
