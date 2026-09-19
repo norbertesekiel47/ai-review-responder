@@ -45,9 +45,12 @@
 #   reclassify — WARN when either diff bucket (production / test) exceeds
 #     ~2x its intake estimate (estimated_prod_lines / estimated_test_lines;
 #     legacy fallback: estimated_diff_size vs the combined total). Workflow
-#     artifacts (docs/superpowers/plans/**, docs/reviews/**) are EXCLUDED —
-#     #643's plan+deviations alone were 1,537 of 4,989 "changed lines",
-#     firing the trigger on the workflow's own paperwork.
+#     artifacts are EXCLUDED — docs/superpowers/plans/**, docs/reviews/**,
+#     docs/runbooks/evidence/** and .claude/reference/** — because a run
+#     cannot commit scope creep against its own mandatory paperwork. #643's
+#     plan+deviations alone were 1,537 of 4,989 "changed lines"; #1082's
+#     staging evidence and arch-review row were 108 against 27 executable
+#     lines (#1114). See `reclassify_bucket` below.
 #
 # `--review` mode (run once before step 7): the test row runs with
 # coverage, then diff-coverage enforces changed-line coverage (default min
@@ -506,8 +509,32 @@ fi
 
 # --- reclassify: actual diff vs the intake's per-bucket estimates ---
 # Buckets: test (__tests__/, *.test.ts(x), e2e/) vs production (the rest).
-# Workflow artifacts (docs/superpowers/plans/**, docs/reviews/**) are excluded
-# entirely — the plan document is not scope creep against itself.
+#
+# `skip` is the workflow's OWN paperwork, which a run is required to produce
+# and which therefore cannot be scope creep against itself (#1114):
+#   docs/superpowers/plans/**  the plan, intake and deviations file
+#   docs/reviews/**            the review reports and triage verdicts
+#   docs/runbooks/evidence/**  the staging evidence a RISK = high branch MUST
+#                              write before it may ship
+#   .claude/reference/**       the arch-review-log row `ci:merge-ledger` makes
+#                              mandatory for every merge touching production,
+#                              plus the lab note the lane asks for by name
+# Kept narrow on purpose: only the `evidence/` subtree of docs/runbooks is
+# paperwork — a runbook itself is production. Pinned by
+# scripts/ci/__tests__/gate-rows.test.ts, which runs this function rather than
+# reading the case list.
+reclassify_bucket() {
+  case "$1" in
+    docs/superpowers/plans/*|docs/reviews/*|docs/runbooks/evidence/*|.claude/reference/*)
+      echo skip; return 0 ;;
+  esac
+  if echo "$1" | grep -qE '(^|/)__tests__/|\.test\.tsx?$|^e2e/'; then
+    echo test
+  else
+    echo prod
+  fi
+}
+
 RECLASSIFY_MSG=""
 if [ "$DOCS_ONLY" = false ] && [ -n "$BASE" ]; then
   PROD_ACTUAL=0; TEST_ACTUAL=0
@@ -515,14 +542,11 @@ if [ "$DOCS_ONLY" = false ] && [ -n "$BASE" ]; then
     [ -n "$PATHNAME" ] || continue
     case "$ADDS" in ''|*[!0-9]*) continue ;; esac
     case "$DELS" in ''|*[!0-9]*) continue ;; esac
-    case "$PATHNAME" in
-      docs/superpowers/plans/*|docs/reviews/*) continue ;;
+    case "$(reclassify_bucket "$PATHNAME")" in
+      skip) continue ;;
+      test) TEST_ACTUAL=$((TEST_ACTUAL + ADDS + DELS)) ;;
+      *)    PROD_ACTUAL=$((PROD_ACTUAL + ADDS + DELS)) ;;
     esac
-    if echo "$PATHNAME" | grep -qE '(^|/)__tests__/|\.test\.tsx?$|^e2e/'; then
-      TEST_ACTUAL=$((TEST_ACTUAL + ADDS + DELS))
-    else
-      PROD_ACTUAL=$((PROD_ACTUAL + ADDS + DELS))
-    fi
   done < <(git diff --numstat "$BASE" 2>/dev/null)
 
   EST_PROD=$(jq -r '.estimated_prod_lines // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)

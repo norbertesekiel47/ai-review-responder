@@ -266,3 +266,63 @@ describe('promised-tests title discovery', () => {
     }
   });
 });
+
+// #1114. The `reclassify` row WARNs when a diff bucket exceeds ~2x its intake
+// estimate. It already excluded docs/superpowers/plans/** and docs/reviews/**
+// on the argument that a run's own paperwork is not scope creep against
+// itself. Two more paths are paperwork by exactly that argument and were not
+// excluded: a RISK = high branch MUST write staging evidence under
+// docs/runbooks/evidence/, and every merge touching a production file MUST add
+// an arch-review-log row under .claude/reference/ (ci:merge-ledger). On #1082
+// that counted 108 mandatory non-code lines against a 27-line executable diff,
+// and the estimate was inflated 35 -> 90 -> 250 to keep the row green, which
+// is the number ceasing to mean what it says.
+//
+// Extracted and RUN rather than grepped: this file's own row-wiring tests
+// above record a source-text assertion passing against a disarmed mutant.
+describe('reclassify_bucket', () => {
+  function bucketOf(pathname: string): string {
+    const result = spawnSync(
+      'bash',
+      [
+        '-uo',
+        'pipefail',
+        '-c',
+        [
+          `eval "$(sed -n '/^reclassify_bucket() {/,/^}/p' ${shellQuote(GATE)})"`,
+          `reclassify_bucket ${shellQuote(pathname)}`,
+        ].join('\n'),
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.trim();
+  }
+
+  it('skips the workflow artifacts a run is required to produce', () => {
+    const skipped = [
+      'docs/superpowers/plans/feat-900-intake.json',
+      'docs/reviews/feat-900/branch-round1-standards.md',
+      'docs/runbooks/evidence/2026-09-03-solicitation-drill.md',
+      '.claude/reference/arch-review-log.md',
+      '.claude/reference/lab-notes/history/2026-09.md',
+    ];
+    for (const pathname of skipped) {
+      expect(bucketOf(pathname), pathname).toBe('skip');
+    }
+  });
+
+  it('counts test and production paths into their own buckets', () => {
+    // The exclusions above must stay narrow: a real runbook and a real doc are
+    // still production lines, and only the `evidence/` subtree is paperwork.
+    expect(bucketOf('src/lib/solicitation/ask-generation.ts')).toBe('prod');
+    expect(bucketOf('docs/runbooks/deployment-guide.md')).toBe('prod');
+    expect(bucketOf('docs/directory/lib-solicitation-c.md')).toBe('prod');
+    expect(bucketOf('scripts/verify-gate.sh')).toBe('prod');
+
+    expect(bucketOf('src/lib/solicitation/__tests__/release.integration.test.ts')).toBe('test');
+    expect(bucketOf('src/app/mfa/__tests__/metadata.test.ts')).toBe('test');
+    expect(bucketOf('src/components/dashboard/EditReplyDrawer.test.tsx')).toBe('test');
+    expect(bucketOf('e2e/approval.spec.ts')).toBe('test');
+  });
+});
