@@ -115,19 +115,45 @@ fix pass:
    `vi.mock('../terminal')` file-wide. `@sentry/node` is unused anywhere in the
    package, so mocking it file-wide for the cost-reconcile block is safe.
 
-## PARKED — read this first (2026-09-19)
+## RESUMED and SHIPPING — read this first (2026-09-19, second session)
 
-The run is **parked at step 7.5**, deliberately, by renaming
-`.feature/intake.json` to `.feature/intake.parked.json`. Rename it back to
-re-arm the Stop gate and the edit-surface guard.
+The run was parked at step 7.5 and is now un-parked. The owner chose **"Ship
+with a recorded exception"** over fixing the red-team tooling first and over
+parking again. Step 7.5 is CLOSED by waiver, not by a clean checker pass.
 
 **The #616 work itself is complete and defensible.** Nothing below is a defect
 in the refactor.
 
-Everything is committed at `cceef6ff`. The branch has **never been pushed**,
-there is **no PR**, and **issue #616 is still OPEN**.
+### What the resumed session changed
 
-### Two blockers, both needing an owner decision
+- Recorded the owner authorization `issue-616-round-3-residual` in the sidecar
+  and set RT-010 / RT-011 to `accepted-risk`. Commit `a16e176`.
+- Recorded deviation **D11** — the `reviewed` transition is waived, with the
+  reasoning, the risk bound and two tooling follow-ups.
+- Merged `origin/main` (commit `700ff9e5`). The one conflict was the
+  `arch-review-log.md` row; resolved by keeping all rows, main's two first.
+- Re-ran the full gate at the merged HEAD.
+
+### Two corrections to the parked text below
+
+1. **The red gate row does NOT block this branch.** The parked text says the
+   mutation-runner failure "will block any branch". It blocks the LOCAL gate
+   only. The same file passes in CI — 245 tests green in run `35461113472` — and
+   issue **#1334** already owns it, with the correct premise in its title. The
+   red row was reproduced on the `main` checkout at `f2de6fb0c` before this was
+   concluded.
+2. **The accepted-risk step is necessary but NOT sufficient.** It clears one of
+   three `red-team-status.mjs` errors. Two survive it and are on record
+   unresolved: the stale `head_sha`, and `INCOMPLETE_ORACLE` from inventory row
+   `rt-078` (a type-only annotation no vitest case can measure). Both need a
+   round 4, which the runner refuses. D11 owns the full reasoning.
+
+### Gate evidence
+
+Full gate at `700ff9e5` (merged HEAD): **33 of 34 rows PASS**. Tests:
+1 failed, 15,162 passed, 1,339 skipped. The single failure is the #1334 row.
+
+### The two blockers as the first session recorded them
 
 **1. Gate is RED on a pre-existing failure unrelated to this branch.**
 33 of 34 rows PASS. The one failure is
@@ -177,15 +203,19 @@ enumerating the class.
 
 ## Where the run is
 
-**Step 3 closed. Plan APPROVED at revision 3.** `PREVALIDATE: PASS`, 11
-citations resolved, 28 test titles, `phase=plan_approved`.
+**Step 8 — shipping.** Steps 1–7 are closed. Step 7.5 is closed by the owner
+waiver recorded in D11, not by a clean `red-team-status.mjs` pass; that checker
+still reports two errors and the `reviewed` transition is deliberately skipped.
 
-This session runs on `opus`, not `fable`, so **no model handoff is owed** —
-implementation continues here. RISK = high at SIZE = small means **no subagent
-dispatch**: every tracer is built in the orchestrator session.
+Order taken, high-risk lane: merge `main` → full gate at the merged HEAD →
+staging ride (the branch touches `worker/`) → PR to `main` → **pause before
+merge**. The merge itself is not authorized.
 
-Next: T1 (10 characterization tests on `emit`), then T2–T5 in order, commit per
-tracer, then step 5's gate, step 6 deviations read-back, step 7's wave.
+Historical, for anyone reading the sequence: step 3 closed with the plan
+APPROVED at revision 3 (`PREVALIDATE: PASS`, 11 citations resolved, 28 test
+titles). Both sessions ran on `opus`, so no model handoff was owed, and RISK =
+high at SIZE = small meant every tracer was built in the orchestrator session
+with no subagent dispatch.
 
 ## Verified mechanics (checked before implementation, so tests do not guess)
 
