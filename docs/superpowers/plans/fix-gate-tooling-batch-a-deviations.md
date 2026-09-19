@@ -110,3 +110,50 @@ ordering between two nearby `writeFileSync` calls.
 
 **Verdict:** ACCEPT — in-lease fix, no cross-task impact.
 
+## T5 — a fifth ticket added mid-run, and a SECOND surface amendment
+
+The step-5 gate went RED on `red-team-mutation-runner.test.ts > runs an
+admitted baseline mutant and restoration with corroborated report evidence`.
+The plan anticipated no such ticket.
+
+It was NOT caused by this branch: the same case fails identically on `main` at
+`3795a0f50`, in isolation, in ~98s. A read-only diagnosis established the
+cause and REFUTED the root's first hypothesis (a dotenv guard). The real cause
+is `validateOperatorAdmission`'s watcher scan at `mutation-runner.mjs:566-567`:
+`findWatchers` matches `WATCHER_PATTERNS` against every process on the machine
+and never consults `root`, while its docstring claims it finds "a process
+serving or watching THIS worktree". The blocking process was pid 89820, a
+`next-server` whose cwd was `orca/workspaces/RepWorth/the-landing-page-says-
+repworth-twice-the-brand-i` — a worktree deleted earlier the same day. First
+bad commit `3c9620440` (2026-09-15) introduced the check AND the test case
+together, so the case has never passed on a machine running a dev server.
+
+**Process note — this is the part worth re-reading later.** A 2nd surface
+amendment is an ABORT criterion in `/feature` step 5: stop patching, write a
+postmortem, tear the branch down, restart at step 1. That rule was raised with
+the owner explicitly rather than skipped, and the owner directed folding the
+fix in as a fifth ticket. The rule exists to catch scope THRASH — an amendment
+widening an existing surface because the work keeps escaping it. This was a
+new ticket with a tight two-file surface, found BY the batch's own gate, in the
+batch's own defect class (a check reporting a state that is not the branch's
+state). Reason recorded via `feature-state.sh incr-amendment --reason`.
+
+Amendment 2 added `.agents/skills/red-team/scripts/mutation-runner.mjs` and
+`scripts/ci/__tests__/red-team-mutation-runner.test.ts`; the intake gained
+three `tests_to_add` titles and its estimates moved 190/360 → 250/430. Both
+intake copies were updated and verified byte-identical.
+
+The fix carries a risk the brief named up front: part 1 NARROWS a safety gate,
+and a wrong narrowing trades a false RED for a false GREEN, which is worse.
+So `processServes` FAILS CLOSED on an unreadable cwd, and a test asserts the
+complementary case — a watcher that genuinely serves this worktree still
+blocks. A second, independent defect surfaced from the diagnosis: `cmdRun`'s
+eight-way fused OR printed one message for all eight causes, so the two
+assertions preceding the failing one had been passing VACUOUSLY since
+`3c9620440`, each asserting a rejection that was happening for an unrelated
+reason.
+
+**Verdict:** ACCEPT — owner-directed, tight surface, same defect class,
+abort-criterion tension raised before proceeding rather than after. Gate green
+31/31 at `5842cd366`; the suite went 244/245 → 248/248.
+
