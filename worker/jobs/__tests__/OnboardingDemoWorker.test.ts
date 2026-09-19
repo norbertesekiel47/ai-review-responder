@@ -16,6 +16,8 @@ const {
   mockResolveOnboardingDemoPlaceId,
   mockReleaseOnboardingDemoReservation,
   mockFailOnboardingDemoTerminal,
+  mockExtractOutboxHandle,
+  mockCaptureMessage,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const mockSql = vi.fn(() => Promise.resolve(sqlReturnQueue.shift() ?? []));
@@ -38,6 +40,13 @@ const {
     mockResolveOnboardingDemoPlaceId: vi.fn(),
     mockReleaseOnboardingDemoReservation: vi.fn(),
     mockFailOnboardingDemoTerminal: vi.fn(),
+    // Both of these were previously inline literals inside their vi.mock
+    // factories, which made them unreachable from a test. They are now
+    // addressable so a test can vary the outbox handle (#616 F3) and make a
+    // Sentry capture throw (#616 F2). Their DEFAULT behavior is unchanged —
+    // armed in beforeEach.
+    mockExtractOutboxHandle: vi.fn(),
+    mockCaptureMessage: vi.fn(),
   };
 });
 
@@ -50,10 +59,7 @@ vi.mock('../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
 }));
 vi.mock('../../../src/lib/shared/outbox', () => ({
-  extractOutboxHandle: (_data: unknown, fallback: string) => ({
-    outboxId: fallback,
-    attempt: undefined,
-  }),
+  extractOutboxHandle: mockExtractOutboxHandle,
   markOutboxCompleted: mockMarkOutboxCompleted,
 }));
 vi.mock('../../../src/lib/costs/onboarding-demo-cost-guard', () => ({
@@ -64,7 +70,7 @@ vi.mock('../../../src/lib/shared/mock-mode', () => ({
   isMockMode: mockIsMockMode,
 }));
 vi.mock('@sentry/node', () => ({
-  captureMessage: vi.fn(),
+  captureMessage: mockCaptureMessage,
 }));
 vi.mock('../onboarding-demo/demo-source', () => ({
   buildOnboardingDemoSource: mockBuildOnboardingDemoSource,
@@ -105,6 +111,41 @@ async function importWorker() {
   return await import('../OnboardingDemoWorker');
 }
 
+/**
+ * The default behavior of the two mocks that used to be inline literals in
+ * their vi.mock factories. `extractOutboxHandle` returning `attempt: undefined`
+ * is byte-identical to what this file did before #616, so every pre-existing
+ * test keeps its exact behavior; a test that needs a real dispatch attempt
+ * overrides it with mockReturnValueOnce.
+ */
+function armSharedMockDefaults(): void {
+  mockExtractOutboxHandle.mockImplementation((_data: unknown, fallback: string) => ({
+    outboxId: fallback,
+    attempt: undefined,
+  }));
+  mockCaptureMessage.mockImplementation(() => undefined);
+}
+
+/** The happy-path arrangement every success-path test starts from. */
+function arrangeClaimedDemo(
+  overrides: { totalCostUsd?: number; source?: string } = {},
+): { reviews: unknown[]; responses: unknown[] } {
+  const reviews = [{ id: 'r1' }, { id: 'r2' }];
+  const responses = [{ responseText: 'thanks' }, null];
+  sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+  mockClaimDemo.mockResolvedValue('claimed');
+  mockResolveOnboardingDemoPlaceId.mockResolvedValue('place_resolved');
+  mockBuildOnboardingDemoSource.mockResolvedValue({
+    result: {
+      reviews,
+      responses,
+      metadata: { totalCostUsd: overrides.totalCostUsd ?? 0.0342 },
+    },
+    source: overrides.source ?? 'serpapi',
+  });
+  return { reviews, responses };
+}
+
 describe('OnboardingDemoWorker', () => {
   // The mock-leak guard reads the deployment lane; snapshot the whole env so
   // NODE_ENV / RAILWAY_ENVIRONMENT_NAME edits cannot leak between tests or in
@@ -120,6 +161,7 @@ describe('OnboardingDemoWorker', () => {
     mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
     mockFinalizeCost.mockResolvedValue(undefined);
     mockCheckCostThreshold.mockResolvedValue({ crossed: [] });
+    armSharedMockDefaults();
   });
 
   afterEach(() => {
@@ -191,5 +233,181 @@ describe('OnboardingDemoWorker', () => {
         finalizeCost: mockFinalizeCost,
       }),
     );
+  });
+
+  // ── Characterization suite (#616) ────────────────────────────────────────
+  //
+  // These pin root behavior no test reached before, so the decomposition into
+  // onboarding-demo/ helpers cannot move it. They pass against the
+  // pre-refactor root — that is what a characterization test is.
+
+  it('completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion', async () => {
+    const { reviews, responses } = arrangeClaimedDemo({ totalCostUsd: 0.0342 });
+
+    // Hold completeDemo unresolved. mock.invocationCallOrder would prove only
+    // that finalizeCost was CALLED after completeDemo was CALLED — it passes
+    // even with completeDemo's `await` removed, which would move the cost
+    // counter ahead of the demo row. Holding the promise is what proves the
+    // awaited boundary.
+    let releaseCompleteDemo!: () => void;
+    mockCompleteDemo.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseCompleteDemo = () => resolve();
+      }),
+    );
+
+    const { handleOnboardingDemo } = await importWorker();
+    const running = handleOnboardingDemo(makeJob());
+
+    try {
+      await vi.waitFor(() => expect(mockCompleteDemo).toHaveBeenCalled());
+      expect(mockFinalizeCost).not.toHaveBeenCalled();
+      expect(mockCheckCostThreshold).not.toHaveBeenCalled();
+      expect(mockLogger.log).not.toHaveBeenCalled();
+    } finally {
+      // Settle the handler even if an assertion above threw, so a failure
+      // never leaves unfinished async work behind.
+      releaseCompleteDemo();
+      await running;
+    }
+
+    expect(mockCompleteDemo).toHaveBeenCalledWith(
+      mockSql,
+      'onboarding_demos',
+      'demo_123',
+      'outbox-demo-1',
+      undefined,
+      { reviews, responses, source: 'serpapi' },
+    );
+    // 0.0342 USD rounds to 3 cents, and it books against the RESERVATION
+    // date from the payload, never today. finalizeOnboardingDemoCost applies
+    // `actual - 20c` on every call, so a second call would corrupt the
+    // daily counter.
+    expect(mockFinalizeCost).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeCost).toHaveBeenCalledWith('2026-05-20', 3);
+    expect(mockCheckCostThreshold).toHaveBeenCalledTimes(1);
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      'Onboarding demo demo_123 completed (serpapi): 1/2 responses',
+    );
+    expect(mockFailOnboardingDemoTerminal).not.toHaveBeenCalled();
+    expect(mockReleaseOnboardingDemoReservation).not.toHaveBeenCalled();
+  });
+
+  it('completes the outbox and releases exactly once for each terminal claim outcome', async () => {
+    // All three share one branch in the root. Testing only one would let the
+    // other two be dropped, and a double release would satisfy a
+    // toHaveBeenCalledWith assertion — hence exact counts.
+    for (const outcome of ['not_found', 'already_terminal', 'race_lost'] as const) {
+      vi.clearAllMocks();
+      sqlReturnQueue.length = 0;
+      armSharedMockDefaults();
+      mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
+      sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+      mockClaimDemo.mockResolvedValue(outcome);
+
+      const { handleOnboardingDemo } = await importWorker();
+      await expect(handleOnboardingDemo(makeJob())).resolves.toBeUndefined();
+
+      expect(mockMarkOutboxCompleted, outcome).toHaveBeenCalledTimes(1);
+      expect(mockReleaseOnboardingDemoReservation, outcome).toHaveBeenCalledTimes(1);
+      expect(mockFailOnboardingDemoTerminal, outcome).not.toHaveBeenCalled();
+    }
+  });
+
+  it('throws without releasing the reservation when the claim resets a stale running demo', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    mockClaimDemo.mockResolvedValue('reset_to_queued');
+
+    const { handleOnboardingDemo } = await importWorker();
+
+    await expect(handleOnboardingDemo(makeJob())).rejects.toThrow(/reset from stale running/);
+    // The negative assertion is the load-bearing half: the demo re-runs on the
+    // SAME reserve, so releasing here would double-count the budget.
+    expect(mockReleaseOnboardingDemoReservation).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('propagates a pre-work rejection without a terminal write or a release', async () => {
+    // The subscription SELECT, claimDemo and markOutboxCompleted all sit
+    // OUTSIDE the outer try, so a rejection from any of them escapes with no
+    // terminal write and no release. That is existing behavior; widening the
+    // catch during the refactor would silently change budget accounting and
+    // retry semantics. All three boundaries, not just one.
+    const boundaries: Array<{ name: string; arrange: () => void }> = [
+      {
+        name: 'subscription lookup',
+        arrange: () => {
+          mockSql.mockRejectedValueOnce(new Error('select failed'));
+        },
+      },
+      {
+        name: 'claimDemo',
+        arrange: () => {
+          sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+          mockClaimDemo.mockRejectedValue(new Error('claim failed'));
+        },
+      },
+      {
+        name: 'markOutboxCompleted',
+        arrange: () => {
+          sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+          mockClaimDemo.mockResolvedValue('race_lost');
+          mockMarkOutboxCompleted.mockRejectedValue(new Error('outbox failed'));
+        },
+      },
+    ];
+
+    for (const boundary of boundaries) {
+      vi.clearAllMocks();
+      sqlReturnQueue.length = 0;
+      armSharedMockDefaults();
+      mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
+      boundary.arrange();
+
+      const { handleOnboardingDemo } = await importWorker();
+      await expect(handleOnboardingDemo(makeJob()), boundary.name).rejects.toThrow(/failed/);
+
+      expect(mockFailOnboardingDemoTerminal, boundary.name).not.toHaveBeenCalled();
+      expect(mockReleaseOnboardingDemoReservation, boundary.name).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps the demo completed when Sentry capture throws, and skips the remaining captures', async () => {
+    arrangeClaimedDemo();
+    mockCheckCostThreshold.mockResolvedValue({ crossed: [50, 90] });
+    mockCaptureMessage.mockImplementation(() => {
+      throw new Error('sentry down');
+    });
+
+    const { handleOnboardingDemo } = await importWorker();
+    await expect(handleOnboardingDemo(makeJob())).resolves.toBeUndefined();
+
+    // One try wraps BOTH the threshold lookup and the whole capture loop, so
+    // the first throwing capture aborts the rest. Moving the catch inside the
+    // loop would emit the second alert; moving the loop outside the try would
+    // propagate into the terminal path AFTER the demo was completed.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Threshold check / Sentry capture failed for demo demo_123: sentry down',
+    );
+    expect(mockCompleteDemo).toHaveBeenCalled();
+    expect(mockFailOnboardingDemoTerminal).not.toHaveBeenCalled();
+    expect(mockReleaseOnboardingDemoReservation).not.toHaveBeenCalled();
+  });
+
+  it('releases exactly once when the generic terminal write fails', async () => {
+    // The pre-existing "releases reservation when generic failure recording
+    // throws" asserts toHaveBeenCalledWith, which a DOUBLE release also
+    // satisfies. This pins the count without touching that test.
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    mockClaimDemo.mockResolvedValue('claimed');
+    mockResolveOnboardingDemoPlaceId.mockRejectedValue(new Error('place failed'));
+    mockFailOnboardingDemoTerminal.mockRejectedValue(new Error('tx failed'));
+
+    const { handleOnboardingDemo } = await importWorker();
+
+    await expect(handleOnboardingDemo(makeJob())).rejects.toThrow('tx failed');
+    expect(mockReleaseOnboardingDemoReservation).toHaveBeenCalledTimes(1);
   });
 });
