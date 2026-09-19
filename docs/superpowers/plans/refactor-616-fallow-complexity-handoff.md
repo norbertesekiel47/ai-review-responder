@@ -40,19 +40,27 @@ Base SHA `2870e1097d09b6c05d95092b768e831f50b379c0`.
 
 ## Review sessions
 
-| round | axis | runtime | session id |
-|---|---|---|---|
-| plan round 1 | plan skeptic | `codex exec -m gpt-6-astra` | `01a0ba18-fe60-7bb2-b5fa-211238b37576` |
+| round | axis | runtime | session | result |
+|---|---|---|---|---|
+| plan 1 | plan skeptic | `codex exec -m gpt-6-astra` | `01a0ba18-fe60-7bb2-b5fa-211238b37576` | REVISE — 6 findings, all accepted |
+| plan 2 | same, **resumed** | `codex exec resume` | same | REVISE — F5/F6 addressed, 4 residuals, all accepted |
+| plan 3 | same, **resumed** | `codex exec resume` | same | **APPROVED** — all 6 closed, 0 shell commands |
 
-Resume that id **only** for a verification-only round
-(`codex exec resume 01a0ba18-fe60-7bb2-b5fa-211238b37576 "<delta>"`). Never for
-an independent axis — a resumed session is anchored on its earlier conclusions.
+The plan-review budget is **spent** (3 of 3). After round 3 the rule is: stop
+looping and surface any remaining disagreement to the owner.
 
-Note: the round drifted out of read-only late in its run — it chose to invoke
-`scripts/verify-gate.sh` after a hook prompt, having itself observed the gate
-is not read-only. It wrote only `.feature/` state. Gate truth is always
-re-derived here, never reused, so this changes nothing. Its findings are still
-judged on their evidence.
+Resume that id **only** for a verification-only round. Never for an independent
+axis — a resumed session is anchored on its earlier conclusions, which destroys
+the independence an axis exists to provide. The resume paid off: round 1 needed
+13 shell commands to build context, round 2 needed 3.
+
+**Read-only drift, and the fix.** Round 1 drifted: it ran
+`scripts/verify-gate.sh` after a hook prompt, having itself written that the
+gate is not read-only. It changed no source, only `.feature/` state, which this
+workflow always re-derives. Rounds 2 and 3 were given an explicit instruction
+naming that drift, and round 2 complied — it declined a hook's gate request
+with "the orchestrator owns gate evidence". **Reuse that instruction verbatim
+for the step 7 Codex axis** (deviations D5).
 
 ## Baseline measurements (base SHA, before any edit)
 
@@ -109,10 +117,41 @@ fix pass:
 
 ## Where the run is
 
-Step 3. Plan written, `PREVALIDATE: PASS`, plan round 1 dispatched. Next:
-triage the skeptic's findings, apply them together with the two corrections
-above, ask `bash scripts/feature-state.sh contract-changed <plan.md>` whether a
-verification round is owed, then set `phase=plan_approved` and start T1.
+**Step 3 closed. Plan APPROVED at revision 3.** `PREVALIDATE: PASS`, 11
+citations resolved, 28 test titles, `phase=plan_approved`.
+
+This session runs on `opus`, not `fable`, so **no model handoff is owed** —
+implementation continues here. RISK = high at SIZE = small means **no subagent
+dispatch**: every tracer is built in the orchestrator session.
+
+Next: T1 (10 characterization tests on `emit`), then T2–T5 in order, commit per
+tracer, then step 5's gate, step 6 deviations read-back, step 7's wave.
+
+## Verified mechanics (checked before implementation, so tests do not guess)
+
+- An `Error` whose `message` is a BigInt makes `JSON.stringify` throw
+  `TypeError: Do not know how to serialize a BigInt`. T1 test 6's trigger.
+- `delete err.stack` leaves `stack === undefined`, so `serializeError`'s
+  `&& err.stack` guard omits `error_stack`. T1 test 10's trigger. Both objects
+  remain `instanceof Error`.
+- The exact byte string `emit` writes with frozen time
+  (`2026-01-02T03:04:05.678Z`), `NODE_ENV=production` (stack suppressed) and no
+  `LOG_SERVICE`, for
+  `createWorkerLogger('[W]', 'corr-1').error('boom happened', new Error('kaput'), { foo: 'bar' })`:
+
+  ```
+  {"timestamp":"2026-01-02T03:04:05.678Z","level":"error","service":"worker","logger":"W","message":"boom happened","correlation_id":"corr-1","error_name":"Error","error_message":"kaput","data":{"foo":"bar"}}
+  ```
+
+  `console.log` and `console.warn` stayed empty in that probe, so T1 test 8's
+  sink-exclusivity assertions hold.
+- vitest is 4.1.7; `vi.setSystemTime` has repo precedent
+  (`src/lib/onboarding/__tests__/create-business.test.ts:50`).
+- `buildOnboardingDemoSource` returns
+  `{ result: { reviews, responses, metadata: { totalCostUsd } }, source }`
+  (`worker/jobs/onboarding-demo/demo-source.ts:9-16`). With
+  `totalCostUsd: 0.0342`, `Math.round(0.0342 * 100) === 3` — T3 test 1's
+  fractional-cents fixture.
 
 ## Resume
 

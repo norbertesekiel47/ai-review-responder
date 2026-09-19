@@ -241,8 +241,22 @@ in that file. Every collaborator is already mocked.
    `completeDemo` payload (`reviews`, `responses`, `source`);
    `mockFinalizeCost` called **exactly once** with `('2026-05-20', 3)`;
    `mockCheckCostThreshold` called once; the exact completion log string; and
-   **no** terminal failure and **no** release. Pin the order with
-   `mock.invocationCallOrder` — `completeDemo` before `finalizeCost`.
+   **no** terminal failure and **no** release.
+   **Pin the awaited boundary, not just call order** (round 2, F1): make
+   `mockCompleteDemo` return a promise this test resolves by hand. Before
+   resolving it, assert `mockFinalizeCost`, `mockCheckCostThreshold` and
+   `logger.log` have **not** been called; then resolve, await the handler, and
+   assert the rest. `mock.invocationCallOrder` proves the order of invocation
+   but not that `completeDemo` RESOLVED first — dropping its `await`
+   (`OnboardingDemoWorker.ts:123`) satisfies an order assertion while writing
+   the cost counter before the demo row.
+   **Two mechanics this test must get right** (round 3 carry-forward): wait for
+   the handler to actually reach `mockCompleteDemo` before evaluating the
+   negative assertions — use `await vi.waitFor(() => expect(mockCompleteDemo)
+   .toHaveBeenCalled())`, never a bare tick, or the negatives pass vacuously.
+   And resolve the promise and await the handler in a `finally`, so a failing
+   assertion cannot leave the handler pending and the suite with unsettled
+   async work.
 2. `completes the outbox and releases exactly once for each terminal claim outcome`
    **[finding F4]** — parameterized over `not_found`, `already_terminal` and
    `race_lost`, which share one branch. Assert `markOutboxCompleted` and
@@ -253,26 +267,51 @@ in that file. Every collaborator is already mocked.
    **and** `expect(mockReleaseOnboardingDemoReservation).not.toHaveBeenCalled()`.
    The negative assertion is the load-bearing half.
 4. `propagates a pre-work rejection without a terminal write or a release`
-   **[finding F4]** — the subscription SELECT, `claimDemo` and
-   `markOutboxCompleted` all sit **outside** the outer try, so a rejection
-   there escapes with no terminal write and no release. That is existing
-   behavior. Pin it so the refactor cannot widen the catch and silently change
-   budget accounting and retry behavior. Drive at least the `claimDemo`
-   rejection; assert the rejection, and both mocks not called.
+   **[finding F4]** — the subscription SELECT (`:67`), `claimDemo` (`:92`) and
+   `markOutboxCompleted` (`:99`) all sit **outside** the outer try, so a
+   rejection there escapes with no terminal write and no release. That is
+   existing behavior. Pin it so the refactor cannot widen the catch and
+   silently change budget accounting and retry behavior.
+   **Parameterize over all three boundaries** (round 2, F4) — "at least
+   `claimDemo`" would let two of the three go untested, and they are three
+   separate lines that a widened catch would capture independently. For each:
+   assert the rejection propagates, and that the terminal write and the
+   release were **not** called.
 5. `keeps the demo completed when Sentry capture throws, and skips the remaining captures`
    **[finding F2]** — one `try` wraps both `checkCostThreshold` and the whole
    capture loop (`OnboardingDemoWorker.ts:143-157`). With `crossed: [50, 90]`
    and `captureMessage` throwing on the first call, assert: exactly one capture
-   attempt, `logger.error` called, **no** terminal failure, **no** release, and
-   the demo still completed. Moving the loop outside its catch would propagate
-   into the terminal path after completion; moving the catch inside the loop
-   would change which alerts fire. Both pass today's tests.
+   attempt, **no** terminal failure, **no** release, and the demo still
+   completed. Moving the loop outside its catch would propagate into the
+   terminal path after completion; moving the catch inside the loop would
+   change which alerts fire. Both pass today's tests.
+   **Assert the exact diagnostic** (round 2, F2), not merely that logging
+   happened: `logger.error` called **once** with exactly
+   `` `Threshold check / Sentry capture failed for demo demo_123: <err.message>` ``
+   (`OnboardingDemoWorker.ts:154-156`). A test that only checks "an error was
+   logged" passes an altered or truncated diagnostic.
+6. `releases exactly once when the generic terminal write fails`
+   **[finding F4]** — the pre-existing test
+   `releases reservation when generic failure recording throws` asserts
+   `toHaveBeenCalledWith`, which a double release also satisfies. This appended
+   test asserts `toHaveBeenCalledTimes(1)` on the release for the generic
+   terminal path (`OnboardingDemoWorker.ts:162-177`). The pre-existing test is
+   **not** modified.
 
 **Blocking edges:** none. **Allowed files:**
 `worker/jobs/__tests__/OnboardingDemoWorker.test.ts`.
 
-**Completion evidence:** that suite green with **9** tests (4 pre-existing + 5
-new), all 4 pre-existing ones unmodified.
+**Harness note.** T4 test 7 (below) needs a numeric `outboxAttempt`, but the
+file-level mock returns `attempt: undefined` unconditionally
+(`OnboardingDemoWorker.test.ts:52-56`). T3 converts `extractOutboxHandle` into a
+`vi.fn()` whose **default implementation is byte-identical to today's**, so
+every existing test keeps its exact behavior, and a single test can override it
+with `mockReturnValueOnce`. This changes the shared harness, not any test body.
+Recorded as deviation D6.
+
+**Completion evidence:** that suite green with **10** tests (4 pre-existing + 6
+new), all 4 pre-existing ones unmodified, and the harness default proven by
+those 4 still passing.
 
 ---
 
@@ -353,6 +392,19 @@ of the query, which could not detect a dropped predicate.
 6. `guardOnboardingDemoSubscription forwards the sql client, outbox id and numeric attempt to the terminal write`
    **[finding F3]** — distinct demo and outbox ids and a **nonzero numeric**
    attempt; assert the full `failTerminal` input object.
+7. `forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write`
+   **[finding F3, round 2]** — lives in
+   `worker/jobs/__tests__/OnboardingDemoWorker.test.ts`, **not** in
+   `stages.test.ts`, and runs the **real** guard (the worker test mocks
+   `../onboarding-demo/terminal` but must NOT mock
+   `../onboarding-demo/subscription-guard`). Test 6 begins on the helper's own
+   parameters, which is *after* the boundary the rewire creates; this one
+   covers the root→helper hop itself. Override `extractOutboxHandle` once to
+   return a distinct outbox id and a nonzero numeric attempt, then assert the
+   mocked `failOnboardingDemoTerminal` receives both unchanged. Without it, a
+   rewire that forgets `outboxAttempt` is undetectable, and
+   `failDemo` (`src/lib/demos/lifecycle.ts:191`) then drops its
+   `AND attempts = …` predicate and lets a stale worker fail a newer dispatch.
 
 **Root rewire in the same commit:** `handleOnboardingDemo` replaces its
 subscription block with
@@ -363,12 +415,14 @@ subscription block with
 
 **Allowed files:** `worker/jobs/onboarding-demo/subscription-guard.ts`,
 `worker/jobs/onboarding-demo/__tests__/stages.test.ts`,
-`worker/jobs/OnboardingDemoWorker.ts`.
+`worker/jobs/OnboardingDemoWorker.ts`,
+`worker/jobs/__tests__/OnboardingDemoWorker.test.ts`.
 
 **Completion evidence:** `stages.test.ts` green with 21 tests (15 pre-existing +
-6 new), and `OnboardingDemoWorker.test.ts` still green with all 9 and **zero
-edits** — including `releases reservation when subscription-state failure
-recording throws`, which now exercises the extracted module through the root.
+6 new), and `OnboardingDemoWorker.test.ts` green with 11 (4 pre-existing + 6
+from T3 + 1 here), the 4 pre-existing ones **unmodified** — including
+`releases reservation when subscription-state failure recording throws`, which
+now exercises the extracted module through the root.
 
 ---
 
@@ -429,9 +483,13 @@ Sentry appears nowhere else in this package.
 
 1. `finalizeOnboardingDemoSpend does nothing without a reservation date`
 2. `finalizeOnboardingDemoSpend swallows and logs a finalize failure`
-   — assert the call resolves and `logger.error` fired. Drive it **twice**,
-   once with an `Error` rejection and once with a non-`Error` value, so the
-   diagnostic ternary is covered both ways.
+   — assert the call resolves. Drive it **twice**, once with an `Error`
+   rejection and once with a non-`Error` value, so the diagnostic ternary is
+   covered both ways, and assert the **exact** string each time (round 2, F2):
+   `` `Failed to finalize cost reservation: ${err.message}` `` for the `Error`
+   case and `` `Failed to finalize cost reservation: ${value}` `` for the
+   other (`OnboardingDemoWorker.ts:136`). Running both branches without
+   checking their output does not preserve that output.
 3. `reportOnboardingDemoCostThresholds checks the current UTC day with the exact lane and thresholds`
    **[finding F2]** — assert `checkThreshold` called with exactly
    `('onboarding-demo', <today as YYYY-MM-DD>, [50, 90, 100])`. Freeze time so
@@ -441,7 +499,10 @@ Sentry appears nowhere else in this package.
    `onboarding_demo_cost_threshold_50/90/100`, levels `info`/`warning`/`error`,
    and the exact `lane` and `threshold` tags on each.
 5. `reportOnboardingDemoCostThresholds swallows and logs a threshold-check failure`
-   — `checkThreshold` rejects; the call resolves; `logger.error` fired.
+   — `checkThreshold` rejects; the call resolves; `logger.error` called
+   **once** with the **exact** string
+   `` `Threshold check / Sentry capture failed for demo ${demoId}: ${err.message}` ``
+   (round 2, F2 — `OnboardingDemoWorker.ts:154-156`).
 
 **Root rewire in the same commit:** the success path calls the two new
 functions. Final target for the root: **cognitive ≤ 15** (projected ~11),
@@ -468,7 +529,8 @@ production file under `worker/`):
 
 **Completion evidence:**
 1. `stages.test.ts` green with 26 tests (15 pre-existing + 11 new).
-2. `OnboardingDemoWorker.test.ts` green with 9, still zero edits across T3→T5.
+2. `OnboardingDemoWorker.test.ts` green with 11, its 4 pre-existing tests still
+   unmodified across T3→T5.
 3. `pnpm ci:directory-map` passes.
 4. `pnpm ci:feature-surface` passes — both new files now exist, clearing the
    baseline gate's `feature-surface` row.
@@ -484,19 +546,21 @@ production file under `worker/`):
 |---|---|---|---|---|
 | T1 | characterize emit | — | +10 | 1 test file |
 | T2 | decompose emit | T1 | 0 | 1 prod file |
-| T3 | characterize the worker root | — | +5 | 1 test file |
-| T4 | extract subscription guard | T3 | +6 | 1 new prod, 1 test, root |
+| T3 | characterize the worker root | — | +6 | 1 test file (+ harness mock, D6) |
+| T4 | extract subscription guard | T3 | +7 | 1 new prod, 2 test files, root |
 | T5 | extract cost reconcile, finish root, docs | T4 | +5 | 1 new prod, 1 test, root, 3 docs |
 
-Total: **26 new tests**, no new test file, no pre-existing test modified.
+Total: **28 new tests**, no new test file, no pre-existing test body modified.
+Final counts: `logger.test.ts` 22, `OnboardingDemoWorker.test.ts` 11,
+`stages.test.ts` 26.
 
 Run serially. RISK = high at SIZE = small means implementation happens in the
 orchestrator session with **no subagent dispatch**.
 
 ## Plan self-review
 
-1. **Intake coverage** — all 26 `tests_to_add` titles map to a tracer: 10 → T1,
-   5 → T3, 6 → T4, 5 → T5. The single `user_visible_behavior` entry is the
+1. **Intake coverage** — all 28 `tests_to_add` titles map to a tracer: 10 → T1,
+   6 → T3, 7 → T4, 5 → T5. The single `user_visible_behavior` entry is the
    completion evidence of T2, T4 and T5. Every `edge_cases` entry is pinned by
    a named test except the four fallow/tooling entries, covered by the
    verification commands, and `reservationDate is undefined`, covered by T5
@@ -575,3 +639,64 @@ on their own evidence.
 **Cost-estimate impact.** `estimated_test_lines` rises from 280 to 470 (1.7× —
 under the 2× re-classification trigger, recorded honestly rather than left
 stale). `estimated_prod_lines` is unchanged at 240.
+
+---
+
+## Review appendix — plan round 2 (verification-only)
+
+**Round 2.** Same axis, same session **resumed** rather than started cold, so
+it checked its own findings with its own context: 3 shell commands against
+round 1's 13. It respected the read-only constraint this time and declined a
+hook's request to run the gate, writing "the orchestrator owns gate evidence".
+
+Result: **F5 and F6 ADDRESSED. F1–F4 substantially improved but each retained
+a residual gap.** It opened no new fronts and confirmed no defect introduced by
+a fix. It also independently validated both orchestrator-found corrections —
+the `Error`-with-BigInt-`message` trigger, and injecting `failTerminal` so
+`stages.test.ts` keeps testing the real terminal helper.
+
+All four residuals **ACCEPTED**. Revision 3 changes:
+
+| # | residual | fix |
+|---|---|---|
+| F1 | `invocationCallOrder` proves invocation order, not awaited resolution — dropping the `await` on `completeDemo` still passes | T3 test 1 now drives a hand-resolved `mockCompleteDemo` promise and asserts nothing downstream ran before it resolved |
+| F2 | "logger.error fired" leaves the diagnostic text unpinned, including both newly exercised ternary branches | T3 test 5 and T5 tests 2 and 5 now assert the exact strings from `OnboardingDemoWorker.ts:136` and `:154-156` |
+| F3 | T4 test 6 begins **after** the root→helper boundary; the root mock returns `attempt: undefined` unconditionally | new T4 test 7 in the worker test file, running the **real** guard with an overridden numeric attempt |
+| F4 | "at least the `claimDemo` rejection" permits skipping two of three boundaries; the generic terminal path lacks exactly-once | T3 test 4 is parameterized over all three boundaries; new T3 test 6 asserts exactly-one release on the generic path |
+
+**Why these are worth the round.** Each is a mutation that survives the
+Revision 2 suite: drop an `await`, truncate a diagnostic, forget one argument
+in the rewire, widen a catch. Those are precisely the mutations a decomposition
+makes by accident, which is the whole risk this branch carries.
+
+Round 2 raised the title count 26 → 28 and required one harness change,
+recorded as deviation D6.
+
+---
+
+## Review appendix — plan round 3 (final verification)
+
+**Round 3.** Same session resumed again. **Zero shell commands** — the resumed
+context was sufficient, which is the whole argument for resuming a verification
+round instead of starting one cold.
+
+**`VERDICT: APPROVED`.** F1–F4 confirmed ADDRESSED, joining F5 and F6 from
+round 2. All six original findings are closed at plan level. "Defects
+introduced by these four fixes: none confirmed." D6's configurable mock was
+checked against the existing tests and found compatible.
+
+The reviewer was explicit about what the approval does **not** mean: it
+approves the plan, it does not claim the unimplemented refactor is verified.
+
+**Two carry-forward checks** the reviewer routed to the step 7 branch review
+rather than treating as blockers, both about T3 test 1's deferred promise.
+Folded into that test's text so the implementation honors them:
+
+1. The test must let the handler actually reach `mockCompleteDemo` before
+   evaluating the negative assertions — `await vi.waitFor(...)`, never a bare
+   tick, or the negatives pass vacuously.
+2. It must resolve the promise and await the handler in a `finally`, so a
+   failing assertion cannot strand the handler and leave unsettled async work.
+
+**The plan-review budget is now spent: 3 rounds of 3.** Nothing is carried to
+the owner as unresolved disagreement, because nothing is unresolved.

@@ -139,6 +139,40 @@ runs the gate can move `.feature/gate-status.json` under the orchestrator's
 evidence. Mitigation for the branch round: re-derive the gate after the wave
 returns, which step 7.5 already requires.
 
+Round 2 was given an explicit read-only instruction naming this drift. It
+complied and declined a hook's gate request. The instruction works; reuse it
+verbatim for the step 7 Codex axis.
+
+**Verdict:**
+
+---
+
+## D6 — `extractOutboxHandle` mock made configurable in the worker test harness
+
+**Phase:** step 3 (plan round 2, finding F3)
+**Kind:** shared test-harness change (deviations entry). **No pre-existing test
+body is edited.**
+
+`worker/jobs/__tests__/OnboardingDemoWorker.test.ts:52-56` mocks
+`extractOutboxHandle` as a plain arrow returning
+`{ outboxId: fallback, attempt: undefined }` **unconditionally**. Because the
+attempt is always `undefined`, a rewire that forgets to forward
+`outboxAttempt` from the root into the extracted subscription guard is
+invisible — and `failDemo` (`src/lib/demos/lifecycle.ts:191`) then drops its
+`AND attempts = ${outboxAttempt}` predicate, which is what stops a stale worker
+from failing a newer dispatch.
+
+T3 converts it to a `vi.fn()` whose **default implementation is byte-identical
+to today's**, so all four pre-existing tests keep their exact behavior, and T4
+test 7 overrides it once with `mockReturnValueOnce` to supply a distinct outbox
+id and a nonzero numeric attempt.
+
+Risk and its control: if the default is not byte-identical, the four
+pre-existing tests fail. That is the check, and it is mechanical.
+
+Why not avoid it: the alternative is leaving the root→helper hop untested, and
+that hop is exactly what this refactor creates.
+
 **Verdict:**
 
 ---

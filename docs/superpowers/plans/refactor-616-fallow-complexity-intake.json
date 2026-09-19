@@ -102,6 +102,8 @@
     "throws without releasing the reservation when the claim resets a stale running demo",
     "propagates a pre-work rejection without a terminal write or a release",
     "keeps the demo completed when Sentry capture throws, and skips the remaining captures",
+    "releases exactly once when the generic terminal write fails",
+    "forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write",
     "guardOnboardingDemoSubscription reports not handled when the account is still pending_payment",
     "guardOnboardingDemoSubscription reports not handled when the demo row is missing",
     "guardOnboardingDemoSubscription fails the demo and releases the reservation when the account has paid",
