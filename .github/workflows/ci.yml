@@ -221,6 +221,11 @@ jobs:
       - name: Run merge-ledger audit (arch log vs production + governance diff)
         if: github.actor != 'dependabot[bot]'
         run: pnpm ci:merge-ledger
+      # Reads the DIFF, not the tree: a skipped test or a lowered coverage
+      # floor is invisible once it lands. FAIL rows block; REVIEW rows print
+      # for the reviewer and never fail (scripts/ci/weakened-checks-audit.ts).
+      - name: Run weakened-checks audit (focused/disabled tests, lowered coverage floor)
+        run: pnpm ci:weakened-checks
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)

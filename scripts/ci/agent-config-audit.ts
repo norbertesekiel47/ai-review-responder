@@ -11,9 +11,11 @@ import { globToRegExp, loadRules, RULES_DIR, type Rule } from '../agent-rules';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PROJECT_SKILLS = [
   'approval-security',
+  'constraint-driven-development',
   'cost-guard',
   'doctor-explain',
   'document-feature',
+  'doubt-driven-development',
   'feature',
   'feature-resume',
   'flag-flip',
@@ -25,6 +27,7 @@ const PROJECT_SKILLS = [
   'red-team',
   'repworth-brand-design',
   'runbook',
+  'security-and-hardening',
   'verify-spec',
 ] as const;
 // Skills whose two lanes are DELIBERATELY different files: feature and

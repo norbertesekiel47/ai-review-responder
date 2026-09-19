@@ -435,3 +435,39 @@ export function renderTerminal(snapshot) {
     '\n',
   );
 }
+
+// ------------------------------------------------------- status-line render
+
+// One line for an always-visible status bar. It reads the same snapshot as the
+// block above, so the two cannot disagree, and it owns no state. It returns ''
+// when no ladder exists: a status bar shows nothing rather than a placeholder.
+//
+//   /feature 54% ▸ 4 execute 1/3
+//   /feature 69% ▸ 5 gate (running)
+//   /feature 63% ✗ 5 gate blocked
+//   /feature 100% ✓ done
+export function renderStatusLine(snapshot, { gateRunning = false } = {}) {
+  const entered = snapshot.steps.filter((step) => step.status !== 'pending');
+  if (!snapshot.active || entered.length === 0) return '';
+
+  const head = `/feature ${snapshot.percent}%`;
+  const open = snapshot.steps.filter((step) => step.status !== 'done' && step.status !== 'skipped');
+  if (open.length === 0) return `${head} ${SYMBOL.done} done`;
+
+  const current =
+    open.find((step) => step.status === 'blocked') ??
+    open.find((step) => step.status === 'active') ??
+    open[0];
+
+  let detail = '';
+  if (current.status === 'blocked') detail = 'blocked';
+  else if (current.id === 'execute' && snapshot.tracers.length > 0) {
+    const done = snapshot.tracers.filter((tracer) => tracer.status === 'done').length;
+    detail = `${done}/${snapshot.tracers.length}`;
+  } else if (current.id === 'gate' && gateRunning) detail = '(running)';
+  else if (current.id === 'review' && snapshot.reviewRounds.branch > 0) {
+    detail = `round ${snapshot.reviewRounds.branch}`;
+  }
+
+  return [head, SYMBOL[current.status], current.index, current.id, detail].filter((part) => part !== '').join(' ');
+}

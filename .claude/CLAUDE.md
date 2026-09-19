@@ -127,7 +127,12 @@ Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
 `cost-guard`, `onboarding-demo-cost-guard`, `new-migration` (before any
 `supabase/migrations/` file), `flag-flip` (before changing any feature-flag
 env var). Also invoke: `repworth-brand-design`
-(any RepWorth UI), `supabase:supabase-postgres-best-practices` (Postgres query/schema perf).
+(any RepWorth UI), `supabase:supabase-postgres-best-practices` (Postgres query/schema perf),
+`security-and-hardening` (BEFORE planning a change that crosses a trust
+boundary), `constraint-driven-development` (a check was weakened, or a quality
+gate changes), `doubt-driven-development` (one risky decision outside a guarded
+`/feature` run). The last three are adapted third-party skills —
+`docs/agents/third-party-skills.md`.
 
 Code map: `docs/directory.md` (index) + `docs/directory/` (pages) · Layout reasoning: `docs/currents.md` ·
 ADRs: `docs/adr/` · Ops runbooks: `docs/runbooks/`.

@@ -48,6 +48,25 @@ two versions that disagree.
 - **No success claim without evidence.** Green gate output whose fingerprint
   matches this worktree, or it did not happen. The Stop hook enforces it.
 
+## No unacknowledged debt
+
+No workflow can promise a feature adds zero debt; necessary behavior adds
+code. The enforceable promise is that **no increase goes unacknowledged**. A
+change fails acceptance when it knowingly adds any of these and does not say so:
+
+- a second owner of a domain rule or state transition;
+- a bypass of authorization, tenant scope, validation, transaction atomicity,
+  idempotency, or bounded failure handling;
+- a swallowed error, a misleading success, or an unexplained fallback;
+- scaffolding, dead code, or a legacy path left behind by this change;
+- a weakened check — `pnpm ci:weakened-checks` fails the prohibited ones and
+  prints the rest for the reviewer.
+
+A necessary compromise is allowed when it is NAMED: one line in the review
+record stating what, why, and what would remove it. Pre-existing debt that
+blocks a correct implementation is fixed; unrelated debt is recorded, not
+absorbed. Cleanup elsewhere never offsets a new authorization defect.
+
 ## Authority
 
 - Never widen scope silently. Amend the intake with the owner's approval, or

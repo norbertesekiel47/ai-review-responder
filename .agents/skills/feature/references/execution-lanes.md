@@ -74,7 +74,13 @@ closed, never waives.
 
 - Apply the standard lane plus rollback, observability, and authority-boundary
   requirements.
-- Require a read-only plan skeptic before execution.
+- When a `risk_reason` names a trust boundary (authorization, tenancy, billing,
+  public posting, a webhook, a token, LLM input or output, personal data), read
+  the `security-and-hardening` skill BEFORE writing the plan. Its output is the
+  security contract on each tracer and the negative test titles in
+  `tests_to_add` — security shapes the design; it is not a final-review step.
+- Require a read-only plan skeptic before execution. It is this lane's doubt
+  step; do not stack `doubt-driven-development` on top.
 - Add only the relevant risk review: security/authorization, database/tenancy,
   billing, async/operations, or UI accessibility.
 - Stop review-ready. Never infer staging or production authority.
@@ -91,13 +97,31 @@ closed, never waives.
 
 Each tracer bullet must include:
 
-- one vertical observable behavior
+- one vertical observable behavior, with its negative cases
+- the owning module and the repository precedent it follows
+- the security contract, when the slice crosses a trust boundary: actor,
+  tenant boundary, authorization, untrusted input, side effects, failure and
+  recovery — with at least one negative test title (wrong tenant, missing
+  authorization, replayed or stale input)
+- the invariants it must not break
 - the public test seam
 - exact test title or deterministic check
 - blocking edges
-- repository precedent
 - allowed files
 - completion evidence
+
+**The plan is a behavior contract, not an implementation.** It carries enough
+to prevent architectural improvisation and no more. A plan of complete code
+steps is a plan failure: code written before a test has run is a first draft
+that execution then writes again, and the plan and the code must then both be
+maintained. Show code only where a sentence would stay ambiguous — a tricky
+interface signature, a SQL shape an invariant depends on, a type another
+tracer consumes.
+
+**Validate the test strategy first; write tests per slice.** The plan maps
+every promised test title to its tracer and seam. Each tracer authors its own
+failing tests at its start. Do not author every test body before the first
+tracer: those bodies encode guesses about seams the first slice corrects.
 
 For new behavior or a bug fix, run red → minimal green one tracer at a time.
 For a behavior-preserving refactor, establish characterization coverage and
@@ -122,6 +146,45 @@ Provide:
 Never dispatch two editing agents with overlapping leases. Prefer a read-only
 subagent when the task is diagnosis, research, design comparison, or review.
 The root agent inspects every resulting diff and owns integration.
+
+## Model routing — the cheapest tier that meets the same acceptance bar
+
+A frontier model on a grep is waste; a cheap model inventing a transaction
+design is a defect. Route by what the task DEMANDS, never by habit. Every
+dispatch names its model explicitly — an unnamed Claude subagent falls to the
+project default (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`,
+`sonnet`), and without that default it would inherit the lead's model, which is
+how one Fable session once made every helper a Fable call.
+
+| Tier | Claude (`Agent(model: …)`) | Codex (`-m …`) | Use for |
+|---|---|---|---|
+| 1 mechanical | `haiku` | `gpt-5.6-luna` | file and symbol search, greps, log and checklist sweeps, blast-radius reading, fixtures, renames, doc cross-reference fixes |
+| 2 standard | `sonnet` | `gpt-5.6-terra` | a tracer whose behavior contract is complete; the whole `trivial`/`small` lane at normal risk; routine test writing |
+| 3 strong | `opus` | `gpt-5.6-sol` | multi-module integration, difficult debugging, writing a standard-lane plan, EVERY review axis, fix verification rounds |
+| 4 frontier | `fable` | `gpt-6-astra` | the high-risk plan and its security contract, the plan skeptic, red-team adjudication, an architecture or concurrency decision, a review disagreement nobody has resolved |
+
+Rules that keep the savings honest:
+
+- **The lead session follows the same table.** Run `small` work on tier 2 and
+  standard work on tier 3; switch the session up (`/model`, `codex -m`) for a
+  tier-4 step and back down after it. A command's `model:` frontmatter lasts
+  one turn, so the session default is the real lever.
+- **A reviewer is never weaker than the author, and never below tier 3.**
+  Green tests from a cheap author reviewed by a cheap reviewer prove nothing.
+- **Escalate, do not grind.** A failed check or `NEEDS_CONTEXT` gets more
+  context on the same tier ONCE. A reasoning failure moves up one tier. Two
+  failures at tier 3 go to tier 4 or to the owner.
+- **Never decided below tier 3:** authorization, tenant scope, transaction or
+  outbox shape, migration design, idempotency keys, concurrency, anything in
+  `risk_reasons`. A lower tier may IMPLEMENT such a decision from a complete
+  contract; it stops and escalates before inventing one.
+- **Cost never changes the gate.** Every tier's output meets the same tests,
+  the same audits, and the same review. A saving bought with a skipped check,
+  hidden repair, or a later defect is not a saving (`docs/agents/change-ledger.md`
+  records the `Lead` tier so the 10-change review can see which routes held).
+- Model IDs drift. Verify Codex IDs against `~/.codex/sessions` or the model
+  picker before editing this table; aliases on the Claude side track the
+  current generation.
 
 ## The review wave — one parallel dispatch, red team when risk is high
 

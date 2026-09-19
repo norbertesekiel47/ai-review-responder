@@ -192,7 +192,10 @@ worktree.
 
 Use tracer bullets: each task delivers one vertical behavior slice, names its
 test seam, declares blocking edges, cites the precedent it follows, and stays
-inside `allowed_edit_surface`. When the surface must widen, count the
+inside `allowed_edit_surface`. The plan is a behavior contract, not an
+implementation — [execution-lanes.md](references/execution-lanes.md) § Tracer
+bullets and TDD owns the fields, the security contract, and the per-slice
+test rule. When the surface must widen, count the
 amendment mechanically — `bash scripts/feature-state.sh incr-amendment` —
 which refuses a second amendment without a recorded owner reason. Consult `codebase-design` before introducing or
 widening an interface.
@@ -237,6 +240,14 @@ node .agents/skills/feature/scripts/transition-state.mjs plan_approved
 ```
 
 ### 4. Execute vertical slices
+
+Pick the model by what the slice demands, per
+[execution-lanes.md](references/execution-lanes.md) § Model routing:
+`gpt-5.6-luna` for searches and mechanical edits, `gpt-5.6-terra` for a tracer
+with a complete behavior contract and for the whole light lane, `gpt-5.6-sol`
+for integration and hard debugging, `gpt-6-astra` only for a high-risk plan or
+an unresolved design decision. Name the model on every `codex exec -m …`
+dispatch, and run the root session itself on the tier the lane needs.
 
 Keep root ownership. Implement trivial/small changes directly. For standard
 work, establish the first tracer bullet and its precedent in the root context;
@@ -324,7 +335,8 @@ as its note before you stop.
 ### 6. Review proportionally
 
 Read [review-prompts.md](references/review-prompts.md). Review the diff from a
-fixed merge-base only after the review gate is green:
+fixed merge-base only after the review gate is green. Append its § Weakened
+checks brief to the spec/correctness axis on every lane:
 
 **Take main BEFORE this section, then freeze the fork.** From the moment the
 wave dispatches, a rebase voids the gate result, the fingerprint, the blast
@@ -336,7 +348,9 @@ Read [execution-lanes.md](references/execution-lanes.md) § Pin the fork.
 
 Dispatch every required axis — plus, for high-risk work, the red-team pass —
 in ONE parallel wave; route mechanical passes (logging, checklist sweeps, doc
-greps) to cheaper subagents. Read
+greps) to `gpt-5.6-luna`, and run the axes themselves on `gpt-5.6-sol`
+(`gpt-6-astra` at high risk) — tiers and escalation rules in
+[execution-lanes.md](references/execution-lanes.md) § Model routing. Read
 [execution-lanes.md](references/execution-lanes.md) § The review wave
 first — it carries the three rules that keep a live mutation safe beside
 concurrent reviewers, and breaking one corrupts the red-team pass.
@@ -451,7 +465,10 @@ the wave plus the scoped round spend both by design.
 ### 7. Stop at review-ready
 
 Report the implemented behavior, material decisions, changed files, exact
-verification evidence, review verdicts, deviations, and unresolved risks.
+verification evidence, review verdicts, deviations, unresolved risks, and
+every compromise the change names ([working-rules.md](references/working-rules.md)
+§ No unacknowledged debt). Include the change's `docs/agents/change-ledger.md`
+row in the report; whoever ships adds it.
 State which external action is available next, but do not take it without
 explicit authorization. Read [shipping-boundaries.md](references/shipping-boundaries.md)
 if the user asks to continue.

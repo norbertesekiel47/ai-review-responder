@@ -53,6 +53,56 @@ describe('the small lane gate', () => {
   });
 });
 
+// A plan of complete code steps writes the feature twice, and the first
+// version is written before any test has run. The rule has one owner; a router
+// that restates it forks it.
+describe('the plan is a behavior contract', () => {
+  const RULE = 'The plan is a behavior contract, not an implementation.';
+
+  it('execution-lanes.md owns the rule and the security contract', () => {
+    expect(executionLanes).toContain(RULE);
+    expect(executionLanes).toContain('the security contract, when the slice crosses a trust boundary');
+    expect(executionLanes).toContain('write tests per slice');
+  });
+
+  it.each(ROUTERS)('%s cites it and does not demand complete code', (_name, router) => {
+    expect(router).toContain('behavior contract, not an');
+    expect(router).not.toContain(RULE);
+    expect(router).not.toContain('Code steps show the code');
+    expect(router).not.toContain('The FIRST task is the eval task');
+  });
+});
+
+// An unnamed Claude subagent inherits the LEAD's model, so one frontier session
+// made every grep helper a frontier call. The tier table has one owner; the
+// project default catches a dispatch that forgets to name its model.
+describe('model routing', () => {
+  it('execution-lanes.md owns the tier table for both harnesses', () => {
+    expect(executionLanes).toContain('## Model routing');
+    for (const model of ['haiku', 'sonnet', 'opus', 'fable', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-6-astra']) {
+      expect(executionLanes).toContain(`\`${model}\``);
+    }
+    expect(executionLanes).toContain('A reviewer is never weaker than the author');
+  });
+
+  it.each(ROUTERS)('%s cites the routing section', (_name, router) => {
+    expect(router).toContain('§ Model routing');
+  });
+
+  it('the small lane runs on Sonnet', () => {
+    expect(smallLane).toContain('/model sonnet');
+  });
+
+  it('the project default for an unnamed subagent is Sonnet, and is not forced', () => {
+    const settings = JSON.parse(readFileSync(resolve(root, '.claude/settings.json'), 'utf8')) as {
+      env?: Record<string, string>;
+    };
+    expect(settings.env?.CLAUDE_CODE_SUBAGENT_MODEL).toBe('sonnet');
+    // FORCE would stop the lead from escalating a review axis to opus or fable.
+    expect(settings.env?.CLAUDE_CODE_SUBAGENT_MODEL_FORCE).toBeUndefined();
+  });
+});
+
 describe('both routers cite the shared rule set', () => {
   it.each(ROUTERS)('%s cites working-rules.md', (_name, router) => {
     expect(router).toContain('working-rules.md');
