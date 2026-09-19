@@ -490,6 +490,11 @@ export const metadata = { title: SOME_TITLE };
     // `'RepWorth: …'` PREFIX passed the scan while the tab still read
     // 'RepWorth: … · RepWorth'. The predicate stays as it is; this pins the one
     // page in the tree that used the allowance.
+    //
+    // A case rather than a `FIXED_PAGES` row: that table is pinned to #1078's
+    // sixteen, and a row asserts the title does not END with the brand — which
+    // the old prefix passed. The assertion this page needs is that the title
+    // does not SPELL the brand at all.
     const { metadata } = await loadPage('(public)')();
 
     expect(metadata.title).toBe('The AI agent team for your reputation');
@@ -497,9 +502,12 @@ export const metadata = { title: SOME_TITLE };
     expect(metadata.robots).toBeUndefined();
   });
 
-  it('the resolved-value table covers every page this change edited', () => {
+  it('the resolved-value table covers every page #1078 edited', () => {
     // A hand-written table can only rot in one direction: silently losing a
-    // page. `allowed_edit_surface` fixed the count at sixteen.
+    // page. #1078's `allowed_edit_surface` fixed the count at sixteen. The
+    // landing page is a SEVENTEENTH page this file guards and deliberately not
+    // a row here — #1102 edited it, not #1078, and its own case above asserts
+    // more than a row can.
     expect(FIXED_PAGES).toHaveLength(16);
     expect(new Set(FIXED_PAGES.map(({ path }) => path)).size).toBe(16);
 
