@@ -87,8 +87,13 @@ node .agents/skills/feature/scripts/progress.mjs step execute done
 ## 4. Gate — the pre-push hook itself, then the full suite
 
 ```bash
-pnpm exec lefthook run pre-push --no-tty && pnpm test && pnpm build
+pnpm exec lefthook run pre-push --force --no-tty && pnpm test && pnpm build
 ```
+
+`--force` is load-bearing. Without it lefthook skips every check when no commit
+is waiting to be pushed (`(skip) no matching push files`) and exits 0 in 0.3 s —
+a green gate that ran nothing. If the summary shows a check as skipped, the gate
+did not run.
 
 The first command RUNS `lefthook.yml` — lint, typecheck, every `ci:*` audit,
 the guard tests — so this gate cannot list a different set from the hook and a

@@ -36,8 +36,16 @@ const smallLane = readFileSync(resolve(root, '.claude/commands/feature-small.md'
 // the hook runs. A hand-kept list drifts; running the hook cannot.
 describe('the small lane gate', () => {
   it('runs the pre-push hook instead of re-listing it', () => {
-    expect(smallLane).toContain('pnpm exec lefthook run pre-push');
+    expect(smallLane).toContain('pnpm exec lefthook run pre-push --force');
     expect(smallLane).not.toMatch(/pnpm lint && pnpm typecheck/);
+  });
+
+  // Without --force, lefthook skips every check when no commit is waiting to be
+  // pushed and exits 0 in 0.3 s. Measured 2026-09-18 on an uncommitted worktree:
+  // a gate that ran nothing and reported green.
+  it('forces the hook, so an unpushed or uncommitted tree cannot skip every check', () => {
+    expect(executionLanes).toContain('pnpm exec lefthook run pre-push --force');
+    expect(`${smallLane}\n${executionLanes}`).not.toMatch(/lefthook run pre-push --no-tty/);
   });
 
   it('builds, because AGENTS.md requires a build for a behavior change', () => {

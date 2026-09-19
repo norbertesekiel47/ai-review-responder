@@ -50,8 +50,10 @@ closed, never waives.
   not a ceremony; the arming scripts are not run on this lane at normal risk.
 - Implement in the root context. No plan document or implementation delegation.
 - Gate by RUNNING the pre-push hook, then the full suite and the build:
-  `pnpm exec lefthook run pre-push --no-tty && pnpm test && pnpm build`.
-  `lefthook.yml` owns the audit list; never re-spell it. Skip the build only
+  `pnpm exec lefthook run pre-push --force --no-tty && pnpm test && pnpm build`.
+  `--force` is load-bearing: without it lefthook SKIPS every check when no
+  commit is waiting to be pushed, and the gate goes green in 0.3 s having run
+  nothing. `lefthook.yml` owns the audit list; never re-spell it. Skip the build only
   for a docs-only change.
 - Perform one fresh spec/correctness review after the gate.
 - Claude lane: `/feature-small` owns this lane end to end at normal risk;
