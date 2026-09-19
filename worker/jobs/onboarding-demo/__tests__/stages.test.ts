@@ -579,14 +579,16 @@ describe('finalizeOnboardingDemoSpend', () => {
     await expect(
       finalizeOnboardingDemoSpend({
         reservationDate: '2026-05-20',
-        totalCostUsd: 0.0342,
+        totalCostUsd: 0.0355,
         logger,
         finalizeCost: errorFinalize,
       }),
     ).resolves.toBeUndefined();
 
-    // Rounds to whole cents and books against the RESERVATION date.
-    expect(errorFinalize).toHaveBeenCalledWith('2026-05-20', 3);
+    // 3.55c ROUNDS UP to 4 — floor and trunc would book 3. Paired with the
+    // 3.42c case below, which rounds DOWN to 3 and so kills ceil. One fixture
+    // alone cannot pin the rounding contract. Red-team RT-001.
+    expect(errorFinalize).toHaveBeenCalledWith('2026-05-20', 4);
     expect(logger.error).toHaveBeenNthCalledWith(
       1,
       'Failed to finalize cost reservation: redis down',
@@ -594,15 +596,19 @@ describe('finalizeOnboardingDemoSpend', () => {
 
     // Non-Error branch of the same ternary. Running both without asserting
     // their output would not preserve that output.
+    const stringFinalize = vi.fn().mockRejectedValue('plain string');
     await expect(
       finalizeOnboardingDemoSpend({
         reservationDate: '2026-05-20',
         totalCostUsd: 0.0342,
         logger,
-        finalizeCost: vi.fn().mockRejectedValue('plain string'),
+        finalizeCost: stringFinalize,
       }),
     ).resolves.toBeUndefined();
 
+    // 3.42c rounds DOWN to 3 — ceil would book 4. This is the other half of
+    // the rounding pin; together the two cases admit only Math.round.
+    expect(stringFinalize).toHaveBeenCalledWith('2026-05-20', 3);
     expect(logger.error).toHaveBeenNthCalledWith(
       2,
       'Failed to finalize cost reservation: plain string',

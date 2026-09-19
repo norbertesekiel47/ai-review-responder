@@ -291,6 +291,17 @@ describe('createWorkerLogger (JSON)', () => {
     // contributes error_name and error_message but does NOT delete an
     // error_stack an earlier Error already wrote. Replacing the accumulated
     // error fields with the last serialization would silently drop it.
+    //
+    // KNOWN DEBT, preserved deliberately (#616 branch review): the record this
+    // produces is internally inconsistent — error_name/error_message describe
+    // the SECOND error while error_stack describes the FIRST, which can point
+    // a debugger at the wrong failure site. That predates this branch and is
+    // NOT fixed here, because this is a behavior-preserving refactor. The
+    // assertion pins the current behavior so the decomposition cannot move it
+    // by accident; it is not an endorsement. The follow-up decision is either
+    // to replace the whole error group when a later Error wins, or to
+    // represent multiple errors separately — filed against the logger, not
+    // against #616.
     delete process.env.RAILWAY_ENVIRONMENT_NAME;
     setEnvVar('NODE_ENV', 'development');
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});

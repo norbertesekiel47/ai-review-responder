@@ -160,10 +160,15 @@ function emit(level: LogLevel, prefix: string, correlationId: string | undefined
   const record = buildBaseRecord(level, prefix, correlationId);
   const { message, errorFields, data } = collectLogArgs(args);
 
-  // These three statements ARE the key-order contract: error fields append
-  // after the context block, `message` is re-assigned in place and keeps the
-  // position it was seeded at, and `data` lands last. Reordering them changes
-  // the emitted JSON. Pinned by the key-order test in logger.test.ts.
+  // Key-order contract. The load-bearing part is that `data` is set LAST —
+  // move it earlier and it stops being the final key.
+  //
+  // The first two are order-INDEPENDENT of each other, and an earlier version
+  // of this comment wrongly implied otherwise: `message` already exists from
+  // the seed above, so re-assigning it never moves it, and `serializeError`
+  // only ever produces `error_name` / `error_message` / `error_stack`, which
+  // cannot collide with it. What matters is that both run before `data`.
+  // Pinned by the key-order test in logger.test.ts.
   Object.assign(record, errorFields);
   record.message = message;
   if (data) record.data = data;

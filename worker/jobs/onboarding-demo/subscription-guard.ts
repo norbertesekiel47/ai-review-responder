@@ -11,9 +11,12 @@ import type { failOnboardingDemoTerminal } from './terminal';
  *
  * Returns true when it handled the job and the caller must return.
  *
- * `failTerminal` is injected rather than imported so the package's single test
- * file can drive this guard while its own `failOnboardingDemoTerminal` describe
- * block keeps testing the real implementation.
+ * `failTerminal` is a parameter rather than a hard import so this module
+ * depends on the SHAPE of a terminal-failure writer, not on a particular
+ * sibling's implementation — the same dependency-injected shape
+ * `reservation.ts` uses for `finalizeCost`. The composition root supplies
+ * `failOnboardingDemoTerminal`. (That it also keeps the package's test file
+ * free to exercise the real one is a consequence, not the reason.)
  */
 export async function guardOnboardingDemoSubscription(input: {
   sql: Sql;

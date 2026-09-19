@@ -57,8 +57,11 @@ now drives the extracted guard through the root. The re-throw invariant is
 asserted at the new seam by
 `guardOnboardingDemoSubscription releases the reservation and re-throws when the
 terminal write fails`, with an exactly-once release count. Plan round 2
-independently validated the injection seam (`stages.test.ts:281` keeps testing
-the real `failOnboardingDemoTerminal`).
+independently validated the injection seam: the `failOnboardingDemoTerminal`
+describe block in `stages.test.ts` keeps testing the real implementation. (An
+earlier draft cited that block at `stages.test.ts:281`, its line before this
+branch appended to the file; it now starts at `:295`. Line citations in a file
+this branch edits go stale by construction — prefer the symbol name.)
 
 ---
 
@@ -114,10 +117,13 @@ finalize corrupts the daily counter. Plan T3 test 4 pins the rejection
 boundaries; T3 test 1 pins the exactly-once finalize.
 
 **Verdict: ACCEPT.** This is the most valuable thing the plan review produced.
-The claim was checked against source before the correction landed:
-`OnboardingDemoWorker.ts:67`, `:92` and `:99` do sit outside the outer `try`,
-and `onboarding-demo-cost-guard.ts:86` does apply
-`delta = actual − RESERVATION_CENTS` on every call. Both facts are now pinned
+The claim was checked against source before the correction landed: the
+subscription lookup, `claimDemo` and `markOutboxCompleted` do sit outside the
+outer `try` (they were at `OnboardingDemoWorker.ts:67`, `:92`, `:99` in the
+pre-extraction file; the lookup has since moved into
+`subscription-guard.ts`), and `onboarding-demo-cost-guard.ts:86-93` does apply
+`delta = actual − RESERVATION_CENTS` on every call — the function opens at
+`:86`, the `delta` statement is `:93`. Both facts are now pinned
 by tests — `propagates a pre-work rejection without a terminal write or a
 release` covers all three boundaries, and `completes the demo, then finalizes
 rounded actual cents once…` asserts `toHaveBeenCalledTimes(1)`. Deliberately
@@ -171,11 +177,17 @@ complied and declined a hook's gate request. The instruction works; reuse it
 verbatim for the step 7 Codex axis.
 
 **Verdict: ACCEPT** (process, no code impact). The mitigation is proven, not
-assumed: rounds 2 and 3 both declined a hook's gate request in writing. Gate
-truth here is always re-derived — the green gate and its fingerprint
-(`ce122e52…`) were produced by the orchestrator at HEAD `83330f44`, after
-round 1 had long finished. Carried into step 7: the Codex axis gets the same
-read-only clause verbatim.
+assumed: rounds 2 and 3 both declined a hook's gate request in writing, and so
+did the step 7 Codex axis, which got the same clause verbatim.
+
+**Provenance corrected (red-team RT-003).** An earlier version of this verdict
+cited the gate "at HEAD `83330f44`" with fingerprint `ce122e52…`. Both were
+real when written and both were **orphaned by the step 7 rebase onto
+`origin/main`** — `83330f449` is now a dangling commit on no branch, so the
+citation was unresolvable. This is exactly the project rule that evidence
+produced before a rebase is stale. The live evidence is the gate at the
+rebased HEAD `6c95db21` with fingerprint `60a105d1…`, and it is itself
+superseded by the post-fix gate recorded in the review report.
 
 ---
 
@@ -240,8 +252,23 @@ modes, no coverage plumbing in the verification command.
 On its merits rather than the count: the name states why those three outcomes
 are grouped — another actor already owns the demo — and it separates them from
 the two outcomes that still have work attached (`claimed`, `reset_to_queued`).
-It takes the shared `ClaimResult` type, so adding a sixth outcome is a compile
-error here rather than a silent fall-through.
+It is a TYPE PREDICATE, so the caller keeps the narrowing the inline `||`
+chain gave it and the `'claimed'` comment downstream is compiler-backed.
+
+**Correction (branch review round 1).** An earlier version of this entry, and
+of the `arch-review-log.md` row, claimed that taking `ClaimResult` makes a
+sixth outcome "a compile error here rather than a silent fall-through". **That
+was false**, and all three review axes caught it independently — the spec axis
+compiled the exact shape under this repo's `tsc --strict` and got exit 0. A
+`===` chain stays valid when a union member is ADDED; only removing one breaks
+it. A sixth outcome would return false here, fail the `reset_to_queued` test,
+and fall through to the claimed path — the very silent fall-through the claim
+said was impossible. The claim is struck from both records. The predicate is
+kept on its real merits: the named grouping, the restored narrowing, and the
+measured coverage-independent fallow result. A `Record<ClaimResult, …>` map
+WOULD give real exhaustiveness and was considered; it is not taken here
+because it restructures claim handling beyond this issue's scope, and the
+honest fix for a false claim is to stop making it.
 
 It stays module-private in the root rather than moving to
 `src/lib/demos/lifecycle.ts` beside `ClaimResult`, which would be out of
@@ -259,10 +286,75 @@ re-couple the check to coverage data.
 
 ---
 
+## D8 — `messagePart`, the unplanned sixth logger helper
+
+**Phase:** step 4, T2
+**Kind:** unplanned addition, in-surface (`src/lib/shared/logger.ts`).
+Recorded retrospectively after the standards axis pointed out that
+`leavesNoWorkToDo` got an entry (D7) and this one did not — the same class of
+change, recorded inconsistently.
+
+The plan named FIVE private helpers. `messagePart` is a sixth, added while
+writing T2 for the same reason as D7: without it `collectLogArgs` sits at
+cyclomatic 10, which scores CRAP 31.6 against fallow's 40% no-coverage default
+and re-fails the very check this branch exists to clear. With it,
+`collectLogArgs` is 8.
+
+**Named debt, not a clean win.** The standards review is right that it leaves
+the arg loop with two dispatch mechanisms and no stated rule: `messagePart`
+handles the string/number/boolean class through a sentinel `undefined`, while
+`Error` and plain objects are still dispatched inline. A single mechanism would
+read better. It is kept because the alternative measured worse on the check
+this branch must satisfy, and because the sentinel is confined to one private
+function whose only caller is ten lines away.
+
+**Verdict: ACCEPT**, with the two-mechanism split recorded as debt rather than
+claimed as design.
+
+---
+
+## D9 — `finalizeOnboardingDemoSpend` duplicates `reservation.ts`'s shape (REJECTED for this branch)
+
+**Phase:** step 7, standards axis
+**Kind:** finding accepted as TRUE, fix deliberately deferred.
+
+The finding is correct and the duplication is mine, not pre-existing.
+`releaseOnboardingDemoReservation` and `finalizeOnboardingDemoSpend` have the
+same four-part shape — optional-date guard, `try`, injected `finalizeCost`,
+`catch`-and-log — differing only in the cents argument and one word of the log
+message. The non-idempotent `finalizeOnboardingDemoCost` contract now has two
+wrappers in one package. A single
+`settleOnboardingDemoReservation({ …, actualCents })` with release = 0 would
+be the better end state.
+
+**Not done here**, for reasons that are a trade rather than a dodge:
+
+1. It changes `reservation.ts`'s exported signature and BOTH call sites,
+   including the budget-release path, on a branch whose entire premise is
+   byte-identical behavior. The release path is the one that leaks money when
+   it is wrong.
+2. It buys zero complexity: both functions are already far under every fallow
+   threshold. This is a readability merge, not a fix for #616.
+3. `reservation.ts` is outside the declared surface, so it needs a SECOND
+   surface amendment — and the first was spent on two files CI forced.
+
+The related "only file in the package with two exports" observation is
+**partly false**: `demo-source.ts` also has two exports (an interface and a
+function). `cost-reconcile.ts` is the only one with two exported FUNCTIONS,
+which is a fair judgement call and is folded into the same follow-up.
+
+**Verdict: REJECT for this branch, recorded as named debt.** Follow-up: merge
+the two wrappers into one `settle…` function and split the threshold half into
+its own module, as a standalone refactor with its own review.
+
+---
+
 ## Read-back summary (step 6)
 
-All seven entries resolved **ACCEPT**. None is a RE-PLAN, so the abort criteria
-do not apply and the branch proceeds to the step 7 review wave.
+D1–D7 resolved **ACCEPT** at step 6. D8 and D9 were added at step 7 from
+review findings: D8 ACCEPT (with debt named), D9 REJECT-for-this-branch (with
+debt named and a follow-up stated). None is a RE-PLAN, so the abort criteria do
+not apply.
 
 Three deserve a reviewer's attention rather than a nod:
 

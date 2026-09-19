@@ -506,8 +506,14 @@ Sentry appears nowhere else in this package.
 
 **Root rewire in the same commit:** the success path calls the two new
 functions. Final target for the root: **cognitive ≤ 15** (projected ~11),
-**cyclomatic ≤ 9** (so CRAP clears even at the 40% default), roughly 45 lines,
-orchestration only — invariant #12.
+**cyclomatic ≤ 9** (so CRAP clears even at the 40% default). **Measured
+outcome: cognitive 7, cyclomatic 8, and 112 lines — NOT the "roughly 45 lines"
+this plan first predicted.** The red-team caught that overstatement: the
+extraction replaced dense inline blocks with multi-line, named-argument call
+sites, so line count fell only 144 → 112. That is fine on its own terms —
+fallow's line count is informational and never drove the #616 finding — but
+the prediction was wrong and is corrected here rather than quietly dropped.
+The function is orchestration only — invariant #12.
 
 **Docs rows in the same commit** (`ci:directory-map` requires one per new
 production file under `worker/`):

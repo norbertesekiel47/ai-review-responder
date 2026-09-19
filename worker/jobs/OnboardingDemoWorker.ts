@@ -44,8 +44,21 @@ export interface OnboardingDemoJobPayload extends BasePayload {
  *
  * Named rather than inlined because the grouping is the point — `claimed` and
  * `reset_to_queued` are the two outcomes that still have work attached.
+ *
+ * It is a TYPE PREDICATE so the caller keeps the narrowing the inline `||`
+ * chain gave it: after this returns false, `claimResult` is
+ * `'reset_to_queued' | 'claimed'`, and the `'claimed'` comment further down is
+ * compiler-backed rather than a promise.
+ *
+ * It does NOT make a sixth `ClaimResult` member a compile error — an earlier
+ * version of this comment claimed that and was wrong. A `===` chain stays
+ * valid when a member is ADDED; only removing one breaks it. A new outcome
+ * would return false here, fail the `reset_to_queued` test, and fall through
+ * to the claimed path. Adding one means revisiting this function by hand.
  */
-function leavesNoWorkToDo(claimResult: ClaimResult): boolean {
+function leavesNoWorkToDo(
+  claimResult: ClaimResult,
+): claimResult is 'not_found' | 'already_terminal' | 'race_lost' {
   return (
     claimResult === 'not_found' ||
     claimResult === 'already_terminal' ||

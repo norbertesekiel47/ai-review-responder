@@ -1,0 +1,532 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-refactor-616-fallow-complexity-d3e601",
+  "branch": "refactor/616-fallow-complexity",
+  "fork_sha": "eba43bcca97325026a79cd3041cc25bf37e0c3f3",
+  "merge_base_sha": "eba43bcca97325026a79cd3041cc25bf37e0c3f3",
+  "head_sha": "6c95db21c6445dd390d8633db8af97775e6cefef",
+  "intake_sha256": "422a465265604bd6c7223c1f2426bb587d5246c49d18b062fd7da07b4603bea9",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-19T16:11:26.520Z",
+  "inventory": [
+    {
+      "id": "rt-001",
+      "test": "keeps the JSON key order: base fields, then context, then error fields, then data last",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L1 emit:167-169 — moved `if (data) record.data = data` ahead of `Object.assign(record, errorFields)`; the key list assertion failed (data ahead of error_name)."
+    },
+    {
+      "id": "rt-002",
+      "test": "keeps the JSON key order: base fields, then context, then error fields, then data last",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "equivalent",
+      "reason": "L2 emit:167-168 — swapped `Object.assign(record, errorFields)` with `record.message = message`. PROOF OF EQUIVALENCE: `message` is seeded at buildBaseRecord (logger.ts:67) so re-assignment cannot move the key, and serializeError (logger.ts:33-45) emits only error_name/error_message/error_stack, so errorFields can never contain a `message` key to overwrite. Both orders therefore produce byte-identical JSON. Raises no finding against the code; the production COMMENT that claims otherwise is recorded separately as RT-004."
+    },
+    {
+      "id": "rt-003",
+      "test": "keeps the JSON key order: base fields, then context, then error fields, then data last",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L12 buildBaseRecord:67 — dropped the `message: ''` seed; `message` then landed after the error fields and the key list assertion failed."
+    },
+    {
+      "id": "rt-004",
+      "test": "keeps the earlier error_stack when a later Error supplies none",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L3 collectLogArgs:116,128 — replaced error-field ACCUMULATION (`Object.assign(errorFields, …)`) with replacement (`errorFields = serializeError(arg)`); the earlier error_stack was lost and the test failed."
+    },
+    {
+      "id": "rt-005",
+      "test": "merges every object arg into data, keeping earlier keys across a sanitizer failure",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L4 mergeObjectArg:97 — replaced the accumulating spread with `return { ...sanitizeAnalyticsProperties(arg) }`; the merged data object and its key order both failed."
+    },
+    {
+      "id": "rt-006",
+      "test": "fails open on a circular object arg instead of throwing",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L5 mergeObjectArg:96-101 — removed the fail-open catch; the circular arg threw out of the log call."
+    },
+    {
+      "id": "rt-007",
+      "test": "writes the fallback line when the whole record is unserializable",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L6 stringifyRecord:145-150 — removed the record-level fail-open catch; the BigInt message threw out of the log call."
+    },
+    {
+      "id": "rt-008",
+      "test": "keeps false and 0 in the message instead of dropping them",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L7 messagePart:87 — added a truthiness guard in front of the `typeof` test; `false` and `0` vanished from the message."
+    },
+    {
+      "id": "rt-009",
+      "test": "maps warn() to level warn on console.warn",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L8 writeLine:155-156 — swapped the warn and log console sinks; console.warn was never called."
+    },
+    {
+      "id": "rt-010",
+      "test": "lets a bound context correlation_id win over the factory correlationId",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L9 buildBaseRecord:74 — dropped the `record.correlation_id === undefined` half of the guard; the factory value overwrote the bound-context one."
+    },
+    {
+      "id": "rt-011",
+      "test": "drops null and undefined args without adding a data key",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L10 collectLogArgs:132 — dropped the leading `arg &&`; `typeof null === 'object'` let null reach the sanitizer and a `data` key appeared."
+    },
+    {
+      "id": "rt-012",
+      "test": "omits the data key when an object arg sanitizes to nothing",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L11 collectLogArgs:140 — returned `data` unconditionally instead of the non-empty test; an empty `{}` reached the record."
+    },
+    {
+      "id": "rt-013",
+      "test": "lets the last Error arg overwrite the earlier error fields",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L13 collectLogArgs:127 — made the Error branch first-wins (`&& Object.keys(errorFields).length === 0`); the second Error no longer overwrote."
+    },
+    {
+      "id": "rt-014",
+      "test": "writes exactly one byte-identical compact JSON line to the selected console sink",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "killed",
+      "reason": "L14 stringifyRecord:146 — `JSON.stringify(record, null, 2)`; the raw-line assertion failed on the pretty-printed output."
+    },
+    {
+      "id": "rt-015",
+      "test": "guardOnboardingDemoSubscription reports not handled when the demo row is missing",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S1 subscription-guard.ts:44 — dropped the `!biz ||` half; the missing row threw instead of returning `not handled`."
+    },
+    {
+      "id": "rt-016",
+      "test": "guardOnboardingDemoSubscription releases the reservation and re-throws when the terminal write fails",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S2 subscription-guard.ts:51-69 — replaced the try/finally with sequential statements; the release no longer ran ahead of the re-throw."
+    },
+    {
+      "id": "rt-017",
+      "test": "guardOnboardingDemoSubscription fails the demo and releases the reservation when the account has paid",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S3 subscription-guard.ts:61 — dropped `failureKind: 'subscription_state_changed'` from the terminal write."
+    },
+    {
+      "id": "rt-018",
+      "test": "guardOnboardingDemoSubscription forwards the sql client, outbox id and numeric attempt to the terminal write",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S4 subscription-guard.ts:59 — forwarded `outboxAttempt: undefined` instead of the caller's value; the exact-object assertion failed."
+    },
+    {
+      "id": "rt-019",
+      "test": "guardOnboardingDemoSubscription reports not handled when the account is still pending_payment",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S5 subscription-guard.ts:44 — inverted the PENDING_PAYMENT comparison; a pending account was treated as handled."
+    },
+    {
+      "id": "rt-020",
+      "test": "guardOnboardingDemoSubscription reads status only through the demo's own business and account",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "S6 subscription-guard.ts:37 — re-scoped the predicate to `WHERE b.id = …`; the captured SQL text assertion failed."
+    },
+    {
+      "id": "rt-021",
+      "test": "keeps the demo completed when Sentry capture throws, and skips the remaining captures",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "C1 cost-reconcile.ts:57-63 — moved the catch INSIDE the capture loop; the second threshold still fired and the call-count assertion failed."
+    },
+    {
+      "id": "rt-022",
+      "test": "finalizeOnboardingDemoSpend does nothing without a reservation date",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "C2 cost-reconcile.ts:21 — removed the `if (!input.reservationDate) return` guard; finalizeCost was called with an undefined date."
+    },
+    {
+      "id": "rt-023",
+      "test": "reportOnboardingDemoCostThresholds captures one Sentry message per crossed threshold",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "C3 cost-reconcile.ts:58 — level ladder `t >= 90` → `t > 90`; the 90 threshold degraded to `info`."
+    },
+    {
+      "id": "rt-024",
+      "test": "finalizeOnboardingDemoSpend swallows and logs a finalize failure",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "C4 cost-reconcile.ts:23 — `Math.round(input.totalCostUsd * 100)` → `Math.floor(...)`. SURVIVED. Arbiter: the line executes in this test (the fixture reaches finalizeCost and the test asserts the booked cents), and the mutant is NOT equivalent — 0.0342 USD is 3.42c where round and floor agree, but 0.0355 USD gives 4 vs 3. The fixture cannot distinguish the two, so the rounding direction the branch documents is unpinned.",
+      "finding_id": "RT-001"
+    },
+    {
+      "id": "rt-025",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "C4 re-run against the root-level rounding assertion (the only other test claiming to pin it). Also SURVIVED — it uses the same 0.0342 fixture, so no test in the changed surface kills the mutant.",
+      "finding_id": "RT-001"
+    },
+    {
+      "id": "rt-026",
+      "test": "reportOnboardingDemoCostThresholds checks the current UTC day with the exact lane and thresholds",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "C5 cost-reconcile.ts:55 — `.slice(0, 10)` → `.slice(0, 7)`; the date handed to checkThreshold became a month, not a UTC day."
+    },
+    {
+      "id": "rt-027",
+      "test": "reportOnboardingDemoCostThresholds swallows and logs a threshold-check failure",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "killed",
+      "reason": "C6 cost-reconcile.ts:64-67 — replaced the swallow with a re-throw; the rejection escaped instead of being logged."
+    },
+    {
+      "id": "rt-028",
+      "test": "completes the outbox and releases exactly once for each terminal claim outcome",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "W1 OnboardingDemoWorker.ts:48-54 — dropped `race_lost` from `leavesNoWorkToDo`; the race_lost iteration fell through to the work path."
+    },
+    {
+      "id": "rt-029",
+      "test": "forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "W2 OnboardingDemoWorker.ts:96 — removed `if (handled) return;`; the handler continued past the guard and released twice."
+    },
+    {
+      "id": "rt-030",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "W5 OnboardingDemoWorker.ts:135-146 — swapped `finalizeOnboardingDemoSpend` and `reportOnboardingDemoCostThresholds`. SURVIVED. Arbiter: both calls execute in this test and the mutant is NOT equivalent — checkCostThreshold READS `cost:onboarding-demo:<date>` (onboarding-demo-cost-guard.ts:124-125), the exact key finalizeOnboardingDemoCost decrements (onboarding-demo-cost-guard.ts:92-94). Reversed, every demo evaluates the 50/90/100 percent thresholds against the un-reconciled 20c reserve instead of ~3c actual. The test title says 'then', but nothing asserts order.",
+      "finding_id": "RT-002"
+    },
+    {
+      "id": "rt-031",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "W6 OnboardingDemoWorker.ts:135 — `await finalizeOnboardingDemoSpend({` → `void finalizeOnboardingDemoSpend({`. SURVIVED (the synchronous prefix still calls finalizeCost, so the call-count assertion holds). Arbiter: not equivalent — un-awaiting races the Redis decrement against the threshold read, and lets the handler resolve before the reconciliation lands. Same unpinned sequencing as W5.",
+      "finding_id": "RT-002"
+    },
+    {
+      "id": "rt-032",
+      "test": "throws without releasing the reservation when the claim resets a stale running demo",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "W7 OnboardingDemoWorker.ts:106-108 — released the reserve before the reset_to_queued throw; the negative assertion failed."
+    },
+    {
+      "id": "rt-033",
+      "test": "propagates a pre-work rejection without a terminal write or a release",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "W8 OnboardingDemoWorker.ts:101-102 — swapped markOutboxCompleted with releaseReservation; the markOutboxCompleted-rejection boundary then released."
+    },
+    {
+      "id": "rt-034",
+      "test": "releases exactly once when the generic terminal write fails",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "killed",
+      "reason": "W9 OnboardingDemoWorker.ts:154 — added a release ahead of the terminal try; the exact-count assertion failed on a double release."
+    },
+    {
+      "id": "rt-035",
+      "test": "serializeError omits error_stack on the production Railway lane when NODE_ENV is unset",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. serializeError (logger.ts:33-45) is byte-identical to the pre-refactor definition."
+    },
+    {
+      "id": "rt-036",
+      "test": "serializeError still includes error_stack on a local development lane",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. serializeError (logger.ts:33-45) is byte-identical to the pre-refactor definition."
+    },
+    {
+      "id": "rt-037",
+      "test": "emits one parseable JSON object with required base fields",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-038",
+      "test": "includes correlation_id passed to the factory",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-039",
+      "test": "merges bound context IDs from withLogContext",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-040",
+      "test": "maps error() to level error on console.error",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-041",
+      "test": "serializes Error arguments into error_name / error_message",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-042",
+      "test": "drops blocked keys from object args under data",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-043",
+      "test": "joins multiple string args into message",
+      "file": "src/lib/shared/__tests__/logger.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence."
+    },
+    {
+      "id": "rt-044",
+      "test": "does not call finalize when reservation date is missing",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/reservation.ts is not in the diff."
+    },
+    {
+      "id": "rt-045",
+      "test": "finalizes reservation date with zero actual cents",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/reservation.ts is not in the diff."
+    },
+    {
+      "id": "rt-046",
+      "test": "logs finalize failures and does not throw",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/reservation.ts is not in the diff."
+    },
+    {
+      "id": "rt-047",
+      "test": "returns a valid raw Place ID as-is",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/place-resolution.ts is not in the diff."
+    },
+    {
+      "id": "rt-048",
+      "test": "uses the provided id in mock mode",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/place-resolution.ts is not in the diff."
+    },
+    {
+      "id": "rt-049",
+      "test": "uses mock-place-id in mock mode when id is empty",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/place-resolution.ts is not in the diff."
+    },
+    {
+      "id": "rt-050",
+      "test": "resolves a Google Maps URL when raw id is invalid",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/place-resolution.ts is not in the diff."
+    },
+    {
+      "id": "rt-051",
+      "test": "throws when raw id is invalid and no URL is available",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/place-resolution.ts is not in the diff."
+    },
+    {
+      "id": "rt-052",
+      "test": "logs the existing warning and returns curated fallback when SerpAPI fails",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/demo-source.ts is not in the diff."
+    },
+    {
+      "id": "rt-053",
+      "test": "logs the existing warning and returns curated fallback when review selection fails",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/demo-source.ts is not in the diff."
+    },
+    {
+      "id": "rt-054",
+      "test": "generates responses and returns SerpAPI source when selected reviews include a 4+ star anchor",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/demo-source.ts is not in the diff."
+    },
+    {
+      "id": "rt-055",
+      "test": "returns curated fallback when selected reviews do not include a 4+ star anchor",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/demo-source.ts is not in the diff."
+    },
+    {
+      "id": "rt-056",
+      "test": "calls failDemo for onboarding demos with the provided outbox handle and error",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/terminal.ts is not in the diff."
+    },
+    {
+      "id": "rt-057",
+      "test": "logs subscription-state transaction failures and rethrows",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/terminal.ts is not in the diff."
+    },
+    {
+      "id": "rt-058",
+      "test": "does not infer subscription-state logging from the error message alone",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/terminal.ts is not in the diff."
+    },
+    {
+      "id": "rt-059",
+      "test": "logs generic transaction failures and rethrows",
+      "file": "worker/jobs/onboarding-demo/__tests__/stages.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. worker/jobs/onboarding-demo/terminal.ts is not in the diff."
+    },
+    {
+      "id": "rt-060",
+      "test": "exists and can be imported",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "excluded",
+      "reason": "Smoke import; no production branch to mutate."
+    },
+    {
+      "id": "rt-061",
+      "test": "the onboarding demo mock-leak guard throws on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "excluded",
+      "reason": "Production lines this test covers are unchanged by the diff (merge-base eba43bcc..HEAD 6c95db21); out of scope for a behaviour-preserving refactor pass. The #611 mock-leak guard (OnboardingDemoWorker.ts:80-82) is unchanged."
+    },
+    {
+      "id": "rt-062",
+      "test": "releases reservation when subscription-state failure recording throws",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence. Same rewired guard hop as rt-018 / rt-029, and the orchestrator's disclosed probe (b)."
+    },
+    {
+      "id": "rt-063",
+      "test": "releases reservation when generic failure recording throws",
+      "file": "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+      "outcome": "excluded",
+      "reason": "Covers a changed hunk already exercised by a killed mutation above; a second oracle on the same line adds no evidence. Same outer-catch release as rt-034."
+    },
+    {
+      "id": "rt-064",
+      "test": "tenantScopeAllowlist entries moved to worker/jobs/onboarding-demo/subscription-guard.ts",
+      "file": "scripts/ci/tenant-scope-allowlist.ts",
+      "outcome": "excluded",
+      "reason": "Allowlist DATA, not behaviour. Its oracle is `pnpm ci:tenant-scope`, a CI audit script rather than a vitest case; it is row 1 of the 34-row gate at HEAD and recorded PASS. No vitest oracle exists to mutate against."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-001",
+      "severity": "P0",
+      "title": "Neither rounding assertion can distinguish Math.round from Math.floor — the cost-reconciliation rounding contract is unpinned",
+      "at": "worker/jobs/onboarding-demo/cost-reconcile.ts:23",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Mutant: `Math.round(input.totalCostUsd * 100)` -> `Math.floor(...)`. Both tests that assert the booked cents use totalCostUsd 0.0342 (= 3.42c), where round and floor agree, so both pass unchanged (inventory rt-024, rt-025). The line is executed by both (they assert the value it produces), so this is not an unexecuted branch; and the mutant is provably NOT equivalent — 0.0355 USD books 4c under round and 3c under floor. The branch itself calls the rounding a contract: docs/directory/worker-jobs-c.md states `finalizeOnboardingDemoSpend` 'books Math.round(totalCostUsd * 100)', and both test comments say 'rounds to whole cents' / '0.0342 USD rounds to 3 cents'. The consequence is not cosmetic: finalizeOnboardingDemoCost applies `actual - RESERVATION_CENTS` to the shared daily Redis counter, so a systematic under-round biases the onboarding-demo daily budget low by up to 1c per demo, and it is the counter the 50/90/100 percent Sentry thresholds read. Fix is one fixture: use a totalCostUsd whose half-cent boundary separates the two (e.g. 0.0355 -> 4), or add a second case."
+    },
+    {
+      "id": "RT-002",
+      "severity": "P0",
+      "title": "Nothing pins that cost finalization runs — and completes — before the threshold check, though the threshold check reads the counter finalization moves",
+      "at": "worker/jobs/OnboardingDemoWorker.ts:135",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Two mutants survive the whole changed test surface (inventory rt-030, rt-031): swapping the `finalizeOnboardingDemoSpend` / `reportOnboardingDemoCostThresholds` blocks, and replacing the `await` on the first with `void`. Both execute in the covering test and neither is equivalent. `checkCostThreshold` reads `cost:onboarding-demo:<date>` (src/lib/costs/onboarding-demo-cost-guard.ts:124-125) and `finalizeOnboardingDemoCost` incrby's a negative delta on that same key (src/lib/costs/onboarding-demo-cost-guard.ts:92-94), so either mutant makes every demo evaluate its thresholds against the un-reconciled 20c reserve rather than ~3c actual — roughly 17c per demo too high, which fires the 50/90/100 percent Sentry alerts early and repeatedly. The test's own title asserts the sequence in prose ('completes the demo, THEN finalizes ... , reports thresholds') while asserting only per-mock call counts. The file already contains the technique that would kill both: the completeDemo step is pinned by holding its promise unresolved (OnboardingDemoWorker.test.ts:253-273) precisely because call-order mocks pass a removed `await`. The same hold, or a mock.invocationCallOrder assertion between mockFinalizeCost and mockCheckCostThreshold, closes this."
+    },
+    {
+      "id": "RT-003",
+      "severity": "P1",
+      "title": "Deviations doc cites gate evidence at a HEAD SHA that is no longer reachable, and a superseded fingerprint",
+      "at": "docs/superpowers/plans/refactor-616-fallow-complexity-deviations.md:176",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "D5's verdict argues that gate truth is always re-derived and cites 'the green gate and its fingerprint (`ce122e52…`) were produced by the orchestrator at HEAD `83330f44`'. Re-resolved at HEAD 6c95db21: `83330f449` resolves to a dangling commit ('fix(worker): satisfy the four audits the extraction tripped (#616)') that `git merge-base --is-ancestor 83330f449 HEAD` reports NO for and `git branch -a --contains` places on no branch — the branch's history was rewritten and that object survives only in the local object store. The live fingerprint at HEAD is `60a105d1a8f2948f7dee21d1c496f9d942caf3b052ba074656aab9b730ea2f4d` (.feature/codex-gate-fingerprint.json:16), bound to headSha 6c95db21. A reader cannot resolve the cited provenance, and CLAUDE.md's own gate-evidence rule requires the SHA that evidence was produced at to be recorded and re-derivable. Fix: re-cite the current HEAD and fingerprint, or mark the sentence as a superseded historical record."
+    },
+    {
+      "id": "RT-004",
+      "severity": "P2",
+      "title": "logger.ts's key-order comment overstates which reorderings change the emitted JSON",
+      "at": "src/lib/shared/logger.ts:165",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The comment says 'Reordering them changes the emitted JSON'. Measured (inventory rt-002): swapping `Object.assign(record, errorFields)` with `record.message = message` changes nothing and survives — `message` is seeded at logger.ts:67 so re-assignment never moves the key, and serializeError emits only error_name/error_message/error_stack, so errorFields can never carry a `message` key. Only moving `record.data` earlier changes the JSON (rt-001, killed). The two sentences immediately above already explain the seeding, so the claim contradicts its own rationale. Low impact, but it is the sentence a future editor will trust when deciding what is safe to touch in the single emit path every worker log call reaches."
+    },
+    {
+      "id": "RT-005",
+      "severity": "P2",
+      "title": "Tenant-scope test asserts on SQL source text, so a behaviour-preserving reformat turns it red",
+      "at": "worker/jobs/onboarding-demo/__tests__/stages.test.ts:520",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "The scope test asserts `toContain('FROM onboarding_demos od')`, `toContain('JOIN businesses b ON b.id = od.business_id')`, `toContain('JOIN accounts a ON a.id = b.account_id')` and `toContain('WHERE od.id =')` against a whitespace-collapsed join of the template strings. Aliasing with `AS`, reordering the two joins, or splitting a token across template chunks all break the test with no behaviour change. Recorded rather than blocking, because the load-bearing half — `expect(values).toEqual(['demo_123'])`, which proves the demo id is bound and is the only bound value — is behavioural, and mutation S6 confirms the pair does catch a real re-scoping. The behavioural replacement for the text half would be asserting on the parsed predicate set, or accepting that the `values` assertion plus `ci:tenant-scope` already own tenant scoping."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 64,
+    "killed": 29,
+    "survived_confirmed_p0": 4,
+    "equivalent": 1,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 30,
+    "findings_total": 5,
+    "p0_open": 2,
+    "p1_open": 1,
+    "p2_open": 2,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

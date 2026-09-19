@@ -243,17 +243,31 @@ describe('OnboardingDemoWorker', () => {
   // pre-refactor root — that is what a characterization test is.
 
   it('completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion', async () => {
-    const { reviews, responses } = arrangeClaimedDemo({ totalCostUsd: 0.0342 });
+    // 0.0355 USD = 3.55 cents. Deliberately ABOVE the half-cent: at 0.0342
+    // (3.42c) Math.round and Math.floor agree, so that fixture cannot tell
+    // the documented rounding contract from truncation. Red-team RT-001.
+    const { reviews, responses } = arrangeClaimedDemo({ totalCostUsd: 0.0355 });
 
-    // Hold completeDemo unresolved. mock.invocationCallOrder would prove only
-    // that finalizeCost was CALLED after completeDemo was CALLED — it passes
-    // even with completeDemo's `await` removed, which would move the cost
-    // counter ahead of the demo row. Holding the promise is what proves the
-    // awaited boundary.
+    // Hold BOTH awaited boundaries, one at a time. mock.invocationCallOrder
+    // would prove only that each was CALLED after the previous was CALLED —
+    // it survives dropping either `await`. Holding the promise is what proves
+    // the boundary.
+    //
+    // The second boundary is not cosmetic ordering: checkCostThreshold READS
+    // `cost:onboarding-demo:<date>`, the counter finalizeOnboardingDemoCost
+    // decrements by `actual - 20c`. Run before the finalize, every demo
+    // measures thresholds against the un-reconciled 20c reserve — about 17c
+    // per demo too high, tripping the 50/90/100 alerts early. Red-team RT-002.
     let releaseCompleteDemo!: () => void;
     mockCompleteDemo.mockReturnValue(
       new Promise<void>((resolve) => {
         releaseCompleteDemo = () => resolve();
+      }),
+    );
+    let releaseFinalizeCost!: () => void;
+    mockFinalizeCost.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseFinalizeCost = () => resolve();
       }),
     );
 
@@ -261,14 +275,23 @@ describe('OnboardingDemoWorker', () => {
     const running = handleOnboardingDemo(makeJob());
 
     try {
+      // Boundary 1: nothing downstream may run until completeDemo RESOLVES.
       await vi.waitFor(() => expect(mockCompleteDemo).toHaveBeenCalled());
       expect(mockFinalizeCost).not.toHaveBeenCalled();
+      expect(mockCheckCostThreshold).not.toHaveBeenCalled();
+      expect(mockLogger.log).not.toHaveBeenCalled();
+      releaseCompleteDemo();
+
+      // Boundary 2: the threshold report may not run until the finalize
+      // RESOLVES, or it reads a counter that has not been reconciled.
+      await vi.waitFor(() => expect(mockFinalizeCost).toHaveBeenCalled());
       expect(mockCheckCostThreshold).not.toHaveBeenCalled();
       expect(mockLogger.log).not.toHaveBeenCalled();
     } finally {
       // Settle the handler even if an assertion above threw, so a failure
       // never leaves unfinished async work behind.
       releaseCompleteDemo();
+      releaseFinalizeCost();
       await running;
     }
 
@@ -280,12 +303,12 @@ describe('OnboardingDemoWorker', () => {
       undefined,
       { reviews, responses, source: 'serpapi' },
     );
-    // 0.0342 USD rounds to 3 cents, and it books against the RESERVATION
-    // date from the payload, never today. finalizeOnboardingDemoCost applies
-    // `actual - 20c` on every call, so a second call would corrupt the
-    // daily counter.
+    // 3.55 cents ROUNDS to 4 — floor and trunc would book 3. It books against
+    // the RESERVATION date from the payload, never today.
+    // finalizeOnboardingDemoCost applies `actual - 20c` on every call, so a
+    // second call would corrupt the daily counter.
     expect(mockFinalizeCost).toHaveBeenCalledTimes(1);
-    expect(mockFinalizeCost).toHaveBeenCalledWith('2026-05-20', 3);
+    expect(mockFinalizeCost).toHaveBeenCalledWith('2026-05-20', 4);
     expect(mockCheckCostThreshold).toHaveBeenCalledTimes(1);
     expect(mockLogger.log).toHaveBeenCalledWith(
       'Onboarding demo demo_123 completed (serpapi): 1/2 responses',
@@ -303,6 +326,15 @@ describe('OnboardingDemoWorker', () => {
       sqlReturnQueue.length = 0;
       armSharedMockDefaults();
       mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
+      // A distinct outbox id and a NONZERO numeric attempt. The shared default
+      // returns `attempt: undefined`, under which markOutboxCompleted's
+      // arguments are indistinguishable from a dropped attempt — and the
+      // repo asserts them nowhere else. D6 closed this hole on the failDemo
+      // side and left its sibling open. Red-team / spec finding.
+      mockExtractOutboxHandle.mockReturnValueOnce({
+        outboxId: 'outbox_from_payload',
+        attempt: 7,
+      });
       sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
       mockClaimDemo.mockResolvedValue(outcome);
 
@@ -310,6 +342,14 @@ describe('OnboardingDemoWorker', () => {
       await expect(handleOnboardingDemo(makeJob())).resolves.toBeUndefined();
 
       expect(mockMarkOutboxCompleted, outcome).toHaveBeenCalledTimes(1);
+      // Dropping the attempt here lets a stale worker complete the outbox row
+      // of a NEWER dispatch, and the no-op warning stays silent because the
+      // attempt is undefined.
+      expect(mockMarkOutboxCompleted, outcome).toHaveBeenCalledWith(
+        mockSql,
+        'outbox_from_payload',
+        7,
+      );
       expect(mockReleaseOnboardingDemoReservation, outcome).toHaveBeenCalledTimes(1);
       expect(mockFailOnboardingDemoTerminal, outcome).not.toHaveBeenCalled();
     }
