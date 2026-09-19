@@ -883,7 +883,7 @@ describeWithDb(
       // clears calls, not implementations). A case that wants a failure
       // overrides its own spy after this hook.
       //
-      // `vi.importActual`, NOT a plain `import`: this file `vi.mock`s all four
+      // `vi.importActual`, NOT a plain `import`: this file `vi.mock`s all five
       // modules, so a plain dynamic import returns the MOCK, and re-arming a
       // spy with itself is an infinitely recursive implementation — every case
       // that reaches one dies with `Maximum call stack size exceeded` long
@@ -902,6 +902,17 @@ describeWithDb(
         '@/lib/shared/job-outbox-helpers',
       );
       spies.enqueueSolicitationSend.mockImplementation(helpers.enqueueSolicitationSend);
+      // The fifth delegate (#1329). `mockReset`, not `mockImplementation`:
+      // `vi.clearAllMocks()` calls `mockClear()`, which does NOT empty
+      // `onceMockImplementations`, so an `it.each` round or a case that threw
+      // before consuming its `mockImplementationOnce` would leak that
+      // interleaving into the NEXT case — and the two cases using this seam
+      // write to the database from inside it.
+      const caps = await vi.importActual<typeof import('../send-caps')>('../send-caps');
+      spies.countAccountDispatchAttemptsToday.mockReset();
+      spies.countAccountDispatchAttemptsToday.mockImplementation(
+        caps.countAccountDispatchAttemptsToday,
+      );
 
       // The releasable default: lane on, Judge available, ceiling out of the
       // way. Every case that is ABOUT a governor narrows exactly one of these.
@@ -1283,6 +1294,105 @@ describeWithDb(
         // refuses, so the foreign batch releases and nothing is withheld.
         expect(report.released).toBe(1);
         expect(report.withheldByReason.account_cap).toBeUndefined();
+      });
+
+      it('reads the platform default when only a location override exists', async () => {
+        // THE GATE'S OWN `location_id IS NULL`, pinned separately from the arm's.
+        // ONE row exists for this account and it is a location OVERRIDE — 091's
+        // column comment calls that a per-BUSINESS ceiling. The account-default
+        // read must find NOTHING and fall to the platform default, so one attempt
+        // leaves nine and the row releases.
+        //
+        // Seeding the override ALONE is what makes this deterministic: drop the
+        // predicate and the override becomes the only match, so the cap is 1, the
+        // remainder is 0, and the release turns into an `account_cap` withhold.
+        // With both rows present, `LIMIT 1` would pick arbitrarily and the case
+        // would be a coin flip.
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await sql()`
+          INSERT INTO auto_approval_policies (
+            id, account_id, location_id, persona, action_class,
+            veto_window_minutes, daily_send_cap
+          ) VALUES (
+            ${randomUUID()}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+            'solicitation', 'sending', 30, 1
+          )
+        `;
+        await seedOutreach({
+          batch,
+          deliveryStatus: 'queued',
+          queuedAgo: '5 minutes',
+          queuedWithinUtcDay: true,
+        });
+        const { outreachId } = await seedOutreach({ batch });
+
+        const report = await cycle();
+
+        expect(report.released).toBe(1);
+        expect(report.withheldByReason.account_cap).toBeUndefined();
+        expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
+      });
+
+      it('names the cap, not the subscription, when both fail after the tick has scanned', async () => {
+        // THE CAP ENTRY GATE IS THE SUBJECT, and reaching it needs a mid-tick
+        // contraction: at tick start the arm excludes exactly the accounts whose
+        // remainder is already zero, so `counters.account <= 0` can only be true
+        // here for a dial that moved after the scan.
+        //
+        // BOTH GATES ARE BROKEN MID-TICK ON PURPOSE. Deleting the entry gate
+        // changes no send — the batch loop's `capacityExhausted()` stops a zero
+        // remainder too — so a cap-only fixture cannot detect its absence, and
+        // round 2 measured exactly that: the mutant survived 68 green cases. What
+        // the gate owns is B6's ORDER, so this case lapses the subscription in the
+        // same window and asserts the tick still names `account_cap`.
+        //
+        // It also pins the SNAPSHOT/AUTHORIZATION split: serve either gate from
+        // the tick's snapshot and the contraction is obeyed one tick late.
+        // TWO accounts, because the seam has to fire between the SCAN and THIS
+        // account's cap read — and `runAccountArm` reads the cap before it counts
+        // attempts, so a spy on this account's own count is already too late. The
+        // foreign account owns the older approval, so it is walked first, and its
+        // attempts count is the hook: the contraction lands while the primary is
+        // still queued behind it. Measured: with the spy on the primary's own
+        // count instead, the gate had already read 10 and released.
+        await seedForeignCandidate();
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        await seedOutreach({
+          batch,
+          deliveryStatus: 'queued',
+          queuedAgo: '5 minutes',
+          queuedWithinUtcDay: true,
+        });
+        const { outreachId } = await seedOutreach({ batch });
+        const realCount = spies.countAccountDispatchAttemptsToday.getMockImplementation()!;
+        spies.countAccountDispatchAttemptsToday.mockImplementationOnce(
+          async (exec: postgresType.Sql, forAccountId: string) => {
+            // The owner drops the dial to 1 with one attempt already spent, so
+            // the primary's remainder becomes exactly zero — and the card fails
+            // in the same window, so both account-level gates would refuse.
+            await sql()`
+              UPDATE auto_approval_policies SET daily_send_cap = 1
+              WHERE account_id = ${accountId()}::uuid
+                AND persona = 'solicitation'
+                AND location_id IS NULL
+            `;
+            await setSubscriptionStatus('past_due');
+            return realCount(exec, forAccountId);
+          },
+        );
+
+        const report = await cycle(sql(), { perTickBudget: 10 });
+
+        // The foreign account released; the primary was refused on the dial B6
+        // names FIRST, even though the subscription would also have refused it.
+        expect(report.released).toBe(1);
+        expect(report.withheldByReason.account_cap).toBe(1);
+        expect(report.withheldByReason.subscription).toBeUndefined();
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
       it('releases only the remainder of a sub-default cap the account has partly spent', async () => {

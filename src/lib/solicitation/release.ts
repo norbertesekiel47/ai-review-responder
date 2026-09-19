@@ -116,7 +116,6 @@ import { readSendBreaker } from './send-breaker';
 import {
   countAccountDispatchAttemptsToday,
   countPlatformDispatchAttemptsToday,
-  DEFAULT_DAILY_SEND_CAP_ACCOUNT,
   resolveAccountDailySendCap,
   resolvePlatformDailyCap,
 } from './send-caps';
@@ -1308,6 +1307,11 @@ async function runAccountArm(
     dailySendCap: await readAccountDailySendCap(ctx.sql, accountId),
   });
   ctx.counters.account = cap - (await countAccountDispatchAttemptsToday(ctx.sql, accountId));
+  //    THIS EARLY RETURN IS ABOUT THE REPORTED REASON, not about releasing: the
+  //    batch loop's `capacityExhausted()` would also stop a zero remainder, so
+  //    deleting it changes no send. What it changes is B6's ORDER for an account
+  //    that goes capped AND lapsed in the same window — without it the
+  //    subscription read below runs first and the tick names the wrong dial.
   if (ctx.counters.account <= 0) {
     withhold(ctx.report, 'account_cap');
     return;
@@ -1823,10 +1827,22 @@ async function readResolvedAccountCaps(sql: Sql): Promise<ResolvedAccountCaps> {
   return resolved;
 }
 
-/** The account-level solicitation policy row, read at the GATE for the one
- *  account being authorized. NULL — no row, or no configured cap — resolves to
- *  the platform default inside `resolveAccountDailySendCap`. Deliberately NOT
- *  served from the tick's snapshot; `readResolvedAccountCaps` says why. */
+/**
+ * The account-level solicitation policy row, read at the GATE for the one
+ * account being authorized. NULL — no row, or no configured cap — resolves to the
+ * platform default inside `resolveAccountDailySendCap`. Deliberately NOT served
+ * from the tick's snapshot; `readResolvedAccountCaps` says why.
+ *
+ * `LIMIT 1` is not a tie-break: migration 074's
+ * `auto_approval_policies_one_account_default` partial unique index admits at
+ * most ONE row per (account, persona, action_class) with `location_id IS NULL`,
+ * so the four predicates identify a single row. Two of them have guards of their
+ * own rather than only a test — dropping `account_id` fails `ci:tenant-scope`
+ * (this statement is deliberately NOT allowlisted), and dropping
+ * `location_id IS NULL` fails `reads the platform default when only a location
+ * override exists`, which is what a per-BUSINESS ceiling leaking into the
+ * account's gate looks like.
+ */
 async function readAccountDailySendCap(sql: Sql, accountId: string): Promise<number | null> {
   const [row] = await sql<AccountSendPolicyRow[]>`
     SELECT account_id, daily_send_cap

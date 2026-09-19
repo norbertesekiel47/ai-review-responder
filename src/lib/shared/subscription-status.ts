@@ -52,9 +52,11 @@ export function isSubscriptionStatus(value: string): value is SubscriptionStatus
  * account that may send. Hence the array, not a literal list in the query, and
  * the predicate below is implemented OVER it rather than beside it.
  *
- * Order is `active` then `trialing` and is not meaningful; the lockstep pin in
- * `__tests__/subscription-status.test.ts` asserts membership, derived from the
- * predicate over every canonical status.
+ * Order is `active` then `trialing` and is not meaningful. The lockstep pin in
+ * `__tests__/subscription-status.test.ts` asserts membership against LITERALS,
+ * deliberately not against the predicate below: deriving it from the predicate
+ * made both sides of the comparison move together, and a red-team round proved
+ * that shape passes while `TRIALING` is missing from this array.
  */
 export const FULL_ACCESS_SUBSCRIPTION_STATUSES: readonly SubscriptionStatusValue[] = [
   SubscriptionStatus.ACTIVE,
