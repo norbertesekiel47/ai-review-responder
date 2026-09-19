@@ -18,6 +18,13 @@ function lastLine(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
   return JSON.parse(call[0] as string) as Record<string, unknown>;
 }
 
+/** The raw string written to a console sink, unparsed. Same guard as lastLine. */
+function rawLine(spy: ReturnType<typeof vi.spyOn>): string {
+  const call = spy.mock.calls.at(-1);
+  if (!call) throw new Error('console was not called');
+  return call[0] as string;
+}
+
 describe('createWorkerLogger (JSON)', () => {
   // Lane tests mutate NODE_ENV / RAILWAY_ENVIRONMENT_NAME; snapshot the whole
   // env so ambient shell state can never leak into (or out of) a verdict.
@@ -206,7 +213,8 @@ describe('createWorkerLogger (JSON)', () => {
     // reaches the record. An Error can — serializeError copies err.message
     // straight onto the record, and JSON.stringify then throws a TypeError.
     const err = new Error('boom');
-    Object.defineProperty(err, 'message', { value: 10n });
+    // BigInt(10), not 10n — tsconfig targets ES2017, which has no BigInt literal.
+    Object.defineProperty(err, 'message', { value: BigInt(10) });
 
     expect(() => createWorkerLogger('[W]').error('failed', err)).not.toThrow();
 
@@ -244,7 +252,7 @@ describe('createWorkerLogger (JSON)', () => {
       });
 
       expect(errorSpy).toHaveBeenCalledTimes(1);
-      expect(errorSpy.mock.calls[0][0]).toBe(
+      expect(rawLine(errorSpy)).toBe(
         '{"timestamp":"2026-01-02T03:04:05.678Z","level":"error","service":"worker",' +
           '"logger":"W","message":"boom happened","correlation_id":"corr-1",' +
           '"error_name":"Error","error_message":"kaput","data":{"foo":"bar"}}',
