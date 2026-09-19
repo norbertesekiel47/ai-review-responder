@@ -4,6 +4,13 @@ import { releaseOnboardingDemoReservation } from '../reservation';
 import { resolveOnboardingDemoPlaceId } from '../place-resolution';
 import { buildOnboardingDemoSource } from '../demo-source';
 import { failOnboardingDemoTerminal } from '../terminal';
+import { guardOnboardingDemoSubscription } from '../subscription-guard';
+import {
+  finalizeOnboardingDemoSpend,
+  reportOnboardingDemoCostThresholds,
+} from '../cost-reconcile';
+import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
+import * as Sentry from '@sentry/node';
 import { resolvePlaceId } from '../../../../src/lib/reviews/place-id-resolver';
 import { fetchSerpApiReviews } from '../../../../src/lib/demos/fetch-reviews';
 import { selectQualifyingReviews } from '../../../../src/lib/demos/select-qualifying';
@@ -35,6 +42,13 @@ vi.mock('../../../../src/lib/demos/fallback-content', () => ({
 
 vi.mock('../../../../src/lib/demos/lifecycle', () => ({
   failDemo: vi.fn(),
+}));
+
+// Sentry is a sink, not a decision — cost-reconcile.ts imports it directly,
+// matching terminal.ts's direct import of failDemo. It appears nowhere else in
+// this package, so mocking it file-wide affects no other describe block.
+vi.mock('@sentry/node', () => ({
+  captureMessage: vi.fn(),
 }));
 
 const validPlaceId = 'ChIJ12345678901234567';
@@ -367,5 +381,308 @@ describe('failOnboardingDemoTerminal', () => {
     expect(logger.error).toHaveBeenCalledWith(
       'Failed to record failure for demo demo_123: tx failed',
     );
+  });
+});
+
+describe('guardOnboardingDemoSubscription', () => {
+  /**
+   * A tagged-template `sql` fake that CAPTURES the query it was handed. A fake
+   * that returned the fixture regardless of the query could not detect a
+   * dropped `od.id` predicate or a rewritten account join, which is exactly
+   * what the scope test below has to catch.
+   */
+  function capturingSql(rows: unknown[]) {
+    const calls: Array<{ text: string; values: unknown[] }> = [];
+    const fake = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ text: strings.join(' ? ').replace(/\s+/g, ' ').trim(), values });
+      return Promise.resolve(rows);
+    };
+    return {
+      sql: fake as unknown as Sql,
+      lastQuery(): { text: string; values: unknown[] } {
+        const call = calls.at(-1);
+        if (!call) throw new Error('sql was never called');
+        return call;
+      },
+    };
+  }
+
+  function makeLogger() {
+    return { warn: vi.fn(), error: vi.fn() };
+  }
+
+  it('guardOnboardingDemoSubscription reports not handled when the account is still pending_payment', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
+    const failTerminal = vi.fn();
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(false);
+    expect(failTerminal).not.toHaveBeenCalled();
+    expect(releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('guardOnboardingDemoSubscription reports not handled when the demo row is missing', async () => {
+    // A missing row is NOT a changed subscription — the demo may have been
+    // deleted. Failing it here would turn a clean `not_found` completion into
+    // a spurious subscription_state_changed failure.
+    const { sql } = capturingSql([]);
+    const failTerminal = vi.fn();
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(false);
+    expect(failTerminal).not.toHaveBeenCalled();
+    expect(releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('guardOnboardingDemoSubscription fails the demo and releases the reservation when the account has paid', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.ACTIVE }]);
+    const failTerminal = vi.fn().mockResolvedValue(undefined);
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+    const logger = makeLogger();
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger,
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Demo demo_123 account status=active, marking failed',
+    );
+    expect(failTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ failureKind: 'subscription_state_changed' }),
+    );
+    expect(releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('guardOnboardingDemoSubscription releases the reservation and re-throws when the terminal write fails', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.ACTIVE }]);
+    const failTerminal = vi.fn().mockRejectedValue(new Error('tx failed'));
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      guardOnboardingDemoSubscription({
+        sql,
+        demoId: 'demo_123',
+        outboxId: 'outbox_123',
+        outboxAttempt: undefined,
+        logger: makeLogger(),
+        releaseReservation,
+        failTerminal,
+      }),
+    ).rejects.toThrow('tx failed');
+
+    // The finally releases BEFORE the re-throw propagates, exactly once.
+    expect(releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it("guardOnboardingDemoSubscription reads status only through the demo's own business and account", async () => {
+    const { sql, lastQuery } = capturingSql([
+      { subscription_status: SubscriptionStatus.PENDING_PAYMENT },
+    ]);
+
+    await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation: vi.fn().mockResolvedValue(undefined),
+      failTerminal: vi.fn(),
+    });
+
+    const { text, values } = lastQuery();
+    expect(text).toContain('FROM onboarding_demos od');
+    expect(text).toContain('JOIN businesses b ON b.id = od.business_id');
+    expect(text).toContain('JOIN accounts a ON a.id = b.account_id');
+    expect(text).toContain('WHERE od.id =');
+    // The demo id is BOUND, not interpolated, and it is the only bound value.
+    expect(values).toEqual(['demo_123']);
+  });
+
+  it('guardOnboardingDemoSubscription forwards the sql client, outbox id and numeric attempt to the terminal write', async () => {
+    // Distinct ids and a NONZERO numeric attempt: failDemo only adds its
+    // `AND attempts = $n` predicate when the attempt is a number, so losing it
+    // would let a stale worker fail a newer dispatch.
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.CANCELLED }]);
+    const failTerminal = vi.fn().mockResolvedValue(undefined);
+    const logger = makeLogger();
+
+    await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_abc',
+      outboxId: 'outbox_xyz',
+      outboxAttempt: 3,
+      logger,
+      releaseReservation: vi.fn().mockResolvedValue(undefined),
+      failTerminal,
+    });
+
+    expect(failTerminal).toHaveBeenCalledWith({
+      sql,
+      demoId: 'demo_abc',
+      outboxId: 'outbox_xyz',
+      outboxAttempt: 3,
+      error: expect.any(Error),
+      failureKind: 'subscription_state_changed',
+      logger,
+    });
+  });
+});
+
+describe('finalizeOnboardingDemoSpend', () => {
+  it('finalizeOnboardingDemoSpend does nothing without a reservation date', async () => {
+    const finalizeCost = vi.fn();
+    const logger = { error: vi.fn() };
+
+    await finalizeOnboardingDemoSpend({
+      reservationDate: undefined,
+      totalCostUsd: 0.0342,
+      logger,
+      finalizeCost,
+    });
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('finalizeOnboardingDemoSpend swallows and logs a finalize failure', async () => {
+    const logger = { error: vi.fn() };
+
+    // Error branch of the diagnostic ternary.
+    const errorFinalize = vi.fn().mockRejectedValue(new Error('redis down'));
+    await expect(
+      finalizeOnboardingDemoSpend({
+        reservationDate: '2026-05-20',
+        totalCostUsd: 0.0355,
+        logger,
+        finalizeCost: errorFinalize,
+      }),
+    ).resolves.toBeUndefined();
+
+    // 3.55c ROUNDS UP to 4 — floor and trunc would book 3. Paired with the
+    // 3.42c case below, which rounds DOWN to 3 and so kills ceil. One fixture
+    // alone cannot pin the rounding contract. Red-team RT-001.
+    expect(errorFinalize).toHaveBeenCalledWith('2026-05-20', 4);
+    expect(logger.error).toHaveBeenNthCalledWith(
+      1,
+      'Failed to finalize cost reservation: redis down',
+    );
+
+    // Non-Error branch of the same ternary. Running both without asserting
+    // their output would not preserve that output.
+    const stringFinalize = vi.fn().mockRejectedValue('plain string');
+    await expect(
+      finalizeOnboardingDemoSpend({
+        reservationDate: '2026-05-20',
+        totalCostUsd: 0.0342,
+        logger,
+        finalizeCost: stringFinalize,
+      }),
+    ).resolves.toBeUndefined();
+
+    // 3.42c rounds DOWN to 3 — ceil would book 4. This is the other half of
+    // the rounding pin; together the two cases admit only Math.round.
+    expect(stringFinalize).toHaveBeenCalledWith('2026-05-20', 3);
+    expect(logger.error).toHaveBeenNthCalledWith(
+      2,
+      'Failed to finalize cost reservation: plain string',
+    );
+  });
+});
+
+describe('reportOnboardingDemoCostThresholds', () => {
+  beforeEach(() => {
+    vi.mocked(Sentry.captureMessage).mockReset();
+  });
+
+  it('reportOnboardingDemoCostThresholds checks the current UTC day with the exact lane and thresholds', async () => {
+    const checkThreshold = vi.fn().mockResolvedValue({ crossed: [] });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-04T23:59:59.000Z'));
+
+    try {
+      await reportOnboardingDemoCostThresholds({
+        demoId: 'demo_123',
+        logger: { error: vi.fn() },
+        checkThreshold,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(checkThreshold).toHaveBeenCalledWith('onboarding-demo', '2026-03-04', [50, 90, 100]);
+  });
+
+  it('reportOnboardingDemoCostThresholds captures one Sentry message per crossed threshold', async () => {
+    const checkThreshold = vi.fn().mockResolvedValue({ crossed: [50, 90, 100] });
+
+    await reportOnboardingDemoCostThresholds({
+      demoId: 'demo_123',
+      logger: { error: vi.fn() },
+      checkThreshold,
+    });
+
+    // The level ladder and both tags are the operational contract an alert
+    // routing rule depends on.
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(3);
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      1,
+      'onboarding_demo_cost_threshold_50',
+      { level: 'info', tags: { lane: 'onboarding-demo', threshold: '50' } },
+    );
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      2,
+      'onboarding_demo_cost_threshold_90',
+      { level: 'warning', tags: { lane: 'onboarding-demo', threshold: '90' } },
+    );
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      3,
+      'onboarding_demo_cost_threshold_100',
+      { level: 'error', tags: { lane: 'onboarding-demo', threshold: '100' } },
+    );
+  });
+
+  it('reportOnboardingDemoCostThresholds swallows and logs a threshold-check failure', async () => {
+    const logger = { error: vi.fn() };
+
+    await expect(
+      reportOnboardingDemoCostThresholds({
+        demoId: 'demo_123',
+        logger,
+        checkThreshold: vi.fn().mockRejectedValue(new Error('redis down')),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Threshold check / Sentry capture failed for demo demo_123: redis down',
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 });

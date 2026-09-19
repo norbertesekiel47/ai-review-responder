@@ -44,7 +44,20 @@ function serializeError(err: Error): Record<string, unknown> {
   return out;
 }
 
-function emit(level: LogLevel, prefix: string, correlationId: string | undefined, args: unknown[]): void {
+/**
+ * The record's opening shape: the five base fields, then any bound context
+ * IDs in CONTEXT_FIELDS order, then the factory's correlation id — but only
+ * when the bound context did not already supply one.
+ *
+ * `message` is seeded empty here and re-assigned by `emit` once the args are
+ * joined. That is deliberate: re-assigning an existing key does not move it,
+ * so seeding it fixes its position ahead of the context block.
+ */
+function buildBaseRecord(
+  level: LogLevel,
+  prefix: string,
+  correlationId: string | undefined,
+): Record<string, unknown> {
   const context = getLogContext();
   const record: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
@@ -61,41 +74,106 @@ function emit(level: LogLevel, prefix: string, correlationId: string | undefined
   if (correlationId && record.correlation_id === undefined) {
     record.correlation_id = correlationId;
   }
+  return record;
+}
 
+/**
+ * A string, number or boolean arg's contribution to the message, or undefined
+ * when the arg is neither. The test is `typeof`, never truthiness — `false`
+ * and `0` are real message parts.
+ */
+function messagePart(arg: unknown): string | undefined {
+  if (typeof arg === 'string') return arg;
+  if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
+  return undefined;
+}
+
+/** Accumulates one object arg onto whatever earlier object args contributed. */
+function mergeObjectArg(
+  data: Record<string, unknown> | undefined,
+  arg: Record<string, unknown>,
+): Record<string, unknown> {
+  try {
+    return { ...(data ?? {}), ...sanitizeAnalyticsProperties(arg) };
+  } catch {
+    // Fail open: a cyclic/unserializable arg must never crash the logger.
+    return { ...(data ?? {}), unserializable: true };
+  }
+}
+
+/**
+ * Splits the variadic args into the three things `emit` assembles. Error
+ * fields come back SEPARATELY rather than written straight onto the record, so
+ * `emit` alone decides where they land in key order. `data` is undefined when
+ * it would be empty, which is what keeps the key absent.
+ */
+function collectLogArgs(args: unknown[]): {
+  message: string;
+  errorFields: Record<string, unknown>;
+  data: Record<string, unknown> | undefined;
+} {
   const messageParts: string[] = [];
+  const errorFields: Record<string, unknown> = {};
   let data: Record<string, unknown> | undefined;
 
   for (const arg of args) {
-    if (typeof arg === 'string') {
-      messageParts.push(arg);
-    } else if (typeof arg === 'number' || typeof arg === 'boolean') {
-      messageParts.push(String(arg));
-    } else if (arg instanceof Error) {
-      Object.assign(record, serializeError(arg));
-    } else if (arg && typeof arg === 'object') {
-      try {
-        const sanitized = sanitizeAnalyticsProperties(arg as Record<string, unknown>);
-        data = { ...(data ?? {}), ...sanitized };
-      } catch {
-        // Fail open: a cyclic/unserializable arg must never crash the logger.
-        data = { ...(data ?? {}), unserializable: true };
-      }
+    const part = messagePart(arg);
+    if (part !== undefined) {
+      messageParts.push(part);
+      continue;
+    }
+    // Errors are tested BEFORE plain objects: an Error is also an object, and
+    // it must serialize through serializeError, not the analytics sanitizer.
+    if (arg instanceof Error) {
+      Object.assign(errorFields, serializeError(arg));
+      continue;
+    }
+    // `arg &&` is what keeps null out — typeof null === 'object'.
+    if (arg && typeof arg === 'object') {
+      data = mergeObjectArg(data, arg as Record<string, unknown>);
     }
   }
 
-  record.message = messageParts.join(' ');
-  if (data && Object.keys(data).length > 0) record.data = data;
+  return {
+    message: messageParts.join(' '),
+    errorFields,
+    data: data && Object.keys(data).length > 0 ? data : undefined,
+  };
+}
 
-  let line: string;
+function stringifyRecord(record: Record<string, unknown>): string {
   try {
-    line = JSON.stringify(record);
+    return JSON.stringify(record);
   } catch {
     // Fail open: a record we can't serialize must not throw from a log call.
-    line = JSON.stringify({ message: record.message, unserializable: true });
+    return JSON.stringify({ message: record.message, unserializable: true });
   }
+}
+
+function writeLine(level: LogLevel, line: string): void {
   if (level === 'error') console.error(line);
   else if (level === 'warn') console.warn(line);
   else console.log(line);
+}
+
+function emit(level: LogLevel, prefix: string, correlationId: string | undefined, args: unknown[]): void {
+  const record = buildBaseRecord(level, prefix, correlationId);
+  const { message, errorFields, data } = collectLogArgs(args);
+
+  // Key-order contract. The load-bearing part is that `data` is set LAST —
+  // move it earlier and it stops being the final key.
+  //
+  // The first two are order-INDEPENDENT of each other, and an earlier version
+  // of this comment wrongly implied otherwise: `message` already exists from
+  // the seed above, so re-assigning it never moves it, and `serializeError`
+  // only ever produces `error_name` / `error_message` / `error_stack`, which
+  // cannot collide with it. What matters is that both run before `data`.
+  // Pinned by the key-order test in logger.test.ts.
+  Object.assign(record, errorFields);
+  record.message = message;
+  if (data) record.data = data;
+
+  writeLine(level, stringifyRecord(record));
 }
 
 /**
