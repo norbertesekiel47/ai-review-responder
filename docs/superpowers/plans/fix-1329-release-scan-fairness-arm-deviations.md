@@ -107,3 +107,45 @@ SIZE stays `small`, RISK stays `high`, SURFACE stays `backend`. The intake's
 estimate was updated to 280 so the gate measures against the honest number.
 
 **Verdict:** ACCEPT.
+
+## 4. The gate's `test` row is red on a pre-existing, unrelated, CI-green suite (#1334)
+
+`scripts/ci/__tests__/red-team-mutation-runner.test.ts` › *Operator same-round
+continuation safeguards* › **runs an admitted baseline mutant and restoration with
+corroborated report evidence** fails locally. It is not this branch's:
+
+- Reproduces in the PARENT checkout on branch `fix/1327-stale-promise-response-annotations`,
+  which has none of these changes.
+- This branch touches nothing under `scripts/` except `tenant-scope-allowlist.ts`.
+- PR #1319 — the commit that last changed both the runner and this test
+  (`54960f945`) — had its `test` job conclude SUCCESS in CI, merged
+  2026-09-19T09:00:34Z. Neither file has changed since.
+- Deterministic, not flaky: three isolated runs on an idle machine. Local node
+  `v24.15.0` matches `.nvmrc`; pnpm `11.0.9` matches `packageManager`.
+
+So the `test` row measures a local-versus-CI environment divergence in the
+red-team tooling's own fixture, not this branch's code. **Owner decision
+2026-09-19: file it separately (#1334) and ship this branch on CI's verdict for
+that row**, keeping an unrelated tooling fix out of a high-risk solicitation PR.
+
+What this costs, stated plainly: this branch's local gate is NOT fully green, and
+the PR's CI run is the authority for the `test` row. Every other row is green —
+lint, typecheck, build, all `ci:*` audits, `diff-coverage`, `promised-tests`, and
+the two suites this branch actually changes (68 release integration cases, 18
+status unit cases). The branch-specific evidence is complete; the exception is
+one unrelated case.
+
+**Verdict:** ACCEPT.
+
+## 5. `origin/main` advanced during the run: `eba43bcca` → `f2de6fb0c`
+
+Not rebased during review, deliberately — step 7 freezes the fork point, and a
+rebase mid-wave voids the gate, the fingerprint, the blast radius and the
+red-team sidecar at once. All evidence on this branch is bound to its own HEAD.
+
+The rebase happens at the ship step, and it carries the obligation deviation 1
+already recorded: `ALLOWLIST_BASELINE` (382) must be RE-DERIVED after
+`refactor/616-fallow-complexity` merges, never reused. Evidence produced before a
+rebase is stale by construction.
+
+**Verdict:** ACCEPT.

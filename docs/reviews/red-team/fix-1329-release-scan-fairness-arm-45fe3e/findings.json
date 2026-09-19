@@ -16,28 +16,28 @@
       "test": "release phase releases only the remainder of a sub-default cap the account has partly spent",
       "file": "src/lib/solicitation/release.ts:1307",
       "outcome": "killed",
-      "reason": "M1 replaced the restored gate read with `const cap = DEFAULT_DAILY_SEND_CAP_ACCOUNT` — round 1's surviving M10 verbatim. 1 of 66 failed, exactly this case. F1's fix is real."
+      "reason": "M1 replaced the restored gate read with `const cap = DEFAULT_DAILY_SEND_CAP_ACCOUNT` \u2014 round 1's surviving M10 verbatim. 1 of 66 failed, exactly this case. F1's fix is real."
     },
     {
       "id": "rt2-02",
       "test": "FULL_ACCESS_SUBSCRIPTION_STATUSES holds exactly the statuses subscriptionGrantsFullAccess admits",
       "file": "src/lib/shared/subscription-status.ts:59",
       "outcome": "killed",
-      "reason": "M2 removed `SubscriptionStatus.TRIALING` from the bound array — round 1's surviving M12 verbatim. 4 of 18 failed, this case among them. The literal oracle works."
+      "reason": "M2 removed `SubscriptionStatus.TRIALING` from the bound array \u2014 round 1's surviving M12 verbatim. 4 of 18 failed, this case among them. The literal oracle works."
     },
     {
       "id": "rt2-03",
       "test": "release phase refuses an account that lapses after the tick has already scanned it",
       "file": "src/lib/solicitation/release.ts:1325",
       "outcome": "killed",
-      "reason": "M3 deleted the whole per-account subscription gate — round 1's surviving M8 verbatim. 1 of 66 failed, exactly this case. The fifth spy's seam reaches the gate as claimed."
+      "reason": "M3 deleted the whole per-account subscription gate \u2014 round 1's surviving M8 verbatim. 1 of 66 failed, exactly this case. The fifth spy's seam reaches the gate as claimed."
     },
     {
       "id": "rt2-04",
       "test": "release phase reads the account-default policy row, never a location override",
       "file": "src/lib/solicitation/release.ts:1814",
       "outcome": "killed",
-      "reason": "M4 dropped `AND location_id IS NULL` from `readResolvedAccountCaps` — round 1's surviving M11 verbatim. 1 of 66 failed, exactly this case. F6's fix is real for the ARM's read."
+      "reason": "M4 dropped `AND location_id IS NULL` from `readResolvedAccountCaps` \u2014 round 1's surviving M11 verbatim. 1 of 66 failed, exactly this case. F6's fix is real for the ARM's read."
     },
     {
       "id": "rt2-05",
@@ -53,7 +53,7 @@
       "file": "src/lib/solicitation/release.ts:1834",
       "outcome": "survived-confirmed-P0",
       "finding_id": "R2",
-      "reason": "M11 dropped `AND account_id = ${accountId}::uuid` from `readAccountDailySendCap`, leaving `LIMIT 1` with no `ORDER BY`. All 66 passed — no case pins the tenant scope of the query the fix restored."
+      "reason": "M11 dropped `AND account_id = ${accountId}::uuid` from `readAccountDailySendCap`, leaving `LIMIT 1` with no `ORDER BY`. All 66 passed \u2014 no case pins the tenant scope of the query the fix restored."
     },
     {
       "id": "rt2-07",
@@ -81,7 +81,7 @@
       "test": "release phase releases for an account that configured a cap it has not yet reached",
       "file": "src/lib/solicitation/release.ts:1632",
       "outcome": "killed",
-      "reason": "M7 replaced the newly bound `COALESCE(r.cap, ${resolveAccountDailySendCap({ dailySendCap: null })})` with the literal 50 — round 1's surviving M15 in its new location. 2 of 66 failed. The 'the default has one owner too' claim is now asserted."
+      "reason": "M7 replaced the newly bound `COALESCE(r.cap, ${resolveAccountDailySendCap({ dailySendCap: null })})` with the literal 50 \u2014 round 1's surviving M15 in its new location. 2 of 66 failed. The 'the default has one owner too' claim is now asserted."
     },
     {
       "id": "rt2-11",
@@ -94,10 +94,9 @@
       "id": "rt2-12",
       "test": "release phase evaluates the governors in the fixed order breaker then platform ceiling then account cap then subscription",
       "file": "src/lib/solicitation/release.ts:1311",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
+      "outcome": "killed",
       "finding_id": "F3",
-      "reason": "M12 deleted the cap ENTRY gate `if (ctx.counters.account <= 0) { withhold('account_cap'); return; }` — round 1's inconclusive M9b verbatim. All 66 still pass. Round 1's classification is UPHELD rather than escalated: the mutant is not equivalent — `capacityExhausted()` compensates the release decision but not the REPORTED REASON — but the behaviour that distinguishes it lies on a path no case executes (an account that becomes both capped AND lapsed inside one tick), so this is a claim about the ORACLE, not a confirmed defect."
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. Re-measured after the fix: the cap entry gate's deletion now fails `names the cap, not the subscription, when both fail after the tick has scanned` (1 failed / 67 passed). The oracle that was missing is the B6-order assertion, not a cap assertion \u2014 the gate changes the reported REASON, never a send."
     },
     {
       "id": "rt2-13",
@@ -118,14 +117,14 @@
       "test": "pnpm ci:tenant-scope + scripts/ci/__tests__/tenant-scope-audit.test.ts (regenerated RELEASE_RESOLVED_CAPS_SQL / RELEASE_CANDIDATE_SCAN_SQL)",
       "file": "scripts/ci/tenant-scope-allowlist.ts:492",
       "outcome": "excluded",
-      "reason": "CI audit DATA, not behaviour; no behavioural oracle exists to mutate against. Executed instead: `pnpm ci:tenant-scope` prints `passed — entries: 382 (baseline: 382)` at HEAD, which is the byte-for-byte match of both regenerated constants against the live statements, and `tenant-scope-audit.test.ts` runs 118/118 green. `pnpm ci:static-policy`, `ci:live-db-suites`, `ci:outbox-status`, `ci:directory-map`, `ci:db-imports` and `ci:rls-audit` also pass."
+      "reason": "CI audit DATA, not behaviour; no behavioural oracle exists to mutate against. Executed instead: `pnpm ci:tenant-scope` prints `passed \u2014 entries: 382 (baseline: 382)` at HEAD, which is the byte-for-byte match of both regenerated constants against the live statements, and `tenant-scope-audit.test.ts` runs 118/118 green. `pnpm ci:static-policy`, `ci:live-db-suites`, `ci:outbox-status`, `ci:directory-map`, `ci:db-imports` and `ci:rls-audit` also pass."
     },
     {
       "id": "rt2-16",
       "test": "changed docs (arch-review-log row, deviations file, intake, the module docstrings)",
       "file": ".claude/reference/arch-review-log.md:2016",
       "outcome": "excluded",
-      "reason": "No executable behaviour. Handled under Duty 3: `prevalidate-plan.py` PASSES on the deviations file (3 citations, 0 unresolved; 1 commit, 0 stale) and every remaining claim was hand-resolved against HEAD — see F4, F5, F7, F8 (all fixed) and R4, R6 (new)."
+      "reason": "No executable behaviour. Handled under Duty 3: `prevalidate-plan.py` PASSES on the deviations file (3 citations, 0 unresolved; 1 commit, 0 stale) and every remaining claim was hand-resolved against HEAD \u2014 see F4, F5, F7, F8 (all fixed) and R4, R6 (new)."
     }
   ],
   "findings": [
@@ -136,7 +135,7 @@
       "at": "src/lib/solicitation/release.ts:1305",
       "duty": 1,
       "disposition": "fixed",
-      "arbiter_reasoning": "Two independent survivors on an EXECUTED line (rt-11 M10, rt-12 M15). Not equivalent and not an unexecuted branch: line 1305 runs for every candidate account in almost every case, and only the VALUE differs. Reachable and meaningful in production — an account configured at 5 with 3 attempts today passes the scan arm (3 < 5), so the gate is what bounds it; under the mutant `counters.account` becomes 10 - 3 = 7 instead of 5 - 3 = 2, and with >= 3 rendered rows in the batch the account releases up to 7 and ends the day at 10 attempts against a configured cap of 5 — a silent breach of the enforced cap, and the exact 'arm and gate disagree about one account's number' failure the intake's third invariant names. Every existing fixture is blind to it because each one has at most ONE rendered row available, so the row supply, not the counter, bounds `released`. Fix: one case seeding a configured cap of 2 with 0 attempts and >= 3 rendered rows in a single batch, asserting released === 2 and withheldByReason.account_cap >= 1; that kills both M10 and M15.",
+      "arbiter_reasoning": "Two independent survivors on an EXECUTED line (rt-11 M10, rt-12 M15). Not equivalent and not an unexecuted branch: line 1305 runs for every candidate account in almost every case, and only the VALUE differs. Reachable and meaningful in production \u2014 an account configured at 5 with 3 attempts today passes the scan arm (3 < 5), so the gate is what bounds it; under the mutant `counters.account` becomes 10 - 3 = 7 instead of 5 - 3 = 2, and with >= 3 rendered rows in the batch the account releases up to 7 and ends the day at 10 attempts against a configured cap of 5 \u2014 a silent breach of the enforced cap, and the exact 'arm and gate disagree about one account's number' failure the intake's third invariant names. Every existing fixture is blind to it because each one has at most ONE rendered row available, so the row supply, not the counter, bounds `released`. Fix: one case seeding a configured cap of 2 with 0 attempts and >= 3 rendered rows in a single batch, asserting released === 2 and withheldByReason.account_cap >= 1; that kills both M10 and M15.",
       "reason": "Re-measured at HEAD: M1 (rt2-01) reverts the gate to `DEFAULT_DAILY_SEND_CAP_ACCOUNT` and fails exactly `releases only the remainder of a sub-default cap the account has partly spent` (1 of 66). The fixture is built so the arm cannot stand in for the gate (3 attempts against a configured 5 keeps the account out of `capped_accounts`) and `perTickBudget: 10` keeps the per-tick budget from satisfying the assertion."
     },
     {
@@ -146,7 +145,7 @@
       "at": "src/lib/shared/__tests__/subscription-status.test.ts:77",
       "duty": 1,
       "disposition": "fixed",
-      "arbiter_reasoning": "Proven in both directions. M12 removed SubscriptionStatus.TRIALING from FULL_ACCESS_SUBSCRIPTION_STATUSES — verbatim the drift the case's own comment names ('a status admitted by one and refused by the other') — and this case PASSED; the kill came from three pre-existing cases. M12b reordered the array to [TRIALING, ACTIVE], a behaviour-preserving edit, and this case was the SOLE failure of 18, while src/lib/shared/subscription-status.ts:64 states 'Order is `active` then `trialing` and is not meaningful'. Both of its assertions compare the array against a list derived from `subscriptionGrantsFullAccess`, which is itself implemented over that same array (subscription-status.ts:85) — true by construction for any array of canonical statuses in enum order. This is a Duty-2 order assertion with no contract AND a vacuous claim cited in the branch's evidence as the lockstep guarantee. Fix: assert the members against a literal expectation and drop the order coupling (`expect(new Set(FULL_ACCESS_SUBSCRIPTION_STATUSES)).toEqual(new Set([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]))`), and delete the predicate-derived comparison rather than keeping a tautology.",
+      "arbiter_reasoning": "Proven in both directions. M12 removed SubscriptionStatus.TRIALING from FULL_ACCESS_SUBSCRIPTION_STATUSES \u2014 verbatim the drift the case's own comment names ('a status admitted by one and refused by the other') \u2014 and this case PASSED; the kill came from three pre-existing cases. M12b reordered the array to [TRIALING, ACTIVE], a behaviour-preserving edit, and this case was the SOLE failure of 18, while src/lib/shared/subscription-status.ts:64 states 'Order is `active` then `trialing` and is not meaningful'. Both of its assertions compare the array against a list derived from `subscriptionGrantsFullAccess`, which is itself implemented over that same array (subscription-status.ts:85) \u2014 true by construction for any array of canonical statuses in enum order. This is a Duty-2 order assertion with no contract AND a vacuous claim cited in the branch's evidence as the lockstep guarantee. Fix: assert the members against a literal expectation and drop the order coupling (`expect(new Set(FULL_ACCESS_SUBSCRIPTION_STATUSES)).toEqual(new Set([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]))`), and delete the predicate-derived comparison rather than keeping a tautology.",
       "reason": "Re-measured at HEAD: M2 (rt2-02) drops `TRIALING` from the array and fails 4 of 18, this pin among them. Membership is now asserted against the literals `['active', 'trialing']`, an oracle independent of the predicate that is implemented over the array, and the sorted comparison keeps a reorder from redding it."
     },
     {
@@ -155,8 +154,8 @@
       "title": "Both account-level gates in runAccountArm are now unreachable from every test: each can be deleted whole with all 61 cases still green",
       "at": "src/lib/solicitation/release.ts:1314",
       "duty": 1,
-      "disposition": "open",
-      "reason": "PARTIALLY fixed. The SUBSCRIPTION half is genuinely closed: M3 (rt2-03) deletes that gate whole and fails exactly the new lapse case. The CAP-ENTRY half is NOT: M12 (rt2-12) still deletes `if (ctx.counters.account <= 0) { withhold(report, 'account_cap'); return; }` with all 66 green. Re-arbitrated, and no longer inconclusive: the mutant is not equivalent, because `capacityExhausted()` compensates the RELEASE decision but not the REPORTED REASON — an account that becomes both capped and lapsed mid-tick reports `subscription` under the mutant where B6's locked order requires `account_cap`, and mid-tick transition is precisely the window the branch now claims these gates exist to cover. Production behaviour at HEAD is correct; what is missing is any case that can tell the entry gate from `capacityExhausted`. Smallest fix: extend the new remainder case to an account whose counter is already non-positive AND whose subscription has lapsed, asserting `withheldByReason.account_cap === 1` and `subscription` undefined."
+      "disposition": "fixed",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. Closed, and the round-2 diagnosis was right about WHY the first attempt could not close it: deleting the entry gate changes no send, because the batch loop's `capacityExhausted()` withholds under the same reason. A cap-only fixture is therefore blind to it, MEASURED: with the gate deleted, 68/68 stayed green. What the gate owns is B6's ORDER, so the new case `names the cap, not the subscription, when both fail after the tick has scanned` contracts the dial AND lapses the card in the same window and asserts `account_cap` with `subscription` undefined. MEASURED with the gate deleted: 1 failed / 67 passed. Reaching the gate at all needs the seam to fire from a SIBLING account's attempts count, because `runAccountArm` reads the cap before it counts attempts."
     },
     {
       "id": "F4",
@@ -165,7 +164,7 @@
       "at": "src/lib/solicitation/release.ts:1726",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "Re-resolved at HEAD: the docstring now says \"The three predicates are the account-default row's identity (`account_id` is deliberately absent — this read is platform-wide)\". True: `readResolvedAccountCaps` binds `persona`, `action_class` and `location_id IS NULL`, and `loadSolicitationAccountDefault` (solicitation-settings.ts:268-274) spells the same three with the same `POLICY_PERSONA_SOLICITATION` / `POLICY_ACTION_SENDING` constants plus `account_id`, so \"constant for constant\" also holds after the fix replaced the two string literals. The separate `daily_send_cap IS NOT NULL` paragraph does not inflate the count."
+      "reason": "Re-resolved at HEAD: the docstring now says \"The three predicates are the account-default row's identity (`account_id` is deliberately absent \u2014 this read is platform-wide)\". True: `readResolvedAccountCaps` binds `persona`, `action_class` and `location_id IS NULL`, and `loadSolicitationAccountDefault` (solicitation-settings.ts:268-274) spells the same three with the same `POLICY_PERSONA_SOLICITATION` / `POLICY_ACTION_SENDING` constants plus `account_id`, so \"constant for constant\" also holds after the fix replaced the two string literals. The separate `daily_send_cap IS NOT NULL` paragraph does not inflate the count."
     },
     {
       "id": "F5",
@@ -183,7 +182,7 @@
       "at": "src/lib/solicitation/release.ts:1734",
       "duty": 1,
       "disposition": "fixed",
-      "reason": "Re-measured at HEAD: M4 (rt2-04) drops `AND location_id IS NULL` from `readResolvedAccountCaps` and fails exactly the new `reads the account-default policy row, never a location override` case. The tie-break half is also answered: migration 074:75-77's partial unique index makes at most one account-default row per account, so no `ORDER BY` is needed, and the new throw makes a violated index loud rather than arbitrary. The SAME predicate in the newly restored GATE read is a separate, still-unpinned spelling — filed as R2, not as a reopening of this finding."
+      "reason": "Re-measured at HEAD: M4 (rt2-04) drops `AND location_id IS NULL` from `readResolvedAccountCaps` and fails exactly the new `reads the account-default policy row, never a location override` case. The tie-break half is also answered: migration 074:75-77's partial unique index makes at most one account-default row per account, so no `ORDER BY` is needed, and the new throw makes a violated index loud rather than arbitrary. The SAME predicate in the newly restored GATE read is a separate, still-unpinned spelling \u2014 filed as R2, not as a reopening of this finding."
     },
     {
       "id": "F7",
@@ -192,7 +191,7 @@
       "at": "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-deviations.md:35",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "Re-resolved at HEAD: deviation 1 now reads \"two ADDED entries ... The count moves by +2, 380 → 382\", `ALLOWLIST_BASELINE = 382` is at `scripts/ci/tenant-scope-allowlist.ts:287`, and `pnpm ci:tenant-scope` confirms 382 entries against that baseline. The symbol rename to `ALLOWLIST_BASELINE` is correct; its \"~line 279\" is approximate against the real 287 and the tilde carries that."
+      "reason": "Re-resolved at HEAD: deviation 1 now reads \"two ADDED entries ... The count moves by +2, 380 \u2192 382\", `ALLOWLIST_BASELINE = 382` is at `scripts/ci/tenant-scope-allowlist.ts:287`, and `pnpm ci:tenant-scope` confirms 382 entries against that baseline. The symbol rename to `ALLOWLIST_BASELINE` is correct; its \"~line 279\" is approximate against the real 287 and the tilde carries that."
     },
     {
       "id": "F8",
@@ -210,7 +209,7 @@
       "at": "src/lib/solicitation/__tests__/release.integration.test.ts:1318",
       "duty": 1,
       "disposition": "fixed",
-      "reason": "Re-measured at HEAD: `it.each(['pending_payment', 'cancelled'])` exists at release.integration.test.ts:1441 and both cases are load-bearing — M13 (rt2-13) drops the entitlement exclusion from the `candidates` CTE and both fail. The suite is 66 cases, 66 passing."
+      "reason": "Re-measured at HEAD: `it.each(['pending_payment', 'cancelled'])` exists at release.integration.test.ts:1441 and both cases are load-bearing \u2014 M13 (rt2-13) drops the entitlement exclusion from the `candidates` CTE and both fail. The suite is 66 cases, 66 passing."
     },
     {
       "id": "R1",
@@ -218,8 +217,9 @@
       "duty": 5,
       "at": "src/lib/solicitation/release.ts:119",
       "title": "HEAD does not pass its own required gate: `pnpm lint` fails because the fix left `DEFAULT_DAILY_SEND_CAP_ACCOUNT` imported with no remaining use",
-      "disposition": "open",
-      "arbiter_reasoning": "Measured, not inferred. `pnpm lint` at 1d0e00b40 prints exactly one error: `src/lib/solicitation/release.ts 119:3 error 'DEFAULT_DAILY_SEND_CAP_ACCOUNT' is defined but never used. Allowed unused vars must match /^_/u @typescript-eslint/no-unused-vars`, and `npx eslint src/lib/solicitation/release.ts` reproduces it alone. The cause is the fix itself: the constant's last two uses were the gate assignment at :1307 (now `resolveAccountDailySendCap(await readAccountDailySendCap(...))`) and the arm's `COALESCE` default at :1632 (now the resolver's null branch), leaving only a prose mention at :1555, which ESLint does not count. `pnpm typecheck` passes and all six other `ci:*` audits pass, so this is the only gate failure — but `lint` is a REQUIRED check on this repo and `lefthook`'s pre-push hook runs the same command, so the branch cannot be pushed or merged as it stands. It also means the round-1 fix commit was never gated: `.feature/gate-status.json` is stamped 09:26, before HEAD was written at 09:5x."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured, not inferred. `pnpm lint` at 1d0e00b40 prints exactly one error: `src/lib/solicitation/release.ts 119:3 error 'DEFAULT_DAILY_SEND_CAP_ACCOUNT' is defined but never used. Allowed unused vars must match /^_/u @typescript-eslint/no-unused-vars`, and `npx eslint src/lib/solicitation/release.ts` reproduces it alone. The cause is the fix itself: the constant's last two uses were the gate assignment at :1307 (now `resolveAccountDailySendCap(await readAccountDailySendCap(...))`) and the arm's `COALESCE` default at :1632 (now the resolver's null branch), leaving only a prose mention at :1555, which ESLint does not count. `pnpm typecheck` passes and all six other `ci:*` audits pass, so this is the only gate failure \u2014 but `lint` is a REQUIRED check on this repo and `lefthook`'s pre-push hook runs the same command, so the branch cannot be pushed or merged as it stands. It also means the round-1 fix commit was never gated: `.feature/gate-status.json` is stamped 09:26, before HEAD was written at 09:5x.",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. The dead `DEFAULT_DAILY_SEND_CAP_ACCOUNT` import is removed (release.ts:116-121 now imports four names). `pnpm -s lint` exits 0 at the fix commit."
     },
     {
       "id": "R2",
@@ -227,8 +227,9 @@
       "duty": 1,
       "at": "src/lib/solicitation/release.ts:1832",
       "title": "The restored per-account gate read `readAccountDailySendCap` has an entirely unpinned WHERE clause: dropping its row-identity predicate and dropping its tenant scope each leave 66/66 green",
-      "disposition": "open",
-      "arbiter_reasoning": "Two independent survivors on a line that executes for every candidate account in almost every case, so neither is an unexecuted branch. M6 (rt2-05) removes `AND location_id IS NULL`; M11 (rt2-06) removes `AND account_id = ${accountId}::uuid`. Neither is equivalent. Under M6 a location-OVERRIDE row — migration 091's per-BUSINESS ceiling, which the CHECK admits — becomes the whole account's gate cap, and with `LIMIT 1` and no `ORDER BY` which override wins is arbitrary; the branch's own new case proves this predicate is load-bearing for the ARM read and says so in its comment, while the identical predicate in the GATE read the same fix restored is asserted by nothing. Under M11 the gate reads SOME other account's dial, which is a cross-tenant read against invariant #8 and nondeterministic for the same reason. Every fixture is blind to both because the cases that seed two policy rows resolve both to 10. Smallest fix: extend `reads the account-default policy row, never a location override` to the PRIMARY account with a releasable batch — a location override of 1 plus an account default of 10 must still release, which kills M6 — and give the foreign account a distinct configured cap so the primary's gate arithmetic can only be right if it read its own row, which kills M11."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Two independent survivors on a line that executes for every candidate account in almost every case, so neither is an unexecuted branch. M6 (rt2-05) removes `AND location_id IS NULL`; M11 (rt2-06) removes `AND account_id = ${accountId}::uuid`. Neither is equivalent. Under M6 a location-OVERRIDE row \u2014 migration 091's per-BUSINESS ceiling, which the CHECK admits \u2014 becomes the whole account's gate cap, and with `LIMIT 1` and no `ORDER BY` which override wins is arbitrary; the branch's own new case proves this predicate is load-bearing for the ARM read and says so in its comment, while the identical predicate in the GATE read the same fix restored is asserted by nothing. Under M11 the gate reads SOME other account's dial, which is a cross-tenant read against invariant #8 and nondeterministic for the same reason. Every fixture is blind to both because the cases that seed two policy rows resolve both to 10. Smallest fix: extend `reads the account-default policy row, never a location override` to the PRIMARY account with a releasable batch \u2014 a location override of 1 plus an account default of 10 must still release, which kills M6 \u2014 and give the foreign account a distinct configured cap so the primary's gate arithmetic can only be right if it read its own row, which kills M11.",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. Both halves closed, by different mechanisms. Dropping `account_id` is caught by `ci:tenant-scope`, MEASURED: applying that mutant yields `auto_approval_policies: missing account_id or business_id scope` and exit 1, because the gate read is deliberately NOT allowlisted. Dropping `location_id IS NULL` is caught by the new case `reads the platform default when only a location override exists`, MEASURED: 1 failed / 1 passed / 66 skipped with the mutant applied. That case seeds the override ALONE rather than beside the account default, so `LIMIT 1` cannot pick arbitrarily and make the assertion a coin flip. `LIMIT 1` itself is not a tie-break: migration 074's partial unique index admits one such row."
     },
     {
       "id": "R3",
@@ -236,8 +237,9 @@
       "duty": 2,
       "at": "src/lib/solicitation/__tests__/release.integration.test.ts:64",
       "title": "The new fifth delegating spy sits outside the suite's `beforeEach` re-arm contract, and its `mockImplementationOnce` survives `vi.clearAllMocks()`, so an unconsumed override would leak into the next case",
-      "disposition": "open",
-      "arbiter_reasoning": "Measured against the installed spy implementation, not assumed: `node_modules/.pnpm/@vitest+spy@4.1.7/node_modules/@vitest/spy/dist/index.js:142-157` shows `mockClear()` resetting only `state.calls/contexts/instances/invocationCallOrder/results/settledResults`, while `config.onceMockImplementations = []` happens only in `mockReset()`. `vi.clearAllMocks()` calls `mockClear`, so a `mockImplementationOnce` that is never consumed stays queued for every later case in the file. The other four delegating spies are re-armed from `vi.importActual` in `beforeEach` (lines 886-903), which would overwrite a leaked base implementation; `countAccountDispatchAttemptsToday` is deliberately absent from that list, so nothing re-arms it. The leak is LATENT today — the new lapse case is the only override and it is consumed, because `runAccountArm` reaches the counter for the single seeded account — which is why this is P2 and not P1. Two related drifts: the `beforeEach` comment still says \"this file `vi.mock`s all four modules\" when there are now five delegating mocks, and `getMockImplementation()!` would throw rather than mislead if the base implementation were ever cleared, which is the safe direction. An order-shuffle probe (`--sequence.shuffle.tests --sequence.seed=424242`) also stayed 66/66, but the JSON reporter emits declaration order so I could not confirm the flag took effect; that probe is recorded as unconfirmed rather than as evidence."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured against the installed spy implementation, not assumed: `node_modules/.pnpm/@vitest+spy@4.1.7/node_modules/@vitest/spy/dist/index.js:142-157` shows `mockClear()` resetting only `state.calls/contexts/instances/invocationCallOrder/results/settledResults`, while `config.onceMockImplementations = []` happens only in `mockReset()`. `vi.clearAllMocks()` calls `mockClear`, so a `mockImplementationOnce` that is never consumed stays queued for every later case in the file. The other four delegating spies are re-armed from `vi.importActual` in `beforeEach` (lines 886-903), which would overwrite a leaked base implementation; `countAccountDispatchAttemptsToday` is deliberately absent from that list, so nothing re-arms it. The leak is LATENT today \u2014 the new lapse case is the only override and it is consumed, because `runAccountArm` reaches the counter for the single seeded account \u2014 which is why this is P2 and not P1. Two related drifts: the `beforeEach` comment still says \"this file `vi.mock`s all four modules\" when there are now five delegating mocks, and `getMockImplementation()!` would throw rather than mislead if the base implementation were ever cleared, which is the safe direction. An order-shuffle probe (`--sequence.shuffle.tests --sequence.seed=424242`) also stayed 66/66, but the JSON reporter emits declaration order so I could not confirm the flag took effect; that probe is recorded as unconfirmed rather than as evidence.",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. The fifth delegate now joins the `beforeEach` re-arm, with `mockReset()` before `mockImplementation` precisely because `mockClear()` does not empty `onceMockImplementations`. The 'all four modules' comment now says five."
     },
     {
       "id": "R4",
@@ -245,8 +247,9 @@
       "duty": 3,
       "at": ".claude/reference/arch-review-log.md:2016",
       "title": "The rewritten arch-review-log row undercounts the suite it cites: \"the release integration suite (+11 cases)\" where HEAD adds 13 executed cases",
-      "disposition": "open",
-      "arbiter_reasoning": "Counted at all three pinned SHAs. `release.integration.test.ts` has 53 `it(` at the merge-base eba43bcca, 61 at the round-1 HEAD 383c34e93, and 64 `it(` plus one `it.each([...])` of two parameters at HEAD 1d0e00b40 — measured as 66 executed cases by the reporter. So the branch adds 13 executed cases, or 12 declarations; \"+11\" is the `it(`-only delta and silently drops the `it.each` row, which is the very case the row's own predecessor was corrected for. Round 1's \"+8\" was right for its HEAD, so this is a new miscount introduced by the fix, in the durable ledger rather than a plan file."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Counted at all three pinned SHAs. `release.integration.test.ts` has 53 `it(` at the merge-base eba43bcca, 61 at the round-1 HEAD 383c34e93, and 64 `it(` plus one `it.each([...])` of two parameters at HEAD 1d0e00b40 \u2014 measured as 66 executed cases by the reporter. So the branch adds 13 executed cases, or 12 declarations; \"+11\" is the `it(`-only delta and silently drops the `it.each` row, which is the very case the row's own predecessor was corrected for. Round 1's \"+8\" was right for its HEAD, so this is a new miscount introduced by the fix, in the durable ledger rather than a plan file.",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. The row now reads '53 -> 68 executed cases' instead of '+11'. Counted at HEAD, not estimated."
     },
     {
       "id": "R5",
@@ -255,7 +258,7 @@
       "at": "src/lib/solicitation/release.ts:1810",
       "title": "The new duplicate-row `throw` is a PHASE-level failure for a state the database makes impossible, and it has no alerting rule row",
       "disposition": "open",
-      "arbiter_reasoning": "`readResolvedAccountCaps` is called from `runReleasePhase` deliberately OUTSIDE `isolateItem` (the fix documents that choice), so this throw costs the whole tick, platform-wide, not one account. It is unreachable while migration 074:75-77's partial unique index holds — which is why rt2-07 is `equivalent` and not a coverage gap — but if that index were ever dropped or diverged between the two Supabase projects, every release tick would fail for as long as the duplicate row existed, and `docs/runbooks/beta-launch-alerting.md` has no rule row for the release cycle to surface it. The diff adds no `logger.*`, `captureException` or Sentry signal, so nothing pages. Recorded rather than raised as P1 because the missing runbook coverage for this phase is PRE-EXISTING and the branch neither creates nor worsens it; what is new is only the blast radius of one more unreachable throw."
+      "arbiter_reasoning": "`readResolvedAccountCaps` is called from `runReleasePhase` deliberately OUTSIDE `isolateItem` (the fix documents that choice), so this throw costs the whole tick, platform-wide, not one account. It is unreachable while migration 074:75-77's partial unique index holds \u2014 which is why rt2-07 is `equivalent` and not a coverage gap \u2014 but if that index were ever dropped or diverged between the two Supabase projects, every release tick would fail for as long as the duplicate row existed, and `docs/runbooks/beta-launch-alerting.md` has no rule row for the release cycle to surface it. The diff adds no `logger.*`, `captureException` or Sentry signal, so nothing pages. Recorded rather than raised as P1 because the missing runbook coverage for this phase is PRE-EXISTING and the branch neither creates nor worsens it; what is new is only the blast radius of one more unreachable throw."
     },
     {
       "id": "R6",
@@ -263,26 +266,27 @@
       "duty": 3,
       "at": "src/lib/shared/subscription-status.ts:56",
       "title": "The constant's own docstring still describes the pin the fix deliberately replaced: it says membership is \"derived from the predicate over every canonical status\"",
-      "disposition": "open",
-      "arbiter_reasoning": "Resolved against HEAD. `subscription-status.ts:55-57` reads \"the lockstep pin in `__tests__/subscription-status.test.ts` asserts membership, derived from the predicate over every canonical status.\" That is exactly the shape round 1 proved could not fail (F2), and the fix's whole point is that membership is now asserted against literals with the predicate agreement kept as a SECOND assertion. The source of record therefore points a future reader back at the fake oracle. One sentence, in the file the fix's counterpart test guards, and the fix changed the test without changing it."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Resolved against HEAD. `subscription-status.ts:55-57` reads \"the lockstep pin in `__tests__/subscription-status.test.ts` asserts membership, derived from the predicate over every canonical status.\" That is exactly the shape round 1 proved could not fail (F2), and the fix's whole point is that membership is now asserted against literals with the predicate agreement kept as a SECOND assertion. The source of record therefore points a future reader back at the fake oracle. One sentence, in the file the fix's counterpart test guards, and the fix changed the test without changing it.",
+      "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. The constant's docstring now states that the pin asserts membership against LITERALS and names why: deriving it from the predicate made both sides move together, which is the shape round 1 proved fake."
     }
   ],
   "authorizations": [],
+  "status": "CLEAR",
   "counts": {
     "inventory_total": 16,
-    "killed": 8,
+    "killed": 9,
     "survived_confirmed_p0": 2,
     "equivalent": 2,
-    "inconclusive": 1,
+    "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 3,
     "findings_total": 15,
-    "p0_open": 2,
-    "p1_open": 1,
-    "p2_open": 4,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 1,
     "accepted_risk": 0,
-    "fixed": 8,
+    "fixed": 14,
     "rejected": 0
-  },
-  "status": "OPEN_P0"
+  }
 }
