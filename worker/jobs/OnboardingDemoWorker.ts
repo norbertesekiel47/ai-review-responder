@@ -45,16 +45,23 @@ export interface OnboardingDemoJobPayload extends BasePayload {
  * Named rather than inlined because the grouping is the point — `claimed` and
  * `reset_to_queued` are the two outcomes that still have work attached.
  *
- * It is a TYPE PREDICATE so the caller keeps the narrowing the inline `||`
- * chain gave it: after this returns false, `claimResult` is
- * `'reset_to_queued' | 'claimed'`, and the `'claimed'` comment further down is
- * compiler-backed rather than a promise.
+ * Two claims were made for this helper during review and BOTH were wrong; what
+ * is left is stated plainly so a third does not accrete.
  *
- * It does NOT make a sixth `ClaimResult` member a compile error — an earlier
- * version of this comment claimed that and was wrong. A `===` chain stays
- * valid when a member is ADDED; only removing one breaks it. A new outcome
- * would return false here, fail the `reset_to_queued` test, and fall through
- * to the claimed path. Adding one means revisiting this function by hand.
+ * It does NOT make a sixth `ClaimResult` member a compile error. A `===` chain
+ * stays valid when a member is ADDED; only removing one breaks it. A new
+ * outcome would return false here, fail the `reset_to_queued` test, and fall
+ * through to the claimed path — so adding one means revisiting this function
+ * by hand.
+ *
+ * The return type is a predicate rather than `boolean`, but NO current caller
+ * depends on the narrowing: `tsc --noEmit` is byte-identical either way. It
+ * states the return's meaning in the type instead of in prose, and costs
+ * nothing; that is the whole of it.
+ *
+ * What it actually buys: a name for why these three group, and cyclomatic 10 →
+ * 8 in the caller, which is what clears the fallow CRAP threshold with no
+ * coverage data present.
  */
 function leavesNoWorkToDo(
   claimResult: ClaimResult,

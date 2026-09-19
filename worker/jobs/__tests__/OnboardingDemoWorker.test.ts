@@ -270,6 +270,12 @@ describe('OnboardingDemoWorker', () => {
         releaseFinalizeCost = () => resolve();
       }),
     );
+    let releaseCheckThreshold!: () => void;
+    mockCheckCostThreshold.mockReturnValue(
+      new Promise<{ crossed: number[] }>((resolve) => {
+        releaseCheckThreshold = () => resolve({ crossed: [] });
+      }),
+    );
 
     const { handleOnboardingDemo } = await importWorker();
     const running = handleOnboardingDemo(makeJob());
@@ -287,11 +293,21 @@ describe('OnboardingDemoWorker', () => {
       await vi.waitFor(() => expect(mockFinalizeCost).toHaveBeenCalled());
       expect(mockCheckCostThreshold).not.toHaveBeenCalled();
       expect(mockLogger.log).not.toHaveBeenCalled();
+      releaseFinalizeCost();
+
+      // Boundary 3: the completion line may not be logged until the threshold
+      // report RESOLVES. All three awaits in the success path are now pinned;
+      // leaving this one out let `await` -> `void` on the threshold report
+      // survive the whole suite, which would ack the job with the Sentry
+      // alert still in flight.
+      await vi.waitFor(() => expect(mockCheckCostThreshold).toHaveBeenCalled());
+      expect(mockLogger.log).not.toHaveBeenCalled();
     } finally {
       // Settle the handler even if an assertion above threw, so a failure
       // never leaves unfinished async work behind.
       releaseCompleteDemo();
       releaseFinalizeCost();
+      releaseCheckThreshold();
       await running;
     }
 
@@ -441,6 +457,17 @@ describe('OnboardingDemoWorker', () => {
     // The pre-existing "releases reservation when generic failure recording
     // throws" asserts toHaveBeenCalledWith, which a DOUBLE release also
     // satisfies. This pins the count without touching that test.
+    //
+    // It also pins the outer catch's outbox handle. That was the THIRD place
+    // this branch had to close the same hole: every covering test used
+    // `objectContaining` without the attempt, and the shared harness default
+    // returns `attempt: undefined`, so dropping `outboxAttempt` here survived
+    // all 38 tests. The guard path and the claim-lost path were each closed
+    // one commit apart; this is the last of the three.
+    mockExtractOutboxHandle.mockReturnValueOnce({
+      outboxId: 'outbox_from_payload',
+      attempt: 9,
+    });
     sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
     mockClaimDemo.mockResolvedValue('claimed');
     mockResolveOnboardingDemoPlaceId.mockRejectedValue(new Error('place failed'));
@@ -450,6 +477,14 @@ describe('OnboardingDemoWorker', () => {
 
     await expect(handleOnboardingDemo(makeJob())).rejects.toThrow('tx failed');
     expect(mockReleaseOnboardingDemoReservation).toHaveBeenCalledTimes(1);
+    expect(mockFailOnboardingDemoTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outboxId: 'outbox_from_payload',
+        // Without this, failDemo drops `AND attempts = $n` and a stale worker
+        // can mark a newer dispatch failed.
+        outboxAttempt: 9,
+      }),
+    );
   });
 
   it('forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write', async () => {

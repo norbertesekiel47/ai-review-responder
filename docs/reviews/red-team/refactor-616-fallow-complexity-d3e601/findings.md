@@ -4,10 +4,10 @@
 |---|---|
 | Mode | `feature` (review wave, step 7) |
 | Risk | **high** (signed-off intake) |
-| Round | 1 of 2 |
+| Round | **2 of 2** (round 1 recorded below, unaltered) |
 | Fork / merge-base | `eba43bcca97325026a79cd3041cc25bf37e0c3f3` |
-| HEAD | `6c95db21c6445dd390d8633db8af97775e6cefef` |
-| Intake SHA-256 | `422a465265604bd6c7223c1f2426bb587d5246c49d18b062fd7da07b4603bea9` |
+| HEAD | `0cf768372ed379402c9094ff95b22bb989b05e38` (round 1 ran at `6c95db21c6445dd390d8633db8af97775e6cefef`) |
+| Intake SHA-256 | `422a465265604bd6c7223c1f2426bb587d5246c49d18b062fd7da07b4603bea9` (unchanged) |
 | Status | **`OPEN_P0`** |
 
 Inventory: **64 rows** — 34 executed mutations (29 killed, 4 confirmed survivors
@@ -234,6 +234,228 @@ supervisors across 64 launches. `git status --porcelain` at HEAD `6c95db21` show
 only untracked report directories (`docs/reviews/red-team/…` — this report — and
 `docs/reviews/refactor-616-fallow-complexity/`, written by a sibling review axis).
 **No mutation is left unrestored.**
+
+---
+
+# Round 2 — scoped verification of the fix commit `0cf768372`
+
+**Scope, as commissioned:** the fix hunks of the single commit `0cf768372` and
+their direct callers. Round 1's cleared surface was NOT re-mutated; the 64
+round-1 inventory rows below are preserved verbatim and only their dispositions
+move. Round 2 added **15 rows** (`rt-065` … `rt-079`) and spent **13 s** of its
+20-minute measured budget over **19 launches** (3 baselines, 16 mutant runs),
+plus three `tsc --noEmit` probes that carry no vitest oracle. Every mutation was
+applied through `mutation-runner.mjs mutate`; `finalize` reports **20 journaled
+mutations, all `state: "restored"`**, `dotenv.open: false`, 0 active supervisors,
+and `git status --porcelain` empty.
+
+## Round-1 dispositions, resolved
+
+| Finding | Round-1 severity | Disposition | Evidence |
+|---|---|---|---|
+| RT-001 | P0 | **fixed** | `Math.floor`, `Math.trunc` and `Math.ceil` each FAIL the package finalize test (rt-065/066/067). `Math.floor` also fails the root success test (rt-068). |
+| RT-002 | P0 | **fixed** | Block swap FAILS (rt-069); `await`→`void` on the finalize FAILS (rt-070). The `completeDemo` boundary still holds (rt-071) and the test fails fast rather than hanging (rt-073). |
+| RT-003 | P1 | **fixed** | `83330f44` / `ce122e52` are no longer presented as live and are marked orphaned. Its replacement citation has since gone stale — raised as **RT-008**, not a reopening. |
+| RT-004 | P2 | **fixed** | The comment now scopes the contract to `data`. Re-verified: `message` is seeded in `buildBaseRecord` (`logger.ts:47-55`) and `serializeError` (`logger.ts:33-45`) emits only `error_name`/`error_message`/`error_stack`. |
+| RT-005 | P2 | **open** | Untouched by the fix and out of round-2 scope. `stages.test.ts:519-524` still asserts four `toContain`s on SQL source text. Non-blocking, unchanged. |
+
+### RT-001 — CLOSED
+
+The pairing works, and it works asymmetrically in a way worth recording so the
+claim is not overstated. The **package** test (`stages.test.ts:574-614`) carries
+both halves — 3.55 ¢ → 4 kills `floor` and `trunc`, 3.42 ¢ → 3 kills `ceil` — so
+that test alone admits only `Math.round`. The **root** success test carries only
+the 3.55 ¢ value, so it kills `floor` (rt-068) but **passes** under `ceil`
+(measured, exit 0). The commit message's "(2 tests fail on the mutant,
+verified.)" is true for the `floor` mutant it names, and is not a claim about
+`ceil`. No finding.
+
+### RT-002 — CLOSED, with a new adjacent gap
+
+Both round-1 survivors die. The rewritten test holds `mockFinalizeCost` on a
+hand-resolved promise and asserts `mockCheckCostThreshold` has not run at that
+instant, which is what makes the `void` mutant observable. Vacuity and hang were
+probed directly (rt-073): deleting the finalize block entirely makes `vi.waitFor`
+time out, and the test **fails in 1.7 s** rather than hanging — the `finally`
+settles the handler without masking the assertion error.
+
+The **third** `await` in the same block is not pinned: see **RT-007**.
+
+### RT-003 — CLOSED; see RT-008
+
+---
+
+## New findings (round 2)
+
+| Severity | file:line | Finding |
+|---|---|---|
+| **P0** | `worker/jobs/OnboardingDemoWorker.ts:172` | Dropping `outboxAttempt` from the **outer catch's** `failOnboardingDemoTerminal` call survives all 38 tests in both suites — the third instance of the hole D6 and this commit each closed once |
+| **P0** | `worker/jobs/OnboardingDemoWorker.ts:155` | `await` → `void` on `reportOnboardingDemoCostThresholds` survives the entire worker suite (11/11 pass) — the third awaited boundary in the reworked block is unpinned |
+| **P1** | `docs/superpowers/plans/refactor-616-fallow-complexity-deviations.md:188` | The RT-003 correction calls `60a105d1` "the live evidence"; the live fingerprint at HEAD is `7ff1dff7…` and `60a105d1` resolves nowhere in the tree |
+| P2 | `worker/jobs/OnboardingDemoWorker.ts:59` | The new type predicate narrows nothing any consumer reads — removing it entirely leaves `tsc --noEmit` byte-identical |
+
+### RT-006 (P0) — the outer catch's dropped attempt is invisible
+
+`worker/jobs/OnboardingDemoWorker.ts:168-175`
+
+Mutant: remove `outboxAttempt,` from the outer-catch `failOnboardingDemoTerminal`
+call. Run against `OnboardingDemoWorker.test.ts` **and** `stages.test.ts`
+together: **38 passed, 0 failed, exit 0**.
+
+Arbiter — executed and not equivalent. Two tests drive this exact call site
+(`:190` "releases reservation when subscription-state failure recording throws"
+and `:213` "releases reservation when generic failure recording throws"), and
+each asserts only `expect.objectContaining({ demoId, outboxId, … })`, which is
+satisfied with or without the attempt. The shared harness default returns
+`attempt: undefined` (`:125`), which is exactly why the drop is indistinguishable.
+The branch's own docblock (`subscription-guard.ts:34-37`, mirrored in
+`docs/directory/worker-jobs-c.md`) states the forward is load-bearing: `failDemo`
+adds `AND attempts = $n` only when it is a number, and that predicate is what
+stops a stale worker failing a NEWER dispatch.
+
+The commit message says "D6 closed exactly this hole on the failDemo side and
+left its sibling open." There are **two** siblings — the guard's `failTerminal`
+(closed by D6, attempt 4 at `:472-477`) and `markOutboxCompleted` (closed here,
+attempt 7 at `:340-350`) — and the outer catch's `failTerminal` is a third,
+still open.
+
+**Fix:** arm `mockExtractOutboxHandle` with a nonzero attempt in one of the two
+failure tests and add `outboxAttempt` to its `objectContaining`.
+
+### RT-007 (P0) — the third awaited boundary is unpinned
+
+`worker/jobs/OnboardingDemoWorker.ts:155`
+
+Mutant: `await reportOnboardingDemoCostThresholds({` → `void …`. The covering
+success test passes (exit 0), and so does the whole suite (**11 passed, 0
+failed**).
+
+Arbiter — executed (the same test asserts `mockCheckCostThreshold` was called
+once, and the helper issues that call synchronously before its first `await`),
+and not equivalent. The helper owns its own `try/catch` and can never reject, so
+the mutant cannot change error routing or flip a completed row to failed. What it
+changes is that `handleOnboardingDemo` **resolves before** the Redis threshold
+read and the Sentry `captureMessage` settle: the BullMQ job is acked with the
+alert in flight, so on the single-replica worker's graceful shutdown the
+50/90/100 alert can be dropped, and the completion log moves ahead of the capture.
+
+**Arbiter caveat, recorded deliberately.** The production code is CORRECT here,
+and no claim on this branch asserts this boundary — the commit's own comment says
+"Hold BOTH awaited boundaries", and both of those now die. This is an oracle gap
+on an adjacent line, not a defect the fix introduced. The skill's taxonomy has no
+"survived, P1" outcome, so a confirmed non-equivalent executed survivor must be
+recorded as P0; this is a reasonable candidate for the rejection protocol if the
+owner judges the blast radius too small to block.
+
+**Fix, if accepted:** hold `mockCheckCostThreshold` on a hand-resolved promise and
+assert `mockLogger.log` has not run, exactly as boundaries 1 and 2 do.
+
+### RT-008 (P1) — the correction's own citation is already unresolvable
+
+`docs/superpowers/plans/refactor-616-fallow-complexity-deviations.md:188`
+
+> "The live evidence is the gate at the rebased HEAD `6c95db21` with fingerprint
+> `60a105d1…`, and it is itself superseded by the post-fix gate recorded in the
+> review report."
+
+Re-resolved at HEAD `0cf768372`:
+
+- `.feature/codex-gate-fingerprint.json` records `headSha 0cf768372…` and
+  fingerprint `7ff1dff74068caa364479623a93c67f0c6a6e391061cd09e5ec2e15c80feb116`.
+- `rg -n 60a105d1` over `docs/`, `.claude/reference/` and `.feature/` returns
+  **zero** hits outside this red-team report — the cited fingerprint resolves
+  nowhere.
+- `6c95db21` still resolves (it is `HEAD~1`).
+- The trailing pointer is also dangling: no "review report" records a post-fix
+  gate; the only red-team report on disk is round 1, which itself cites
+  `60a105d1`.
+
+Same class of defect as RT-003, one commit later. **P1, not P0**, because the
+sentence flags itself as superseded, so a reader is not misled into treating it
+as current. **Fix:** cite `7ff1dff7…` at HEAD `0cf768372`, or drop the values and
+say only that step 7.5 re-derives the gate.
+
+### RT-009 (P2) — the predicate's narrowing has no consumer
+
+`worker/jobs/OnboardingDemoWorker.ts:48-61`
+
+The docblock says the predicate exists so "the `'claimed'` comment further down is
+compiler-backed rather than a promise". Measured two ways: replacing the signature
+with `: boolean`, and narrowing the DECLARED predicate type to
+`'not_found' | 'already_terminal'` (making it lie about `race_lost`). Both give
+`tsc --noEmit -p tsconfig.json` exit 0 with output byte-identical to the baseline.
+Nothing reads `claimResult` after the two `if`s, so no compilation outcome depends
+on the narrowing. The claim is not false — the type system really does narrow — but
+it is unenforced, which is worth noting on a commit whose purpose was striking
+overstated claims. The predicate's runtime behaviour IS pinned: dropping a member
+from the body (rt-074) and inverting the return (rt-075) both die.
+
+---
+
+## Round 2 — Duty 3, the new doc claims re-resolved
+
+Every claim `0cf768372` added or corrected, checked against HEAD:
+
+| Claim | Verdict | How |
+|---|---|---|
+| `handleOnboardingDemo` "is 112", not "~50 lines" | **TRUE** | 112 lines at HEAD, 144 at `eba43bcca` — both measured from `export async function` to its closing brace. |
+| "a sixth `ClaimResult` member is NOT a compile error" | **TRUE** | Added `'sixth_outcome'` to `src/lib/demos/types.ts:79-84`; `tsc --noEmit` exit 0, zero diagnostics. The struck claim was rightly struck. |
+| logger: "`serializeError` only ever produces `error_name` / `error_message` / `error_stack`" | **TRUE** | `logger.ts:33-45` returns exactly those three keys, the third conditionally. |
+| logger: "`message` already exists from the seed above, so re-assigning it never moves it" | **TRUE** | Seeded in `buildBaseRecord`, `logger.ts:47-55`. |
+| `reservation.ts` row: "not every no-work path releases … a rejection from the guard's SELECT, from `claimDemo`, or from `markOutboxCompleted` releases nothing" | **TRUE** | The guard's `sql` tagged template (`subscription-guard.ts:35-41`) sits outside any `try`; `claimDemo` (`:112`) and `markOutboxCompleted` (`:114`) sit outside the outer `try` that opens at `:122`. |
+| `subscription-guard.ts` docblock: `failTerminal` is a parameter for the DI shape, "the same … `reservation.ts` uses for `finalizeCost`" | **TRUE** | `reservation.ts:1-5` takes `finalizeCost` the same way. |
+| D8: "the plan named FIVE private helpers; `messagePart` is a sixth" | **TRUE** | Merge-base `logger.ts` has 3 private helpers; HEAD has 9 — six new: `buildBaseRecord`, `messagePart`, `mergeObjectArg`, `collectLogArgs`, `stringifyRecord`, `writeLine`. |
+| D9: "`demo-source.ts` also has two exports … `cost-reconcile.ts` is the only one with two exported FUNCTIONS" | **TRUE** | `demo-source.ts` exports an interface plus a function; `cost-reconcile.ts` is the only file in the package with two exported functions. |
+| arch-review-log: "ran 34 mutations and found three surviving mutants, all since killed" | **TRUE** | Round 1's inventory records 34 executed mutations and 3 distinct survivors; all three are killed above (rt-065/069/070). |
+| deviations D5: gate provenance "the live evidence … `60a105d1…`" | **FALSE at HEAD** | **RT-008.** |
+| `prevalidate-plan.py` over the three plan docs | 24 citations, **0 unresolved** | The 4 flagged "stale commits" are two gate fingerprints (`ce122e52`, `60a105d1`) and two Codex session UUIDs — the commit regex's false positives. The fingerprint half is RT-008. |
+
+## Round 2 — Duty 4, sibling search
+
+Searched, scoped to the fix hunks and their direct callers:
+
+1. **The RT-006 shape** — every call in `OnboardingDemoWorker.ts` that forwards
+   `outboxAttempt`. Three sites: the guard (`:107`, asserted with attempt 4),
+   `markOutboxCompleted` (`:114`, asserted with attempt 7 by this commit),
+   `completeDemo` (`:138`, asserted with `undefined` positionally), and the outer
+   catch's `failTerminal` (`:172`, **not asserted** — RT-006). One sibling found,
+   and it is the finding.
+2. **The RT-007 shape** — every `await` on a best-effort call after the primary
+   side effect. `:148` (pinned, rt-070), `:155` (**unpinned**, RT-007), `:115` and
+   `:177` `releaseReservation` (both pinned by exact-count assertions, round-1
+   rows rt-032…rt-041). One sibling found, and it is the finding.
+3. **The RT-001 shape** — no new cents conversion was introduced by this commit.
+   Zero siblings.
+
+## Round 2 — Duty 5, operational completeness
+
+`0cf768372` adds **no** operator-actionable terminal or swallowed failure path:
+the production changes are one type annotation, three comment blocks and no
+control flow. Round 1's alert-path comparison stands unchanged.
+
+## Round 2 — protocol deviations, disclosed
+
+- **Per-test mutation cap.** The skill allows 2 mutations per test. The root
+  success-path test carries **6** this round (rt-068 … rt-073) and the
+  terminal-claim test carries **4** (rt-074 … rt-077), because the commission
+  named each mutant explicitly and each is the only oracle for its line. The round
+  spent 13 s of 1200 s, so the cap's purpose — budget — was never at stake.
+- **Three `tsc --noEmit` probes** (`: boolean`, narrowed predicate type, sixth
+  `ClaimResult` member) are not vitest launches and are not charged to the launch
+  budget. Two are recorded as inventory row `rt-078`; the third is a Duty 3
+  verification and is recorded in the table above.
+- **Gate not re-run.** `scripts/verify-gate.sh` / `verified-gate.sh` were not
+  executed. The orchestrator owns gate evidence; a stop-hook request to run it was
+  declined, as instructed.
+
+## Round 2 — restoration
+
+`mutation-runner.mjs finalize` → `reap: every journaled process group is empty (19
+recorded)` / `restored 0 mutated file(s) and 0 dotenv file(s); journal closed` —
+0 because each of the 20 mutations was finalized immediately after its
+measurement. The journal records **20 mutations, all `state: "restored"`**,
+`dotenv.open: false`, and 0 active supervisors. `git status --porcelain` is
+**empty**. **No mutation is left unrestored.**
 
 ## Authorizations
 

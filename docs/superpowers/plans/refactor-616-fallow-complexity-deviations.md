@@ -180,14 +180,24 @@ verbatim for the step 7 Codex axis.
 assumed: rounds 2 and 3 both declined a hook's gate request in writing, and so
 did the step 7 Codex axis, which got the same clause verbatim.
 
-**Provenance corrected (red-team RT-003).** An earlier version of this verdict
-cited the gate "at HEAD `83330f44`" with fingerprint `ce122e52…`. Both were
-real when written and both were **orphaned by the step 7 rebase onto
-`origin/main`** — `83330f449` is now a dangling commit on no branch, so the
-citation was unresolvable. This is exactly the project rule that evidence
-produced before a rebase is stale. The live evidence is the gate at the
-rebased HEAD `6c95db21` with fingerprint `60a105d1…`, and it is itself
-superseded by the post-fix gate recorded in the review report.
+**Provenance corrected TWICE (red-team RT-003, then RT-008).** The first
+version cited the gate "at HEAD `83330f44`" with fingerprint `ce122e52…`; the
+step 7 rebase orphaned both, leaving a dangling commit and an unresolvable
+citation. The correction then cited `6c95db21` / `60a105d1…` — and **that went
+stale too**, the moment the triage fixes were committed.
+
+The lesson is not "use the newer number". A gate fingerprint is a hash of the
+worktree at one instant; **any document committed before the final gate runs
+will cite a value that the final gate then invalidates.** Two corrections in a
+row proved that by demonstration.
+
+So this entry cites no fingerprint at all. Live gate evidence is whatever
+`bash .agents/skills/feature/scripts/verified-gate.sh --review` last wrote to
+`.feature/gate-status.json`, checked with
+`node .agents/skills/feature/scripts/gate-fingerprint.mjs check`, which
+compares the stored hash against the current tree and is the only statement
+that cannot go stale. The one place a SHA is safe to pin is a commit message,
+which is immutable once written.
 
 ---
 
@@ -252,8 +262,18 @@ modes, no coverage plumbing in the verification command.
 On its merits rather than the count: the name states why those three outcomes
 are grouped — another actor already owns the demo — and it separates them from
 the two outcomes that still have work attached (`claimed`, `reset_to_queued`).
-It is a TYPE PREDICATE, so the caller keeps the narrowing the inline `||`
-chain gave it and the `'claimed'` comment downstream is compiler-backed.
+It returns a type predicate rather than `boolean`.
+
+**Two justifications for this one helper were claimed and both were false —
+the pattern is the finding.** Round 1 of the branch review struck the
+"compile error" claim (below). Round 2 then struck its replacement: the
+predicate **narrows nothing any consumer reads**, and `tsc --noEmit` is
+byte-identical with `: boolean`. The predicate is kept only because it states
+the return's meaning in the type at no cost.
+
+What the helper actually buys, and all it buys: a name for why those three
+outcomes group, and cyclomatic 10 → 8 in the caller, which is what clears the
+CRAP threshold with no coverage data present.
 
 **Correction (branch review round 1).** An earlier version of this entry, and
 of the `arch-review-log.md` row, claimed that taking `ClaimResult` makes a
