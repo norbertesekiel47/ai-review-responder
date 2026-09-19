@@ -64,9 +64,9 @@ for the step 7 Codex axis** (deviations D5).
 
 ## Baseline measurements (base SHA, before any edit)
 
-Three target suites green: **31 tests** — 12 in
+Three target suites green: **31 tests** — 11 in
 `src/lib/shared/__tests__/logger.test.ts`, 4 in
-`worker/jobs/__tests__/OnboardingDemoWorker.test.ts`, 15 in
+`worker/jobs/__tests__/OnboardingDemoWorker.test.ts`, 16 in
 `worker/jobs/onboarding-demo/__tests__/stages.test.ts`.
 
 `fallow health` **inside the worktree** (no `coverage/` present, so fallow

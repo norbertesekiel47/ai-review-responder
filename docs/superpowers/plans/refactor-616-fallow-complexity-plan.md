@@ -157,7 +157,7 @@ assert on any private helper.
 **Blocking edges:** none. **Allowed files:**
 `src/lib/shared/__tests__/logger.test.ts`.
 
-**Completion evidence:** that suite green with **22** tests (12 pre-existing +
+**Completion evidence:** that suite green with **21** tests (11 pre-existing +
 10 new), and `git diff` in this commit touching only that file.
 
 ---
@@ -202,12 +202,12 @@ arg classification and its branch order, the accumulation spreads
 which is not touched.
 
 **Test titles:** none added. The deterministic check is that T1's 10 tests and
-the 12 pre-existing tests stay green **with no edit to the test file**.
+the 11 pre-existing tests stay green **with no edit to the test file**.
 
 **Blocking edges:** T1. **Allowed files:** `src/lib/shared/logger.ts`.
 
 **Completion evidence:**
-1. That suite green, 22 tests.
+1. That suite green, 21 tests.
 2. `git diff --stat` shows the test file unchanged in this commit.
 3. The targeted fallow assertion reports no finding for `logger.ts`, and no new
    helper introduces one.
@@ -418,7 +418,7 @@ subscription block with
 `worker/jobs/OnboardingDemoWorker.ts`,
 `worker/jobs/__tests__/OnboardingDemoWorker.test.ts`.
 
-**Completion evidence:** `stages.test.ts` green with 21 tests (15 pre-existing +
+**Completion evidence:** `stages.test.ts` green with 22 tests (16 pre-existing +
 6 new), and `OnboardingDemoWorker.test.ts` green with 11 (4 pre-existing + 6
 from T3 + 1 here), the 4 pre-existing ones **unmodified** — including
 `releases reservation when subscription-state failure recording throws`, which
@@ -528,7 +528,7 @@ production file under `worker/`):
 `docs/directory/worker-jobs-a.md`, `docs/directory/lib-db-config-shared.md`.
 
 **Completion evidence:**
-1. `stages.test.ts` green with 26 tests (15 pre-existing + 11 new).
+1. `stages.test.ts` green with 27 tests (16 pre-existing + 11 new).
 2. `OnboardingDemoWorker.test.ts` green with 11, its 4 pre-existing tests still
    unmodified across T3→T5.
 3. `pnpm ci:directory-map` passes.
@@ -551,8 +551,9 @@ production file under `worker/`):
 | T5 | extract cost reconcile, finish root, docs | T4 | +5 | 1 new prod, 1 test, root, 3 docs |
 
 Total: **28 new tests**, no new test file, no pre-existing test body modified.
-Final counts: `logger.test.ts` 22, `OnboardingDemoWorker.test.ts` 11,
-`stages.test.ts` 26.
+Final counts: `logger.test.ts` 21, `OnboardingDemoWorker.test.ts` 11,
+`stages.test.ts` 27.
+Baseline counts verified by `grep -cE '^\s*it\('`: 11 / 4 / 16.
 
 Run serially. RISK = high at SIZE = small means implementation happens in the
 orchestrator session with **no subagent dispatch**.
