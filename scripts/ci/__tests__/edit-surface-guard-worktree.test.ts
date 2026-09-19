@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -126,6 +126,52 @@ describe('edit-surface guard — worktree containment is structural, not path-sh
     const target = join(orcaWorktree, 'README.md');
     expect(runClaude({ cwd: orcaWorktree, target })).toBe(0);
     expect(runCodex({ cwd: orcaWorktree, target })).toBe(0);
+  });
+
+  /**
+   * A `git` that behaves like git < 2.31: `rev-parse` PRINTS an option it does
+   * not recognise and exits 0 rather than failing. Everything else passes
+   * through to the real binary.
+   */
+  function pre231GitShim(): string {
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+    expect(realGit).toMatch(/git$/);
+    const dir = join(root, 'pre-231-bin');
+    mkdirSync(dir, { recursive: true });
+    const shimPath = join(dir, 'git');
+    writeFileSync(
+      shimPath,
+      `#!/usr/bin/env bash\n`
+        + `args=()\n`
+        + `saw=0\n`
+        + `for a in "$@"; do\n`
+        + `  if [ "$a" = "--path-format=absolute" ]; then saw=1; else args+=("$a"); fi\n`
+        + `done\n`
+        + `[ "$saw" = 1 ] && echo "--path-format=absolute"\n`
+        + `exec ${realGit} "\${args[@]}"\n`,
+      'utf8',
+    );
+    chmodSync(shimPath, 0o755);
+    return dir;
+  }
+
+  it('is not fooled by a git whose rev-parse echoes an unsupported flag and exits 0', () => {
+    // The hazard is not the old git — it is trusting rev-parse's exit status.
+    // `git rev-parse --any-unknown-flag` PRINTS the flag and exits 0, so a
+    // probe written as `A || B` never reaches B: it reads a two-line value,
+    // decides it is not the common dir, and classifies EVERY checkout —
+    // including the primary one — as a linked worktree. That inverts the rule:
+    // the blessed primary-to-worktree direction gets blocked.
+    const env = { PATH: `${pre231GitShim()}:${process.env.PATH ?? ''}` };
+    const target = join(orcaWorktree, 'README.md');
+
+    expect(runClaude({ cwd: primary, target, env })).toBe(0);
+    expect(runCodex({ cwd: primary, target, env })).toBe(0);
+
+    // …and the real rule still bites under the same git.
+    const crossCheckout = join(primary, 'README.md');
+    expect(runClaude({ cwd: orcaWorktree, target: crossCheckout, env })).toBe(2);
+    expect(runCodex({ cwd: orcaWorktree, target: crossCheckout, env })).toBe(2);
   });
 
   it('honours WORKTREE_EDIT_GUARD_DISABLE=1 as the documented escape hatch', () => {

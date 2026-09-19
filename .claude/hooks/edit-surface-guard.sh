@@ -22,15 +22,20 @@ set -uo pipefail
 # only for the three layouts scripts/new-worktree.sh and the harness happen to
 # produce. A real linked worktree anywhere else — an Orca workspace at
 # ~/orca/workspaces/<repo>/<slug> — matched nothing and ran UNGUARDED, which is
-# the one case this rule exists to catch. `--path-format=absolute` needs git
-# 2.31; the fallback resolves a relative common dir against the same directory
-# git read it from.
+# the one case this rule exists to catch.
+#
+# Both values come from ONE invocation with one cwd, so they are comparable as
+# written — no absolute/relative normalising, and no version-gated flag. That
+# matters: `git rev-parse` PRINTS an option it does not recognise and exits 0,
+# so a probe spelled `git rev-parse --newer-flag … || fallback` never reaches
+# its fallback on an older git. It reads the flag back as part of the value and
+# then calls every checkout a worktree, blocking the blessed
+# primary-to-worktree direction. `--git-dir` and `--git-common-dir` both ship
+# since git 2.5, so nothing here needs a fallback.
 is_linked_worktree() {
   local git_dir common_dir
-  git_dir=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 1
-  common_dir=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 1
-  case "$common_dir" in /*) ;; *) common_dir="$1/$common_dir" ;; esac
+  git_dir=$(git -C "$1" rev-parse --git-dir 2>/dev/null) || return 1
+  common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 1
   [ "$git_dir" != "$common_dir" ]
 }
 
