@@ -6,6 +6,30 @@
 # enforce the same intake contract as the Claude guard.
 set -uo pipefail
 
+# A linked worktree (`git worktree add`) keeps its OWN per-worktree git dir, so
+# --absolute-git-dir and --git-common-dir name different paths there; in the
+# primary checkout they name the same one. #1338: this replaces a path-pattern
+# test (`*-worktrees/*`, `*/.claude/worktrees/*`, `*/.worktrees/*`) that armed
+# only for the three layouts scripts/new-worktree.sh and the harness happen to
+# produce. A real linked worktree anywhere else — an Orca workspace at
+# ~/orca/workspaces/<repo>/<slug> — matched nothing and ran UNGUARDED, which is
+# the one case this rule exists to catch.
+#
+# Both values come from ONE invocation with one cwd, so they are comparable as
+# written — no absolute/relative normalising, and no version-gated flag. That
+# matters: `git rev-parse` PRINTS an option it does not recognise and exits 0,
+# so a probe spelled `git rev-parse --newer-flag … || fallback` never reaches
+# its fallback on an older git. It reads the flag back as part of the value and
+# then calls every checkout a worktree, blocking the blessed
+# primary-to-worktree direction. `--git-dir` and `--git-common-dir` both ship
+# since git 2.5, so nothing here needs a fallback.
+is_linked_worktree() {
+  local git_dir common_dir
+  git_dir=$(git -C "$1" rev-parse --git-dir 2>/dev/null) || return 1
+  common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 1
+  [ "$git_dir" != "$common_dir" ]
+}
+
 INPUT=$(cat)
 HOOK_CWD=$(jq -r '.cwd // empty' <<<"$INPUT" 2>/dev/null || true)
 [ -n "$HOOK_CWD" ] || HOOK_CWD="$PWD"
@@ -42,20 +66,28 @@ absolute_path_for() {
 
 session_root=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null || true)
 
+# Loop-invariant: whether containment applies at all. #1338 also gave this copy
+# the escape hatch the Claude guard has always documented — without it, the
+# message below would name a variable this script ignored.
+session_contained=false
+if [ "${WORKTREE_EDIT_GUARD_DISABLE:-0}" != "1" ] && [ -n "$session_root" ] \
+  && is_linked_worktree "$session_root"; then
+  session_contained=true
+fi
+
 while IFS= read -r FILE_PATH; do
   [ -n "$FILE_PATH" ] || continue
   ABS_PATH=$(absolute_path_for "$FILE_PATH") || exit 2
   TARGET_ROOT=$(repo_root_for "$ABS_PATH")
 
   # Preserve the always-on containment rule for worktree sessions.
-  case "$session_root" in
-    *-worktrees/*|*/.claude/worktrees/*|*/.worktrees/*)
-      if [ -n "$TARGET_ROOT" ] && [ "$TARGET_ROOT" != "$session_root" ]; then
-        echo "BLOCKED: session cwd is worktree '$session_root' but the edit targets '$TARGET_ROOT'." >&2
-        exit 2
-      fi
-      ;;
-  esac
+  if [ "$session_contained" = true ] && [ -n "$TARGET_ROOT" ] \
+    && [ "$TARGET_ROOT" != "$session_root" ]; then
+    echo "BLOCKED: session cwd is worktree '$session_root' but the edit targets '$TARGET_ROOT'." >&2
+    echo "Point the patch path at the worktree root — an edit to another checkout silently" >&2
+    echo "lands in that tree. Set WORKTREE_EDIT_GUARD_DISABLE=1 if that is genuinely intended." >&2
+    exit 2
+  fi
 
   ROOT=""
   if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.feature/intake.json" ]; then

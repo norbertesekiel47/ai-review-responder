@@ -1,0 +1,17 @@
+# Gitignored files Orca COPIES into every new worktree (each worktree owns its
+# copy). This is how a worktree created outside `pnpm worktree:new` gets its
+# local env. It is NOT the same list: that script copies every `.env*.local`
+# (scripts/new-worktree.sh, pinned by new-worktree-env.test.ts), staging and
+# production credentials included. This file copies one file on purpose.
+#
+# WHY IT MATTERS: without `.env.local` there is no TEST_DATABASE_POOL_URL, so
+# every DB-gated suite SKIPS and the #719 precondition test fails. That failure
+# is the guard working — a silent skip must never read as a pass.
+#
+# Literal paths only. Globs are skipped with a warning, so `.env*.local` would
+# copy nothing.
+#
+# DELIBERATELY ABSENT: .env.staging.local and .env.production.local. Those are
+# live credentials, and listing them here would put a copy in every worktree.
+# Copy one by hand into the single worktree that needs it.
+.env.local
