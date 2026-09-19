@@ -89,6 +89,20 @@ describe('model routing', () => {
     expect(router).toContain('§ Model routing');
   });
 
+  // Plan on a frontier model, implement on tier 3. The block is PRINTED by a
+  // command, never composed, so both routers must call it and stop.
+  it('execution-lanes.md owns the model handoff at plan approval', () => {
+    expect(executionLanes).toContain('### Model handoff at plan approval');
+    expect(executionLanes).toContain('IS the sign-off to implement');
+  });
+
+  it.each(ROUTERS)('%s prints the handoff with the command and stops', (_name, router) => {
+    expect(router).toContain('progress.mjs handoff');
+    expect(router).toContain('VERBATIM');
+    // Prose wraps; the citation may span a line break.
+    expect(router.replace(/\s+/g, ' ')).toContain('Model handoff at plan approval');
+  });
+
   it('the small lane runs on Sonnet', () => {
     expect(smallLane).toContain('/model sonnet');
   });

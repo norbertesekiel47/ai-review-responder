@@ -317,7 +317,7 @@ node .agents/skills/feature/scripts/progress.mjs tracers set "T1 <title>|T2 <tit
 4. **After round 3**: STOP. Surface the remaining disagreement with both
    positions. The owner's call substitutes for APPROVED. Never loop further.
 
-5. On `APPROVED`, post the plan summary and proceed straight to step 4.
+5. On `APPROVED`, post the plan summary and go to the checkpoint below.
 
 **CHECKPOINT (step 3→4)**: once the plan is locked, record the phase and write
 the handoff:
@@ -329,8 +329,22 @@ node .agents/skills/feature/scripts/progress.mjs step plan done
 
 The handoff doc (`docs/superpowers/plans/<branch>-handoff.md`) references the
 spec, plan, ticket files and glossary excerpt BY PATH — it never restates them.
-Then apply the Session hygiene exit rule below. From here on, never re-read the
-grilling conversation; consult the files.
+From here on, never re-read the grilling conversation; consult the files.
+
+**MODEL HANDOFF — when this session runs on `fable`, stop here.** Planning is
+tier-4 work and implementation is tier-3 work (`execution-lanes.md` § Model
+handoff at plan approval, which owns the rule). Commit the handoff doc, then:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs handoff
+```
+
+Print its output VERBATIM as the last thing in your reply and end the turn. It
+gives the owner the launch line (`claude --model opus`) and the prompt to paste
+(`/feature-resume <branch>`); pasting it IS the sign-off to implement. Never
+compose the block by hand, and never start step 4 in this session. A session
+already on `opus` or below, and a `/feature-swarm` subagent, skip this and
+continue to step 4.
 
 ## 4. EXECUTE — delegated
 
@@ -819,7 +833,10 @@ beats a summarized one — auto-summarization is the safety net, not the plan.
 
 - Update the handoff doc at the step 3→4 boundary and after step 7 — always,
   whether or not a restart follows.
-- **Take the exit when the session is heavy.** At either checkpoint, if this
+- The step 3→4 checkpoint is a MODEL HANDOFF to a fresh tier-3 session whenever
+  this session runs on `fable` (step 3, above) — always, not only when heavy.
+- **Take the exit when the session is heavy.** After step 7 — and at step 3→4
+  in a session that did not hand off — if this
   session has accumulated substantial non-disk context (long grilling, review
   tables, log digging), say in ONE line: `/clear`, then
   `/feature-resume <branch>`. That single keystroke is the entire cost; it is

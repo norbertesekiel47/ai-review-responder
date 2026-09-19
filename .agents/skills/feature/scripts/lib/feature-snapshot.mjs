@@ -471,3 +471,42 @@ export function renderStatusLine(snapshot, { gateRunning = false } = {}) {
 
   return [head, SYMBOL[current.status], current.index, current.id, detail].filter((part) => part !== '').join(' ');
 }
+
+// ------------------------------------------------------------ model handoff
+
+// The owner plans on a frontier model and implements on tier 3. These two IDs
+// are the tier-3 row of execution-lanes.md § Model routing, which OWNS them; a
+// parity test fails if this copy and that row ever disagree.
+export const EXECUTE_LEAD = {
+  claude: { model: 'opus', launch: 'claude --model opus', resume: '/feature-resume' },
+  codex: { model: 'gpt-5.6-sol', launch: 'codex -m gpt-5.6-sol', resume: '$feature-resume' },
+};
+
+/** `feat/x` -> `docs/superpowers/plans/feat-x-handoff.md`, the existing convention. */
+export function handoffDocPath(branch) {
+  return `docs/superpowers/plans/${branch.replaceAll('/', '-')}-handoff.md`;
+}
+
+// The block the planning session prints at the step 3->4 checkpoint. It is
+// printed, never composed: the owner pastes it into a fresh session, so its
+// wording is part of the contract and a test pins it.
+export function renderModelHandoff({ runtime, branch, root }) {
+  const lead = EXECUTE_LEAD[runtime];
+  return [
+    `MODEL HANDOFF — plan approved; implementation runs on tier 3 (${lead.model})`,
+    '',
+    'This session planned on a frontier model. Do not implement here.',
+    'Pasting the prompt below into a fresh session IS your sign-off to implement.',
+    '',
+    '1. Open a new terminal and start the session:',
+    '',
+    `   cd ${root} && ${lead.launch}`,
+    '',
+    '2. Paste this prompt:',
+    '',
+    `   ${lead.resume} ${branch}`,
+    '',
+    `It resumes from disk: ${handoffDocPath(branch)}, the plan, and .feature/state.json.`,
+    'This session stops now.',
+  ].join('\n');
+}

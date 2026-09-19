@@ -239,6 +239,13 @@ node .agents/skills/feature/scripts/progress.mjs step plan done
 node .agents/skills/feature/scripts/transition-state.mjs plan_approved
 ```
 
+**Model handoff — on `gpt-6-astra`, stop here.** Follow
+[execution-lanes.md](references/execution-lanes.md) § Model handoff at plan
+approval: write the handoff doc, run
+`node .agents/skills/feature/scripts/progress.mjs handoff`, print its output
+VERBATIM as the last thing in the reply, and stop. The owner pasting that
+prompt into a fresh `gpt-5.6-sol` session IS the sign-off to implement.
+
 ### 4. Execute vertical slices
 
 Pick the model by what the slice demands, per

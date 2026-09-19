@@ -114,6 +114,72 @@ describe('progress statusline', () => {
   });
 });
 
+// The owner plans on a frontier model and implements on tier 3. At the step
+// 3->4 checkpoint the planning session prints the prompt the owner pastes into
+// a FRESH session. A fresh session has only the disk, so the command refuses
+// unless the phase and the handoff doc are already there.
+describe('progress handoff', () => {
+  const DOC = 'docs/superpowers/plans/codex-fixture-handoff.md';
+  const init = (runtime: string) => feature('progress', 'init', '--size', 'standard', '--risk', 'high', '--surface', 'backend', '--runtime', runtime);
+  const approve = () => expect(run('bash', ['scripts/feature-state.sh', 'set-phase', 'plan_approved']).status).toBe(0);
+  const writeDoc = () => { mkdirSync(join(root, 'docs/superpowers/plans'), { recursive: true }); writeFileSync(join(root, DOC), '# handoff\n'); };
+
+  it('refuses before the plan is approved', () => {
+    expect(init('claude').status).toBe(0);
+    writeDoc();
+    const result = feature('progress', 'handoff');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("not 'plan_approved'");
+    expect(result.stdout).toBe('');
+  });
+
+  it('refuses when the handoff doc is missing, and names the path', () => {
+    expect(init('claude').status).toBe(0);
+    approve();
+    const result = feature('progress', 'handoff');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`${DOC} does not exist`);
+    expect(result.stdout).toBe('');
+  });
+
+  it('prints the Claude launch command on opus and the resume prompt', () => {
+    expect(init('claude').status).toBe(0);
+    approve();
+    writeDoc();
+    const result = feature('progress', 'handoff');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`cd ${root} && claude --model opus`);
+    expect(result.stdout).toContain('   /feature-resume codex/fixture');
+    expect(result.stdout).toContain('IS your sign-off to implement');
+    expect(result.stdout).toContain(DOC);
+    expect(result.stdout).not.toContain('gpt-');
+  });
+
+  it('prints the Codex launch command on sol and the $feature-resume prompt', () => {
+    expect(init('codex').status).toBe(0);
+    approve();
+    writeDoc();
+    const result = feature('progress', 'handoff');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`cd ${root} && codex -m gpt-5.6-sol`);
+    expect(result.stdout).toContain('   $feature-resume codex/fixture');
+    expect(result.stdout).not.toContain('claude --model');
+  });
+
+  // execution-lanes.md § Model routing OWNS the tier table. The script carries a
+  // copy of two IDs so it can print a command; this fails if they ever drift.
+  it('uses exactly the tier-3 IDs that execution-lanes.md owns', async () => {
+    const lanes = readFileSync(join(sourceRoot, '.agents/skills/feature/references/execution-lanes.md'), 'utf8');
+    const tier3 = lanes.split('\n').find((line) => line.startsWith('| 3 strong'));
+    const { EXECUTE_LEAD } = await import(/* @vite-ignore */ join(sourceRoot, '.agents/skills/feature/scripts/lib/feature-snapshot.mjs')) as {
+      EXECUTE_LEAD: { claude: { model: string }; codex: { model: string } };
+    };
+    expect(tier3).toBeDefined();
+    expect(tier3).toContain(`\`${EXECUTE_LEAD.claude.model}\``);
+    expect(tier3).toContain(`\`${EXECUTE_LEAD.codex.model}\``);
+  });
+});
+
 describe('native Codex workflow', () => {
   it('requires plan approval before a guarded small/high run can execute', () => {
     mkdirSync(join(root, '.feature'));
