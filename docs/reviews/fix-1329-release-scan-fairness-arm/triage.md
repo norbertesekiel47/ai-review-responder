@@ -106,6 +106,52 @@ Beyond the rejected de-duplication and the shared findings above:
    account_capped)` and the per-account gate order. Covered by the
    overlapping-refusal case.
 
+## Round 3 — owner-granted, verification only
+
+Round 2 found two P0s in round 1's fixes. The orchestrator fixed them and
+re-measured each mutant itself, but `round-start` refuses a third round without a
+recorded owner grant — the runner's own comment explains why: a round-2 finding
+whose fix touches the tree makes the sidecar stale by construction, and the only
+ways out without a grant are to leave a known defect unfixed or to hand-edit
+`head_sha`, "an evidence file rewriting its own provenance". The owner granted the
+round (`owner-1329-third-round`, recorded in the sidecar before it opened).
+
+**Result: all 14 `fixed` dispositions HOLD, independently re-measured. None was
+corrected downward.** Each of the five mutants fails exactly the case named for
+it, plus a behaviour-preserving reorder mutant confirming the status pin is no
+longer order-fragile.
+
+It also found **one new P1 — in the orchestrator's own paperwork.** The
+authorization entry failed the checker's schema (no `date`, no `finding_ids`), so
+`red-team-status.mjs` had been failing on three defects, not the one the dispatch
+brief claimed. Recorded as R7 and fixed. The lesson is the same one this branch
+keeps relearning: a claim about what a checker reports is worth exactly as much as
+the last time someone ran it.
+
+### Two corrections to the orchestrator's own statements
+
+1. **The round-2 commit message is imprecise.** It says both mid-tick cases "drive
+   the change from a SIBLING account's count". Only the CAP case does, and must:
+   `runAccountArm` reads the cap before it counts attempts, so that case cannot use
+   its own count. The LAPSE case correctly fires on its own count, because the
+   subscription read FOLLOWS the count. The sidecar never claimed otherwise — its
+   sentence is scoped to F3. Recorded here rather than by rewriting history.
+2. **The dispatch brief for round 3 was wrong** to say `red-team-status.mjs`
+   "currently fails only on the stale head binding". `intake_sha256` already
+   matched, and the authorization schema was a second and third defect.
+
+### Two protocol deviations round 3 recorded, both accepted
+
+- `watchers` aborted on a `next-server` process. Round 3 resolved its cwd with
+  `lsof` to a DIFFERENT checkout, so the precondition as written was true and only
+  the detector is over-broad (`findWatchers` matches `ps` output by command
+  substring with no cwd scope). Overridden after that direct check; filed in the
+  report appendix as tooling debt, not a finding against this branch.
+- No `dotenv-swap`: the live-DB suite resolves its database from `.env.local` on
+  disk, so a scrubbed replacement would have made every row `inconclusive/oracle`.
+  Process env stayed the runner allowlist with `MOCK_EXTERNAL_APIS=false` matching
+  both `.env.local` and CI, and no mutant touched a provider call site.
+
 ## Pre-merge obligation
 
 `ALLOWLIST_BASELINE` 382 was derived at `eba43bcca`. `refactor/616-fallow-complexity`

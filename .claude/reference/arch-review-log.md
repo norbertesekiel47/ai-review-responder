@@ -313,9 +313,11 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** — reset by the **2026-09-12 pass**
+**Merges since last architecture pass: 4** — reset by the **2026-09-12 pass**
 (entry at the bottom of this file). Full artifacts:
-`docs/reviews/PATHFINDER-2026-09-12/`.
+`docs/reviews/PATHFINDER-2026-09-12/`. Incremented by PR #1337 (#1329, the
+release-scan fairness arms) — one production module, no migration, no
+dependency, no flag, no new writer.
 
 > ## The counting rule is STILL under repair — do NOT hand-count this file
 >

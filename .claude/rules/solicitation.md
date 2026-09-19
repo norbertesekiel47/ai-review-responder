@@ -32,6 +32,10 @@ Approval / halt lane (`approveBatch`/`haltBatch`/`adminHaltBatch`/`requestAskReg
 
 - (a) exclusions validate BEFORE any write — postgres.js commits when the `sql.begin` callback resolves; (b) no verb terminalizes the parent — all call `closeBatchIfSettled`; (c) both halt arms share one private `latchHalt` and both refuse `pending`; (d) `withdrawAsk` checks idempotence BEFORE the state gate.
 
+Release cycle P4 scan (`selectReleaseCandidates`, the two fairness arms, `runAccountArm`'s gates — #1329):
+
+- (a) the SCAN's arms are a discovery bound on a snapshot; `runAccountArm`'s reads are the AUTHORIZATION and must stay current-state, because nothing downstream re-checks either dial; (b) `resolveAccountDailySendCap` owns the clamp — the arm binds its OUTPUT via `unnest`, never a SQL `LEAST`; (c) the cap entry gate changes only the REPORTED reason (`capacityExhausted()` also stops a zero remainder), so a test that deletes it must break BOTH account-level gates in one window to notice.
+
 ## Rules
 
 - Nothing beyond the traps was moved from `.claude/CLAUDE.md`; the rules and their why live in the three `docs/directory/lib-solicitation-*.md` pages named above.
