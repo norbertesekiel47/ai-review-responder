@@ -271,7 +271,12 @@
       "reason": "ORCHESTRATOR-VERIFIED, not verified by an independent round: `round-start` refuses a third round, so the round-2 findings have no pass behind them. Each claim below was measured by re-applying the mutant and re-running the suite. The constant's docstring now states that the pin asserts membership against LITERALS and names why: deriving it from the predicate made both sides move together, which is the shape round 1 proved fake."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-1329-third-round",
+      "text": "Question: Round 2's P0 fixes have no independent verification, and the sidecar is bound one commit behind (1d0e00b4) while HEAD has moved. How do we close the review? Options offered: authorize a THIRD ROUND so a fresh pass re-binds the sidecar to HEAD and independently attacks the five fixes the orchestrator measured itself; ship with those orchestrator measurements as the evidence and leave the reviewed phase unset; or stop and hand over the state.\nOwner: Authorize a third round.\nScope: verification only, over the round-2 fix hunks and the five mutants the orchestrator re-measured (gate cap source, status pin, subscription gate, location override, cap entry gate). It re-binds the sidecar to current HEAD, preserves earlier evidence, and grants no fourth round."
+    }
+  ],
   "status": "CLEAR",
   "counts": {
     "inventory_total": 16,
