@@ -47,6 +47,7 @@ node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
 node .agents/skills/feature/scripts/progress.mjs tracers set "T1 gate constant|T2 veto window|T3 judge precondition"
 node .agents/skills/feature/scripts/progress.mjs tracer T2 active
 node .agents/skills/feature/scripts/progress.mjs render
+node .agents/skills/feature/scripts/progress.mjs handoff   # step 3→4: the prompt for a fresh tier-3 session
 node .agents/skills/feature/scripts/progress.mjs cost
 ```
 

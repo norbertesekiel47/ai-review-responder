@@ -93,6 +93,11 @@ continue: the handoff doc's claims are hints; git state is the truth.
    **Missing handoff doc**: do NOT proceed on assumption — reconstruct the
    current step from git log + the plan + the deviations file, state the
    reconstruction to me, and get a nod before continuing.
+   A resume at `plan_approved` is normally the MODEL HANDOFF from a planning
+   session (`execution-lanes.md` § Model handoff at plan approval): the owner
+   pasting this command WAS the sign-off to implement. Reconcile as above, then
+   start step 4 with no second approval pause. If this session itself runs on
+   `fable`, say so in one line first — the handoff exists to implement on `opus`.
 5. **State where you are in one line** (current step + what remains + any
    reconciliation flags from step 3), then continue the `/feature` workflow
    from that step under all of its rules — context discipline, anti-slop,

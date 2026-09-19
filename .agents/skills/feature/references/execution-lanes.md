@@ -186,6 +186,30 @@ Rules that keep the savings honest:
   picker before editing this table; aliases on the Claude side track the
   current generation.
 
+### Model handoff at plan approval
+
+Planning is tier-4 work; implementing an approved plan is tier-3 work. A
+session cannot change its own model, and `/clear` keeps it, so the switch is a
+NEW session. At the step 3→4 checkpoint of a guarded run, a planning session
+that runs on tier 4 (`fable`, `gpt-6-astra`) does this and nothing else:
+
+1. Record the phase and write the handoff doc, as the checkpoint already requires.
+2. Run `node .agents/skills/feature/scripts/progress.mjs handoff`.
+3. Print its output VERBATIM as the last thing in the reply, and stop.
+
+The command prints the launch line on the tier-3 model (`claude --model opus`,
+or `codex -m gpt-5.6-sol`) and the prompt to paste (`/feature-resume <branch>`,
+or `$feature-resume <branch>`). It refuses unless the phase is `plan_approved`
+and the handoff doc exists, because a fresh session has only the disk. **The
+owner pasting that prompt IS the sign-off to implement** — the fresh session
+reconciles and goes straight to step 4 with no second approval pause.
+
+Do not compose the block by hand, and do not implement "just the first tracer"
+in the planning session. Skip the handoff only when the planning session
+already runs on tier 3 or below, or when it is a `/feature-swarm` subagent
+(already dispatched on a named model, with nobody to paste anything). The light
+lanes have no plan and no handoff: run them on tier 2 from the start.
+
 ## The review wave — one parallel dispatch, red team when risk is high
 
 Both lane routers dispatch ONE wave, in ONE message, the moment the review

@@ -10,6 +10,7 @@
 //   progress.mjs render
 //   progress.mjs json
 //   progress.mjs statusline [<repo-root>]
+//   progress.mjs handoff
 //
 // It stores ONLY the facts no other file owns. Phase, branch, SHAs and review
 // round counters stay in .feature/state.json and are read, never copied.
@@ -30,6 +31,8 @@ import {
   STEP_STATUSES,
   buildSnapshot,
   featureDir,
+  handoffDocPath,
+  renderModelHandoff,
   renderStatusLine,
   renderTerminal,
   repoRoot,
@@ -51,6 +54,7 @@ const USAGE = `usage:
   progress.mjs render
   progress.mjs json
   progress.mjs statusline [<repo-root>]
+  progress.mjs handoff
   progress.mjs cost`;
 
 function fail(message) {
@@ -307,6 +311,24 @@ switch (command) {
 
     save({ ...progress, tracers });
     console.log(renderTerminal(buildSnapshot(root)));
+    break;
+  }
+
+  // The step 3->4 checkpoint: print the prompt the owner pastes into a fresh
+  // tier-3 session. It refuses rather than print a prompt that cannot resume —
+  // a fresh session has only the disk, so the phase and the handoff doc must
+  // already be there.
+  case 'handoff': {
+    const progress = require_(load());
+    const snapshot = buildSnapshot(root, { skipFingerprint: true });
+    if (snapshot.phase !== 'plan_approved') {
+      fail(`handoff: REFUSED — phase is '${snapshot.phase ?? 'unset'}', not 'plan_approved'. Record the phase first.`);
+    }
+    const doc = handoffDocPath(snapshot.branch);
+    if (!existsSync(join(root, doc))) {
+      fail(`handoff: REFUSED — ${doc} does not exist. Write the handoff doc first; the fresh session starts from it.`);
+    }
+    console.log(renderModelHandoff({ runtime: progress.runtime ?? 'claude', branch: snapshot.branch, root }));
     break;
   }
 

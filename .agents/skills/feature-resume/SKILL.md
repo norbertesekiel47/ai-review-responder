@@ -103,7 +103,7 @@ Do not reread every workflow section. Dispatch from reconciled state:
 | Current evidence | Next action |
 |---|---|
 | `worktree_ready`, any guarded run | finish or obtain approval for the plan before executing |
-| `plan_approved` | transition to `executing` and start the next tracer |
+| `plan_approved` | transition to `executing` and start the next tracer. This is normally the model handoff from a planning session: the owner pasting `$feature-resume` WAS the sign-off, so do not pause for approval again. If this session runs on `gpt-6-astra`, say so first — the handoff exists to implement on `gpt-5.6-sol` |
 | `executing`, incomplete tracer | continue that tracer only |
 | `executing`, implementation complete | run `verified-gate.sh --review` |
 | green current fingerprint, reviews incomplete | run the required review axes |
