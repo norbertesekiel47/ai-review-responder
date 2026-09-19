@@ -68,7 +68,7 @@ function computePublishMode(
   return 'manual';
 }
 
-async function handler(request: NextRequest): Promise<Response> {
+async function handler(request: NextRequest) {
   // Feature gate + owner scope. CSRF handled by withSameOrigin wrapper.
   const scope = await resolveEditReplyScope(sql, request);
   if (!scope.ok) return scope.response;
