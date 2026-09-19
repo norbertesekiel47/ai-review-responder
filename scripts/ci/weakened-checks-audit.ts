@@ -154,34 +154,38 @@ function coverageFloorFindings(parsed: ParsedDiff): Finding[] {
   });
 }
 
-function reviewFindings(parsed: ParsedDiff): Finding[] {
-  const findings: Finding[] = [];
-  const touched = [...new Set([...parsed.added, ...parsed.removed].map((line) => line.file))];
+const review = (rule: string, file: string, detail: string): Finding => ({ tier: 'REVIEW', rule, file, detail });
 
-  for (const file of parsed.deletedFiles.filter(isTestFile)) {
-    findings.push({ tier: 'REVIEW', rule: 'test-file-deleted', file, detail: 'where did its coverage go?' });
+/** REVIEW rows for one surviving (not deleted) touched file. */
+function touchedFileFindings(file: string, parsed: ParsedDiff): Finding[] {
+  const findings: Finding[] = [];
+  if (isTestFile(file) && !parsed.deletedFiles.includes(file)) {
+    const removed = count(parsed.removed, file, EXPECT_CALL);
+    const added = count(parsed.added, file, EXPECT_CALL);
+    if (removed > added) findings.push(review('assertions-removed', file, `-${removed} / +${added} expect(`));
   }
-  for (const file of touched) {
-    if (isTestFile(file) && !parsed.deletedFiles.includes(file)) {
-      const removed = count(parsed.removed, file, EXPECT_CALL);
-      const added = count(parsed.added, file, EXPECT_CALL);
-      if (removed > added) {
-        findings.push({ tier: 'REVIEW', rule: 'assertions-removed', file, detail: `-${removed} / +${added} expect(` });
-      }
-    }
-    if (isQualityConfig(file)) {
-      findings.push({ tier: 'REVIEW', rule: 'quality-config-changed', file, detail: 'confirm no check was relaxed' });
-    }
-  }
-  for (const line of parsed.added) {
-    if (isSourceFile(line.file) && SUPPRESSION.test(line.text)) {
-      findings.push({ tier: 'REVIEW', rule: 'suppression-added', file: line.file, detail: line.text.trim() });
-    }
-    if (isSourceFile(line.file) && !isTestFile(line.file) && UNFINISHED.test(line.text)) {
-      findings.push({ tier: 'REVIEW', rule: 'unfinished-work', file: line.file, detail: line.text.trim() });
-    }
+  if (isQualityConfig(file)) findings.push(review('quality-config-changed', file, 'confirm no check was relaxed'));
+  return findings;
+}
+
+/** REVIEW rows for one added line. Only code counts; prose quoting a marker is not a finding. */
+function addedLineFindings(line: DiffLine): Finding[] {
+  if (!isSourceFile(line.file)) return [];
+  const findings: Finding[] = [];
+  if (SUPPRESSION.test(line.text)) findings.push(review('suppression-added', line.file, line.text.trim()));
+  if (!isTestFile(line.file) && UNFINISHED.test(line.text)) {
+    findings.push(review('unfinished-work', line.file, line.text.trim()));
   }
   return findings;
+}
+
+function reviewFindings(parsed: ParsedDiff): Finding[] {
+  const touched = [...new Set([...parsed.added, ...parsed.removed].map((line) => line.file))];
+  return [
+    ...parsed.deletedFiles.filter(isTestFile).map((file) => review('test-file-deleted', file, 'where did its coverage go?')),
+    ...touched.flatMap((file) => touchedFileFindings(file, parsed)),
+    ...parsed.added.flatMap(addedLineFindings),
+  ];
 }
 
 /** Every finding for one diff, FAIL rows first. */
