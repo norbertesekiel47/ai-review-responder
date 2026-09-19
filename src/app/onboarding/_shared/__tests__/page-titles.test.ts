@@ -6,6 +6,28 @@ import { describe, expect, it } from 'vitest';
 // The root layout's `title.template` ('%s · RepWorth') appends the brand, so a
 // page title is the page name alone. File-content scan (precedent:
 // src/__tests__/page-metadata.test.ts).
+//
+// #1103 — WHAT THIS GUARD OWNS, now that a third guard exists. The app-wide
+// scan `src/app/(public)/__tests__/page-titles.test.ts` walks every `page.tsx`
+// and every non-root `layout.tsx` under `src/app`, these four funnel pages
+// included, and fails any title ENDING in the brand. The file-wide
+// `not.toMatch(/\|\s*RepWorth/)` this guard used to carry is removed in favour
+// of it — one property, one owner.
+//
+// NOT a clean equivalence, and the difference is deliberate. The old regex
+// scanned the whole FILE; the app-wide scan is TITLE-scoped and strips
+// `openGraph`/`twitter` sub-objects on purpose, because `title.template`
+// never rewrites an OG title so a correct one has to spell the brand itself.
+// So a stray "| RepWorth" in body copy or a description is now caught by
+// nothing. That is accepted: the bug being guarded is a DOUBLED title, the
+// scan owns it for all 74 pages rather than these four, and the surviving
+// assertion below already forbids a "|" inside the title literal.
+//
+// What no other guard makes is the POSITIVE claim below: that each of these
+// four pages declares a title of its own at all. The app-wide scan cannot,
+// because a page with no `metadata` export is not an offender there. A funnel
+// page that silently loses its title falls back to the layout's and is caught
+// only here.
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), 'utf-8');
 
 const FUNNEL_PAGES = [
@@ -16,9 +38,10 @@ const FUNNEL_PAGES = [
 ];
 
 describe('onboarding page titles (A26)', () => {
-  it.each(FUNNEL_PAGES)('%s sets a bare page title and never spells "| RepWorth"', (rel) => {
-    const src = read(rel);
-    expect(src).toMatch(/title:\s*'[^'|·]+'/);
-    expect(src).not.toMatch(/\|\s*RepWorth/);
+  it.each(FUNNEL_PAGES)('%s declares its own bare page title', (rel) => {
+    // Bare = no separator inside the literal. The brand SUFFIX is the app-wide
+    // scan's; the separator-free shape is this guard's, because a funnel title
+    // carrying its own "·" reads as a breadcrumb the template then extends.
+    expect(read(rel)).toMatch(/title:\s*'[^'|·]+'/);
   });
 });
