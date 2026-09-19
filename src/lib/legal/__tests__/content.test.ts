@@ -1,5 +1,38 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { formatLegalDate, legalDocs } from '../content';
+
+describe('legal review copies', () => {
+  const files = {
+    terms: 'repworth-terms-of-service.md',
+    privacy: 'repworth-privacy-policy.md',
+    aup: 'aup.md',
+    cookies: 'cookies.md',
+    'sub-processors': 'sub-processors.md',
+  } as const;
+
+  it('keeps counsel copies identical to the route-backed documents', () => {
+    for (const doc of Object.values(legalDocs)) {
+      const blocks = [
+        `# ${doc.title}`,
+        `Version: ${doc.version}\nEffective date: ${doc.effectiveDate}\nLegal review status: pending lawyer review`,
+        'Review copy of `src/lib/legal/content.ts`. Keep this file synchronized with the route-backed document; see `legal-review.md` for publication status and open questions.',
+        ...doc.sections.flatMap((section) => [
+          `## ${section.heading}`,
+          ...section.body,
+          ...(section.bullets ? [section.bullets.map((item) => `- ${item}`).join('\n')] : []),
+          ...(section.table ? [[
+            `| ${section.table.headers.join(' | ')} |`,
+            `| ${section.table.headers.map(() => '---').join(' | ')} |`,
+            ...section.table.rows.map((row) => `| ${row.join(' | ')} |`),
+          ].join('\n')] : []),
+        ]),
+      ];
+      expect(readFileSync(resolve('docs/legal', files[doc.slug]), 'utf8')).toBe(`${blocks.join('\n\n')}\n`);
+    }
+  });
+});
 
 describe('formatLegalDate', () => {
   it('says an ISO date the way a reader does (M23)', () => {
@@ -53,8 +86,9 @@ describe('legal content', () => {
     expect(vendors).toEqual(expect.arrayContaining([
       'SerpAPI',
       'Google Maps Platform',
+      'PostHog',
     ]));
-    for (const excluded of ['PostHog', 'Help Scout', 'Cloudflare', 'Loops', 'Customer.io']) {
+    for (const excluded of ['Help Scout', 'Cloudflare', 'Loops', 'Customer.io']) {
       expect(vendors).not.toContain(excluded);
     }
   });

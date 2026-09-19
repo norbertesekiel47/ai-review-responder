@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   // Bare name: the root layout's title template appends " · RepWorth".
   title: 'Security',
   description:
-    'How RepWorth protects review, billing, and approval data: scoped access, hashed approval tokens, and explicit owner approval before posting.',
+    'How RepWorth protects review, billing, and approval data with scoped access, hashed approval tokens, and controls for authorized publishing.',
 };
 
 export default function SecurityPage() {
@@ -26,7 +26,7 @@ export default function SecurityPage() {
             <h1 className="mb-2 text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-rw-ink">Security</h1>
             <p className="text-lg leading-relaxed text-rw-ink-soft">
               RepWorth protects review, billing, and approval data with scoped access, hashed
-              approval tokens, and explicit owner approval before posting.
+              approval tokens, and controls for authorized publishing.
             </p>
           </header>
 
@@ -50,17 +50,28 @@ export default function SecurityPage() {
             <h2 className="text-2xl md:text-3xl font-medium text-rw-ink">Current status</h2>
             <ul className="list-disc space-y-2 pl-5 text-lg text-rw-ink-soft">
               <li>Approval tokens are stored as SHA-256 hashes, not raw tokens.</li>
-              <li>Customer-facing posting requires explicit owner approval.</li>
+              <li>
+                Copilot replies require individual owner approval. Where available, Autopilot
+                can publish eligible replies only under an expressly enabled policy and its
+                limits, waiting period, and safety checks. A subscription alone does not
+                authorize automatic posting.
+              </li>
               <li>
                 Tenant access is enforced in application code. Every owner read and write is
                 scoped to your account and location. Row-level security policies are additionally
                 enabled on protected database tables as a defense-in-depth backstop.
               </li>
               <li>
-                Likely protected health information (PHI) in review text ingested from your
-                connected Google Business Profile is blocked before persistence or logging.
+                Screening on connected-review ingestion is designed to block some likely
+                protected health information (PHI). Detection is limited and may miss sensitive
+                information. Do not submit private health records or assume that screening
+                makes the Service HIPAA compliant.
               </li>
-              <li>SOC 2 audit is not yet complete.</li>
+              <li>We do not claim SOC 2 certification or provide a SOC 2 report on this page.</li>
+              <li>
+                Authorized personnel may access information for support, security, and service
+                operation. No security control guarantees that every incident will be prevented.
+              </li>
             </ul>
           </section>
 

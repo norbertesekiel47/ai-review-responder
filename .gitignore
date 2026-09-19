@@ -206,3 +206,12 @@ tmp/
 
 # Stray file from a tool writing to the literal SQLite name ":memory:"
 :memory:*
+
+# Founder research notes (strategy, competition, insurance) — local working
+# material, not repo documentation. `/*` rather than `/` so the one tracked
+# file can be re-included.
+docs/research/*
+!docs/research/2026-09-13-stripe-quantity-billing.md
+
+# Infisical CLI workspace link (`infisical init`) — per-machine, not shared.
+.infisical.json
