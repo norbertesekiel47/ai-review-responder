@@ -50,7 +50,15 @@ terminal write fails` becomes
 terminal write fails`. Same invariant, asserted at the module where the
 behavior now lives.
 
-**Verdict:**
+**Verdict: ACCEPT.** Confirmed correct in practice. All four pre-existing
+worker tests are green **unmodified** through T4 and T5, including
+`releases reservation when subscription-state failure recording throws`, which
+now drives the extracted guard through the root. The re-throw invariant is
+asserted at the new seam by
+`guardOnboardingDemoSubscription releases the reservation and re-throws when the
+terminal write fails`, with an exactly-once release count. Plan round 2
+independently validated the injection seam (`stages.test.ts:281` keeps testing
+the real `failOnboardingDemoTerminal`).
 
 ---
 
@@ -70,7 +78,10 @@ rewrites is in scope; the red-team pass re-resolves doc claims against HEAD and
 would flag it otherwise. Recorded here so a reviewer sees it was deliberate and
 not scope drift.
 
-**Verdict:**
+**Verdict: ACCEPT.** Done. The row now states the real signature and the key-order
+contract, the fail-open behavior, the sanitizer boundary and the `#611` stack
+rule. `ci:directory-map` passes and the page is 2,860 words, inside the 3,000
+cap.
 
 ---
 
@@ -102,7 +113,16 @@ that `finalizeOnboardingDemoCost` is **not idempotent**
 finalize corrupts the daily counter. Plan T3 test 4 pins the rejection
 boundaries; T3 test 1 pins the exactly-once finalize.
 
-**Verdict:**
+**Verdict: ACCEPT.** This is the most valuable thing the plan review produced.
+The claim was checked against source before the correction landed:
+`OnboardingDemoWorker.ts:67`, `:92` and `:99` do sit outside the outer `try`,
+and `onboarding-demo-cost-guard.ts:86` does apply
+`delta = actual − RESERVATION_CENTS` on every call. Both facts are now pinned
+by tests — `propagates a pre-work rejection without a terminal write or a
+release` covers all three boundaries, and `completes the demo, then finalizes
+rounded actual cents once…` asserts `toHaveBeenCalledTimes(1)`. Deliberately
+**not** "fixed": widening the catch would be a behavior change on a
+behavior-preserving branch, and the honest contract is the one the code has.
 
 ---
 
@@ -117,7 +137,14 @@ re-classification trigger, so the lane does not change, but leaving a stale 280
 would have made that trigger meaningless at step 5. `estimated_prod_lines`
 stays 240.
 
-**Verdict:**
+**Verdict: ACCEPT.** Measured at the green gate against the merge-base:
+**prod 386** against an estimate of 240 (1.61×) and **test 753** against 470
+(1.60×). Both sit under the 2× re-classification trigger, and the gate's
+`reclassify` row did not warn. Raising the estimate from 280 was the right
+call — left at 280, the test bucket would have measured 2.69× and fired a
+re-classification this change did not need. The two buckets landing at the
+same multiple is a fair sign the revised estimate was honest rather than
+padded.
 
 ---
 
@@ -143,7 +170,12 @@ Round 2 was given an explicit read-only instruction naming this drift. It
 complied and declined a hook's gate request. The instruction works; reuse it
 verbatim for the step 7 Codex axis.
 
-**Verdict:**
+**Verdict: ACCEPT** (process, no code impact). The mitigation is proven, not
+assumed: rounds 2 and 3 both declined a hook's gate request in writing. Gate
+truth here is always re-derived — the green gate and its fingerprint
+(`ce122e52…`) were produced by the orchestrator at HEAD `83330f44`, after
+round 1 had long finished. Carried into step 7: the Codex axis gets the same
+read-only clause verbatim.
 
 ---
 
@@ -173,7 +205,14 @@ pre-existing tests fail. That is the check, and it is mechanical.
 Why not avoid it: the alternative is leaving the root→helper hop untested, and
 that hop is exactly what this refactor creates.
 
-**Verdict:**
+**Verdict: ACCEPT.** The control worked: all four pre-existing tests stayed
+green through the harness change, proving the default is behaviourally
+identical. The change earned itself immediately — a mutation probe passing
+`outboxAttempt: undefined` in the rewire fails
+`forwards the extracted outbox id and numeric attempt…` (`"outboxAttempt": 4`
+vs `undefined`, 1 failed / 10 passed). With the old unconditional
+`attempt: undefined` mock that mutation was invisible. Scope stayed minimal:
+two mocks made addressable, no test body touched.
 
 ---
 
@@ -208,6 +247,31 @@ It stays module-private in the root rather than moving to
 `src/lib/demos/lifecycle.ts` beside `ClaimResult`, which would be out of
 surface. If a second caller appears, that is where it belongs.
 
-**Verdict:**
+**Verdict: ACCEPT.** The targeted fallow assertion now reports **0 findings
+with no coverage data at all**, which is the strongest form of that evidence —
+it cannot be weakened by a stale or missing `coverage/`. Named debt, recorded
+rather than hidden: this is a one-caller predicate, which the project's own
+"no abstractions for a single caller" rule disfavours. It is kept because the
+grouping carries meaning the inline chain did not, and because it takes
+`ClaimResult`, so a sixth claim outcome becomes a compile error here instead of
+a silent fall-through. Removing it would put cyclomatic back to 10 and
+re-couple the check to coverage data.
+
+---
+
+## Read-back summary (step 6)
+
+All seven entries resolved **ACCEPT**. None is a RE-PLAN, so the abort criteria
+do not apply and the branch proceeds to the step 7 review wave.
+
+Three deserve a reviewer's attention rather than a nod:
+
+- **D3** — a signed-off intake invariant was factually false about the code.
+  Narrowed to the as-built contract and pinned by a test, not "fixed".
+- **D6** — a shared test harness changed. The control (four pre-existing tests
+  green, unmodified) is what makes that safe, and a mutation probe shows the
+  change was load-bearing rather than cosmetic.
+- **D7** — a one-caller predicate kept against the project's own preference,
+  for a stated reason. Named debt.
 
 ---
