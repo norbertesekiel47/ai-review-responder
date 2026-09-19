@@ -10,7 +10,33 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 > - [progress-archive/currents-history-2026-08-16-to-18.md](progress-archive/currents-history-2026-08-16-to-18.md) — 2026-08-16 → 2026-08-18 (the executed Architecture pass through the admin Halt latch surface).
 
-Last updated: 2026-09-19 (both release-scan fairness arms are exact: an account the Release cycle refuses stops holding candidate slots).
+Last updated: 2026-09-19 (the two long-standing complexity hotspots are decomposed; the logger's `emit` and the onboarding-demo worker root are now assembly over named helpers).
+
+## Quick summary — the two complexity hotspots are gone, by decomposition not suppression (2026-09-19, PR #1340)
+
+Issue #616 tracked two functions `fallow` had flagged for a long time. Neither was broken; both had simply grown until nobody could read them in one sitting. They are now split, and **nothing they do changed** — no schema, no migration, no flag, no env var, no dependency, and not one pre-existing test body edited.
+
+**What is true now.**
+
+- `src/lib/shared/logger.ts` `emit` was cognitive 24 with a CRAP score of 106.4, which `fallow` grades **critical**. It is now assembly over six module-private helpers. Its external interface is untouched, and the exact byte string it writes is pinned by a characterization test.
+- `worker/jobs/OnboardingDemoWorker.ts` `handleOnboardingDemo` was cognitive 25, cyclomatic 19, 144 lines. It is now orchestration only, at cognitive 7 / cyclomatic 8.
+- Two of its steps moved out into the existing `worker/jobs/onboarding-demo/` package, which already used dependency injection: `subscription-guard.ts` and `cost-reconcile.ts`.
+- `fallow health` reports **zero findings** for both functions.
+
+**The new shape.**
+
+| file | what it holds now |
+|---|---|
+| `src/lib/shared/logger.ts` | `emit` plus six private helpers; same public `createWorkerLogger` |
+| `worker/jobs/OnboardingDemoWorker.ts` | the root, orchestration only |
+| `worker/jobs/onboarding-demo/subscription-guard.ts` | **new** — the demo's subscription gate; takes `failTerminal` as an injected parameter |
+| `worker/jobs/onboarding-demo/cost-reconcile.ts` | **new** — the two best-effort cost steps |
+| `scripts/ci/tenant-scope-allowlist.ts` | three entries follow the query to its new file — same SQL, same `od.id` scoping |
+
+**Two things a reader should know.**
+
+1. **A signed-off intake said something false about the code, and the plan review caught it.** The intake claimed every non-completing path releases the 20¢ cost reserve. It does not: the subscription `SELECT`, `claimDemo` and `markOutboxCompleted` all sit outside the outer `try` and release nothing. The intake was narrowed to the as-built contract and pinned by a test — deliberately *not* "fixed", because changing it would be a behaviour change on a behaviour-preserving branch.
+2. **This branch shipped with the `/feature` `reviewed` transition waived**, by owner decision recorded as deviation D11. That is a workflow exception, not a code compromise: two red-team findings are fixed and hand-verified but have no journaled proof, because the round that *raised* them was the last one the runner allows. The two structural causes are filed as **#1342** and **#1343**.
 
 ## Quick summary — the Release cycle stops letting a refused account starve everyone else (2026-09-19, PR #1337)
 

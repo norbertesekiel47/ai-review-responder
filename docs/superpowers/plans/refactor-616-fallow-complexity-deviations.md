@@ -464,10 +464,13 @@ that interaction.
   `docs/reviews/red-team/refactor-616-fallow-complexity-d3e601/findings.md`.
 - The refactor is behaviour-preserving and carries 28 added tests.
 
-**Follow-ups this leaves open**, both tooling, neither blocking #616:
+**Follow-ups this leaves open**, both tooling, neither blocking #616. Filed in
+the post-merge sweep, so the waiver carries no untracked debt:
 
-- the red-team round cap versus the `RUN_C_FOURTH_TEXT` collision;
-- what an `oracle`-class inconclusive row should mean for `CLEAR`.
+- **#1342** — the red-team round cap versus the `RUN_C_FOURTH_TEXT` collision: a
+  round-3 finding's own fix can never be verified.
+- **#1343** — an `oracle`-class inconclusive row makes `CLEAR` unreachable, so a
+  type-only annotation blocks the `reviewed` transition.
 
 **Verdict: ACCEPT** — owner-authorized on 2026-09-19, option "Ship with a
 recorded exception", chosen over fixing the tooling first and over parking #616
