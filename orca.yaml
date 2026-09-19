@@ -1,0 +1,22 @@
+# Orca repo configuration (https://www.onorca.dev/docs/model/worktrees).
+# Gitignored FILES to copy live in `.worktreeinclude` beside this file.
+
+scripts:
+  # Runs after Orca checks out a new worktree. The `#!` line is load-bearing:
+  # without it Orca runs this as a Windows .cmd batch file.
+  #
+  # A per-worktree install, not a shared `worktree.sharedDirectories` entry for
+  # node_modules. That setting SHARES one install by symlink, and this repo
+  # depends on each worktree resolving its OWN dependencies — a branch that
+  # touches pnpm-lock.yaml would otherwise change what every other worktree
+  # resolves, and local lint/test/typecheck stop being a trustworthy signal
+  # (.claude/CLAUDE.md § "CI & repo", worktrees).
+  #
+  # On macOS, Settings -> Repository -> Worktree Shared Paths can hold
+  # `node_modules` instead: it APFS clone-copies, so each worktree still owns an
+  # independent tree and creation is fast. That is a per-user setting, so it
+  # stays out of this file.
+  setup: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pnpm install --frozen-lockfile

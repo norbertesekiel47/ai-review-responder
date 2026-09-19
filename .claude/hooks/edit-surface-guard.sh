@@ -15,6 +15,25 @@
 # routing repo edits through Bash during a feature run.
 set -uo pipefail
 
+# A linked worktree (`git worktree add`) keeps its OWN per-worktree git dir, so
+# --absolute-git-dir and --git-common-dir name different paths there; in the
+# primary checkout they name the same one. #1338: this replaces a path-pattern
+# test (`*-worktrees/*`, `*/.claude/worktrees/*`, `*/.worktrees/*`) that armed
+# only for the three layouts scripts/new-worktree.sh and the harness happen to
+# produce. A real linked worktree anywhere else — an Orca workspace at
+# ~/orca/workspaces/<repo>/<slug> — matched nothing and ran UNGUARDED, which is
+# the one case this rule exists to catch. `--path-format=absolute` needs git
+# 2.31; the fallback resolves a relative common dir against the same directory
+# git read it from.
+is_linked_worktree() {
+  local git_dir common_dir
+  git_dir=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  common_dir=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 1
+  case "$common_dir" in /*) ;; *) common_dir="$1/$common_dir" ;; esac
+  [ "$git_dir" != "$common_dir" ]
+}
+
 INPUT=$(cat)
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
@@ -35,25 +54,21 @@ done
 TARGET_ROOT=$(git -C "$ANCHOR_DIR" rev-parse --show-toplevel 2>/dev/null || true)
 
 # --- Always-on worktree containment (independent of /feature arming) ---
-# When this session's cwd is inside a WORKTREE checkout (sibling
-# …-worktrees/<branch>/ or nested .claude/worktrees/), an edit that targets a
+# When this session's cwd is a LINKED WORKTREE, an edit that targets a
 # different checkout is almost always the "edit silently lands in main's tree"
 # footgun (CLAUDE.md worktree rules). The reverse direction — editing a
 # worktree from the main checkout — stays allowed (that's the blessed flow).
 # Files outside any git repo (scratchpad, /tmp) are unaffected.
 if [ "${WORKTREE_EDIT_GUARD_DISABLE:-0}" != "1" ]; then
   SESSION_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
-  case "$SESSION_ROOT" in
-    *-worktrees/*|*/.claude/worktrees/*|*/.worktrees/*)
-      if [ -n "$TARGET_ROOT" ] && [ "$TARGET_ROOT" != "$SESSION_ROOT" ]; then
-        echo "BLOCKED: session cwd is worktree '$SESSION_ROOT' but the edit targets '$TARGET_ROOT'." >&2
-        echo "Point the Write/Edit path at the worktree root — an edit to another checkout" >&2
-        echo "silently lands in that tree. If cross-checkout editing is genuinely intended," >&2
-        echo "set WORKTREE_EDIT_GUARD_DISABLE=1." >&2
-        exit 2
-      fi
-      ;;
-  esac
+  if [ -n "$SESSION_ROOT" ] && is_linked_worktree "$SESSION_ROOT" \
+    && [ -n "$TARGET_ROOT" ] && [ "$TARGET_ROOT" != "$SESSION_ROOT" ]; then
+    echo "BLOCKED: session cwd is worktree '$SESSION_ROOT' but the edit targets '$TARGET_ROOT'." >&2
+    echo "Point the Write/Edit path at the worktree root — an edit to another checkout" >&2
+    echo "silently lands in that tree. If cross-checkout editing is genuinely intended," >&2
+    echo "set WORKTREE_EDIT_GUARD_DISABLE=1." >&2
+    exit 2
+  fi
 fi
 
 # Arm from the target repo root first, the session cwd second.
