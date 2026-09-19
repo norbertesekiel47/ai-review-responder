@@ -196,6 +196,62 @@ both environments and `JUDGE_ENABLED` is unset in production — the ordered
 go-live flip (design doc §8.4) has not started. Readiness is an **expansion**
 control; it does not post.
 
+## Staging autonomy chain — flipped 2026-09-19, NOT yet drilled
+
+Separate from the readiness marker above, and **staging only**. The owner asked
+for the whole chain on in staging so the WS6 drills could run. Production was
+explicitly left alone and remains OFF on every autonomy flag.
+
+| Flag | Railway worker | Vercel | Note |
+|---|---|---|---|
+| `TRIAGE_ENABLED` | `true` (pre-existing) | — | worker-only: sole caller is `worker/jobs/response-generation/triage.ts` |
+| `ESCALATION_ENABLED` | `true` (new) | `true` (new) | |
+| `JUDGE_ENABLED` | `true` (pre-existing) | — | worker-only: `JudgeSweepPoller`, `health-alert/checks`, `solicitation/release` |
+| `GOVERNOR_ENABLED` | `true` (new) | `true` (new) | |
+| `AUTO_APPROVAL_ENABLED` | `true` (new) | `true` (new) | the posting switch |
+| `AUTOPILOT_PURCHASABLE` | `true` (new) | `true` (new) | |
+
+Vercel was **not** given triage or judge: the read-lane trace shows neither has
+a Next.js caller, so setting them there would be noise, not parity.
+
+**Verified four ways, none assumed.** Worker booted clean on the full set
+(`60c8a2c3`, 2026-09-19T01:54:43Z) — it validates these at boot and refuses to
+start on a bad value. `buildAutoApprovalReadiness` against live staging env now
+returns `canExpand: true`, `blockReasons: (none)` — it was two reasons before
+this session, one after the readiness flip, none now. `judge_sweep` heartbeat
+read 7s old, inside the 900s window, so the judge reads AVAILABLE and
+auto-policy rows will not downgrade. Vercel redeploy READY with all five values
+confirmed by `env pull`.
+
+### ⚠ THE WS6 DRILLS DID NOT RUN — read before claiming this chain is proven
+
+The spec's smoke is: **auto-post → judge verdict within minutes → forced-flag
+suspension drill → admin unsuspend** (`2026-07-13-ws6-judge-governor-design.md`
+§ Rollout). Only the second half is currently runnable.
+
+**Blocker 1 — staging has NO Autopilot account.** All five accounts are
+`copilot` (2 `pending_payment`, 1 `trialing`, 1 `cancelled`, 1 `active`). The
+gate blocks every non-Autopilot draft with `autopilot_tier_required`
+(`auto-approval.ts:371`), so **no draft in staging can reach the auto-approval
+lane at all**. `judge_verdicts` is 0 — the judge has never produced a verdict
+in staging.
+
+**Blocker 2 — an auto-post cannot be forced on demand even with the tier
+fixed.** It needs a genuinely NEW review through live ingest, then triage,
+moderation, the Safety review, the rating + daily-cap dial, and the 15/30-minute
+veto window. A real Google review cannot be manufactured.
+
+**What IS runnable now:** the suspension drill. Two `auto_approval_policies`
+rows exist, none suspended. `suspendAccountAutonomy` / `unsuspendAccountAutonomy`
+(`src/lib/auto-approval/suspension.ts`) exercise the governor write path and its
+reversal, which is the half most worth proving.
+
+**Deliberately not done by the agent:** promoting a staging account to Autopilot.
+Tier is Stripe-driven, so writing it directly is a data change made to let a test
+pass — an owner decision, and the kind of shortcut that later reads as evidence
+when it was really staging furniture. **The owner said on 2026-09-19 they would
+do the promotion themselves.**
+
 ### Two corrections this flip produced
 
 1. **`vercel env add` CAN target a custom environment** on CLI 54.14.5 — it
