@@ -5,7 +5,12 @@ import { resolveOnboardingDemoPlaceId } from '../place-resolution';
 import { buildOnboardingDemoSource } from '../demo-source';
 import { failOnboardingDemoTerminal } from '../terminal';
 import { guardOnboardingDemoSubscription } from '../subscription-guard';
+import {
+  finalizeOnboardingDemoSpend,
+  reportOnboardingDemoCostThresholds,
+} from '../cost-reconcile';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
+import * as Sentry from '@sentry/node';
 import { resolvePlaceId } from '../../../../src/lib/reviews/place-id-resolver';
 import { fetchSerpApiReviews } from '../../../../src/lib/demos/fetch-reviews';
 import { selectQualifyingReviews } from '../../../../src/lib/demos/select-qualifying';
@@ -37,6 +42,13 @@ vi.mock('../../../../src/lib/demos/fallback-content', () => ({
 
 vi.mock('../../../../src/lib/demos/lifecycle', () => ({
   failDemo: vi.fn(),
+}));
+
+// Sentry is a sink, not a decision — cost-reconcile.ts imports it directly,
+// matching terminal.ts's direct import of failDemo. It appears nowhere else in
+// this package, so mocking it file-wide affects no other describe block.
+vi.mock('@sentry/node', () => ({
+  captureMessage: vi.fn(),
 }));
 
 const validPlaceId = 'ChIJ12345678901234567';
@@ -540,5 +552,131 @@ describe('guardOnboardingDemoSubscription', () => {
       failureKind: 'subscription_state_changed',
       logger,
     });
+  });
+});
+
+describe('finalizeOnboardingDemoSpend', () => {
+  it('finalizeOnboardingDemoSpend does nothing without a reservation date', async () => {
+    const finalizeCost = vi.fn();
+    const logger = { error: vi.fn() };
+
+    await finalizeOnboardingDemoSpend({
+      reservationDate: undefined,
+      totalCostUsd: 0.0342,
+      logger,
+      finalizeCost,
+    });
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('finalizeOnboardingDemoSpend swallows and logs a finalize failure', async () => {
+    const logger = { error: vi.fn() };
+
+    // Error branch of the diagnostic ternary.
+    const errorFinalize = vi.fn().mockRejectedValue(new Error('redis down'));
+    await expect(
+      finalizeOnboardingDemoSpend({
+        reservationDate: '2026-05-20',
+        totalCostUsd: 0.0342,
+        logger,
+        finalizeCost: errorFinalize,
+      }),
+    ).resolves.toBeUndefined();
+
+    // Rounds to whole cents and books against the RESERVATION date.
+    expect(errorFinalize).toHaveBeenCalledWith('2026-05-20', 3);
+    expect(logger.error).toHaveBeenNthCalledWith(
+      1,
+      'Failed to finalize cost reservation: redis down',
+    );
+
+    // Non-Error branch of the same ternary. Running both without asserting
+    // their output would not preserve that output.
+    await expect(
+      finalizeOnboardingDemoSpend({
+        reservationDate: '2026-05-20',
+        totalCostUsd: 0.0342,
+        logger,
+        finalizeCost: vi.fn().mockRejectedValue('plain string'),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenNthCalledWith(
+      2,
+      'Failed to finalize cost reservation: plain string',
+    );
+  });
+});
+
+describe('reportOnboardingDemoCostThresholds', () => {
+  beforeEach(() => {
+    vi.mocked(Sentry.captureMessage).mockReset();
+  });
+
+  it('reportOnboardingDemoCostThresholds checks the current UTC day with the exact lane and thresholds', async () => {
+    const checkThreshold = vi.fn().mockResolvedValue({ crossed: [] });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-04T23:59:59.000Z'));
+
+    try {
+      await reportOnboardingDemoCostThresholds({
+        demoId: 'demo_123',
+        logger: { error: vi.fn() },
+        checkThreshold,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(checkThreshold).toHaveBeenCalledWith('onboarding-demo', '2026-03-04', [50, 90, 100]);
+  });
+
+  it('reportOnboardingDemoCostThresholds captures one Sentry message per crossed threshold', async () => {
+    const checkThreshold = vi.fn().mockResolvedValue({ crossed: [50, 90, 100] });
+
+    await reportOnboardingDemoCostThresholds({
+      demoId: 'demo_123',
+      logger: { error: vi.fn() },
+      checkThreshold,
+    });
+
+    // The level ladder and both tags are the operational contract an alert
+    // routing rule depends on.
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(3);
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      1,
+      'onboarding_demo_cost_threshold_50',
+      { level: 'info', tags: { lane: 'onboarding-demo', threshold: '50' } },
+    );
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      2,
+      'onboarding_demo_cost_threshold_90',
+      { level: 'warning', tags: { lane: 'onboarding-demo', threshold: '90' } },
+    );
+    expect(Sentry.captureMessage).toHaveBeenNthCalledWith(
+      3,
+      'onboarding_demo_cost_threshold_100',
+      { level: 'error', tags: { lane: 'onboarding-demo', threshold: '100' } },
+    );
+  });
+
+  it('reportOnboardingDemoCostThresholds swallows and logs a threshold-check failure', async () => {
+    const logger = { error: vi.fn() };
+
+    await expect(
+      reportOnboardingDemoCostThresholds({
+        demoId: 'demo_123',
+        logger,
+        checkThreshold: vi.fn().mockRejectedValue(new Error('redis down')),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Threshold check / Sentry capture failed for demo demo_123: redis down',
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import type { BasePayload } from '../../src/lib/shared/worker-types';
 import { claimDemo, completeDemo } from '../../src/lib/demos/lifecycle';
+import type { ClaimResult } from '../../src/lib/demos/types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { extractOutboxHandle, markOutboxCompleted } from '../../src/lib/shared/outbox';
 import {
@@ -10,7 +11,10 @@ import {
 } from '../../src/lib/costs/onboarding-demo-cost-guard';
 import { deploymentLane, requiresProductionConfig } from '../../src/lib/config/deployment-lane';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
-import * as Sentry from '@sentry/node';
+import {
+  finalizeOnboardingDemoSpend,
+  reportOnboardingDemoCostThresholds,
+} from './onboarding-demo/cost-reconcile';
 import { buildOnboardingDemoSource } from './onboarding-demo/demo-source';
 import { resolveOnboardingDemoPlaceId } from './onboarding-demo/place-resolution';
 import { releaseOnboardingDemoReservation } from './onboarding-demo/reservation';
@@ -30,6 +34,23 @@ export interface OnboardingDemoJobPayload extends BasePayload {
   googleMapsUrl?: string;
   /** ISO date YYYY-MM-DD — the day the reservation was made at /start. */
   cost_reservation_date?: string;
+}
+
+/**
+ * The three claim outcomes that mean another actor already owns this demo:
+ * the row is gone, it already reached a terminal state, or a concurrent
+ * worker won the claim CAS. All three complete the outbox and release the
+ * reserve; none of them is an error.
+ *
+ * Named rather than inlined because the grouping is the point — `claimed` and
+ * `reset_to_queued` are the two outcomes that still have work attached.
+ */
+function leavesNoWorkToDo(claimResult: ClaimResult): boolean {
+  return (
+    claimResult === 'not_found' ||
+    claimResult === 'already_terminal' ||
+    claimResult === 'race_lost'
+  );
 }
 
 export async function handleOnboardingDemo(
@@ -76,11 +97,7 @@ export async function handleOnboardingDemo(
 
   const claimResult = await claimDemo(sql, 'onboarding_demos', demoId, logger);
 
-  if (
-    claimResult === 'not_found' ||
-    claimResult === 'already_terminal' ||
-    claimResult === 'race_lost'
-  ) {
+  if (leavesNoWorkToDo(claimResult)) {
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     await releaseReservation();
     return;
@@ -111,35 +128,22 @@ export async function handleOnboardingDemo(
       source,
     });
 
-    // Cost-guard reconciliation. The /start route reserved 20¢ pessimistically;
-    // here we adjust the daily counter toward actual spend (typically ~3¢).
-    if (reservationDate) {
-      const actualCostCents = Math.round(result.metadata.totalCostUsd * 100);
-      try {
-        await finalizeOnboardingDemoCost(reservationDate, actualCostCents);
-      } catch (err) {
-        logger.error(`Failed to finalize cost reservation: ${err instanceof Error ? err.message : err}`);
-      }
-    }
+    // Cost-guard reconciliation, then the threshold alert. Both are
+    // best-effort and own their own catch: the demo row is already completed,
+    // and an error escaping either would reach the outer catch below and flip
+    // a successful row to failed.
+    await finalizeOnboardingDemoSpend({
+      reservationDate,
+      totalCostUsd: result.metadata.totalCostUsd,
+      logger,
+      finalizeCost: finalizeOnboardingDemoCost,
+    });
 
-    // Threshold check — best-effort. The demo is already completed in
-    // Postgres; a Redis/Sentry hiccup here must NOT cascade into the outer
-    // catch and call failDemo, which would flip a successful row to failed.
-    try {
-      const date = new Date().toISOString().slice(0, 10);
-      const { crossed } = await checkCostThreshold('onboarding-demo', date, [50, 90, 100]);
-      for (const t of crossed) {
-        const level = t === 100 ? 'error' : t >= 90 ? 'warning' : 'info';
-        Sentry.captureMessage(`onboarding_demo_cost_threshold_${t}`, {
-          level,
-          tags: { lane: 'onboarding-demo', threshold: String(t) },
-        });
-      }
-    } catch (thresholdErr) {
-      logger.error(
-        `Threshold check / Sentry capture failed for demo ${demoId}: ${thresholdErr instanceof Error ? thresholdErr.message : thresholdErr}`,
-      );
-    }
+    await reportOnboardingDemoCostThresholds({
+      demoId,
+      logger,
+      checkThreshold: checkCostThreshold,
+    });
 
     logger.log(
       `Onboarding demo ${demoId} completed (${source}): ${result.responses.filter(Boolean).length}/${result.reviews.length} responses`,

@@ -176,3 +176,38 @@ that hop is exactly what this refactor creates.
 **Verdict:**
 
 ---
+
+## D7 — `leavesNoWorkToDo` predicate added to the worker root (not in the plan)
+
+**Phase:** step 4, T5
+**Kind:** unplanned addition, in-surface (`worker/jobs/OnboardingDemoWorker.ts`).
+
+After T5's extractions, `handleOnboardingDemo` measured **cognitive 9**
+(from 25) and **cyclomatic 10** (from 19) — but fallow still reported one
+finding, `exceeded: "crap"`, CRAP **31.6**.
+
+Cause: with no `coverage/` directory present, fallow assumes 40% coverage, and
+CRAP = 10² × (1 − 0.4)³ + 10 = 31.6, just over the threshold of 30. Supplying
+real coverage cleared it (0 findings), which proves the code is fine — but it
+makes the proof depend on a coverage file existing and being current when the
+check runs. Inside a parallel gate that is fragile evidence.
+
+Fix: a module-private `leavesNoWorkToDo(claimResult)` predicate replaces the
+inline `not_found || already_terminal || race_lost` chain. Cyclomatic drops
+10 → 8, so CRAP at the 40% assumption is 64 × 0.216 + 8 = **21.8**, and the
+check now reports **0 findings with no coverage data at all**. Robust in both
+modes, no coverage plumbing in the verification command.
+
+On its merits rather than the count: the name states why those three outcomes
+are grouped — another actor already owns the demo — and it separates them from
+the two outcomes that still have work attached (`claimed`, `reset_to_queued`).
+It takes the shared `ClaimResult` type, so adding a sixth outcome is a compile
+error here rather than a silent fall-through.
+
+It stays module-private in the root rather than moving to
+`src/lib/demos/lifecycle.ts` beside `ClaimResult`, which would be out of
+surface. If a second caller appears, that is where it belongs.
+
+**Verdict:**
+
+---
