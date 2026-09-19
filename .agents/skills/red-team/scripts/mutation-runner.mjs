@@ -58,9 +58,34 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Plan budget: ≤30 mutation runs per round, ≤120s per run. */
-export const MAX_RUNS_PER_ROUND = 30;
+/**
+ * Ordinary budget: 20 minutes of MEASURED test time per round, ≤120s per launch.
+ *
+ * The budget was once a count — 30 launches, sized for the 120s worst case (an
+ * hour). Measured on feat/safety-review-auto-approval (2026-09-18), a launch
+ * takes 2.8s, so 30 of them bought 1.4 minutes: an 85-row inventory needed three
+ * rounds and an owner grant and still ended INCOMPLETE_BUDGET with 28 rows
+ * unmeasured. #1185, #1189, #1190 and Runs C, D and E each needed a one-off
+ * extension for the same reason. Time is what the cap was protecting, so time
+ * is what it now counts. MAX_RUNS_PER_ROUND stays as a backstop against a loop
+ * of instant commands; at the measured rate it does not bind before the clock.
+ *
+ * The owner-granted budgets below are closed, branch-pinned history. They keep
+ * their launch counts, and their literal 30s are their own checkpoints.
+ */
+export const ROUND_TIME_BUDGET_MS = 20 * 60_000;
+export const MAX_RUNS_PER_ROUND = 400;
 export const RUN_TIMEOUT_MS = 120_000;
+
+/**
+ * Test time this round has spent on the ordinary budget. A launch that never
+ * recorded its end (a crash, a `--no-release` pause, a journal from before this
+ * field existed) is charged its whole timeout: an unknown cost is the worst one.
+ */
+export function ordinaryTimeSpentMs(journal) {
+  return (journal.supervisors ?? []).reduce((total, entry) => total
+    + (Number.isFinite(entry.elapsedMs) ? entry.elapsedMs : entry.timeoutMs ?? RUN_TIMEOUT_MS), 0);
+}
 
 // This is a continuation of the restored thirty-launch checkpoint, not a new
 // round. The first committed manifest is immutable, including on renamed branches.
@@ -1708,6 +1733,12 @@ function sleep(ms) {
  */
 export async function reapGroup(supervisor) {
   const { pid, pgid, startedAt } = supervisor;
+  // `kill(-1)` signals every process the user owns and `kill(-0)` this process's
+  // own group. The journal is a file, so its pgid is input: a corrupt or
+  // hand-written entry must never be able to aim the signal below.
+  if (!Number.isInteger(pgid) || pgid <= 1) {
+    return { ok: false, reason: `pgid ${JSON.stringify(pgid)} is not a signalable process group — refusing` };
+  }
   const leaderStart = processStartTime(pid);
   if (leaderStart !== null && leaderStart !== startedAt) {
     return { ok: false, reason: `pid ${pid} was reused (start time differs) — refusing to signal it` };
@@ -1826,9 +1857,9 @@ function hasThirdRoundAuthorization(root) {
 /**
  * Open a round: verify the journal is closed, then reset the run budget.
  *
- * The budget is "30 runs per ROUND", and the journal outlives a round — so
- * without this the second round would inherit the first round's counter and hit
- * the cap having executed nothing. Refusing to open over an unclean journal is
+ * The budget is per ROUND, and the journal outlives a round — so without this
+ * the second round would inherit the first round's spent time and launch count
+ * and hit the cap having executed nothing. Refusing to open over an unclean journal is
  * the same check in the other direction: a round must never start on top of an
  * unrestored mutation or an open dotenv swap.
  */
@@ -1914,7 +1945,10 @@ function cmdRoundStart(root) {
     return 1;
   }
   writeJournal(root, emptyJournal(round));
-  console.log(`round-start: round ${round} open, ${fourthGrant?.maxRuns ?? MAX_RUNS_PER_ROUND} mutation runs available`);
+  console.log(fourthGrant
+    ? `round-start: round ${round} open, ${fourthGrant.maxRuns} mutation runs available`
+    : `round-start: round ${round} open, ${ROUND_TIME_BUDGET_MS / 60_000} min of test time available `
+      + `(≤${MAX_RUNS_PER_ROUND} launches, ≤${RUN_TIMEOUT_MS / 1000}s each)`);
   return 0;
 }
 
@@ -2090,7 +2124,23 @@ async function cmdRun(root, parsed) {
     console.error('  Mark the remaining candidates skipped-budget; the status becomes INCOMPLETE_BUDGET.');
     return 1;
   }
+  // An owner grant is a launch count and nothing else. The ordinary budget is
+  // the clock, checked BEFORE the launch: the last launch may overrun by at most
+  // its own timeout, so a round is bounded at budget + 120s.
+  const spentMs = authorization ? 0 : ordinaryTimeSpentMs(journal);
+  if (!authorization && spentMs >= ROUND_TIME_BUDGET_MS) {
+    console.error(`run: mutation budget exhausted (${Math.round(spentMs / 1000)}s of `
+      + `${ROUND_TIME_BUDGET_MS / 1000}s test time this round, ${journal.runs} launches)`);
+    console.error('  Mark the remaining candidates skipped-budget; the status becomes INCOMPLETE_BUDGET.');
+    return 1;
+  }
   const timeout = Number(parsed.timeout ?? RUN_TIMEOUT_MS);
+  // "≤120s per launch" was prose until the budget became a clock. Now the bound
+  // on a round is budget + one timeout, so the timeout has to be real.
+  if (!authorization && !(Number.isFinite(timeout) && timeout > 0 && timeout <= RUN_TIMEOUT_MS)) {
+    console.error(`run: --timeout must be between 1 and ${RUN_TIMEOUT_MS}ms`);
+    return 1;
+  }
   const env = commandEnv(root, parsed);
   mkdirSync(env.HOME, { recursive: true });
   mkdirSync(env.TMPDIR, { recursive: true });
@@ -2126,6 +2176,9 @@ async function cmdRun(root, parsed) {
   if (authorization?.stagingCorrectionAdmission && journal.stagingCorrectionAdmission === undefined) {
     journal.stagingCorrectionAdmission = authorization.stagingCorrectionAdmission;
   }
+  // Granted runs keep their journal byte-for-byte: their checkpoints compare it.
+  const timed = !authorization;
+  const launchedAt = Date.now();
   journal.supervisors.push({
     ...(operatorMetadata ?? {}),
     pid,
@@ -2134,6 +2187,7 @@ async function cmdRun(root, parsed) {
     active: true,
     command: argv[0],
     at: new Date().toISOString(),
+    ...(timed ? { timeoutMs: timeout } : {}),
   });
   writeJournal(root, journal);
 
@@ -2159,6 +2213,7 @@ async function cmdRun(root, parsed) {
   const current = readJournal(root);
   const record = current.supervisors.find((entry) => entry.pid === pid);
   if (record) record.active = !reaped.ok;
+  if (record && timed) record.elapsedMs = Date.now() - launchedAt;
   if (record && operatorMetadata) {
     Object.assign(record, { timedOut: outcome.timedOut, code: outcome.code ?? null, signal: outcome.signal ?? null });
     record.resultSha256 = existsSync(record.resultPath) ? sha256(readFileSync(record.resultPath)) : null;
@@ -2179,6 +2234,10 @@ async function cmdRun(root, parsed) {
     return 124;
   }
   console.log(`run: exited code=${outcome.code} signal=${outcome.signal ?? 'none'} (group reaped)`);
+  if (timed) {
+    console.log(`run: budget — ${Math.round(ordinaryTimeSpentMs(current) / 1000)}s of `
+      + `${ROUND_TIME_BUDGET_MS / 1000}s test time, ${current.runs} of ${MAX_RUNS_PER_ROUND} launches`);
+  }
   return outcome.code === 0 ? 0 : 1;
 }
 
