@@ -4,9 +4,9 @@
 |---|---|
 | Mode | `feature` (review wave, step 7) |
 | Risk | **high** (signed-off intake) |
-| Round | **2 of 2** (round 1 recorded below, unaltered) |
+| Round | **3** (owner-authorized; rounds 1 and 2 recorded below, unaltered) |
 | Fork / merge-base | `eba43bcca97325026a79cd3041cc25bf37e0c3f3` |
-| HEAD | `0cf768372ed379402c9094ff95b22bb989b05e38` (round 1 ran at `6c95db21c6445dd390d8633db8af97775e6cefef`) |
+| HEAD | `20087a0cfc23c854eee473e7b2082359e67c94d9` (round 2 ran at `0cf768372ed379402c9094ff95b22bb989b05e38`, round 1 at `6c95db21c6445dd390d8633db8af97775e6cefef`) |
 | Intake SHA-256 | `422a465265604bd6c7223c1f2426bb587d5246c49d18b062fd7da07b4603bea9` (unchanged) |
 | Status | **`OPEN_P0`** |
 
@@ -457,6 +457,140 @@ measurement. The journal records **20 mutations, all `state: "restored"`**,
 `dotenv.open: false`, and 0 active supervisors. `git status --porcelain` is
 **empty**. **No mutation is left unrestored.**
 
+
+---
+
+# Round 3 — final round, scoped to the fix commit `20087a0cf`
+
+Owner-authorized third round (the authorization is rendered below from
+`findings.json`). Scope, narrow by instruction: resolve the dispositions of
+RT-005 … RT-009 from real evidence, and catch any defect the round-2 fixes
+introduced. Rounds 1 and 2 rows are preserved verbatim and their cleared
+surface was NOT re-mutated.
+
+Round 3 added **12 rows** (`rt-080` … `rt-091`) and spent **~25 s** of its
+20-minute measured budget over 21 launches. Every mutation was applied through
+`mutation-runner.mjs mutate` and restored by `finalize` before this file
+existed.
+
+## Round-2 dispositions, resolved
+
+| Finding | Sev | Disposition | Evidence |
+|---|---|---|---|
+| RT-005 | P2 | **rejected** | The brittleness is deliberate. The behavioural half (`expect(values).toEqual(['demo_123'])`) is blind to a rewritten `accounts` join, so the three `toContain`s are the only oracle for it; and `scripts/ci/tenant-scope-allowlist.ts:1802-1818` pins the exact SQL snippet in three entries, so a rewrite must edit the allowlist in the same PR. A red test on an intentional SQL rewrite is a cheap, correct prompt to re-verify scoping. No change. |
+| RT-006 | P0 | **fixed** | Both forms of the mutant die: deleting `outboxAttempt,` (rt-080) and `outboxAttempt: undefined` (rt-081). The other two instances stay closed independently — the guard call (rt-082) and `markOutboxCompleted` (rt-083). **But a FOURTH site exists — RT-010.** |
+| RT-007 | P0 | **fixed** | `await` → `void` dies on **all three** awaited calls (rt-084/085/086). The 3-boundary test is not vacuous and does not hang: deleting each awaited call in turn (rt-087/088/089) fails fast in ~2 s with the boundary assertion, not a timeout, and the `finally` settles the handler without masking it. |
+| RT-008 | P1 | **fixed** | The entry cites no fingerprint. Both live pointers resolve: `verified-gate.sh` exists and writes `.feature/gate-status.json` (present), and `check` is a real `gate-fingerprint.mjs` subcommand (`:15`) that compares stored against current. **No third stale citation was introduced** — but one pre-existing claim went stale, raised as **RT-011**. |
+| RT-009 | P2 | **fixed** | The new comment is true. `: boolean` leaves `tsc --noEmit` at exit 0 with byte-identical output (rt-090), so "no current caller depends on the narrowing" is exact; cyclomatic 10 → 8 re-derives by hand. |
+
+## Round 3 — Duty 3, every branch citation re-resolved at HEAD
+
+| Claim | Verdict | Evidence at `20087a0cf` |
+|---|---|---|
+| deviations doc: `verified-gate.sh --review` → `.feature/gate-status.json`, checked by `gate-fingerprint.mjs check` | **TRUE** | Both files present; `gate-fingerprint.mjs:15` accepts `write\|check\|print`, `:37` reads `gate-status.json`, `:126` the fingerprint file. |
+| deviations doc: `83330f44`/`ce122e52…` and `6c95db21`/`60a105d1…` | **TRUE as history** | Both are now explicitly labelled stale/superseded, not cited as live. `6c95db21` resolves; `60a105d1` is a fingerprint, not a git object. |
+| plan + handoff: base `origin/main` @ `2870e1097d09b6c05d95092b768e831f50b379c0` | **RESOLVES** | Commit exists and is an ancestor of HEAD. It records the plan's base, not current `origin/main` (now `eba43bcc`) — historical by construction, not a live claim. |
+| arch-review-log: root "is 112" lines | **TRUE** | `handleOnboardingDemo` spans `OnboardingDemoWorker.ts:76-187` = 112. |
+| arch-review-log: "+28 tests, no pre-existing test BODY changed" | **TRUE** | 28 added `it(`, 0 removed across the three changed test files. |
+| arch-review-log: "cognitive 9 / cyclomatic 10 still failed on CRAP 31.6 (10² × 0.6³ + 10)" | **TRUE** | 100 × 0.216 + 10 = 31.6. |
+| arch-review-log: "cognitive 7 / cyclomatic 8" post-refactor | **TRUE (hand-derived)** | 1 + if/&& (2) + `handled` + `leavesNoWorkToDo` + `reset_to_queued` + try/catch + `instanceof` ternary = 8. |
+| arch-review-log: **"ran 34 mutations and found three surviving mutants, all since killed"** | **STALE → RT-011** | 49 executed rows and 6 `survived-confirmed-P0` rows across 4 findings before this round; false at HEAD while RT-010 is open. |
+| `docs/directory/lib-db-config-shared.md`: `createWorkerLogger(prefix, correlationId?)` | **TRUE** | `src/lib/shared/logger.ts:189`. |
+| `docs/directory/worker-jobs-c.md`: thresholds `[50, 90, 100]`, levels `error`/`warning`/`info`, tags `lane` + `threshold` | **TRUE** | `worker/jobs/onboarding-demo/cost-reconcile.ts:56-62`. |
+| `docs/directory/worker-jobs-a.md`: orchestration order and reservation traps | **TRUE** | Matches `OnboardingDemoWorker.ts:102-186` exactly. |
+
+## New findings (round 3)
+
+### RT-010 (P0) — a FOURTH `outboxAttempt` site, on the success path
+
+`worker/jobs/OnboardingDemoWorker.ts:145`. Mutant rt-091 replaces
+`completeDemo(sql, 'onboarding_demos', demoId, outboxId, outboxAttempt, …)`
+with `…, outboxId, undefined, …` and **survives 2,666 tests** (whole `worker`
++ `src/lib/demos` sweep; failure set byte-identical to the baseline sweep's 16
+pre-existing env-scrubbed Zernio/ingress failures).
+
+Not equivalent: `completeDemo`'s 5th parameter
+(`src/lib/demos/lifecycle.ts:108`) is forwarded verbatim to
+`markOutboxCompleted(tx, outboxId, outboxAttempt)` (`lifecycle.ts:137`), which
+reaches `dispatchedRow(exec, outboxId, attempt)`
+(`src/lib/shared/outbox.ts:106-114`) — the attempt is what adds the
+`AND attempts = $n` CAS, so dropping it lets a stale worker mark a **newer**
+dispatch completed on the success path. The same mutation on the sibling call
+site dies (rt-083), which proves the predicate is load-bearing and the
+difference is purely oracle coverage. Not an unexecuted branch: the covering
+test asserts `completeDemo` was called.
+
+Root cause is exactly RT-006's: the only covering test asserts
+`toHaveBeenCalledWith(mockSql, 'onboarding_demos', 'demo_123', 'outbox-demo-1',
+undefined, {…})`, and that literal `undefined` comes from the shared harness
+default `extractOutboxHandle → { attempt: undefined }`
+(`OnboardingDemoWorker.test.ts:117-123`), so the asserted value is
+indistinguishable from a dropped one. This falsifies the fix commit's own
+claims that "this is the last of the three" and that "every authority-bearing
+argument on this lane is now asserted explicitly".
+
+**Fix:** in the success-path test, override
+`mockExtractOutboxHandle.mockReturnValueOnce({ outboxId: 'outbox_from_payload',
+attempt: N })` with a non-zero `N` and assert `N` as `completeDemo`'s 5th
+argument — the shape rt-080/082/083 already use.
+
+### RT-011 (P1) — the arch-review-log's red-team summary is stale
+
+`.claude/reference/arch-review-log.md:2016`. See the Duty 3 table above. The
+row was accurate for round 1 only; rounds 2 and 3 each required a further fix
+commit, and "all since killed" is false at HEAD while RT-010 is open. Graded
+P1 because it understates review effort rather than misdescribing code, and
+the row already ends "Counter unchanged until merged".
+
+## Round 3 — Duty 4, sibling search
+
+Pattern searched: every call that forwards an outbox attempt on this lane.
+Scope `worker/jobs/OnboardingDemoWorker.ts` plus its direct callees;
+`rg -n 'outboxAttempt|attempt' ` over the root, `onboarding-demo/`,
+`src/lib/demos/lifecycle.ts` and `src/lib/shared/outbox.ts`. Four sites exist:
+the guard call (`:111`, closed — rt-082), `markOutboxCompleted` (`:121`,
+closed — rt-083), the outer catch (`:179`, closed — rt-080/081) and
+`completeDemo` (`:145`, **OPEN — RT-010**). No fifth site. Exclusion: sites
+outside this lane were not re-searched — round 1 already swept them and they
+are unchanged.
+
+## Round 3 — Duty 5, operational completeness
+
+The fix commit changes no failure path, no log line and no Sentry signal — it
+adds test assertions and rewrites comments. Rounds 1 and 2's alert-path
+comparisons stand unchanged.
+
+## Round 3 — protocol deviations, disclosed
+
+1. **Three mutations against one test.** The protocol budgets 2 mutations per
+   test; rt-084/085/086 (plus the three deletion probes rt-087/088/089) all
+   target the success-path case. Done under explicit orchestrator instruction
+   to verify all three awaited boundaries and prove the test is neither vacuous
+   nor hang-prone. Time cost: ~6 s of a 1,200 s budget.
+2. **A sweep run, not a single-test run, for rt-091.** `assert-one-test` was
+   not applicable; the survivor is reported against the full 2,666-test worker
+   + demos suite, with a baseline sweep taken under the identical environment
+   for comparison. That is strictly stronger evidence than a single-test run.
+3. **The gate was NOT run.** `scripts/verify-gate.sh` and `verified-gate.sh`
+   were declined by instruction — the orchestrator owns gate evidence. The 16
+   baseline failures in the sweep are `.env`-scrubbed Zernio/ingress cases,
+   identical in baseline and mutant, and are not attributed to this branch.
+
+## Round 3 — restoration
+
+`mutation-runner.mjs finalize` → `reap: every journaled process group is empty
+(21 recorded)` / `restored 0 mutated file(s) and 1 dotenv file(s); journal
+closed`. The journal records **round 3, 21 runs**, every mutation
+`state: "restored"`, `dotenv.open: false`, and 0 active supervisors.
+`git status --porcelain` shows only this run's own report artifacts.
+**No mutation is left unrestored.**
+
 ## Authorizations
 
-None. No finding is accepted-risk.
+| id | date | findings | text |
+|---|---|---|---|
+| `issue-616-third-round` | 2026-09-19 | RT-006, RT-007, RT-008, RT-009 | Owner authorized a third red-team round to re-verify the round-2 fixes mechanically and recompute status, rather than recording the P0s as accepted-risk or stopping at review with `OPEN_P0` on record. (Rendered from `findings.json`; verbatim text lives there.) |
+
+No finding is accepted-risk.
+
+

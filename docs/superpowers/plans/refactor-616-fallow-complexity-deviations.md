@@ -369,6 +369,54 @@ its own module, as a standalone refactor with its own review.
 
 ---
 
+## D10 — the `outboxAttempt` hole recurred four times, and my claims of closure were the cause
+
+**Phase:** step 7 / 7.5, red-team rounds 1–3
+**Kind:** pattern, recorded because the instances are less useful than the
+shape.
+
+`outboxAttempt` was silently droppable at **four** separate call sites in
+`handleOnboardingDemo`. Three successive red-team rounds each found one more,
+and each of my fixes asserted its own site and then claimed the class was
+closed. The round-2 commit message says, in as many words, "this is the last
+of the three". It was not — `completeDemo` was the fourth, and dropping it
+survived **2,666** tests.
+
+**Why it kept hiding.** Two ordinary habits combine into a blind spot:
+
+1. `expect.objectContaining({ … })` passes whether or not a key is present, so
+   an assertion that names the other fields silently tolerates a missing one.
+2. The shared harness default returns `attempt: undefined`, which makes a
+   DROPPED attempt byte-identical to a correctly forwarded one.
+
+Neither is wrong alone. Together they make an authority-bearing argument
+invisible, and the argument matters: `failDemo` and `markOutboxCompleted` add
+`AND attempts = $n` only when it is a number, and that predicate is what stops
+a stale worker from failing or completing a NEWER dispatch.
+
+**Why my fixes did not converge.** I fixed instances and asserted completeness
+without enumerating the class. Three times. The honest correction is
+mechanical, not rhetorical:
+
+```
+grep -n "outboxAttempt" worker/jobs/OnboardingDemoWorker.ts
+```
+
+returns exactly four forwards — `:111` guard, `:121` markOutboxCompleted,
+`:145` completeDemo, `:179` outer-catch terminal. Each is now asserted with a
+**distinct** nonzero attempt (4, 5, 7, 9), so a cross-wired forward fails as
+well as a dropped one. A fifth site would appear in that grep.
+
+**Generalisable rule, for the lab notes:** when a value is forwarded to more
+than one collaborator and its absence is legal, `objectContaining` plus an
+`undefined` fixture default will hide every dropped forward. Assert the value
+positionally or exactly, give each site a distinct fixture value, and prove the
+site list by enumeration rather than by assertion.
+
+**Verdict: ACCEPT.**
+
+---
+
 ## Read-back summary (step 6)
 
 D1–D7 resolved **ACCEPT** at step 6. D8 and D9 were added at step 7 from

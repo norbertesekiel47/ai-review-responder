@@ -5,11 +5,11 @@
   "branch": "refactor/616-fallow-complexity",
   "fork_sha": "eba43bcca97325026a79cd3041cc25bf37e0c3f3",
   "merge_base_sha": "eba43bcca97325026a79cd3041cc25bf37e0c3f3",
-  "head_sha": "0cf768372ed379402c9094ff95b22bb989b05e38",
+  "head_sha": "20087a0cfc23c854eee473e7b2082359e67c94d9",
   "intake_sha256": "422a465265604bd6c7223c1f2426bb587d5246c49d18b062fd7da07b4603bea9",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-19T16:37:29.000Z",
+  "round": 3,
+  "generated_at": "2026-09-19T17:22:42Z",
   "inventory": [
     {
       "id": "rt-001",
@@ -570,6 +570,91 @@
       "outcome": "survived-confirmed-P0",
       "finding_id": "RT-006",
       "reason": "R16 OnboardingDemoWorker.ts:168-175 — dropped `outboxAttempt` from the outer-catch failOnboardingDemoTerminal call. Run against BOTH full suites (OnboardingDemoWorker.test.ts + stages.test.ts): 38 passed, 0 failed, exit 0. The sibling of the hole the fix just closed."
+    },
+    {
+      "id": "rt-080",
+      "test": "releases exactly once when the generic terminal write fails",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M1 OnboardingDemoWorker.ts:179 — DELETED the `outboxAttempt,` property from the outer-catch failOnboardingDemoTerminal call (the exact RT-006 mutant). Test FAILED (exit 1, AssertionError on objectContaining). The round-2 fix closes it."
+    },
+    {
+      "id": "rt-081",
+      "test": "releases exactly once when the generic terminal write fails",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M2 OnboardingDemoWorker.ts:179 — `outboxAttempt` -> `outboxAttempt: undefined` in the same call. Test FAILED (exit 1). The explicit `attempt: 9` override defeats the harness `attempt: undefined` default that hid this for 38 tests."
+    },
+    {
+      "id": "rt-082",
+      "test": "forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M3 OnboardingDemoWorker.ts:111 — `outboxAttempt` -> `outboxAttempt: undefined` on the guardOnboardingDemoSubscription call (hole instance 1 of 3). Baseline green, mutant FAILED (exit 1). Still closed."
+    },
+    {
+      "id": "rt-083",
+      "test": "completes the outbox and releases exactly once for each terminal claim outcome",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M4 OnboardingDemoWorker.ts:121 — `markOutboxCompleted(sql, outboxId, outboxAttempt)` -> `(sql, outboxId, undefined)` (hole instance 2 of 3). Baseline green, mutant FAILED (exit 1). Still closed."
+    },
+    {
+      "id": "rt-084",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M5 OnboardingDemoWorker.ts:162 — `await reportOnboardingDemoCostThresholds(` -> `void ...` (the exact RT-007 mutant). Test FAILED (exit 1, `expected not to be called, called 1 times` on mockLogger.log). Boundary 3 pins it."
+    },
+    {
+      "id": "rt-085",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M6 OnboardingDemoWorker.ts:155 — `await finalizeOnboardingDemoSpend(` -> `void ...`. Test FAILED (exit 1). Boundary 2 still holds after the rework."
+    },
+    {
+      "id": "rt-086",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M7 OnboardingDemoWorker.ts:145 — `await completeDemo(` -> `void ...`. Test FAILED (exit 1). Boundary 1 still holds after the rework. All THREE awaited boundaries in the success path are now pinned."
+    },
+    {
+      "id": "rt-087",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M8 (vacuity/hang probe) OnboardingDemoWorker.ts:162-166 — DELETED the reportOnboardingDemoCostThresholds call entirely. Test FAILED FAST (exit 1 in ~2s wall, `expected to be called at least once`), NOT a silent timeout; the `finally` settled the handler and the reported failure is the boundary assertion, not a masking rejection."
+    },
+    {
+      "id": "rt-088",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M9 (vacuity/hang probe) OnboardingDemoWorker.ts:155-160 — DELETED the finalizeOnboardingDemoSpend call. FAILED FAST (exit 1, ~2s), same failure shape. The three-boundary test cannot pass vacuously."
+    },
+    {
+      "id": "rt-089",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "killed",
+      "reason": "M10 (vacuity/hang probe) OnboardingDemoWorker.ts:145-149 — DELETED the completeDemo call. FAILED FAST (exit 1, ~2s). No hang, no masked assertion."
+    },
+    {
+      "id": "rt-090",
+      "test": "(none — type-level annotation, tsc is the only oracle)",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "equivalent",
+      "reason": "M11 OnboardingDemoWorker.ts:66-68 — replaced the predicate return type with `: boolean`. `npx tsc --noEmit -p tsconfig.json` exit 0, output byte-identical to the HEAD baseline (both empty, diff clean). PROOF that the round-2 comment is TRUE: no current caller depends on the narrowing. Re-derived the companion claim by hand: handleOnboardingDemo cyclomatic = 1 base + if/&& (2) + `if (handled)` + `if (leavesNoWorkToDo)` + `if (reset_to_queued)` + try/catch + the `instanceof` ternary = 8; inlining the three-way `===` chain adds two `||` decision points = 10. The `10 -> 8` claim re-derives."
+    },
+    {
+      "id": "rt-091",
+      "test": "completes the demo, then finalizes rounded actual cents once, reports thresholds and logs completion",
+      "file": "worker/jobs/OnboardingDemoWorker.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-010",
+      "reason": "M12 OnboardingDemoWorker.ts:145 — `completeDemo(sql, 'onboarding_demos', demoId, outboxId, outboxAttempt, …)` -> `…, undefined, …`. SURVIVED the whole worker + src/lib/demos sweep: 2666 tests, failure set byte-identical to the baseline sweep's 16 pre-existing env-scrubbed Zernio/ingress failures. The FOURTH instance of the hole the fix commit called 'the last of the three'."
     }
   ],
   "findings": [
@@ -617,62 +702,96 @@
       "title": "Tenant-scope test asserts on SQL source text, so a behaviour-preserving reformat turns it red",
       "at": "worker/jobs/onboarding-demo/__tests__/stages.test.ts:520",
       "duty": 2,
-      "disposition": "open",
-      "reason": "The scope test asserts `toContain('FROM onboarding_demos od')`, `toContain('JOIN businesses b ON b.id = od.business_id')`, `toContain('JOIN accounts a ON a.id = b.account_id')` and `toContain('WHERE od.id =')` against a whitespace-collapsed join of the template strings. Aliasing with `AS`, reordering the two joins, or splitting a token across template chunks all break the test with no behaviour change. Recorded rather than blocking, because the load-bearing half — `expect(values).toEqual(['demo_123'])`, which proves the demo id is bound and is the only bound value — is behavioural, and mutation S6 confirms the pair does catch a real re-scoping. The behavioural replacement for the text half would be asserting on the parsed predicate set, or accepting that the `values` assertion plus `ci:tenant-scope` already own tenant scoping."
+      "disposition": "rejected",
+      "reason": "REJECTED — the brittleness is deliberate and is the only check of its kind. (1) The behavioural half alone cannot see a rewritten join: `expect(values).toEqual(['demo_123'])` is unchanged by replacing `JOIN accounts a ON a.id = b.account_id` with an unscoped join, so the three `toContain` assertions are the only oracle that detects a re-scoping. (2) A rewrite cannot land silently anyway: scripts/ci/tenant-scope-allowlist.ts:1802-1818 pins the exact SQL snippet in THREE entries for worker/jobs/onboarding-demo/subscription-guard.ts, so `ci:tenant-scope` forces the same change to edit the allowlist in the same PR. (3) A red test on an intentional SQL rewrite is therefore a cheap, correct prompt to re-verify tenant scoping, not a maintenance tax. Verified at HEAD 20087a0cf; no code or test change."
     },
     {
       "id": "RT-006",
       "severity": "P0",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "worker/jobs/OnboardingDemoWorker.ts:172",
       "title": "The outer catch's failOnboardingDemoTerminal can lose outboxAttempt invisibly — the third instance of the hole D6 and this commit each closed once",
-      "arbiter_reasoning": "Mutant (inventory rt-079): remove `outboxAttempt,` from the outer-catch `failOnboardingDemoTerminal({...})` call at OnboardingDemoWorker.ts:168-175. Run against the FULL OnboardingDemoWorker.test.ts and stages.test.ts suites together: 38 passed, 0 failed, exit 0. Executed, not an unreached branch — both 'releases reservation when subscription-state failure recording throws' (:190) and 'releases reservation when generic failure recording throws' (:213) drive this exact call site, and each asserts only `expect.objectContaining({ demoId, outboxId, error/failureKind })`, which is satisfied whether or not outboxAttempt is present. Not equivalent: the branch's own docblock (subscription-guard.ts:34-37, mirrored in docs/directory/worker-jobs-c.md) states that forwarding the attempt is load-bearing because failDemo adds `AND attempts = $n` only when it is a number, and that predicate is what stops a stale worker failing a NEWER dispatch. This is the same shape D6 closed on the guard's failTerminal call (asserted with attempt 4 at OnboardingDemoWorker.test.ts:472-477) and that 0cf768372 closed on markOutboxCompleted (attempt 7 at :340-350); the commit message says 'D6 closed exactly this hole on the failDemo side and left its sibling open' — there were two siblings, and this one is still open. The shared harness default returns `attempt: undefined` (OnboardingDemoWorker.test.ts:125), which is precisely why a dropped attempt is indistinguishable. Fix: arm mockExtractOutboxHandle with a nonzero attempt in one of the two failure tests and assert `outboxAttempt` in the objectContaining."
+      "arbiter_reasoning": "Mutant (inventory rt-079): remove `outboxAttempt,` from the outer-catch `failOnboardingDemoTerminal({...})` call at OnboardingDemoWorker.ts:168-175. Run against the FULL OnboardingDemoWorker.test.ts and stages.test.ts suites together: 38 passed, 0 failed, exit 0. Executed, not an unreached branch — both 'releases reservation when subscription-state failure recording throws' (:190) and 'releases reservation when generic failure recording throws' (:213) drive this exact call site, and each asserts only `expect.objectContaining({ demoId, outboxId, error/failureKind })`, which is satisfied whether or not outboxAttempt is present. Not equivalent: the branch's own docblock (subscription-guard.ts:34-37, mirrored in docs/directory/worker-jobs-c.md) states that forwarding the attempt is load-bearing because failDemo adds `AND attempts = $n` only when it is a number, and that predicate is what stops a stale worker failing a NEWER dispatch. This is the same shape D6 closed on the guard's failTerminal call (asserted with attempt 4 at OnboardingDemoWorker.test.ts:472-477) and that 0cf768372 closed on markOutboxCompleted (attempt 7 at :340-350); the commit message says 'D6 closed exactly this hole on the failDemo side and left its sibling open' — there were two siblings, and this one is still open. The shared harness default returns `attempt: undefined` (OnboardingDemoWorker.test.ts:125), which is precisely why a dropped attempt is indistinguishable. Fix: arm mockExtractOutboxHandle with a nonzero attempt in one of the two failure tests and assert `outboxAttempt` in the objectContaining.",
+      "reason": "FIXED — verified by mutation at HEAD 20087a0cf. Both forms of the RT-006 mutant now die on `releases exactly once when the generic terminal write fails`: deleting `outboxAttempt,` (rt-080) and `outboxAttempt: undefined` (rt-081). The other two instances of the same hole are independently still closed — the guard call (rt-082) and markOutboxCompleted (rt-083) each die on their own covering test. Three call sites forward an asserted non-zero attempt. NOTE: a FOURTH site exists and is NOT closed — see RT-010."
     },
     {
       "id": "RT-007",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "worker/jobs/OnboardingDemoWorker.ts:155",
       "title": "The third awaited boundary in the reworked block is still unpinned: `await` -> `void` on reportOnboardingDemoCostThresholds survives the whole worker suite",
-      "arbiter_reasoning": "Mutant (inventory rt-072): `await reportOnboardingDemoCostThresholds({` -> `void reportOnboardingDemoCostThresholds({` at OnboardingDemoWorker.ts:155. The covering success-path test PASSES (exit 0), and so does the entire OnboardingDemoWorker.test.ts suite (11 passed, 0 failed). Executed, not an unreached branch — the same test asserts `expect(mockCheckCostThreshold).toHaveBeenCalledTimes(1)`, and the call is issued synchronously by the helper before its first await, so the count assertion holds under the mutant. NOT equivalent, though the difference is narrower than RT-002's: reportOnboardingDemoCostThresholds owns its own try/catch and can never reject, so the mutant cannot change error routing or flip a completed row to failed. What it does change is that handleOnboardingDemo now RESOLVES before the Redis threshold read and the Sentry captureMessage settle — the BullMQ job is acked with the alert still in flight, so on the single-replica worker's graceful shutdown the 50/90/100 alert can be dropped, and `logger.log('... completed ...')` moves ahead of the capture. ARBITER CAVEAT, recorded deliberately: the production code is CORRECT here and no claim on this branch asserts this third boundary — the commit's own comment says 'Hold BOTH awaited boundaries' and both of those now die. This is an oracle gap on an adjacent line, not a defect the fix introduced, and it is a reasonable candidate for the rejection protocol. Fix, if accepted: hold mockCheckCostThreshold on a hand-resolved promise and assert mockLogger.log has not run, exactly as boundaries 1 and 2 do."
+      "arbiter_reasoning": "Mutant (inventory rt-072): `await reportOnboardingDemoCostThresholds({` -> `void reportOnboardingDemoCostThresholds({` at OnboardingDemoWorker.ts:155. The covering success-path test PASSES (exit 0), and so does the entire OnboardingDemoWorker.test.ts suite (11 passed, 0 failed). Executed, not an unreached branch — the same test asserts `expect(mockCheckCostThreshold).toHaveBeenCalledTimes(1)`, and the call is issued synchronously by the helper before its first await, so the count assertion holds under the mutant. NOT equivalent, though the difference is narrower than RT-002's: reportOnboardingDemoCostThresholds owns its own try/catch and can never reject, so the mutant cannot change error routing or flip a completed row to failed. What it does change is that handleOnboardingDemo now RESOLVES before the Redis threshold read and the Sentry captureMessage settle — the BullMQ job is acked with the alert still in flight, so on the single-replica worker's graceful shutdown the 50/90/100 alert can be dropped, and `logger.log('... completed ...')` moves ahead of the capture. ARBITER CAVEAT, recorded deliberately: the production code is CORRECT here and no claim on this branch asserts this third boundary — the commit's own comment says 'Hold BOTH awaited boundaries' and both of those now die. This is an oracle gap on an adjacent line, not a defect the fix introduced, and it is a reasonable candidate for the rejection protocol. Fix, if accepted: hold mockCheckCostThreshold on a hand-resolved promise and assert mockLogger.log has not run, exactly as boundaries 1 and 2 do.",
+      "reason": "FIXED — verified by mutation at HEAD 20087a0cf. `await` -> `void` dies on all three awaited calls in the success block: reportOnboardingDemoCostThresholds (rt-084), finalizeOnboardingDemoSpend (rt-085), completeDemo (rt-086). The now-3-boundary test is neither vacuous nor hang-prone: deleting each awaited call in turn (rt-087/088/089) fails fast in ~2s with the boundary assertion, not a timeout, and the `finally` settles the handler without masking the earlier failure."
     },
     {
       "id": "RT-008",
       "severity": "P1",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "docs/superpowers/plans/refactor-616-fallow-complexity-deviations.md:188",
       "title": "The RT-003 correction introduced its own unresolvable citation: `60a105d1` is called \"the live evidence\" but resolves nowhere at HEAD",
-      "arbiter_reasoning": "Re-resolved at HEAD 0cf768372. The corrected sentence reads \"The live evidence is the gate at the rebased HEAD `6c95db21` with fingerprint `60a105d1...`, and it is itself superseded by the post-fix gate recorded in the review report.\" Measured: `.feature/codex-gate-fingerprint.json` now records headSha 0cf768372ed379402c9094ff95b22bb989b05e38 and fingerprint 7ff1dff74068caa364479623a93c67f0c6a6e391061cd09e5ec2e15c80feb116; `rg -n 60a105d1` over docs/, .claude/reference/ and .feature/ returns ZERO hits outside this red-team report, so a reader cannot resolve the cited fingerprint at all. `6c95db21` does still resolve (it is HEAD~1). The trailing pointer is also dangling: no \"review report\" records a post-fix gate — the only red-team report on disk is round 1, which itself cites 60a105d1. This is the same class of defect as RT-003 (gate evidence cited at a point the tree has moved past), reproduced one commit later, which is why it is a new P1 rather than a reopening. It is graded P1 and not P0 because the sentence does flag itself as superseded, so a reader is not misled into treating it as current. Fix: cite the live fingerprint 7ff1dff7 at HEAD 0cf768372, or drop the specific values and say only that the gate is re-derived by step 7.5."
+      "arbiter_reasoning": "Re-resolved at HEAD 0cf768372. The corrected sentence reads \"The live evidence is the gate at the rebased HEAD `6c95db21` with fingerprint `60a105d1...`, and it is itself superseded by the post-fix gate recorded in the review report.\" Measured: `.feature/codex-gate-fingerprint.json` now records headSha 0cf768372ed379402c9094ff95b22bb989b05e38 and fingerprint 7ff1dff74068caa364479623a93c67f0c6a6e391061cd09e5ec2e15c80feb116; `rg -n 60a105d1` over docs/, .claude/reference/ and .feature/ returns ZERO hits outside this red-team report, so a reader cannot resolve the cited fingerprint at all. `6c95db21` does still resolve (it is HEAD~1). The trailing pointer is also dangling: no \"review report\" records a post-fix gate — the only red-team report on disk is round 1, which itself cites 60a105d1. This is the same class of defect as RT-003 (gate evidence cited at a point the tree has moved past), reproduced one commit later, which is why it is a new P1 rather than a reopening. It is graded P1 and not P0 because the sentence does flag itself as superseded, so a reader is not misled into treating it as current. Fix: cite the live fingerprint 7ff1dff7 at HEAD 0cf768372, or drop the specific values and say only that the gate is re-derived by step 7.5.",
+      "reason": "FIXED — re-resolved every citation at HEAD 20087a0cf. The entry now cites NO fingerprint; its two live pointers both resolve: `.agents/skills/feature/scripts/verified-gate.sh` exists and writes `.feature/gate-status.json` (present), and `gate-fingerprint.mjs check` is a real subcommand (gate-fingerprint.mjs:15) that compares the stored hash against the current tree. The superseded `83330f44`/`ce122e52…` and `6c95db21`/`60a105d1…` values survive only as explicitly-labelled history. NO third stale citation was introduced by the fix. Sweep of every SHA/fingerprint/metric claim the branch touched: `6c95db21` and `2870e109…` resolve (`2870e109…` is an ancestor of HEAD, cited as the plan's base, not as current origin/main); `60a105d1` is a fingerprint, not a git object, and is no longer cited as live. Metrics re-derived: root function = 112 lines (76-187), +28 added tests / 0 removed, CRAP 10²x0.6³+10 = 31.6, cyclomatic 8 by hand. The three docs/directory rows check out against code (`createWorkerLogger(prefix, correlationId?)` at logger.ts:189; thresholds `[50, 90, 100]`, levels error/warning/info, tags `lane`+`threshold` at cost-reconcile.ts:56-62). One STALE claim found in the arch-review-log row — recorded separately as RT-011."
     },
     {
       "id": "RT-009",
       "severity": "P2",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "worker/jobs/OnboardingDemoWorker.ts:59",
       "title": "The new type predicate narrows nothing any consumer reads — the docblock credits it with a compiler guarantee that no compilation can observe",
-      "arbiter_reasoning": "The docblock added at OnboardingDemoWorker.ts:48-51 says the predicate exists so 'the `claimed` comment further down is compiler-backed rather than a promise'. Measured two ways at HEAD (inventory rt-078): replacing the whole signature with `function leavesNoWorkToDo(claimResult: ClaimResult): boolean` produced `tsc --noEmit -p tsconfig.json` exit 0 with output byte-identical to the baseline; and narrowing the DECLARED predicate type to `'not_found' | 'already_terminal'` (i.e. making it lie about race_lost) also produced exit 0. Nothing reads `claimResult` after the two `if`s, so the narrowing has no consumer and no compilation outcome depends on it. The claim is true of the type system in the abstract and is not false, but it is unenforced — worth noting on a commit whose stated purpose was striking overstated claims. Also verified while here: the REPLACEMENT claim in the same docblock is correct — adding a sixth member to ClaimResult (src/lib/demos/types.ts:79-84) compiles at exit 0 with zero diagnostics, so the struck 'sixth member is a compile error' claim was rightly struck. P2: informational, no code or doc change required."
+      "arbiter_reasoning": "The docblock added at OnboardingDemoWorker.ts:48-51 says the predicate exists so 'the `claimed` comment further down is compiler-backed rather than a promise'. Measured two ways at HEAD (inventory rt-078): replacing the whole signature with `function leavesNoWorkToDo(claimResult: ClaimResult): boolean` produced `tsc --noEmit -p tsconfig.json` exit 0 with output byte-identical to the baseline; and narrowing the DECLARED predicate type to `'not_found' | 'already_terminal'` (i.e. making it lie about race_lost) also produced exit 0. Nothing reads `claimResult` after the two `if`s, so the narrowing has no consumer and no compilation outcome depends on it. The claim is true of the type system in the abstract and is not false, but it is unenforced — worth noting on a commit whose stated purpose was striking overstated claims. Also verified while here: the REPLACEMENT claim in the same docblock is correct — adding a sixth member to ClaimResult (src/lib/demos/types.ts:79-84) compiles at exit 0 with zero diagnostics, so the struck 'sixth member is a compile error' claim was rightly struck. P2: informational, no code or doc change required.",
+      "reason": "FIXED — the new comment is TRUE and both of its claims re-derive at HEAD 20087a0cf. Measured (rt-090): replacing the predicate with `: boolean` leaves `tsc --noEmit -p tsconfig.json` at exit 0 with byte-identical output, so 'NO current caller depends on the narrowing' is exact. The cyclomatic 10 -> 8 claim re-derives by hand (8 with the helper; inlining the three-way `===` chain adds two `||` decision points = 10)."
+    },
+    {
+      "id": "RT-010",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "at": "worker/jobs/OnboardingDemoWorker.ts:145",
+      "title": "The round-2 fix missed a FOURTH outboxAttempt site — the success path's completeDemo attempt is unasserted and `undefined` survives 2666 tests",
+      "arbiter_reasoning": "Mutant (rt-091): `await completeDemo(sql, 'onboarding_demos', demoId, outboxId, outboxAttempt, {…})` -> `…, outboxId, undefined, {…}`. Run against the whole worker + src/lib/demos sweep: 2666 tests, exit 0, failure set byte-identical to the baseline sweep's 16 pre-existing failures (all Zernio/ingress cases that fail under the scrubbed dotenv env, unrelated to this line). NOT equivalent: completeDemo's 5th parameter is `outboxAttempt: number | undefined` (src/lib/demos/lifecycle.ts:108) and is forwarded verbatim to `markOutboxCompleted(tx, outboxId, outboxAttempt)` (lifecycle.ts:137), which reaches `dispatchedRow(exec, outboxId, attempt)` (src/lib/shared/outbox.ts:106-114) — the attempt is what adds the `AND attempts = $n` CAS predicate, and dropping it lets a stale worker mark a NEWER dispatch completed on the success path. The identical mutation on the sibling call site (rt-083, markOutboxCompleted on the leavesNoWorkToDo path) DIES, which proves the predicate is load-bearing and the difference is purely oracle coverage. NOT an unexecuted branch: the success-path test asserts completeDemo was called. ROOT CAUSE, same as RT-006: the only covering test asserts `toHaveBeenCalledWith(mockSql, 'onboarding_demos', 'demo_123', 'outbox-demo-1', undefined, {…})` — a literal `undefined` supplied by the shared harness default `extractOutboxHandle -> { attempt: undefined }` (OnboardingDemoWorker.test.ts:117-123), so the asserted value is indistinguishable from a dropped one. This also falsifies the fix commit's own claims that 'this is the last of the three' and 'Every authority-bearing argument on this lane is now asserted explicitly'. FIX: in the success-path test, override `mockExtractOutboxHandle.mockReturnValueOnce({ outboxId: 'outbox_from_payload', attempt: N })` with a non-zero N and assert that N as completeDemo's 5th argument — exactly the shape rt-080/082/083 already use."
+    },
+    {
+      "id": "RT-011",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "open",
+      "at": ".claude/reference/arch-review-log.md:2016",
+      "title": "The arch-review-log row's red-team summary is stale: 'ran 34 mutations and found three surviving mutants, all since killed' understates a three-round pass and is false at HEAD",
+      "arbiter_reasoning": "Re-resolved at HEAD 20087a0cf. The branch's arch-review-log row states, unscoped by round: 'The red-team pass ran 34 mutations and found three surviving mutants, all since killed'. Measured against the sidecar it describes: the inventory now holds 49 executed rows (61 after this round), and SIX rows are `survived-confirmed-P0` across FOUR findings (RT-001, RT-002, RT-006, RT-007) — plus RT-010 from this round. 'all since killed' is false at HEAD while RT-010 is open. The row was accurate for round 1 only; rounds 2 and 3 each needed a further fix commit, which is the substantive fact the row is meant to carry. Graded P1, not P0: it understates review effort rather than misdescribing code behaviour, and the row itself ends 'Counter unchanged until merged', so it is a living row expected to be updated before the merge. FIX: restate as three rounds, ~50 mutations, five confirmed survivors, and note the count only after RT-010 is resolved. (Checked while here and all TRUE: root fn = 112 lines, +28 tests / 0 removed, CRAP 10²x0.6³+10 = 31.6, cognitive/cyclomatic base figures match .feature/fallow-health-base.json.)"
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "issue-616-third-round",
+      "date": "2026-09-19",
+      "finding_ids": [
+        "RT-006",
+        "RT-007",
+        "RT-008",
+        "RT-009"
+      ],
+      "text": "Question: Red-team round 2's fixes moved HEAD, so its sidecar is stale and still reads OPEN_P0. Authorize a third round to re-verify mechanically? The option offered and chosen was: 'Authorize round 3 — the mechanism the checker documents for exactly this case. A scoped round re-mutates only the RT-006/007 fix hunks, resolves dispositions from real evidence, and recomputes status. Costs one more agent pass; it is the only path that clears OPEN_P0 honestly.' The two alternatives offered were recording the P0s as accepted-risk, and stopping at review with OPEN_P0 on record.\nOwner: Authorize round 3 (Recommended)"
+    }
+  ],
   "counts": {
-    "inventory_total": 79,
-    "killed": 41,
-    "survived_confirmed_p0": 6,
-    "equivalent": 1,
+    "inventory_total": 91,
+    "killed": 51,
+    "survived_confirmed_p0": 7,
+    "equivalent": 2,
     "inconclusive": 1,
     "skipped_budget": 0,
     "excluded": 30,
-    "findings_total": 9,
-    "p0_open": 2,
+    "findings_total": 11,
+    "p0_open": 1,
     "p1_open": 1,
-    "p2_open": 2,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 4,
-    "rejected": 0
+    "fixed": 8,
+    "rejected": 1
   },
   "status": "OPEN_P0"
 }

@@ -248,6 +248,15 @@ describe('OnboardingDemoWorker', () => {
     // the documented rounding contract from truncation. Red-team RT-001.
     const { reviews, responses } = arrangeClaimedDemo({ totalCostUsd: 0.0355 });
 
+    // A nonzero attempt, because completeDemo forwards it to
+    // markOutboxCompleted and on to the `AND attempts = $n` CAS. Asserting the
+    // harness default (`undefined`) here made a dropped attempt
+    // indistinguishable from a real one, and that survived 2,666 tests.
+    mockExtractOutboxHandle.mockReturnValueOnce({
+      outboxId: 'outbox_from_payload',
+      attempt: 5,
+    });
+
     // Hold BOTH awaited boundaries, one at a time. mock.invocationCallOrder
     // would prove only that each was CALLED after the previous was CALLED —
     // it survives dropping either `await`. Holding the promise is what proves
@@ -315,8 +324,8 @@ describe('OnboardingDemoWorker', () => {
       mockSql,
       'onboarding_demos',
       'demo_123',
-      'outbox-demo-1',
-      undefined,
+      'outbox_from_payload',
+      5,
       { reviews, responses, source: 'serpapi' },
     );
     // 3.55 cents ROUNDS to 4 — floor and trunc would book 3. It books against
