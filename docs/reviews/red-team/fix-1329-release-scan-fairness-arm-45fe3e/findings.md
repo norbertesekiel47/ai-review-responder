@@ -1,30 +1,62 @@
-# Red team — fix/1329-release-scan-fairness-arm, round 2
+# Red team — fix/1329-release-scan-fairness-arm, round 3
 
 | | |
 |---|---|
 | Mode | feature (high risk, per the signed-off intake) |
 | Fork / merge-base | `eba43bcca97325026a79cd3041cc25bf37e0c3f3` |
 | Round-1 reviewed HEAD | `383c34e93ad7221a1524858081bc4c4664293c6f` |
-| HEAD verified | `1d0e00b4018f4320fe7182362dfee4fdd704b448` |
-| Intake sha256 | `536ec4a553947fab0964ce8afab6ebdcd866b843e34a251314e2038e6373202f` (the AMENDED intake, current on disk) |
-| Round | 2 of 2 — the cap. `round-start` will refuse a third. |
-| Budget spent | 276 s of 1200 s measured test time, 19 of 400 launches (one 120 s timeout included, see below) |
-| Scope | the fix hunks `383c34e93..1d0e00b40` and their direct callers. Nothing else was opened. |
-| Status | `OPEN_P0` (2 open P0, 1 open P1, 4 open P2; 8 of round 1's 9 findings fixed; one `inconclusive`/oracle row also forces `INCOMPLETE_ORACLE` below the P0) |
+| Round-2 reviewed HEAD | `1d0e00b4018f4320fe7182362dfee4fdd704b448` |
+| HEAD verified | `7cca32f7ee0c6aa2828b7b7e6a9ddaf8933627a3` |
+| Intake sha256 | `536ec4a553947fab0964ce8afab6ebdcd866b843e34a251314e2038e6373202f` (unchanged since round 2) |
+| Round | 3 of 3, on the recorded owner grant `owner-1329-third-round`. No fourth round. |
+| Budget spent | 14 s of 1200 s measured test time, 9 of 400 launches |
+| Scope | VERIFICATION ONLY: the fix hunks `1d0e00b40..7cca32f7e` and the five mutants the orchestrator re-measured itself. No new front was opened against unchanged code; one out-of-scope observation is in the appendix, untriaged. |
+| Status | `CLEAR` — 15 of 16 findings `fixed`, 1 P2 `open` by owner choice (R5). Round 3 upheld every disposition it re-measured and added one new P1 (R7), fixed in this sidecar. |
 
-## Severity table — still open or newly introduced
+## Round 3 — what was re-measured, and the verdict
+
+Every one of the five orchestrator-claimed mutant kills was re-applied
+INDEPENDENTLY at `7cca32f7e` and each one fails at least one case, and the case
+named. Rows `rt3-01` … `rt3-08` in `findings.json` carry the per-mutant evidence.
+
+| Claim | Mutant | Verdict |
+|---|---|---|
+| R1 — dead import gone, `lint` exits 0 | none needed | **HOLDS.** `pnpm run lint` (`eslint .`) exits 0; targeted `npx eslint` on all three changed files exits 0; `pnpm typecheck` exits 0. `DEFAULT_DAILY_SEND_CAP_ACCOUNT` is still exported at `send-caps.ts:16` and still used by `send-caps.ts:25-26`, `AutoApprovalClient.tsx:1281-1282` and three test files; `release.ts` retains only the prose mention at `:1559`. `no-unused-vars` is repo-wide, so "nothing else imports a name it no longer uses" is covered by the same green run. |
+| R2 claim A — dropping `account_id` fails `ci:tenant-scope` | M-A | **HOLDS.** Baseline: 382 entries, baseline 382, exit 0. Under M-A: exit 1, one finding, `src/lib/solicitation/release.ts: auto_approval_policies: missing account_id or business_id scope`. |
+| R2 claim B — dropping `location_id IS NULL` fails the new location-override case | M-B | **HOLDS.** `assert-one-test` confirmed exactly one executed test; it failed (`expected +0 to be 1`). The fixture seeds the override ALONE — `beforeEach` deletes every policy row for the owned accounts (`:964`) and the case inserts one location-scoped row (`:1314`) and never calls `seedSolicitationPolicy` — so `LIMIT 1` is not a coin flip, and the case cannot pass for a wrong reason. |
+| F3 — deleting the cap ENTRY gate now fails the new order case | M-C | **HOLDS.** 1 of 68 fails, exactly `names the cap, not the subscription, when both fail after the tick has scanned` (`expected undefined to be 1`, `:1392`). No third path: the other 67 stay green, which independently proves the comment's claim that deleting the gate changes no send — `capacityExhausted()` covers the zero remainder — and that the gate owns only B6's reported reason. |
+| The interleaving seam | two test-level mutants | **HOLDS, with one correction to how it was described.** Ordering verified in source: `release.ts:1306-1309` awaits `readAccountDailySendCap` BEFORE `countAccountDispatchAttemptsToday`. Wrong-moment (a) removing the sibling → `expected +0 to be 1` at `:1390`; wrong-moment (b) sibling kept but the spy guarded to the PRIMARY account → `expected undefined to be 1` at `:1393`, verbatim the "the gate had already read 10 and released" the case records as measured. **Correction:** only the CAP case needs the sibling. `refuses an account that lapses after the tick has already scanned it` (`:1571`) fires the seam on its OWN count and is correct to, because the subscription read FOLLOWS the count — and `findings.json` never claimed otherwise (its sentence is scoped to F3's case). |
+| R3 — the `beforeEach` `mockReset()` stops an unconsumed `mockImplementationOnce` leaking | none needed | **HOLDS.** Read against the installed spy: `@vitest/spy@4.1.7/dist/index.js:142-157` — `mockClear()` (which `vi.clearAllMocks()` calls, `:474`) resets only the call registers; `mockReset()` sets `config.onceMockImplementations = []` at `:155`. The re-arm order in the hook is `mockReset()` then `mockImplementation(actual)`, which is correct. |
+| Gate cap source (F1) | M-D | **HOLDS.** 2 of 68 fail, including `releases only the remainder of a sub-default cap the account has partly spent` (`expected 4 to be 2`, `:1432`). |
+| Status pin (F2) | M-E, M-E2 | **HOLDS in both directions.** M-E (drop `TRIALING`) reds the pin — 4 of 18 fail. M-E2 (reorder, behaviour-preserving) leaves 18 of 18 green, so F2's *fragility* half is closed too, not just its blindness half: the assertion `.sort()`s the array (`subscription-status.test.ts:84`). |
+| Subscription gate (F3's other half) | M-F | **HOLDS.** 1 of 68 fails, exactly `refuses an account that lapses after the tick has already scanned it` (`expected 1 to be +0`, `:1598`). |
+
+### The three rewritten prose claims, re-resolved at HEAD
+
+| Claim | Verdict |
+|---|---|
+| arch-review-log row: "the release integration suite (53 → 68 executed cases)" | **TRUE.** At the merge-base `eba43bcca` the file has 53 `it(` and zero `it.each` → 53 executed. At `7cca32f7e` it has 66 `it(` plus one `it.each` of two parameters (the second `it.each` match is inside a comment at `:907`) → 68, and the reporter measured `numTotalTests: 68`, 68 passing. R4 is correctly `fixed`. |
+| `FULL_ACCESS_SUBSCRIPTION_STATUSES` docstring: the pin asserts membership "against LITERALS, deliberately not against the predicate" | **TRUE.** `subscription-status.test.ts:84-87` compares the sorted array to the literals `['active','trialing']`; the predicate loop at `:90-94` is a SECOND, separate assertion, and `:97-101` refuses the three non-members by name. R6 is correctly `fixed`. |
+| `readAccountDailySendCap` docstring: "`LIMIT 1` is not a tie-break" because migration 074's partial unique index admits at most one row | **TRUE.** `supabase/migrations/074_trust_dial_veto_window.sql:75-77` — `CREATE UNIQUE INDEX … auto_approval_policies_one_account_default ON auto_approval_policies (account_id, persona, action_class) WHERE location_id IS NULL`. The docstring's "four predicates" is also right for THIS read (account_id, persona, action_class, `location_id IS NULL`) — the "three predicates" of F4 belongs to `readResolvedAccountCaps`, which omits `account_id`. Both guard claims in the same docstring were measured above and both hold. |
+
+## Severity table — still open, newly introduced, or corrected in round 3
 
 | Severity | file:line | Finding |
 |---|---|---|
-| P0 | `src/lib/solicitation/release.ts:119` | **HEAD does not pass its own required gate.** `pnpm lint` fails: the fix left `DEFAULT_DAILY_SEND_CAP_ACCOUNT` imported with no remaining use |
-| P0 | `src/lib/solicitation/release.ts:1832` | The RESTORED gate read `readAccountDailySendCap` has an entirely unpinned `WHERE`: dropping `location_id IS NULL` **and** dropping `account_id = …` each leave 66/66 green |
-| P1 | `src/lib/solicitation/release.ts:1311` | F3 is only half fixed (recorded `inconclusive`/oracle, upholding round 1's class): the cap ENTRY gate still deletes whole with 66/66 green (the subscription half is genuinely closed) |
-| P2 | `src/lib/solicitation/__tests__/release.integration.test.ts:64` | The new fifth delegating spy is outside the `beforeEach` re-arm contract, and `vi.clearAllMocks()` does not clear its `mockImplementationOnce` queue |
-| P2 | `.claude/reference/arch-review-log.md:2016` | The rewritten row says the suite gains "+11 cases"; HEAD adds 13 executed cases |
-| P2 | `src/lib/solicitation/release.ts:1810` | The new duplicate-row `throw` is a PHASE-level failure for a DB-impossible state, with no alerting rule row |
-| P2 | `src/lib/shared/subscription-status.ts:56` | The constant's docstring still says the pin is "derived from the predicate" — the exact shape round 1 proved fake |
+| P1 | `docs/reviews/red-team/fix-1329-release-scan-fairness-arm-45fe3e/findings.json:6` | **NEW (R7), fixed in this sidecar.** The third-round authorization committed at `7cca32f7e` fails the checker's own schema — no `date`, no `finding_ids` — so `red-team-status.mjs` exited 1 and the `reviewed` transition could not run. Not the stale head binding the round-3 brief named as the only failure: `intake_sha256` already matched, and `head_sha` was one of three defects. The Markdown Authorizations section also still said "None" while the JSON array carried the grant. |
+| P2 | `src/lib/solicitation/release.ts:1810` | **R5, `open` by owner choice.** The duplicate-row `throw` in `readResolvedAccountCaps` is a PHASE-level failure for a state migration 074's partial unique index makes impossible, and it has no alerting rule row. Unchanged in round 3. |
 
-Full arbiter reasoning per finding, and the whole inventory, is in `findings.json`.
+Every other finding (F1–F9, R1–R4, R6) is `fixed`, and round 3 re-measured the
+five the owner grant names plus R1, R3 and R4 — all upheld. Full arbiter
+reasoning per finding, and the whole 24-row inventory, is in `findings.json`.
+
+## Rounds 1 and 2 — evidence preserved verbatim
+
+Everything from here to "Authorizations" is ROUND 2's report, kept unaltered
+because the owner grant scopes round 3 to verification and says it "preserves
+earlier evidence". Its SHAs, case counts and dispositions are round 2's; where
+round 3 corrected one, the correction is in the tables above and in
+`findings.json`.
 
 ## Disposition of every round-1 finding
 
@@ -212,7 +244,7 @@ row in `docs/runbooks/beta-launch-alerting.md` to surface it if the index ever
 diverged between the two Supabase projects. The missing runbook coverage for this
 phase is pre-existing and is not charged to this branch.
 
-## Measurement protocol and restoration
+## Round 2 — measurement protocol and restoration
 
 All 19 launches went through `mutation-runner.mjs run` under a temporary `HOME`
 with the dotenv files swapped for scrubbed copies, and the journal was finalized
@@ -236,4 +268,68 @@ committed by this pass; the orchestrator owns the finalizer and the commit.
 
 ## Authorizations
 
-None. No finding is accepted-risk.
+### `owner-1329-third-round` — 2026-09-19
+
+Findings in scope: F1, F2, F3, F6, R1, R2, R3. No finding is `accepted-risk`;
+this grant authorizes a verification ROUND, not the acceptance of a finding.
+
+Verbatim:
+
+> Question: Round 2's P0 fixes have no independent verification, and the sidecar is bound one commit behind (1d0e00b4) while HEAD has moved. How do we close the review? Options offered: authorize a THIRD ROUND so a fresh pass re-binds the sidecar to HEAD and independently attacks the five fixes the orchestrator measured itself; ship with those orchestrator measurements as the evidence and leave the reviewed phase unset; or stop and hand over the state.
+> Owner: Authorize a third round.
+> Scope: verification only, over the round-2 fix hunks and the five mutants the orchestrator re-measured (gate cap source, status pin, subscription gate, location override, cap entry gate). It re-binds the sidecar to current HEAD, preserves earlier evidence, and grants no fourth round.
+
+This section is RENDERED from `findings.json`'s `authorizations` array and is
+never parsed back out of this Markdown.
+
+## Round 3 — measurement protocol and restoration
+
+Nine launches, 14 s of measured test time of the 1200 s round budget, all through
+`mutation-runner.mjs run` under a temporary `HOME` with `NODE_ENV=test`, `CI=true`
+and `MOCK_EXTERNAL_APIS=false` (matched to `.env.local` and to CI, where `true`
+short-circuits transport) and `TEST_DATABASE_POOL_URL`/`DATABASE_POOL_URL` pinned
+to the validated localhost test database. Every mutation went through
+`mutation-runner.mjs mutate`, so each is journaled with its original blob OID
+before the write; every mutated file was restored by named-path `git checkout --`
+immediately after its measurement, and `git status --porcelain` was verified
+EMPTY before the first byte of this round's report was written. The journal is
+left FINALIZABLE with nine `applied` entries whose working blobs already equal
+their journaled originals — the orchestrator owns `finalize`, which will mark them
+`restored`; `red-team-status.mjs` reports those nine journal rows as its only
+remaining issues and no schema, binding or count error.
+
+Two deviations from the standard protocol, both recorded rather than silent:
+
+1. **`watchers` was overridden after a direct check.** It reported PID 89820
+   (`next-server v16.3.0`) as "serving this worktree". It is not:
+   `lsof -a -p 89820 -d cwd` resolves its cwd to a DIFFERENT checkout outside
+   this worktree, and `findWatchers` matches `ps -Ao pid=,command=` by command
+   substring with no working-directory scope. The precondition as WRITTEN ("no
+   process is serving or watching this worktree") is true; only the detector's
+   claim is over-broad. See the appendix.
+2. **No `dotenv-swap`.** The live-DB release suite resolves its database through
+   `.env.local` on disk, and the scrubbed replacement carries only
+   `MOCK_EXTERNAL_APIS` and `TEST_DATABASE_POOL_URL` — a missing variable would
+   have made every row `inconclusive`/`oracle` and blocked the round. The process
+   env was still the runner's allowlist, and `MOCK_EXTERNAL_APIS=false` matches
+   both `.env.local` and CI, so baseline and mutant ran under identical
+   environments. No mutant touched a provider call site.
+
+## Appendix — out of scope, untriaged
+
+Round 3 is verification-only, so these are recorded without a finding id and
+without a disposition. Neither is in the fix hunks.
+
+- `.agents/skills/red-team/scripts/mutation-runner.mjs` (`findWatchers` /
+  `cmdWatchers`) — the watcher precondition matches the whole host's process
+  table by command substring and never compares a working directory, so any
+  `next dev` / vitest watcher anywhere on the machine aborts a red-team round on
+  this worktree with the message "a process is watching or serving **this
+  worktree**". Safe direction, but it makes a true precondition unverifiable by
+  the tool and pushes the judgement onto the agent. A cwd check (`lsof -a -p
+  <pid> -d cwd`) would resolve it.
+- `src/lib/solicitation/__tests__/release.integration.test.ts:2691` —
+  `spies.enqueueSolicitationSend.mockRejectedValueOnce(...)` is the same class R3
+  closed for the fifth spy, on a spy the `beforeEach` re-arms with
+  `mockImplementation` only. If that case ever stops consuming its override, it
+  leaks into the next case. Pre-existing and unchanged by this branch.
