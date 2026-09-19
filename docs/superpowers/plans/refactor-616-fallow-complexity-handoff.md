@@ -115,6 +115,66 @@ fix pass:
    `vi.mock('../terminal')` file-wide. `@sentry/node` is unused anywhere in the
    package, so mocking it file-wide for the cost-reconcile block is safe.
 
+## PARKED — read this first (2026-09-19)
+
+The run is **parked at step 7.5**, deliberately, by renaming
+`.feature/intake.json` to `.feature/intake.parked.json`. Rename it back to
+re-arm the Stop gate and the edit-surface guard.
+
+**The #616 work itself is complete and defensible.** Nothing below is a defect
+in the refactor.
+
+Everything is committed at `cceef6ff`. The branch has **never been pushed**,
+there is **no PR**, and **issue #616 is still OPEN**.
+
+### Two blockers, both needing an owner decision
+
+**1. Gate is RED on a pre-existing failure unrelated to this branch.**
+33 of 34 rows PASS. The one failure is
+`scripts/ci/__tests__/red-team-mutation-runner.test.ts` →
+"runs an admitted baseline mutant and restoration with corroborated report
+evidence". Established by experiment, not assumption:
+
+- that file is **not in this branch's diff**;
+- it fails identically on the **main checkout**;
+- it is **not** caused by the leftover red-team journal — A/B tested with the
+  journal moved aside and restored, identical result both ways;
+- it PASSED in three earlier full-gate runs on this branch and FAILED in the
+  last three, so something environmental flipped.
+
+It deserves its own issue. It will block any branch, not just this one. Do not
+edit it to make this branch green.
+
+**2. `red-team-status.mjs` reads OPEN_P0.** RT-010 and RT-011 are FIXED and
+hand-verified — each mutant was run and observed to fail a named test — but the
+proof is not journaled, because fixing RT-010 moved HEAD and the round budget
+(3, owner-authorized) is spent. Recommended close-out: `accepted-risk` on both,
+worded as *missing journaled proof, not an unfixed defect*, which a reviewer can
+check against the diff.
+
+### A path already tried and REVERTED — do not repeat it
+
+Raising the red-team round cap 3 → 4 was attempted and backed out. The minimal
+generalisation (round N>2 opens on an authorization naming that round) breaks
+**twelve** deliberate tampering checks, because `RUN_C_FOURTH_TEXT` contains the
+literal phrase "approve the scoped fourth round" — so a prose match on
+"fourth round" matches a *tampered* Run C admission that the `round > 3` cap
+previously refused outright. That same authorization text ends with "keeps
+further rounds blocked".
+
+The tooling is byte-identical to `main`; the surface amendment for it was rolled
+back. If the cap is ever raised, it must be its own PR, designed around the
+Run C interaction rather than discovering it via a broken test.
+
+### Five false claims this run made, all caught by review
+
+Recorded because the pattern matters more than the instances, and D10 owns it:
+the "sixth `ClaimResult` member is a compile error" claim; "the root shrank to
+~50 lines" (it is 112); "this is the last of the three" `outboxAttempt` sites
+(there were four); and two stale gate-fingerprint citations, the second written
+while fixing the first. Root cause in every case: asserting completeness without
+enumerating the class.
+
 ## Where the run is
 
 **Step 3 closed. Plan APPROVED at revision 3.** `PREVALIDATE: PASS`, 11
