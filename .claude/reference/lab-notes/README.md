@@ -49,7 +49,8 @@ Dated entries (`## YYYY-MM-DD — <title>`) in original order, verbatim. Where a
 | [history/2026-08-09-to-12.md](history/2026-08-09-to-12.md) | 2026-08-09 … 2026-08-12 |
 | [history/2026-08-13-to-21.md](history/2026-08-13-to-21.md) | 2026-08-13 … 2026-08-21 (Supabase MCP) |
 | [history/2026-08-21-to-31.md](history/2026-08-21-to-31.md) | 2026-08-21 #898 … 2026-08-31 G.3 |
-| [history/2026-09.md](history/2026-09.md) | 2026-09-01 … 2026-09-14 |
+| [history/2026-09.md](history/2026-09.md) | 2026-09-01 … 2026-09-19 (full) |
+| [history/2026-09-19-to-30.md](history/2026-09-19-to-30.md) | 2026-09-19 … 2026-09-30 |
 
 Historical documents cite `lab-notes "<heading>"`: search this directory for the quoted heading — canonical headings live on the topic page, dated ones in `history/`.
 
