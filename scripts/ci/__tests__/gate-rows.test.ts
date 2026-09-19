@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(process.cwd());
 const LIB = join(ROOT, 'scripts', 'gate-rows.sh');
 const GATE = join(ROOT, 'scripts', 'verify-gate.sh');
+const PROMISED_TESTS_LIB = join(ROOT, 'scripts', 'gate-promised-tests.sh');
 
 /** The exact pair that collided: the first path is 40 slug characters long. */
 const CONSENT_SUITE = 'src/lib/reviews/__tests__/import-consent.integration.test.ts';
@@ -185,16 +186,22 @@ describe('verify-gate.sh row wiring', () => {
 describe('promised-tests title discovery', () => {
   const source = readFileSync(GATE, 'utf8');
 
-  // Extract and RUN the real grep line rather than asserting that the script
-  // mentions a root. A source-text assertion ("expect(source).toContain('tests')")
+  // Extract and RUN the real matcher call rather than asserting that the
+  // script mentions a root. A source-text assertion ("expect(source).toContain('tests')")
   // passes against a mutant that names the root in a comment and drops it from
   // the command — the same disarmed-mutant trap the launch tests above exist
   // for. Whatever roots that one line names are the roots this test exercises.
   // `&& continue` is stripped: it belongs to the enclosing read-loop and is a
   // syntax error on its own. Everything that decides WHAT is searched — the
-  // flags, the --include filters, the roots — is kept verbatim.
-  const GREP_LINE = source
-    .match(/^\s*grep -rqF "\$TITLE".*$/m)?.[0]
+  // roots handed to promised_title_found — is kept verbatim.
+  //
+  // Post-#1108, the line calls the promised_title_found shell FUNCTION
+  // (scripts/gate-promised-tests.sh) instead of grep directly, so running the
+  // extracted line requires sourcing that library first — PROMISED_TESTS_LIB
+  // below, by absolute path, since the fixture tree it runs against (cwd) has
+  // no copy of it.
+  const MATCHER_LINE = source
+    .match(/^\s*promised_title_found "\$TITLE".*$/m)?.[0]
     ?.replace(/\s*&&\s*continue\s*$/, '');
 
   /** A tree with one promised title, under `where`, and empty sibling roots. */
@@ -217,7 +224,12 @@ describe('promised-tests title discovery', () => {
     try {
       const result = spawnSync(
         'bash',
-        ['-uo', 'pipefail', '-c', `TITLE=${shellQuote(title)}; ${GREP_LINE} && echo FOUND`],
+        [
+          '-uo',
+          'pipefail',
+          '-c',
+          `. ${shellQuote(PROMISED_TESTS_LIB)}; TITLE=${shellQuote(title)}; ${MATCHER_LINE} && echo FOUND`,
+        ],
         { cwd: dir, encoding: 'utf8' },
       );
       return result.stdout.includes('FOUND');
@@ -231,7 +243,7 @@ describe('promised-tests title discovery', () => {
     // auto-approval promises 13 titles there. Without `tests` in the roots the
     // gate reports all 13 missing while they exist and pass — a false RED that
     // cannot be told apart from an unwritten test (plan round-1 finding 13).
-    expect(GREP_LINE, 'the promised-tests grep line moved or was renamed').toBeDefined();
+    expect(MATCHER_LINE, 'the promised_title_found call line moved or was renamed').toBeDefined();
     expect(discovers('tests/llm-eval/__tests__', 'scores unsafe-threat-02 as true_positive')).toBe(
       true,
     );
@@ -256,7 +268,7 @@ describe('promised-tests title discovery', () => {
           '-uo',
           'pipefail',
           '-c',
-          `TITLE=${shellQuote('a title nobody wrote')}; ${GREP_LINE} && echo FOUND`,
+          `. ${shellQuote(PROMISED_TESTS_LIB)}; TITLE=${shellQuote('a title nobody wrote')}; ${MATCHER_LINE} && echo FOUND`,
         ],
         { cwd: dir, encoding: 'utf8' },
       );
