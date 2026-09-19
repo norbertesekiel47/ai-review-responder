@@ -66,7 +66,7 @@ Stop and report rather than proceed if any of these is false:
    a round must never start on top of an unrestored mutation or an open dotenv
    swap:
    `node .agents/skills/red-team/scripts/mutation-runner.mjs round-start`
-   It refuses over an unclean journal, resets the per-round run budget, and caps
+   It refuses over an unclean journal, resets the per-round time budget, and caps
    the rounds: two open on their own, a THIRD opens only when the sidecar already
    carries an owner authorization whose text names the third round. A fourth
    opens only for the owner-approved Run C exception (`references/run-grants.md`);
@@ -200,12 +200,27 @@ No Stryker, no new dependency. Per candidate test case:
    does not eliminate them, and the recorded reasoning is the audit trail.
 6. **Restore and verify** — see The finalizer.
 
-**Budget, hard.** At most 2 mutations per test, 120s per run, 30 mutation runs
-per round. The runner refuses run 31. The counter is per ROUND and the journal
-outlives a round, so `round-start` is what resets it — round 2 opened without it
-would arrive already exhausted. Any in-scope candidate you did not execute gets
-outcome `skipped-budget`, which forces `INCOMPLETE_BUDGET`. A partial run can
-never report `CLEAR`.
+**Budget, hard.** At most 2 mutations per test, 120s per launch (the runner
+refuses a longer `--timeout`), and **20 minutes of measured test time per
+round**. The runner clocks every launch, prints the running total after each
+one, and refuses the next launch once the round has spent its 20 minutes; a
+launch that never recorded its end is charged its full timeout. 400 launches is
+a backstop against a loop of instant commands, not the working limit. The budget
+is per ROUND and the journal outlives a round, so `round-start` is what resets
+it — round 2 opened without it would arrive already exhausted. Any in-scope
+candidate you did not execute gets outcome `skipped-budget`, which forces
+`INCOMPLETE_BUDGET`. A partial run can never report `CLEAR`.
+
+The budget was a count — 30 launches — until 2026-09-18. A launch measured 2.8s,
+so the count stopped a round after 84 seconds of testing: an 85-row inventory
+took three rounds and an owner grant and still ended `INCOMPLETE_BUDGET`. **Spend
+the clock on risk, in this order:** rows covering `risk_reasons` and any trust
+boundary first, then the rest of Direction B, then Direction A. If the clock runs
+out, what is left unmeasured is then the least important part of the inventory,
+and `skipped-budget` says so honestly. The dated owner grants in
+`references/run-grants.md` predate this change and quote the 30-launch rule of
+their time; they stay verbatim, and the runner still enforces each as a launch
+count.
 
 **Branch-scoped budget grants are history, not rules.** Five closed runs
 (#1185, Operator Fallow, Run C, Run D, Run E) carried owner-approved,

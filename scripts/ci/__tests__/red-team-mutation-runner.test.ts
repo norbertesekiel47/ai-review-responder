@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Here rather than beside the script: vitest's include roots are scripts/ci/**,
 // src/**, worker/**, tests/** and e2e/**, so a suite under .agents/ would never
@@ -22,6 +22,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 //     the group leader exits.
 
 const RUNNER = resolve(process.cwd(), '.agents/skills/red-team/scripts/mutation-runner.mjs');
+// Spelled out, never imported: a test that reads the runner's own constant
+// cannot notice the constant being edited.
+const ORDINARY_MAX_RUNS = 400;
 
 const GIT_FREE_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
@@ -138,10 +141,19 @@ beforeEach(() => {
   git('commit', '-qm', 'base');
 });
 
+// `process.kill(-1)` signals EVERY process the user owns and `-0` signals this
+// process's own group. A fixture journal with `pgid: 1` once sent SIGKILL to the
+// whole login session from this teardown (2026-09-18), so the rule is enforced
+// here and no longer left to each fixture author.
+function isSignalSafePgid(pgid: unknown): pgid is number {
+  return Number.isInteger(pgid) && (pgid as number) > 1;
+}
+
 afterEach(() => {
   // Never leave a fixture process behind, whatever the assertions did.
   if (existsSync(join(repo, '.feature/red-team-journal.json'))) {
     for (const supervisor of journal().supervisors) {
+      if (!isSignalSafePgid(supervisor.pgid)) continue;
       try { process.kill(-supervisor.pgid, 'SIGKILL'); } catch { /* already gone */ }
     }
   }
@@ -1327,14 +1339,14 @@ describe('the owner-approved Run E second pass', () => {
     expectRefused(1);
   });
 
-  it.each(['other branch', 'first round'])('preserves the ordinary 30-launch cap for %s with E evidence present', (scope) => {
+  it.each(['other branch', 'first round'])('preserves the ordinary budget for %s with E evidence present', (scope) => {
     prepare();
     if (scope === 'other branch') git('branch', '-m', 'codex/other');
     else write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 1 }));
     expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
     expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
-    writeJournal({ ...journal(), runs: 30 });
-    expectRefused(30);
+    writeJournal({ ...journal(), runs: ORDINARY_MAX_RUNS });
+    expectRefused(ORDINARY_MAX_RUNS);
   });
 });
 
@@ -1568,8 +1580,8 @@ describe('the owner-approved Run D second pass', () => {
     else write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 1 }));
     expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
     expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
-    writeJournal({ ...journal(), runs: 30 });
-    expectRefused(30);
+    writeJournal({ ...journal(), runs: ORDINARY_MAX_RUNS });
+    expectRefused(ORDINARY_MAX_RUNS);
   });
 });
 
@@ -1896,19 +1908,89 @@ describe('the paused supervisor', () => {
   }, 20_000);
 });
 
+// `kill(-1)` reaches every process the user owns. The journal is a file, so a
+// corrupt entry must not be able to aim reapGroup there. process.kill is STUBBED
+// for the whole case: if the guard ever regresses, this test fails — it must
+// never be able to send the signal it is checking for.
+describe('reapGroup refuses a pgid that is not a process group', () => {
+  it.each([[1], [0], [-1], [-5], [1.5], [Number.NaN], ['1'], [null], [undefined]])('refuses pgid %j without signalling', async (pgid) => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('a signal was attempted'); });
+    try {
+      const { reapGroup } = await import(/* @vite-ignore */ RUNNER) as {
+        reapGroup: (supervisor: unknown) => Promise<{ ok: boolean; reason?: string }>;
+      };
+      // A dead leader (start time unknown) is the branch that used to fall through.
+      const result = await reapGroup({ pid: Number.MAX_SAFE_INTEGER, pgid, startedAt: 'fixture' });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain('not a signalable process group');
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+    }
+  });
+});
+
 describe('the mutation budget', () => {
-  function exhausted() {
+  // `runs: 30` is the #1185 checkpoint — the point its grant continues from —
+  // not the ordinary cap, which is a clock with a launch-count backstop.
+  function exhausted(runs = 30, supervisors: unknown[] = []) {
     write('.feature/red-team-journal.json', JSON.stringify({
-      version: 1, round: 1, runs: 30, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
+      version: 1, round: 1, runs, mutations: [], dotenv: { open: false, files: [] }, supervisors,
     }, null, 2));
   }
+  // Inert records, never live processes: an out-of-range pgid cannot name one.
+  const INERT = { pid: Number.MAX_SAFE_INTEGER, pgid: Number.MAX_SAFE_INTEGER, startedAt: 'budget-fixture', active: false, command: 'true', at: 'budget-fixture' };
+  const spent = (elapsedMs: number) => ({ ...INERT, timeoutMs: 120_000, elapsedMs });
 
-  it('refuses a run past the 30-per-round cap and names the resulting status', () => {
-    exhausted();
+  it('refuses a launch once the round has spent its test-time budget, and names the status', () => {
+    exhausted(3, [spent(600_000), spent(599_000), spent(1_000)]);
     const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('budget exhausted');
+    expect(result.stderr).toContain('budget exhausted (1200s of 1200s test time');
     expect(result.stderr).toContain('INCOMPLETE_BUDGET');
+    expect(journal().runs).toBe(3);
+  });
+
+  // The regression this replaced: 30 launches at the measured 2.8s is 84s of a
+  // 1200s budget, and the old count cap stopped the round there.
+  it('allows launch 31 when thirty fast launches have spent almost nothing', () => {
+    exhausted(30, Array.from({ length: 30 }, () => spent(2_800)));
+    const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(result.status, result.stderr).toBe(0);
+    expect(journal().runs).toBe(31);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+    expect(result.stdout).toMatch(/run: budget — \d+s of 1200s test time, 31 of 400 launches/);
+  });
+
+  it('records what each ordinary launch cost, so the clock is measured and not guessed', () => {
+    exhausted(0);
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    const [entry] = JSON.parse(read('.feature/red-team-journal.json')).supervisors;
+    expect(entry.timeoutMs).toBe(120_000);
+    expect(entry.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(entry.elapsedMs).toBeLessThan(60_000);
+  });
+
+  it('charges a launch that never recorded its end the whole timeout', () => {
+    exhausted(10, Array.from({ length: 10 }, () => INERT));
+    const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('budget exhausted (1200s');
+  });
+
+  it('keeps a launch-count backstop against a loop of instant commands', () => {
+    exhausted(ORDINARY_MAX_RUNS);
+    const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`budget exhausted (${ORDINARY_MAX_RUNS} runs`);
+  });
+
+  it.each(['120001', '0', 'abc'])('refuses an ordinary launch whose --timeout is %s', (timeout) => {
+    exhausted(0);
+    const result = run('run', ...HOME_FLAG(), '--timeout', timeout, '--', '/usr/bin/true');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--timeout must be between 1 and 120000ms');
+    expect(journal().runs).toBe(0);
   });
 
   function authorize1185(): void {
@@ -1963,10 +2045,14 @@ describe('the mutation budget', () => {
       if (mismatch === 'text') sidecar.authorizations[0].text = 'I approve a report amendment';
       if (mismatch === 'missing') sidecar.authorizations = [];
       write(path, mismatch === 'malformed' ? '{' : JSON.stringify(sidecar));
+      // Invalid evidence earns the ORDINARY budget and never the grant: at the
+      // ordinary backstop it is refused, where the valid grant would run to 1400.
+      writeJournal({ ...journal(), runs: ORDINARY_MAX_RUNS });
       const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain('budget exhausted (30');
-      expect(journal().runs).toBe(30);
+      expect(result.stderr).toContain(`budget exhausted (${ORDINARY_MAX_RUNS} runs`);
+      expect(journal().runs).toBe(ORDINARY_MAX_RUNS);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
     },
   );
 
@@ -2025,7 +2111,7 @@ describe('the mutation budget', () => {
   });
 
   it.each(['another branch', 'another round'])(
-    'retains the ordinary first launch and 30-run limit for %s', (scope) => {
+    'retains the ordinary first launch and ordinary budget for %s', (scope) => {
       authorizeRunC();
       write('.feature/red-team-journal.json', JSON.stringify({
         ...journal(), runs: 0, round: scope === 'another round' ? 1 : 2,
@@ -2034,10 +2120,12 @@ describe('the mutation budget', () => {
       expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
       expect(journal().runs).toBe(1);
       expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
-      writeJournal({ ...journal(), runs: 30 });
+      // Run C evidence on the wrong branch or round earns the ORDINARY budget,
+      // never the 1,500 grant: refused at the ordinary backstop.
+      writeJournal({ ...journal(), runs: ORDINARY_MAX_RUNS });
       const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
       expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain('budget exhausted (30');
+      expect(refused.stderr).toContain(`budget exhausted (${ORDINARY_MAX_RUNS} runs`);
     },
   );
 
@@ -2077,10 +2165,11 @@ describe('the mutation budget', () => {
         const unrelated = git('commit-tree', git('rev-parse', 'HEAD^{tree}'), '-m', 'unrelated history');
         git('update-ref', 'HEAD', unrelated);
       }
+      if (ordinaryScope) writeJournal({ ...journal(), runs: ORDINARY_MAX_RUNS });
       const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
       expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain(ordinaryScope ? 'budget exhausted (30' : 'Run C startup preconditions failed');
-      expect(journal().runs).toBe(ordinaryScope ? 30 : 0);
+      expect(refused.stderr).toContain(ordinaryScope ? `budget exhausted (${ORDINARY_MAX_RUNS} runs` : 'Run C startup preconditions failed');
+      expect(journal().runs).toBe(ordinaryScope ? ORDINARY_MAX_RUNS : 0);
       expect(journal().supervisors).toEqual([]);
       expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
     },

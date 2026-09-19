@@ -11,6 +11,10 @@ The runner (`scripts/mutation-runner.mjs`) and `red-team-status.mjs` enforce
 every grant by exact branch, SHA and authorization id. Nothing here applies to
 any other branch, and nothing here raises the general limits in `SKILL.md`.
 
+Every entry predates 2026-09-18, when the ordinary budget changed from 30
+launches per round to 20 minutes of measured test time. Where an entry says
+"other branches keep 30", read it as "other branches keep the ordinary budget".
+
 Read this file only when working on one of the named branches, or as the
 precedent when the owner approves a new grant. A new grant needs: the owner's
 explicit approval of a concrete proposal, a runner change that pins it, and an
