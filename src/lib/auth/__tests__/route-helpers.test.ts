@@ -218,9 +218,12 @@ describe('withSameOrigin', () => {
   // NO `@ts-expect-error` here, and its ABSENCE is the assertion: re-adding any
   // of the three annotations reintroduces TS2739 and fails the typecheck row.
   //
-  // vitest cannot run these routes (both modules reach the DB singleton at
-  // import), so this case has no runtime subject and asserts on the types alone.
-  it('leaves no wrapped dashboard route pinned to a bare Response', () => {
+  // vitest cannot run these routes — all three modules reach the DB singleton at
+  // import — so this row has NO runtime subject. The expectation below is a
+  // placeholder on a freshly built array and can never fail; the row name says
+  // typecheck-only so nobody reads its green as runtime evidence. The two cases
+  // above each pair their type assertion with a real runtime one; this one cannot.
+  it('typecheck-only: leaves no wrapped dashboard route pinned to a bare Response', () => {
     const importOffer: NextResponse = null as unknown as Awaited<
       ReturnType<typeof ImportOfferPost>
     >;
