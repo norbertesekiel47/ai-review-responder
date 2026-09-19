@@ -564,7 +564,8 @@ export function validateOperatorAdmission(root, journal, { report = false } = {}
     if (report && (journal.dotenv?.open !== false || journal.mutations.some((entry) => entry.state !== 'restored')
       || journal.supervisors.some((entry) => entry.active !== false))) return null;
     const processes = spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' });
-    if (processes.status !== 0 || findWatchers(processes.stdout, selfAncestry()).length > 0) return null;
+    if (processes.status !== 0) return null;
+    if (findWorktreeWatchers(processes.stdout, selfAncestry(), root).length > 0) return null;
     return { ...history, manifest, historical, grant, admissionHead, controlHead: control.controlHead, correction: control.correction,
       fileControlHead: control.fileControlHead, selectionCorrection: control.selectionCorrection };
   } catch { return null; }
@@ -687,6 +688,33 @@ export function operatorMeasuredAssertion(launch, candidate, expectedStatus) {
 export function operatorLaunchAllowed(runs, timeout) {
   return Number.isInteger(runs) && runs >= 30 && runs < 1500
     && Number.isFinite(timeout) && timeout > 0 && timeout <= RUN_TIMEOUT_MS;
+}
+
+/**
+ * Names WHICH precondition failed `cmdRun`'s Operator-continuation gate, or
+ * null when every one passed — one refusal path, one exit code, but the
+ * cause is no longer fused into a single string.
+ *
+ * A fused message ("admission, candidate metadata, test command, result path
+ * or timeout invalid") is identical for all eight causes, so a test asserting
+ * "this specific bad input is refused" passes even when the REAL cause was
+ * something else entirely (an unrelated watcher blocking admission, say) —
+ * it never actually exercised the input under test. Naming the cause turns
+ * that into a real assertion instead of a vacuous one.
+ */
+export function operatorRunRejectionReason({
+  admissionValid, candidateMetadataValid, argvMatches, resultPathValid,
+  supervisorClash, launchAllowed, dotenvSafe, noRelease,
+}) {
+  if (!admissionValid) return 'operator continuation admission is invalid';
+  if (!candidateMetadataValid) return 'candidate metadata is invalid';
+  if (!argvMatches) return 'the test command does not match the expected invocation';
+  if (!resultPathValid) return 'the result path is missing or already in use';
+  if (supervisorClash) return 'a supervisor clash (an active launch or a reused result path)';
+  if (!launchAllowed) return 'the launch budget or timeout is invalid';
+  if (!dotenvSafe) return 'a dotenv file is not scrubbed';
+  if (noRelease) return '--no-release was set';
+  return null;
 }
 
 export function operatorOutcomeCorroborated(candidate, launches, admissionHead) {
@@ -1497,7 +1525,13 @@ function authorizedBudget(root, journal) {
 /** The suffix that makes a stranded dotenv backup findable by the status checker. */
 export const DOTENV_BACKUP_SUFFIX = '.red-team-backup';
 
-/** A process serving or watching this worktree can execute a mutation under an unscrubbed env. */
+/**
+ * A process serving or watching THIS worktree can execute a mutation under an
+ * unscrubbed env. These patterns match by TEXT alone, machine-wide — a hit
+ * says nothing about which checkout the process is serving. Scoping a match
+ * down to this worktree is `findWorktreeWatchers`'s job (via `processServes`,
+ * which reads each match's process cwd), not this list's.
+ */
 export const WATCHER_PATTERNS = [
   /\bnext\s+dev\b/,
   /\bnext-server\b/,
@@ -1572,7 +1606,11 @@ export function assertLocalDatabaseUrl(value) {
 }
 
 /**
- * `ps -Ao pid=,command=` rows that look like a server or watcher on this tree.
+ * `ps -Ao pid=,command=` rows that look like a dev server or watch-mode
+ * process, by TEXT PATTERN alone, machine-wide. A match here does NOT mean
+ * the process is watching this worktree — it means its command line contains
+ * one of `WATCHER_PATTERNS`, full stop. Narrowing that down to processes that
+ * actually serve a given worktree is `findWorktreeWatchers`'s job.
  *
  * `ignorePids` excludes THIS process and its ancestors, and it is not an
  * optimisation. Measured on a real machine: the shell that invoked the check was
@@ -1606,6 +1644,53 @@ export function selfAncestry(startPid = process.pid) {
     pid = parent;
   }
   return pids;
+}
+
+/**
+ * The real `cwdOf` behind `processServes`: `pid`'s current working directory,
+ * read via `lsof`'s field output (`-Fn` prints an `n`-prefixed name line for
+ * the `cwd` file descriptor `-d cwd` selects). Returns the absolute path, or
+ * null when it cannot be determined — no `lsof`, the process is already gone,
+ * or the read otherwise failed.
+ */
+function processCwd(pid) {
+  const result = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' });
+  if (result.error || result.status !== 0) return null;
+  const line = (result.stdout ?? '').split('\n').find((entry) => entry.startsWith('n'));
+  return line ? line.slice(1) : null;
+}
+
+/**
+ * TRUE when `pid` actually serves the worktree at `root` — its cwd is `root`
+ * itself or a path underneath it — or when the cwd could not be read at all.
+ *
+ * FAILS CLOSED on an unreadable cwd. That is a DECISION, not a swallowed
+ * error: admission is a safety gate, so a process this check cannot classify
+ * must never become a silent permit — the opposite direction (treating
+ * "unknown" as "safe") is exactly the hole a fail-open check would leave.
+ *
+ * `cwdOf` is the injection seam: tests pass a fake pid->cwd lookup instead of
+ * spawning real processes or real `lsof`; production code takes the default.
+ */
+export function processServes(root, pid, cwdOf = processCwd) {
+  const cwd = cwdOf(pid);
+  if (cwd === null) return true;
+  const boundary = root.endsWith('/') ? root : `${root}/`;
+  return cwd === root || cwd.startsWith(boundary);
+}
+
+/**
+ * `findWatchers` narrowed to the matches that actually serve `root`.
+ *
+ * `findWatchers` matches by TEXT alone, machine-wide — a watcher serving an
+ * unrelated checkout must not block a mutation pass in THIS worktree, which
+ * is what made `validateOperatorAdmission` and `cmdWatchers` machine-global
+ * despite both claiming worktree scope. This is the seam that actually scopes
+ * them: `findWatchers` itself stays pure and untouched.
+ */
+export function findWorktreeWatchers(psOutput, ignorePids, root, cwdOf = processCwd) {
+  return findWatchers(psOutput, ignorePids)
+    .filter((line) => processServes(root, Number(line.split(/\s+/)[0]), cwdOf));
 }
 
 /**
@@ -1960,13 +2045,14 @@ function cmdEnv(root, parsed) {
   return 0;
 }
 
-function cmdWatchers(parsed) {
+function cmdWatchers(root, parsed) {
   const output = typeof parsed['ps-source'] === 'string'
     ? readFileSync(resolve(parsed['ps-source']), 'utf8')
     : (spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).stdout ?? '');
-  const matches = findWatchers(
+  const matches = findWorktreeWatchers(
     output,
     typeof parsed['ps-source'] === 'string' ? new Set() : selfAncestry(),
+    root,
   );
   if (matches.length === 0) {
     console.log('watchers: none — no dev server, watch worker, or E2E server is serving this worktree');
@@ -2059,8 +2145,9 @@ async function cmdRun(root, parsed) {
   if (requiresOperatorContinuation(root, journal)) {
     const proof = validateOperatorAdmission(root, journal);
     const timeout = Number(parsed.timeout ?? RUN_TIMEOUT_MS);
-    operatorMetadata = proof && ['baseline', 'mutant'].includes(parsed.phase)
-      && operatorRunMetadata(root, parsed, proof, journal, parsed.phase);
+    const phaseValid = ['baseline', 'mutant'].includes(parsed.phase);
+    const candidateMetadata = proof && phaseValid ? operatorRunMetadata(root, parsed, proof, journal, parsed.phase) : null;
+    operatorMetadata = candidateMetadata;
     const candidate = proof?.inventory.find((row) => row.id === parsed.candidate);
     const resultPath = typeof parsed.result === 'string' ? resolve(parsed.result) : null;
     const expectedArgv = ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run', candidate?.file, '--testNamePattern', parsed.selector,
@@ -2071,12 +2158,20 @@ async function cmdRun(root, parsed) {
       return journal.dotenv?.open === true && entry && existsSync(join(root, entry.backupPath))
         && sha256(readFileSync(join(root, path))) === entry.scrubbedSha256;
     });
-    if (!operatorMetadata || !operatorLaunchAllowed(journal.runs, timeout)
-      || !resultPath || existsSync(resultPath) || existsSync(`${resultPath}.supervisor.json`)
-      || journal.supervisors.some((entry) => entry.active === true || entry.resultPath === resultPath)
-      || JSON.stringify(argv) !== JSON.stringify(expectedArgv) || !dotenvSafe
-      || parsed['no-release'] === true) {
-      console.error('run: Operator continuation admission, candidate metadata, test command, result path or timeout invalid');
+    const resultPathValid = resultPath !== null && !existsSync(resultPath) && !existsSync(`${resultPath}.supervisor.json`);
+    const supervisorClash = journal.supervisors.some((entry) => entry.active === true || entry.resultPath === resultPath);
+    const rejection = operatorRunRejectionReason({
+      admissionValid: !!proof,
+      candidateMetadataValid: !!candidateMetadata,
+      argvMatches: JSON.stringify(argv) === JSON.stringify(expectedArgv),
+      resultPathValid,
+      supervisorClash,
+      launchAllowed: operatorLaunchAllowed(journal.runs, timeout),
+      dotenvSafe,
+      noRelease: parsed['no-release'] === true,
+    });
+    if (rejection) {
+      console.error(`run: refusing the launch — ${rejection}`);
       return 1;
     }
     parsed['tmp-home'] = join(root, '.feature', 'operator-continuation-home', parsed.candidate, String(parsed.attempt));
@@ -2433,7 +2528,7 @@ async function main(argv) {
   switch (command) {
     case 'round-start': return cmdRoundStart(root);
     case 'env': return cmdEnv(root, parsed);
-    case 'watchers': return cmdWatchers(parsed);
+    case 'watchers': return cmdWatchers(root, parsed);
     case 'escape-test-name': {
       const name = parsed._[0] ?? parsed.name;
       if (typeof name !== 'string') usage('escape-test-name needs -- <name>');

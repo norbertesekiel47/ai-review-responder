@@ -69,7 +69,9 @@
     "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
     "src/__tests__/ci-audit-wiring.test.ts",
     ".claude/reference/arch-review-log.md",
-    "scripts/ci/__tests__/gate-rows.test.ts"
+    "scripts/ci/__tests__/gate-rows.test.ts",
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts"
   ],
   "tests_to_add": [
     "finds a promised title spelled verbatim in the test source",
@@ -89,13 +91,16 @@
     "every src test that reads a doc at run time runs in the docs-only lane",
     "the lint job runs the doc-reading suites, and the lint job never skips",
     "verify-gate docs-only mode runs the same doc-reading suites as the lint job",
-    "counts the design-system doc pin as a doc-reading suite"
+    "counts the design-system doc pin as a doc-reading suite",
+    "admits an operator continuation while an unrelated checkout runs a dev server",
+    "refuses an operator continuation while a watcher serves this worktree",
+    "names the failing admission condition instead of one fused message"
   ],
   "verification_commands": [
     "pnpm vitest run scripts/ci/__tests__/red-team-status.test.ts"
   ],
-  "estimated_prod_lines": 190,
-  "estimated_test_lines": 360,
+  "estimated_prod_lines": 250,
+  "estimated_test_lines": 430,
   "dependencies_added": [],
   "rollback_plan": "Revert the pull request. Every change is developer tooling: no migration runs, no deployed surface changes, and no runtime code path moves. A revert restores the previous gate behavior on the next gate run with no cleanup.",
   "observability": [

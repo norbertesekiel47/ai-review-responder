@@ -2341,8 +2341,56 @@ describe('Operator same-round continuation safeguards', () => {
       operatorLegacyReconstruction: (id: string, original: string, from: string, to: string, mutant: string) => boolean;
       operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
       escapeTestName: (test: string) => string;
+      findWorktreeWatchers: (
+        psOutput: string, ignorePids: Set<number>, root: string, cwdOf?: (pid: number) => string | null,
+      ) => string[];
+      processServes: (root: string, pid: number, cwdOf?: (pid: number) => string | null) => boolean;
+      operatorRunRejectionReason: (input: {
+        admissionValid: boolean; candidateMetadataValid: boolean; argvMatches: boolean; resultPathValid: boolean;
+        supervisorClash: boolean; launchAllowed: boolean; dotenvSafe: boolean; noRelease: boolean;
+      }) => string | null;
     }>;
   }
+
+  // #1338-style regression: WATCHER_PATTERNS matches by TEXT alone, machine-
+  // wide. An unrelated checkout's dev server must never block admission for
+  // THIS worktree — that was the live defect, proven by neutralising the
+  // watcher expression to `false` and watching the giant fixture below pass.
+  it('admits an operator continuation while an unrelated checkout runs a dev server', async () => {
+    const { findWorktreeWatchers } = await helpers();
+    const pid = Number.MAX_SAFE_INTEGER - 101;
+    const psOutput = `${pid} node /unrelated/checkout/node_modules/.bin/next dev\n`;
+    const cwdOf = (candidate: number) => (candidate === pid ? '/unrelated/checkout' : null);
+    expect(findWorktreeWatchers(psOutput, new Set(), repo, cwdOf)).toEqual([]);
+  });
+
+  // The complementary case: narrowing to this worktree must not disarm the
+  // gate it narrows. A watcher whose cwd IS this worktree still blocks.
+  it('refuses an operator continuation while a watcher serves this worktree', async () => {
+    const { findWorktreeWatchers } = await helpers();
+    const pid = Number.MAX_SAFE_INTEGER - 102;
+    const psOutput = `${pid} node ${repo}/node_modules/.bin/next dev\n`;
+    const cwdOf = (candidate: number) => (candidate === pid ? repo : null);
+    const matches = findWorktreeWatchers(psOutput, new Set(), repo, cwdOf);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toContain('next dev');
+  });
+
+  it('names the failing admission condition instead of one fused message', async () => {
+    const { operatorRunRejectionReason } = await helpers();
+    const passing = {
+      admissionValid: true, candidateMetadataValid: true, argvMatches: true, resultPathValid: true,
+      supervisorClash: false, launchAllowed: true, dotenvSafe: true, noRelease: false,
+    };
+    const admissionReason = operatorRunRejectionReason({ ...passing, admissionValid: false });
+    const argvReason = operatorRunRejectionReason({ ...passing, argvMatches: false });
+    expect(operatorRunRejectionReason(passing)).toBeNull();
+    expect(admissionReason).not.toBeNull();
+    expect(argvReason).not.toBeNull();
+    expect(admissionReason).not.toBe(argvReason);
+    expect(admissionReason).toMatch(/admission/i);
+    expect(argvReason).toMatch(/test command/i);
+  });
 
   function historyFixture() {
     const inventory = Array.from({ length: 501 }, (_, index) => ({
@@ -2717,9 +2765,17 @@ describe('Operator same-round continuation safeguards', () => {
       return fixtureRun('run', ...metadata, '--phase', phase, '--result', result, ...runnerFlags, '--', 'pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run',
         'src/gate.test.ts', '--testNamePattern', 'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1', ...commandFlags);
     };
-    expect(launch('baseline', [], ['--reporter=default']).status).toBe(1);
+    // Each rejection is pinned to ITS OWN cause, not merely "some rejection
+    // happened" — a fused message made both of these pass vacuously whenever
+    // an unrelated watcher elsewhere blocked admission instead (see the two
+    // "operator continuation" watcher-scope tests above).
+    const argvMismatch = launch('baseline', [], ['--reporter=default']);
+    expect(argvMismatch.status, argvMismatch.stderr).toBe(1);
+    expect(argvMismatch.stderr).toContain('test command');
     write('.env.local', 'MOCK_EXTERNAL_APIS=false\n');
-    expect(launch('baseline').status).toBe(1);
+    const dotenvUnsafe = launch('baseline');
+    expect(dotenvUnsafe.status, dotenvUnsafe.stderr).toBe(1);
+    expect(dotenvUnsafe.stderr).toContain('dotenv');
     rmSync(join(repo, '.env.local'));
     expect(journal().runs).toBe(30);
     const baseline = launch('baseline');
