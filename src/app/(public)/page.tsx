@@ -6,7 +6,9 @@ import { LandingExperience } from '@/components/sections/landing/LandingExperien
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'RepWorth: The AI agent team for your reputation',
+  // The root layout's `title.template` appends ' · RepWorth', so this title
+  // carries no brand of its own (#1102).
+  title: 'The AI agent team for your reputation',
   description:
     'A supervised fleet of AI agents answers your Google reviews in your voice, asks your customers for new ones, briefs you every Monday, and keeps the score. Nothing posts outside the gate you control.',
 };

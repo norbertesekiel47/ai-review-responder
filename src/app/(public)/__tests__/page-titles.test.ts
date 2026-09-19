@@ -50,8 +50,10 @@ import { describe, expect, it } from 'vitest';
  * The predicate is "ends with the brand", not "ends with ' · RepWorth'": a
  * title ending in the bare word (`'Welcome to RepWorth'`) doubles it just as
  * loudly, and the two stubs that were wrong used `'| RepWorth'` rather than
- * the middot. A title that merely CONTAINS the brand is fine — the landing
- * page's `'RepWorth: Automated Google review responses'` is deliberate.
+ * the middot. A title that merely CONTAINS the brand still passes — a brand
+ * PREFIX doubles the brand too, and the landing page did exactly that until
+ * #1102 gave it a bare title. No page in the tree relies on that allowance
+ * now; the control cases below keep the limit stated rather than latent.
  */
 const APP_ROOT = join(process.cwd(), 'src', 'app');
 const ENDS_WITH_BRAND = /RepWorth\s*$/;
@@ -275,7 +277,10 @@ const files = metadataFiles(APP_ROOT);
  */
 const PAGE_MODULES = new Map<string, () => Promise<{ metadata: Metadata }>>(
   Object.entries(import.meta.glob('../**/page.tsx')).map(([key, load]) => [
-    `(public)/${key.replace(/^\.\.\//, '').replace(/\/page\.tsx$/, '')}`,
+    // The segment slash is optional so the group's OWN page — glob key
+    // `../page.tsx`, no segment in front of it — keys as `(public)` rather
+    // than `(public)/page.tsx`, which addressed nothing (#1102).
+    `(public)/${key.replace(/^\.\.\//, '').replace(/\/?page\.tsx$/, '')}`.replace(/\/$/, ''),
     // Vite types a glob loader as `() => Promise<unknown>`; every page module
     // matched here exports `metadata`, and the assertions below read it.
     load as () => Promise<{ metadata: Metadata }>,
@@ -366,7 +371,9 @@ describe('page titles do not repeat the brand the root template appends (#1078 B
     expect(ENDS_WITH_BRAND.test('Terms of Service | RepWorth')).toBe(true);
     expect(ENDS_WITH_BRAND.test('Welcome to RepWorth')).toBe(true);
     expect(ENDS_WITH_BRAND.test('Log in')).toBe(false);
-    expect(ENDS_WITH_BRAND.test('RepWorth: Automated Google review responses')).toBe(false);
+    // A brand PREFIX passes — the deliberate limit #1102 records. No page in
+    // the tree spells one today.
+    expect(ENDS_WITH_BRAND.test('RepWorth in the press')).toBe(false);
   });
 
   it('catches the page-17 spellings that are not a quoted literal after title:', () => {
@@ -401,13 +408,13 @@ export const metadata = { title: OWN_TITLE, description: OWN_TITLE };
       'src/app/(public)/e-title-object/page.tsx':
         "export const metadata = { title: { default: 'Object · RepWorth' } };\n",
       // Clean, and must stay clean: an unreadable specifier resolves to nothing
-      // rather than guessing, and the landing page's brand PREFIX is deliberate.
+      // rather than guessing, and a brand PREFIX is outside the predicate (#1102).
       'src/app/(public)/f-external/page.tsx': `import { SOME_TITLE } from 'some-package';
 
 export const metadata = { title: SOME_TITLE };
 `,
       'src/app/(public)/g-prefix/page.tsx':
-        "export const metadata = { title: 'RepWorth: Automated Google review responses' };\n",
+        "export const metadata = { title: 'RepWorth in the press' };\n",
     });
 
     expect(described).toEqual([
@@ -478,9 +485,29 @@ export const metadata = { title: SOME_TITLE };
     },
   );
 
-  it('the resolved-value table covers every page this change edited', () => {
+  it('the landing page title leaves the brand to the root template (#1102)', async () => {
+    // The predicate is suffix-only by design, so the landing page's former
+    // `'RepWorth: …'` PREFIX passed the scan while the tab still read
+    // 'RepWorth: … · RepWorth'. The predicate stays as it is; this pins the one
+    // page in the tree that used the allowance.
+    //
+    // A case rather than a `FIXED_PAGES` row: that table is pinned to #1078's
+    // sixteen, and a row asserts the title does not END with the brand — which
+    // the old prefix passed. The assertion this page needs is that the title
+    // does not SPELL the brand at all.
+    const { metadata } = await loadPage('(public)')();
+
+    expect(metadata.title).toBe('The AI agent team for your reputation');
+    expect(String(metadata.title)).not.toMatch(/RepWorth/);
+    expect(metadata.robots).toBeUndefined();
+  });
+
+  it('the resolved-value table covers every page #1078 edited', () => {
     // A hand-written table can only rot in one direction: silently losing a
-    // page. `allowed_edit_surface` fixed the count at sixteen.
+    // page. #1078's `allowed_edit_surface` fixed the count at sixteen. The
+    // landing page is a SEVENTEENTH page this file guards and deliberately not
+    // a row here — #1102 edited it, not #1078, and its own case above asserts
+    // more than a row can.
     expect(FIXED_PAGES).toHaveLength(16);
     expect(new Set(FIXED_PAGES.map(({ path }) => path)).size).toBe(16);
 

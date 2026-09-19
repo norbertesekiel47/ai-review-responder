@@ -117,7 +117,7 @@ async function selfHealImportOffer(locationId: string, accountId: string): Promi
  */
 type ScopeOutcome =
   | { ok: true; scope: Awaited<ReturnType<typeof resolveOwnerScope>> }
-  | { ok: false; response: Response };
+  | { ok: false; response: NextResponse };
 
 async function resolveScopeOrResponse(
   request: NextRequest,
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 }
 
-export const POST = withSameOrigin()(async (request: NextRequest): Promise<Response> => {
+export const POST = withSameOrigin()(async (request: NextRequest) => {
   const resolved = await resolveScopeOrResponse(request);
   if (!resolved.ok) return resolved.response;
   const { accountId, locationId } = resolved.scope;

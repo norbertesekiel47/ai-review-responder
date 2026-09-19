@@ -11,6 +11,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
+// Type-only imports of the three formerly opted-out route exports (#1327). These
+// are erased at runtime, so the route modules never load and no mock is needed;
+// `pnpm typecheck` is what reads them.
+import type { POST as ImportOfferPost } from '@/app/api/dashboard/import-offer/route';
+import type { POST as PastRepliesPublishPost } from '@/app/api/dashboard/past-replies/publish/route';
+import type { POST as PastRepliesDraftPost } from '@/app/api/dashboard/past-replies/draft/route';
+
 // ── Hoisted mock state ───────────────────────────────────────────────────────
 
 const { mockRequireRole } = vi.hoisted(() => ({
@@ -199,6 +206,35 @@ describe('withSameOrigin', () => {
 
     const res = await wrapped(makeReq(undefined, { origin: APP_URL }));
     expect(res.status).toBe(204);
+  });
+
+  // ── No wrapped route opts itself out (#1327) ────────────────────────────────
+  //
+  // TYPE-level, like the two cases above, and `pnpm typecheck` is what executes
+  // it. These three routes each annotated their handler `: Promise<Response>`,
+  // which pinned `TRes = Response` and kept the pre-#879 widened export even
+  // though every one of their return paths is a `NextResponse`. The fix belongs
+  // on the HANDLER's annotation, never a cast at the export (#865 deviation D5).
+  // NO `@ts-expect-error` here, and its ABSENCE is the assertion: re-adding any
+  // of the three annotations reintroduces TS2739 and fails the typecheck row.
+  //
+  // vitest cannot run these routes — all three modules reach the DB singleton at
+  // import — so this row has NO runtime subject. The expectation below is a
+  // placeholder on a freshly built array and can never fail; the row name says
+  // typecheck-only so nobody reads its green as runtime evidence. The two cases
+  // above each pair their type assertion with a real runtime one; this one cannot.
+  it('typecheck-only: leaves no wrapped dashboard route pinned to a bare Response', () => {
+    const importOffer: NextResponse = null as unknown as Awaited<
+      ReturnType<typeof ImportOfferPost>
+    >;
+    const publish: NextResponse = null as unknown as Awaited<
+      ReturnType<typeof PastRepliesPublishPost>
+    >;
+    const draft: NextResponse = null as unknown as Awaited<
+      ReturnType<typeof PastRepliesDraftPost>
+    >;
+
+    expect([importOffer, publish, draft]).toHaveLength(3);
   });
 });
 

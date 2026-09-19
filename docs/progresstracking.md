@@ -860,3 +860,103 @@ Feature #1293 merged as `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf` at 2026-09-15
 Matched post-merge deployments and [post-merge readback](runbooks/evidence/owner-operator-run-e-2026-09-15/postmerge-readback.json) passed at d4a96f3: Railway SUCCESS16:49:36.554Z, Vercel READY16:42:55.421Z with staging alias, `/ready` HTTP20016:49:55.515Z, PostgreSQL/both Redis OK and named flags unchanged (production Operator UNSET). This documentation closeout publishes the remaining records; GitHub retains its PR and merge identity.
 Architecture records 2→3 once for this feature; docs do not count. D docs #1292/30896acb closed the dependency;
 its shortened observation and human pilot/production decisions are unchanged.
+
+## 2026-09-19 — #1329 merged (#1337, squash `48ba6e4fb`): both release-scan fairness arms made exact; three red-team rounds
+
+**What shipped.** The **Release cycle**'s P4 candidate scan (`selectReleaseCandidates`,
+`src/lib/solicitation/release.ts`) is `ORDER BY approved_at ASC LIMIT 50` with both
+account-level gates evaluated AFTER it, so an account the cycle always refuses held
+candidate slots for its batches' whole 72h send window while every other account
+released zero. #900's `capped_accounts` closed that for one gate, approximately. Now
+both arms are exact:
+
+- `account_unentitled` (new): a correlated `NOT EXISTS` on `accounts` binding
+  `FULL_ACCESS_SUBSCRIPTION_STATUSES` — a new export in
+  `src/lib/shared/subscription-status.ts` over which `subscriptionGrantsFullAccess`
+  is now implemented. One owner, so SQL and TypeScript cannot disagree and `trialing`
+  cannot be starved.
+- `capped_accounts` (repaired): stops keying on `DEFAULT_DAILY_SEND_CAP_ACCOUNT`. The
+  cycle reads configured caps once per tick (`readResolvedAccountCaps`), resolves each
+  through `resolveAccountDailySendCap`, and binds `(account_id, cap)` pairs via
+  `unnest`; the arm compares `COUNT(*) >= COALESCE(r.cap, <resolver's null branch>)`.
+  `LEAST(configured, 10)` still has exactly one spelling, in TypeScript.
+
+Both exclusions are counted from the same `eligible` CTE in amendment B6's order — the
+second count carries `AND NOT account_capped`, so an account refused by both gates is
+ONE withhold under `account_cap` — and both survive a tick with zero candidate rows via
+the `LEFT JOIN … ON TRUE`.
+
+**Files.** `release.ts` (arms, `readResolvedAccountCaps`, `capBindArrays`, retained
+`readAccountDailySendCap`, second withhold count) · `subscription-status.ts` (+ the
+exported array) · `scripts/ci/tenant-scope-allowlist.ts` (+2 entries, `ALLOWLIST_BASELINE`
+380 → 382) · `release.integration.test.ts` (53 → 68 executed cases) ·
+`subscription-status.test.ts` (+1 pin). No migration, flag, dependency or new writer.
+
+**Two premises the review destroyed.**
+
+1. **#900 round 2's "unreachable today" was false at HEAD.** It deferred the sub-default
+   cap because "no TypeScript writes `daily_send_cap`". `upsertSolicitationAccountDefault`
+   (`src/lib/auto-approval/solicitation-settings.ts`) writes it via
+   `PATCH /api/settings/auto-approval`, `DailySendCapSchema` admits 1..50, and LOWERING
+   the dial is an exposure contraction that passes no readiness gate — so only the
+   autonomy flags stood between the gap and production. Found by building the tripwire
+   meant to guard the premise; it fired on the settings lane immediately, and was then
+   deleted as pointless once the arm became exact.
+2. **A snapshot cannot authorize a send.** The first cut ALSO deleted the per-account cap
+   read and served the gate from the tick's snapshot, arguing arm and gate could then
+   never disagree. Codex review showed the cost: nothing downstream re-checks the cap,
+   so an owner contracting the dial mid-tick was obeyed one tick late. The read stays.
+   The arm is a DISCOVERY bound; the gate is the AUTHORIZATION. The lane therefore issues
+   ONE statement more per tick, not fewer — three documents claimed the opposite and were
+   corrected. A second review axis simultaneously asked to finish the de-duplication,
+   which would have deepened the regression; reading the whole findings table before
+   fixing anything is what caught it.
+
+**Review: 4 axes, 3 red-team rounds, 16 findings.** Round 1 (wave): Codex `REVISE` + 2 P0,
+4 P1, 3 P2. Round 2 found **two new P0s in round 1's fixes** — `pnpm lint` broken by the
+fix itself (a dead import after both uses were replaced; `lint` is a required check), and
+the restored gate read's `WHERE` unpinned, where dropping `account_id` or
+`location_id IS NULL` each survived 66 green cases. Round 3 (owner-granted, because
+`round-start` caps rounds at two and round 2's fixes moved HEAD past the pass that
+reviewed them) held all 14 fixes and found one more P1 — in the orchestrator's own
+authorization entry, which failed the checker's schema. Final status CLEAR: 24 inventory
+rows, 15 fixed, 1 P2 open by choice (the duplicate-row `throw` guards a state migration
+074's unique index makes impossible).
+
+**Two tests that proved nothing, and how.** The "lockstep pin" derived its expectation
+from `subscriptionGrantsFullAccess`, which is now implemented OVER the array under test,
+so dropping `TRIALING` moved both sides and passed; it now pins against literals. The
+cap-gate case expected `released: 2` under the default `perTickBudget`, which is also 2,
+so the BUDGET satisfied the assertion; it now passes `perTickBudget: 10`. Reaching either
+per-account gate at all needs a mid-tick change, and the seam is subtle: `runAccountArm`
+reads the cap BEFORE counting attempts, so the cap case drives its change from a SIBLING
+account's count while the lapse case correctly uses its own. Five mutants were re-measured
+after fixing; each fails exactly the case named for it.
+
+**Staging.** Rode `staging` at `5d10e341b` before the PR. The worker booted and the
+release cycle logged `Release cycle complete` with `releasePhaseStoppedBy: null` and
+`itemFailures: 0` — so the scan actually ran, and the `unnest` bind with BOTH arrays
+empty (the production case) executed without error. Staging realigned to `main` after
+merge; `staging == main` at `48ba6e4fb`, zero drift.
+
+**Two process traps, both already documented as lab notes.** `gh pr checks` reported no
+failures while **no CI run existed at all** — the draft→ready transition raced the push
+and the surviving run carried `draft: true`, whose jobs skip; merging `origin/main`
+produced a `synchronize` event and the real run (all checks green, `test` included).
+And `red-team-status.mjs` binds its evidence to a TREE, so appending to the triage record
+after the final round broke the `reviewed` transition — everything except the sidecar must
+be committed before the last round opens.
+
+**Named residual.** These arms exclude ACCOUNT-level refusals only. A mid-drip
+`auto_policy` batch held by a failed auto condition still holds its slot until P2
+terminalizes it at 72h (`release.ts:1854`, `applyDowngradeSplit` returns `held` and
+changes nothing), so the candidate window is not generally starvation-free — a cursor or
+rotation is a separate ticket. `release.ts` is 2121 lines and `selectReleaseCandidates`
+its most complex function; extracting `release-candidates.ts` is justified and deferred
+because the tenant-scope allowlist is FILE-keyed and would re-key all seven release
+entries in a PR `refactor/616` is already touching.
+
+**Shipped with one known red row.** The local `pnpm test` fails one unrelated
+pre-existing case (`red-team-mutation-runner.test.ts`, filed as #1334) which passes in
+CI; the owner's call was to ship on CI's verdict for that row rather than mix a tooling
+fix into a high-risk solicitation PR. Every other local row was green.
