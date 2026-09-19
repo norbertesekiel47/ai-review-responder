@@ -13,10 +13,11 @@ Inspected both diffs against the shared base `eba43bcca`:
 - **Theirs** — ONE hunk at line 1799, 9 insertions / 9 deletions: three existing
   entries re-keyed from `worker/jobs/OnboardingDemoWorker.ts` to
   `worker/jobs/onboarding-demo/subscription-guard.ts`. The entry COUNT does not
-  move, so `ENTRY_COUNT_BASELINE` is untouched.
-- **Ours** — three regions: `ENTRY_COUNT_BASELINE` (~line 40), the
-  `RELEASE_CANDIDATE_SCAN_SQL` constant (~line 485), and one ADDED `accounts`
-  entry for that statement (~line 3212). The count moves by +1.
+  move, so `ALLOWLIST_BASELINE` is untouched.
+- **Ours** — three regions: `ALLOWLIST_BASELINE` (~line 279), the
+  `RELEASE_CANDIDATE_SCAN_SQL` constant (~line 485), and two ADDED entries
+  (`accounts` for the scan, `auto_approval_policies` for the new caps read). The
+  count moves by +2, 380 → 382.
 
 No textual overlap between the two sets of hunks. The only shared value is the
 baseline, and only ours moves it.

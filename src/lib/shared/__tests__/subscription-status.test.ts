@@ -70,21 +70,35 @@ describe('subscriptionGrantsFullAccess', () => {
 
 describe('FULL_ACCESS_SUBSCRIPTION_STATUSES', () => {
   // #1329: the Release cycle's candidate scan binds this array into SQL to
-  // exclude an unentitled account from the 50-row window. That arm is only safe
-  // because the array and the predicate are ONE owner — a status admitted by one
-  // and refused by the other either starves an account that may send or holds
-  // scan slots for one that may not. This pin is that lockstep, asserted over
-  // every canonical status rather than the two that happen to grant today.
+  // exclude an unentitled account from the 50-row candidate window. A status
+  // admitted by one of the two and refused by the other either starves an
+  // account that may send or holds slots for one that may not.
+  //
+  // THE MEMBERSHIP IS ASSERTED AGAINST LITERALS, NOT AGAINST THE PREDICATE, and
+  // that is the whole point of the case: `subscriptionGrantsFullAccess` is now
+  // IMPLEMENTED over this array, so deriving the expectation from the predicate
+  // made both sides move together — red-team round 1 dropped `TRIALING` from the
+  // array and the earlier version of this test still passed. The literals are
+  // the independent oracle; the loop below then proves the predicate agrees.
   it('FULL_ACCESS_SUBSCRIPTION_STATUSES holds exactly the statuses subscriptionGrantsFullAccess admits', () => {
-    const admitted = Object.values(SubscriptionStatus).filter((status) =>
-      subscriptionGrantsFullAccess(status),
-    );
-    expect([...FULL_ACCESS_SUBSCRIPTION_STATUSES]).toStrictEqual(admitted);
+    expect([...FULL_ACCESS_SUBSCRIPTION_STATUSES].sort()).toStrictEqual([
+      'active',
+      'trialing',
+    ]);
+    // Set equality, order-independent: the constant's docstring says the order
+    // is not meaningful, so a reorder must not red this test.
     for (const status of Object.values(SubscriptionStatus)) {
       expect(FULL_ACCESS_SUBSCRIPTION_STATUSES.includes(status)).toBe(
         subscriptionGrantsFullAccess(status),
       );
     }
+    // And the predicate still refuses the three non-members by name, so the
+    // agreement above cannot be satisfied by an empty array.
+    expect(subscriptionGrantsFullAccess(SubscriptionStatus.PAST_DUE)).toBe(false);
+    expect(subscriptionGrantsFullAccess(SubscriptionStatus.PENDING_PAYMENT)).toBe(false);
+    expect(subscriptionGrantsFullAccess(SubscriptionStatus.CANCELLED)).toBe(false);
+    expect(subscriptionGrantsFullAccess(SubscriptionStatus.ACTIVE)).toBe(true);
+    expect(subscriptionGrantsFullAccess(SubscriptionStatus.TRIALING)).toBe(true);
   });
 });
 

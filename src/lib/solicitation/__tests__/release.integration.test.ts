@@ -43,16 +43,31 @@ import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/hel
 // constraint no case here is about (#520).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// DELEGATING spies over the four collaborators whose FAILURE is the subject of
-// a case. Each forwards to the real implementation, so every other case runs
-// against real behaviour; a case that needs a failure overrides its own spy in
-// its own body.
+// DELEGATING spies over the collaborators whose FAILURE — or, for the last one,
+// whose MOMENT — is the subject of a case. Each forwards to the real
+// implementation, so every other case runs against real behaviour; a case that
+// needs a failure or an interleaving overrides its own spy in its own body.
+//
+// `countAccountDispatchAttemptsToday` is the fifth and is not about failure: it
+// is the only seam that fires AFTER the candidate scan and BEFORE the
+// per-account subscription gate, which is the window a mid-tick lapse has to
+// land in for that gate to be reachable at all (#1329). The scan excludes every
+// account that had already lapsed.
 const spies = vi.hoisted(() => ({
   readSendBreaker: vi.fn(),
   enqueueSolicitationSend: vi.fn(),
   completeRun: vi.fn(),
   isJudgeHealthy: vi.fn(),
+  countAccountDispatchAttemptsToday: vi.fn(),
 }));
+
+vi.mock('../send-caps', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../send-caps')>();
+  spies.countAccountDispatchAttemptsToday.mockImplementation(
+    actual.countAccountDispatchAttemptsToday,
+  );
+  return { ...actual, countAccountDispatchAttemptsToday: spies.countAccountDispatchAttemptsToday };
+});
 
 vi.mock('../send-breaker', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../send-breaker')>();
@@ -1225,13 +1240,95 @@ describeWithDb(
         // only** — an arm that used the STORED number would wait for 50 attempts
         // and re-open the starvation for exactly the accounts that asked for the
         // most volume.
+        //
+        // A HEALTHY COMPETITOR IS SEEDED so this case can only pass through the
+        // ARM: with `scanLimit: 1` the clamped account owns the older approval,
+        // so `released: 1` proves its batch was never a candidate. Without the
+        // competitor the per-account gate produced a byte-identical report and
+        // the case could not tell the two layers apart (round-1 review).
         await seedForeignCandidate(DEFAULT_DAILY_SEND_CAP_ACCOUNT);
         await seedSolicitationPolicy(50, foreignAccountId());
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch });
 
         const report = await cycle(sql(), { scanLimit: 1 });
 
-        expect(report.released).toBe(0);
+        expect(report.released).toBe(1);
         expect(report.withheldByReason.account_cap).toBe(1);
+        expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
+      });
+
+      it('reads the account-default policy row, never a location override', async () => {
+        // The arm's read is PLATFORM-WIDE, so `location_id IS NULL` is the only
+        // thing keeping a per-BUSINESS ceiling (091's column comment) out of the
+        // whole account's number. Drop that predicate and this account's cap
+        // becomes 1, which would exclude it from the scan on one attempt.
+        await seedForeignCandidate(1);
+        await seedSolicitationPolicy(10, foreignAccountId());
+        await sql()`
+          INSERT INTO auto_approval_policies (
+            id, account_id, location_id, persona, action_class,
+            veto_window_minutes, daily_send_cap
+          ) VALUES (
+            ${randomUUID()}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
+            'solicitation', 'sending', 30, 1
+          )
+        `;
+
+        const report = await cycle(sql(), { scanLimit: 1 });
+
+        // One attempt against the account default of 10: neither arm nor gate
+        // refuses, so the foreign batch releases and nothing is withheld.
+        expect(report.released).toBe(1);
+        expect(report.withheldByReason.account_cap).toBeUndefined();
+      });
+
+      it('releases only the remainder of a sub-default cap the account has partly spent', async () => {
+        // THE PER-ACCOUNT CAP GATE IS THE SUBJECT, and the fixture is built so
+        // the arm cannot stand in for it: three attempts against a configured
+        // five leaves the account OUT of `capped_accounts` (3 < 5), so every
+        // refusal here comes from the gate's `cap - attempts` arithmetic.
+        // Round-1 red team: with the gate reading the platform default instead
+        // of the configured cap, this releases 7 rows rather than 2, and before
+        // this case existed all 61 others stayed green.
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await seedSolicitationPolicy(5);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await seedOutreach({
+            batch,
+            deliveryStatus: 'queued',
+            queuedAgo: '5 minutes',
+            queuedWithinUtcDay: true,
+          });
+        }
+        // Four releasable rows, two of which the cap must refuse.
+        const rendered = [
+          await seedOutreach({ batch }),
+          await seedOutreach({ batch }),
+          await seedOutreach({ batch }),
+          await seedOutreach({ batch }),
+        ];
+
+        // `perTickBudget` above the remaining allowance ON PURPOSE: the default
+        // is RELEASE_PER_TICK_BUDGET = 2, which is also the answer this case
+        // expects, so the default would let the BUDGET satisfy the assertion and
+        // the cap gate could be deleted with the case still green. Measured: the
+        // first cut of this test reported `per_tick_budget`, not `account_cap`.
+        const report = await cycle(sql(), { perTickBudget: 10 });
+
+        expect(report.released).toBe(2);
+        expect(report.withheldByReason.account_cap).toBe(1);
+        // Sequential, never a Promise combinator: #773's admission chokepoint
+        // wraps `sql`, and a fan-out here would pipeline onto a busy connection.
+        const statuses: string[] = [];
+        for (const { outreachId } of rendered) {
+          statuses.push((await readOutreach(outreachId)).delivery_status);
+        }
+        expect(statuses.filter((status) => status === 'queued')).toHaveLength(2);
+        expect(statuses.filter((status) => status === 'rendered')).toHaveLength(2);
       });
 
       it('releases for an account that configured a cap it has not yet reached', async () => {
@@ -1339,6 +1436,59 @@ describeWithDb(
           (await readOutreach(lapsed.outreachId, foreignAccountId())).delivery_status,
         ).toBe('rendered');
         expect(await readSendJobs(lapsed.outreachId)).toHaveLength(0);
+      });
+
+      it.each(['pending_payment', 'cancelled'])(
+        'excludes a %s account from the candidate scan',
+        async (status) => {
+          // The intake's edge case names all three refused statuses; `past_due`
+          // has its own case above because its rows-survive claim is the one
+          // edge case 4 turns on. These two only have to be EXCLUDED, proven by
+          // the healthy competitor taking the single scan slot.
+          await seedLapsedForeignCandidate(status);
+          const batch = await seedBatch(approvedBatchInput());
+          await seedSendParent({ batch });
+          await seedSolicitationPolicy(10);
+          const { outreachId } = await seedOutreach({ batch });
+
+          const report = await cycle(sql(), { scanLimit: 1 });
+
+          expect(report.released).toBe(1);
+          expect(report.withheldByReason.subscription).toBe(1);
+          expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
+        },
+      );
+
+      it('refuses an account that lapses after the tick has already scanned it', async () => {
+        // THE PER-ACCOUNT SUBSCRIPTION GATE IS THE SUBJECT. The scan excludes
+        // every account that had lapsed when it ran, so the only way to reach
+        // this gate is to lapse BETWEEN the scan and the gate — which is also
+        // exactly why the gate must stay: the scan is a discovery bound, the gate
+        // is the authorization. Round-1 red team could delete this gate whole
+        // with all 61 cases still green.
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch });
+        // The attempts count is the seam: `runAccountArm` calls it for this
+        // account AFTER the scan committed its candidate list and BEFORE it reads
+        // the subscription. The lapse therefore lands inside the only window that
+        // reaches the gate.
+        const realCount = spies.countAccountDispatchAttemptsToday.getMockImplementation()!;
+        spies.countAccountDispatchAttemptsToday.mockImplementationOnce(
+          async (exec: postgresType.Sql, forAccountId: string) => {
+            const count = await realCount(exec, forAccountId);
+            await setSubscriptionStatus('cancelled');
+            return count;
+          },
+        );
+
+        const report = await cycle();
+
+        expect(report.released).toBe(0);
+        expect(report.withheldByReason.subscription).toBe(1);
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
       it('does not exclude a trialing account from the candidate scan', async () => {

@@ -77,7 +77,11 @@ import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { completeRun, recordStep } from '@/lib/agents/run-spine';
 import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
-import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import {
+  APPROVAL_METHOD,
+  POLICY_ACTION_SENDING,
+  POLICY_PERSONA_SOLICITATION,
+} from '@/lib/auto-approval/types';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
 import { isJudgeHealthy } from '@/lib/responses/judge-health';
@@ -1165,10 +1169,6 @@ interface ReleaseArmContext {
   scanLimit: number;
   report: ReleaseCycleReport;
   counters: ReleaseCounters;
-  /** The tick's ONE read of the per-account send caps, already resolved. The
-   *  scan's fairness arm and the per-account gate below share it, so they can
-   *  never disagree about one account's number (#1329). */
-  accountCaps: ResolvedAccountCaps;
   /** Only `failed` is folded — this phase's "handled" is `report.released`. */
   isolated: { failed: number };
   /** Read ONCE per tick and lazily; see its definition in `runReleasePhase`. */
@@ -1195,7 +1195,8 @@ async function runBatchArm(
   //      Autopilot tier, the policy row's presence and the account-wide
   //      Governor suspension. Subscription and the master send flag are NOT
   //      consulted here — B14/B15: the first is the recoverable `subscription`
-  //      withhold `runAccountArm` already applied, the second stopped the
+  //      withhold the SCAN's fairness arm already applied (and `runAccountArm`
+  //      re-applies for a lapse committed mid-tick), the second stopped the
   //      whole phase before any arm ran. This quick read is UNLOCKED and
   //      advisory; `applyAutoDowngrade` re-reads under the batch + account
   //      locks before anything is written, and a re-read that passes is a
@@ -1296,12 +1297,16 @@ async function runAccountArm(
   //    order matters and is silent when wrong: both gates refuse, only the
   //    reported reason lies, and the operator chases the wrong dial.
   //
-  //    The cap comes from the tick's ONE policy read, not a per-account query:
-  //    the scan's fairness arm already excluded the accounts this gate would
-  //    refuse, and it can only do that safely if it used this exact number
-  //    (#1329). Reaching here with a different one would mean the arm excluded
-  //    an account this gate would have let send.
-  const cap = resolvedCapFor(ctx.accountCaps, accountId);
+  //    THE CAP IS RE-READ HERE, not taken from the tick's discovery snapshot,
+  //    and both figures below are current-state reads for the same reason: this
+  //    gate AUTHORIZES sends and nothing downstream re-checks either number, so
+  //    an owner contracting the dial mid-tick must bind now rather than next
+  //    tick (Codex round-1 P2 on #1329). The scan's arm may therefore have used
+  //    a slightly older cap; `readResolvedAccountCaps` states why both
+  //    directions of that disagreement are safe.
+  const cap = resolveAccountDailySendCap({
+    dailySendCap: await readAccountDailySendCap(ctx.sql, accountId),
+  });
   ctx.counters.account = cap - (await countAccountDispatchAttemptsToday(ctx.sql, accountId));
   if (ctx.counters.account <= 0) {
     withhold(ctx.report, 'account_cap');
@@ -1311,6 +1316,11 @@ async function runAccountArm(
   // 5. Entitlement, never a raw equality against 'active' (invariant #11). A
   //    lapsed subscription is RECOVERABLE inside the send window: the rows stay
   //    `rendered`, so paying resumes the drip with no intervention.
+  //
+  //    THE SCAN'S ARM DOES NOT REPLACE THIS GATE. The arm excluded every account
+  //    that had lapsed when it ran; this read is what catches a lapse committed
+  //    between that scan and this authorization, and it is the reason the gate
+  //    survives #1329 rather than being deleted as unreachable.
   const status = await readAccountSubscriptionStatus(ctx.sql, accountId);
   if (!subscriptionGrantsFullAccess(status)) {
     withhold(ctx.report, 'subscription');
@@ -1400,9 +1410,16 @@ async function runReleasePhase(
     return judgeAvailability;
   };
 
-  // The per-account caps, ONCE per tick and BEFORE the scan, because the scan's
-  // fairness arm is a consumer of them. One read serves the arm and every
-  // per-account gate below, so the two cannot disagree (#1329).
+  // The configured caps, ONCE per tick and BEFORE the scan, because the scan's
+  // fairness arm is their only consumer (#1329). The per-account gate re-reads
+  // its own account's cap; this is a discovery snapshot, not the enforced number.
+  //
+  // DELIBERATELY OUTSIDE `isolateItem`, like the breaker and ceiling reads above
+  // and the scan below: it is a PHASE-level input, so a throw here fails the
+  // whole tick rather than one account. That is the right blast radius — an arm
+  // that cannot read the caps would silently under-exclude every account, which
+  // is the starvation this phase exists to prevent, and the poller's crash-net
+  // survives a transient Postgres failure and retries the next tick.
   const accountCaps = await readResolvedAccountCaps(sql);
 
   const scan = await selectReleaseCandidates(sql, bounds.scanLimit, accountCaps);
@@ -1468,7 +1485,6 @@ async function runReleasePhase(
     scanLimit: bounds.scanLimit,
     report,
     counters,
-    accountCaps,
     isolated,
     judgeAvailable,
     capacityExhausted,
@@ -1514,16 +1530,22 @@ async function runReleasePhase(
  *
  * **BOTH ARMS ARE EXACT, and neither re-derives a rule it does not own** — that
  * is what #1329 changed, and it is the whole reason they can be trusted to
- * remove work from the window. `unentitled_accounts` binds
+ * remove work from the window. The subscription arm — the inline `NOT EXISTS`
+ * projecting `account_unentitled`, not a CTE — binds
  * `FULL_ACCESS_SUBSCRIPTION_STATUSES`, the array
  * `subscriptionGrantsFullAccess` is itself implemented over, so a status added
  * to that predicate reaches this statement in the same edit. `capped_accounts`
- * takes its threshold from `resolvedCaps`, a bound parameter the CALLER computed
+ * takes its threshold from `resolved_caps`, a bound parameter the CALLER computed
  * by passing each stored cap through `resolveAccountDailySendCap` — so
  * `LEAST(configured, 10)` is still spelled exactly once, in TypeScript, and this
- * statement never guesses it. An account with no bound cap has no policy row,
- * and `COALESCE(r.cap, ${DEFAULT_DAILY_SEND_CAP_ACCOUNT})` is that account's
- * resolved cap by the same resolver's null branch.
+ * statement never guesses it. An account with no bound cap configured none, and
+ * the `COALESCE` default is bound from that same resolver's null branch rather
+ * than from the constant behind it, so the default has one owner too.
+ *
+ * "Exact" is a statement about the NUMBERS, not about the instant: both arms are
+ * exact against the state their reads saw. The per-account gates re-read current
+ * state and are the authorization; see `readResolvedAccountCaps` on why a
+ * disagreement inside one tick is safe in both directions.
  *
  * An account with NO `accounts` row is unentitled here, which is what the
  * TypeScript gate also concludes: `readAccountSubscriptionStatus` returns
@@ -1544,15 +1566,25 @@ async function runReleasePhase(
  * the gate B6 names first.
  *
  * Over-exclusion is still the defect to fear — it starves an account that may
- * send — and exactness is what rules it out: the arm now refuses exactly the
- * accounts the per-account gate refuses, on the same number.
+ * send — and exactness is what rules it out: each arm refuses exactly the
+ * accounts its per-account gate refuses, on the same number.
+ *
+ * **WHAT THESE ARMS DO NOT FIX** (Codex round-1 P2, pre-existing and filed
+ * separately): they exclude the two ACCOUNT-level refusals only. A batch-level
+ * refusal still holds its slot — an `auto_policy` batch past its first release
+ * whose auto conditions failed is HELD by `applyDowngradeSplit`, changing no
+ * state, so fifty such batches can occupy the oldest slots until P2 terminalizes
+ * them at 72h. Nothing here makes the candidate window generally starvation-free;
+ * that needs a cursor or a rotation, and it is a different ticket.
  *
  * The cap arm's counting basis is `queued_at` in the UTC day, matching
  * `countAccountDispatchAttemptsToday` including its trailing `AT TIME ZONE
  * 'UTC'` — that conversion is load-bearing, not redundant (see that function's
- * docstring). The two spellings must agree: the arm decides who never reaches
- * the gate, and the gate decides how much is left, so a drift between them is a
- * silent disagreement about the same account.
+ * docstring). That predicate is spelled twice, here and in `send-caps.ts`, and it
+ * stays that way: the arm needs it over EVERY account in one statement, the gate
+ * needs it for one account at the moment it authorizes. The two must agree, and a
+ * drift makes the arm exclude an account the gate would have served — visible as
+ * a tick reporting `account_cap` while the account could still send.
  *
  * **BOTH ARMS ALSO REPORT WHAT THEY EXCLUDED, and the shape of this statement is
  * what that costs** (round-2 finding on the silent `account_cap` counter). An
@@ -1568,13 +1600,14 @@ async function runReleasePhase(
  * drift, which is what this module refuses everywhere else.
  *
  * `COUNT(DISTINCT account_id)` over the EXCLUDED halves of `eligible`, not over
- * `capped_accounts`/`unentitled_accounts`: an account at its cap with nothing
- * releasable withheld nothing, and reporting it would make an idle tick look
- * cap-bound — the very confusion these counters remove.
+ * `capped_accounts` (nor over the subscription arm's boolean): an account at its
+ * cap with nothing releasable withheld nothing, and reporting it would make an
+ * idle tick look cap-bound — the very confusion these counters remove.
  *
  * **THE TWO COUNTS MIRROR B6's ORDER, and that is why the second one carries
  * `AND NOT account_capped`.** One account refused by both gates is ONE withhold
- * under the FIRST gate B6 names, exactly as `runAccountArm` reports it: counting
+ * under the FIRST gate B6 names, matching the order `runAccountArm` asks them in:
+ * counting
  * it twice would make a one-account tick read as two accounts blocked on two
  * different dials, and the operator would turn the wrong one.
  */
@@ -1583,12 +1616,7 @@ async function selectReleaseCandidates(
   scanLimit: number,
   accountCaps: ResolvedAccountCaps,
 ): Promise<ReleaseCandidateScan> {
-  // Bound as two parallel arrays because `unnest(a, b)` is how postgres.js can
-  // hand a Map to SQL at all. Empty is the common case — no account has
-  // configured a cap — and `unnest('{}', '{}')` yields no rows, so every account
-  // falls to the `COALESCE` default below.
-  const capAccountIds = [...accountCaps.keys()];
-  const capValues = capAccountIds.map((id) => accountCaps.get(id)!);
+  const { capAccountIds, capValues } = capBindArrays(accountCaps);
   const rows = await sql<ReleaseCandidateRow[]>`
     WITH resolved_caps AS (
       SELECT * FROM unnest(${capAccountIds}::uuid[], ${capValues}::int[])
@@ -1600,7 +1628,9 @@ async function selectReleaseCandidates(
         LEFT JOIN resolved_caps r ON r.account_id = o.account_id
        WHERE o.queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
        GROUP BY o.account_id, r.cap
-      HAVING COUNT(*) >= COALESCE(r.cap, ${DEFAULT_DAILY_SEND_CAP_ACCOUNT})
+      HAVING COUNT(*) >= COALESCE(
+               r.cap, ${resolveAccountDailySendCap({ dailySendCap: null })}
+             )
     ),
     eligible AS (
       SELECT b.id, b.account_id, b.business_id, b.approval_method, b.approved_at,
@@ -1688,6 +1718,30 @@ async function selectReleaseCandidates(
   };
 }
 
+/**
+ * The resolved caps as two parallel arrays, which is how `unnest(a, b)` lets
+ * postgres.js hand a Map to SQL at all.
+ *
+ * BOTH EMPTY IS THE PRODUCTION CASE: `readResolvedAccountCaps` returns only the
+ * accounts that configured a dial, and none has. `unnest('{}', '{}')` yields no
+ * rows, so every account falls to the `COALESCE` default — the same number the
+ * resolver's null branch gives, bound from the resolver itself.
+ *
+ * Built by one pass over `entries()` rather than `keys()` plus a lookup, so the
+ * two arrays cannot drift in length or order and no non-null assertion is needed.
+ */
+function capBindArrays(
+  accountCaps: ResolvedAccountCaps,
+): { capAccountIds: string[]; capValues: number[] } {
+  const capAccountIds: string[] = [];
+  const capValues: number[] = [];
+  for (const [accountId, cap] of accountCaps) {
+    capAccountIds.push(accountId);
+    capValues.push(cap);
+  }
+  return { capAccountIds, capValues };
+}
+
 /** Insertion-ordered, so the oldest approval still leads inside each account. */
 function groupByAccount(
   batches: readonly ReleaseCandidateBatch[],
@@ -1702,37 +1756,65 @@ function groupByAccount(
 }
 
 /**
- * Every account-level solicitation send cap, RESOLVED, read ONCE per tick.
+ * Every CONFIGURED account-level solicitation send cap, RESOLVED, read ONCE per
+ * tick — the fairness arm's threshold, and nothing else's.
  *
- * Cross-account by the same necessity as the scan it feeds: the fairness arm
- * must know every account's cap before it can decide which accounts may hold
- * candidate slots, and a per-account formulation would have to read the list of
- * accounts cross-account first. Projects an account id and one small integer —
- * no policy provenance, no other dial.
+ * Cross-account by the same necessity as the scan it feeds: the arm must know
+ * every account's cap before it can decide which accounts may hold candidate
+ * slots, and a per-account formulation would have to read the list of accounts
+ * cross-account first. Projects an account id and one small integer — no policy
+ * provenance, no other dial.
  *
  * **IT RESOLVES IN TYPESCRIPT, WHICH IS WHY THE SQL ARM CAN BE EXACT.** Every
  * row goes through `resolveAccountDailySendCap`, so `LEAST(configured, 10)` has
- * exactly one spelling in the codebase and both the scan and the per-account
- * gate consume its output rather than re-deriving it. An account with no row is
- * ABSENT from the map, not zero: `resolvedCapFor` sends it through the same
- * resolver's null branch.
+ * exactly one spelling in the codebase and the arm consumes its output rather
+ * than re-deriving it.
  *
- * The four predicates are the account-default row's identity, and they match
+ * **IT IS A DISCOVERY SNAPSHOT, NOT THE ENFORCED NUMBER** (Codex round-1 P2).
+ * `runAccountArm` re-reads that one account's cap at the gate, because the gate
+ * AUTHORIZES sends and nothing downstream re-checks the dial — the releaser is
+ * the single chokepoint (amendment B3). So an owner contracting the cap mid-tick
+ * binds at the gate immediately instead of one tick later. The two reads may
+ * therefore disagree inside one tick, and BOTH directions are safe: a snapshot
+ * that is HIGH hands the account to a gate that refuses it, and one that is LOW
+ * delays the account by a single tick, after which the next snapshot carries the
+ * new number. A single owner of the CALCULATION does not require a single
+ * OBSERVATION of mutable data.
+ *
+ * `daily_send_cap IS NOT NULL` changes no result and is not an optimization: a
+ * NULL stored cap resolves to the resolver's null branch, which is exactly the
+ * `COALESCE` default an absent row already receives. It keeps the read to the
+ * accounts that actually configured a dial — none, in production today.
+ *
+ * The three predicates are the account-default row's identity (`account_id` is
+ * deliberately absent — this read is platform-wide), and they match
  * `loadSolicitationAccountDefault` (`src/lib/auto-approval/solicitation-settings.ts`),
- * the module that WRITES this row. Two spellings of one row's identity is the
- * drift to watch here; the settings module owns the write, this owns the send
- * lane's read, and they must select the same row.
+ * the module that WRITES this row, constant for constant. Two spellings of one
+ * row's identity is the drift to watch here; the settings module owns the write,
+ * this owns the send lane's read, and they must select the same row. Dropping
+ * `location_id IS NULL` would let a location-OVERRIDE cap — 091's column comment
+ * calls it the per-business ceiling — become the whole account's number.
  */
 async function readResolvedAccountCaps(sql: Sql): Promise<ResolvedAccountCaps> {
   const rows = await sql<AccountSendPolicyRow[]>`
     SELECT account_id, daily_send_cap
       FROM auto_approval_policies
-     WHERE persona = 'solicitation'
-       AND action_class = 'sending'
+     WHERE persona = ${POLICY_PERSONA_SOLICITATION}
+       AND action_class = ${POLICY_ACTION_SENDING}
        AND location_id IS NULL
+       AND daily_send_cap IS NOT NULL
   `;
   const resolved = new Map<string, number>();
   for (const row of rows) {
+    // Migration 074's `auto_approval_policies_one_account_default` partial
+    // unique index makes a second account-default row impossible, so a duplicate
+    // here is a broken invariant, not a value to choose between. Keeping the
+    // last row silently would hand the arm an arbitrary cap.
+    if (resolved.has(row.account_id)) {
+      throw new Error(
+        `two solicitation account-default policy rows for account ${row.account_id}`,
+      );
+    }
     resolved.set(
       row.account_id,
       resolveAccountDailySendCap({ dailySendCap: row.daily_send_cap }),
@@ -1741,11 +1823,21 @@ async function readResolvedAccountCaps(sql: Sql): Promise<ResolvedAccountCaps> {
   return resolved;
 }
 
-/** One account's enforced cap. An account absent from the map has no policy row,
- *  which is the resolver's own null branch — spelled here rather than duplicated
- *  as a bare constant, so the default has one owner too. */
-function resolvedCapFor(caps: ResolvedAccountCaps, accountId: string): number {
-  return caps.get(accountId) ?? resolveAccountDailySendCap({ dailySendCap: null });
+/** The account-level solicitation policy row, read at the GATE for the one
+ *  account being authorized. NULL — no row, or no configured cap — resolves to
+ *  the platform default inside `resolveAccountDailySendCap`. Deliberately NOT
+ *  served from the tick's snapshot; `readResolvedAccountCaps` says why. */
+async function readAccountDailySendCap(sql: Sql, accountId: string): Promise<number | null> {
+  const [row] = await sql<AccountSendPolicyRow[]>`
+    SELECT account_id, daily_send_cap
+      FROM auto_approval_policies
+     WHERE account_id = ${accountId}::uuid
+       AND persona = ${POLICY_PERSONA_SOLICITATION}
+       AND action_class = ${POLICY_ACTION_SENDING}
+       AND location_id IS NULL
+     LIMIT 1
+  `;
+  return row?.daily_send_cap ?? null;
 }
 
 async function readAccountSubscriptionStatus(
