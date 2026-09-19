@@ -33,14 +33,19 @@ type WrappedNextHandler<TArgs extends unknown[] = [], TRes extends Response = Re
  * NextResponse handler stays narrowable, and a `@ts-expect-error` case asserts a
  * bare-Response handler is NOT, so re-pinning `TRes` fails the typecheck row.
  *
- * A HANDLER OPTS OUT BY ANNOTATING ITSELF. `TRes` is inferred, so a handler
- * declared `: Promise<Response>` pins `TRes = Response` and keeps the old widened
- * export — THREE wrapped handlers do exactly that today (#1327), and all three
- * return `NextResponse` on every path, so the annotation is stale rather than
- * deliberate. The fix is the HANDLER's annotation, never a cast at the export
- * (that was #865 D5's mistake): drop it and let `TRes` infer, or annotate
- * `: Promise<NextResponse>`. Counting this by grepping `: Promise<Response>`
- * under src/app/api overcounts to ten — the other seven are GETs or inline
+ * A HANDLER OPTS ITSELF OUT TWO WAYS, and both are inference, not the wrapper.
+ * (a) The handler ANNOTATES ITSELF `: Promise<Response>`, which pins
+ * `TRes = Response`. (b) A guard type the handler returns from declares
+ * `response: Response`, which puts a bare `Response` in the inferred union and
+ * widens it just as hard — dropping the annotation alone does not fix that one.
+ * Three wrapped handlers opted out via (a), and import-offer's local
+ * `ScopeOutcome` also via (b); #1327 closed all four, so NO wrapped handler is
+ * pinned today. The fix is always the HANDLER's own types, never a cast at the
+ * export (that was #865 D5's mistake): drop the annotation and let `TRes` infer,
+ * or annotate `: Promise<NextResponse>`. `route-helpers.test.ts` holds the three
+ * routes to `NextResponse` by type assertion, so a re-added annotation fails the
+ * typecheck row. Counting opt-outs by grepping `: Promise<Response>` under
+ * src/app/api overcounts to ten — the other seven are GETs or inline
  * `assertSameOrigin` callers that this wrapper never wraps.
  */
 export function withSameOrigin(): <TArgs extends unknown[], TRes extends Response>(
