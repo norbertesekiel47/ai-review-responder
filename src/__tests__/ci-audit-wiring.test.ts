@@ -236,3 +236,179 @@ describe('live-DB lane is gated in CI', () => {
     expect(pkg.scripts['test:coverage']).toBe('vitest run --coverage');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Doc-reading src/__tests__ suites are wired into the docs-only lane (#1199).
+//
+// ci.yml's `test` job skips entirely on a docs-only PR. Its premise was "no
+// unit test reads docs/** or *.md at run time" — true when that condition
+// landed, false the day design-doc-token-pin.test.ts started reading three
+// DESIGN.md files. #1199's fix named that suite plus reference-shape.test.ts
+// and claude-md-shape.test.ts (which already read docs) and moved all three
+// into ci.yml's `lint` job (which never skips) and a `doc-shape` row in
+// scripts/verify-gate.sh's docs-only mode.
+//
+// A hardcoded list of three suites would repeat the exact failure this ticket
+// is about: a claim about "every doc-reading test" going stale the next time
+// one is added. So this DERIVES the candidate set — every src/__tests__ suite
+// with a string literal naming a doc path — and forces each one to be either
+// wired into BOTH docs-only lanes or excused with a reason, the same
+// two-column idiom as UNGATED_BY_DESIGN / CI_ONLY_BY_DESIGN above.
+
+const TESTS_DIR = join(ROOT, 'src', '__tests__');
+
+/**
+ * Every quoted string/template literal's content in `text`, with block and
+ * line comments matched (and discarded) alongside them in the SAME
+ * alternation. Two things break a naive "just match quotes" version:
+ *
+ *   - A single/double-quoted JS string can never contain a raw newline, so
+ *     excluding \n from those two character classes stops an unescaped
+ *     apostrophe in a comment ("doesn't", "the file's") from opening a
+ *     "string" that swallows the rest of the source hunting its next quote.
+ *   - A comment can quote a doc path in backticks as a markdown-style code
+ *     span (this very docblock does, two paragraphs up) — indistinguishable
+ *     from a real template literal unless comments are matched FIRST in the
+ *     same left-to-right scan, so their contents are consumed as a comment
+ *     and never separately offered to the template-literal alternative.
+ */
+function stringLiterals(text: string): string[] {
+  const re =
+    /\/\*[\s\S]*?\*\/|\/\/[^\n]*|'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g;
+  const out: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const literal = match[1] ?? match[2] ?? match[3];
+    if (literal !== undefined) out.push(literal);
+  }
+  return out;
+}
+
+/**
+ * A literal that names a repo doc: a `docs/`/`.claude/` path, or a token
+ * ending `.md` — wherever it sits inside the literal. A failure message
+ * embeds the path mid-sentence rather than as the whole literal
+ * (design-token-single-source.test.ts:217: "... (docs/brand-asset-library/
+ * design-systems/README.md rule 2)."), so this looks for the token, not for
+ * the literal itself being the path.
+ */
+function mentionsDocPath(literal: string): boolean {
+  return /(^|[\s(])(docs\/|\.claude\/)/.test(literal) || /\.md(?:[\s).,:;]|$)/.test(literal);
+}
+
+/**
+ * Every `src/__tests__/*.test.ts` file with a string literal naming a doc
+ * path — the candidate set #1199's fix has to account for, one way or the
+ * other. Repo-relative paths, sorted.
+ */
+function docReadingCandidates(): string[] {
+  return readdirSync(TESTS_DIR)
+    .filter((entry) => entry.endsWith('.test.ts'))
+    // This file itself is the scanner, not a candidate — and scanning it is
+    // actively wrong: `stringLiterals` is a regex-based scanner blind to JS
+    // REGEX literals (`/pattern/flags`), and the quote characters inside this
+    // very file's own `stringLiterals`/`mentionsDocPath` regex source
+    // (`'`, `"`, `` ` ``) would otherwise be misread as opening real string
+    // literals, corrupting the scan of everything after them.
+    .filter((entry) => entry !== 'ci-audit-wiring.test.ts')
+    .filter((entry) =>
+      stringLiterals(readFileSync(join(TESTS_DIR, entry), 'utf-8')).some(mentionsDocPath),
+    )
+    .map((entry) => `src/__tests__/${entry}`)
+    .sort();
+}
+
+/**
+ * Candidates that mention a doc path but do not READ one at run time. Each
+ * needs a reason: the default reading of an unexplained mention is "this
+ * suite reads a doc and the docs-only lane must run it."
+ */
+const NOT_DOC_READING: Record<string, string> = {
+  // Reads CSS only (globals.css, tokens.css, page CSS via helpers/css-tokens);
+  // the docs path sits inside an `expect(actual, message)` failure string
+  // pointing a future reader at the design-system README — never a
+  // `readFileSync` argument.
+  'src/__tests__/design-scope-purity.test.ts':
+    'names a docs path inside a FAILURE MESSAGE, not a read',
+  // Same shape: reads globals.css / tokens.css / theme.css / console.css and
+  // friends; every docs/ mention here is quoted inside failure-message text.
+  'src/__tests__/design-token-single-source.test.ts':
+    'names a docs path inside a FAILURE MESSAGE, not a read',
+};
+
+/** Every `src/__tests__/*.test.ts` path literally named in `text`. */
+function testPathsNamedIn(text: string): string[] {
+  return [...new Set(text.match(/src\/__tests__\/[\w.-]+\.test\.ts/g) ?? [])].sort();
+}
+
+/**
+ * `text` with whole-line `#` comments removed. Same reasoning as `jobBlock`
+ * above: prose describing a suite must never satisfy a check for running it.
+ */
+function withoutHashComments(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
+
+const lintDocSuitePaths = testPathsNamedIn(jobBlock('lint'));
+const verifyGateDocSuitePaths = testPathsNamedIn(
+  withoutHashComments(readFileSync(join(ROOT, 'scripts', 'verify-gate.sh'), 'utf-8')),
+);
+
+describe('doc-reading src/__tests__ suites are wired into the docs-only lane (#1199)', () => {
+  const candidates = docReadingCandidates();
+
+  it('finds candidates to check — a suite mentioning docs/, .claude/, or *.md', () => {
+    // A floor, not a count: if this collapsed to 0, every assertion below
+    // would be vacuously true — the exact failure shape #1199 itself was.
+    expect(candidates.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(candidates)(
+    'every src test that reads a doc at run time runs in the docs-only lane',
+    (file) => {
+      const wired = lintDocSuitePaths.includes(file) && verifyGateDocSuitePaths.includes(file);
+      const excused = file in NOT_DOC_READING;
+      // A candidate in neither column is exactly #1199: a suite that reads a
+      // doc at run time but that a docs-only PR never runs.
+      expect({ file, wired, excused }).toEqual({ file, wired: !excused, excused });
+    },
+  );
+
+  it('excuses only files that still mention a doc path in a string literal', () => {
+    // Mirrors "excuses only scripts that exist" above: a NOT_DOC_READING entry
+    // for a file that no longer mentions a doc path is a stale excuse.
+    expect(candidates).toEqual(expect.arrayContaining(Object.keys(NOT_DOC_READING)));
+  });
+
+  it('the lint job runs the doc-reading suites, and the lint job never skips', () => {
+    const lint = jobBlock('lint');
+    expect(lint).toMatch(/run:\s*pnpm vitest run\b/);
+    for (const file of candidates.filter((c) => !(c in NOT_DOC_READING))) {
+      expect(lint).toContain(file);
+    }
+    // The draft-PR gate (next to `changes`) is the only condition `lint` may
+    // carry — never a docs-only skip. That is the entire reason the
+    // doc-reading suites run here instead of in `test`.
+    expect(lint).not.toMatch(/needs\.changes\.outputs\.docs_only/);
+  });
+
+  it('verify-gate docs-only mode runs the same doc-reading suites as the lint job', () => {
+    expect(lintDocSuitePaths.length).toBeGreaterThanOrEqual(3);
+    // Equal, not "both non-empty": the two docs-only lanes must never drift.
+    expect(verifyGateDocSuitePaths).toEqual(lintDocSuitePaths);
+  });
+
+  it('counts the design-system doc pin as a doc-reading suite', () => {
+    // #1199 named reference-shape.test.ts and claude-md-shape.test.ts but
+    // missed this one — a regression that drops it again must fail BY NAME,
+    // not merely as a count mismatch elsewhere in this file.
+    const file = 'src/__tests__/design-doc-token-pin.test.ts';
+    expect(candidates).toContain(file);
+    expect(NOT_DOC_READING[file]).toBeUndefined();
+    expect(lintDocSuitePaths).toContain(file);
+    expect(verifyGateDocSuitePaths).toContain(file);
+  });
+});

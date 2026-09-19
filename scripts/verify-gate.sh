@@ -378,6 +378,16 @@ if [ "$DOCS_ONLY" = false ]; then
   else
     launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
   fi
+else
+  # #1199: docs-only mode skips the `test` row above (ci.yml's `test` job
+  # comment carries the same reasoning), but three src/__tests__ suites read a
+  # doc at RUN TIME (DESIGN.md tables, CLAUDE.md, the reference/rules/context/
+  # directory tree) and can bust a documentation shape cap on a docs-only
+  # branch. Run them here so such a branch can never go green silently. Keep
+  # this path list in lockstep with ci.yml's `lint` job "Run doc-reading test suites"
+  # step — src/__tests__/ci-audit-wiring.test.ts derives every doc-reading
+  # suite from source and fails if the two lanes diverge.
+  launch doc-shape pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
@@ -655,7 +665,8 @@ if [ "$FAST_MODE" = true ]; then
 fi
 if [ "$DOCS_ONLY" = true ]; then
   echo "  (docs-only mode: every changed path is docs/, .claude/, or *.md —"
-  echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped)"
+  echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped;"
+  echo "   doc-shape runs the src/__tests__ suites that read a doc at run time)"
 fi
 for i in "${!NAMES[@]}"; do
   printf '  %-24s %s\n' "${NAMES[$i]}" "${RESULTS[$i]}"

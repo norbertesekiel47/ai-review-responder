@@ -169,6 +169,15 @@ jobs:
         run: pnpm lint
       - name: Run typecheck
         run: pnpm typecheck
+      # #1199: the `test` job below skips entirely on a docs-only PR, but these
+      # three suites read a doc at RUN TIME (DESIGN.md tables, CLAUDE.md,
+      # .claude/rules + docs/context + docs/directory) and can bust a
+      # documentation shape cap. `lint` never skips, so they run here instead.
+      # Keep this path list in lockstep with scripts/verify-gate.sh's
+      # docs-only `doc-shape` row — src/__tests__/ci-audit-wiring.test.ts
+      # derives every doc-reading suite and fails if the two sets diverge.
+      - name: Run doc-reading test suites (run here because `test` skips docs-only PRs)
+        run: pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts
       - name: Run tenant scope audit
         run: pnpm ci:tenant-scope
       - name: Run analytics events audit
@@ -237,11 +246,15 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
-    # Docs-only PRs skip the whole job: no unit test reads docs/** or *.md at
-    # run time (verified when this gate landed — the guards in src/__tests__
-    # read package.json/workflows/lefthook, and the audits that DO scan docs
-    # run in `lint`, which never skips). If a doc-reading test ever appears,
-    # this condition must learn about it.
+    # Docs-only PRs skip this whole job. That is safe only because every
+    # src/__tests__ suite that reads a doc at run time (DESIGN.md tables,
+    # CLAUDE.md, the reference/rules/context/directory tree) runs in `lint`
+    # instead (see its "Run doc-reading test suites" step above), and `lint`
+    # never skips. src/__tests__/ci-audit-wiring.test.ts derives that suite
+    # list from source and fails if a new doc-reading suite appears here
+    # without also being wired into `lint` and verify-gate.sh's docs-only
+    # `doc-shape` row (#1199 — this exact comment used to claim the opposite
+    # and go stale the day a doc-reading suite was added without updating it).
     if: needs.changes.outputs.docs_only != 'true'
     # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
     # and other *.integration.test.ts) actually runs instead of self-skipping.
