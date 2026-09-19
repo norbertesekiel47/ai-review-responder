@@ -26,3 +26,4 @@ column is for.
 
 | Date | PR | Lane | Risk | Lead | Minutes | Repairs | Named debt | Found later |
 |---|---|---|---|---|---|---|---|---|
+| 2026-09-19 | 1322 | small | normal | claude/opus | 25 | 1 | Title-guard residual: the removed assertion was file-wide, its replacement is title-scoped, so a stray brand suffix outside a title is now unguarded. Pre-existing rename class in `reclassify_bucket` (a leading `{` defeats the prefix match) left as found. | pending — check 2026-09-26 and 2026-10-19 |
