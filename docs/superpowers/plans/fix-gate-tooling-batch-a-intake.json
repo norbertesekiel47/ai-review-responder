@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "A /feature gate run reports what is actually true: the promised-tests row stops under-reporting on quoted titles, an armed worktree's step ladder matches its own intake, and a docs-only change still runs every suite that reads a doc.",
+  "non_goals": [
+    "Changing what the verify gate checks, beyond the three defects named here.",
+    "Adding a retry or a rerun to any flaky check.",
+    "Reworking the red-team sidecar, the review wave, or the gate loop budget.",
+    "Extending ci:feature-surface, ci:merge-ledger, or any other ci:* audit script.",
+    "Backfilling the 40 existing single-quoted test titles that escape an apostrophe.",
+    "Un-skipping ci.yml's test job on docs-only pull requests."
+  ],
+  "user_visible_behavior": [
+    "verify-gate.sh's promised-tests row finds a tests_to_add title whose source spelling escapes a quote, so the row goes red only when a test is genuinely absent.",
+    "feature-setup.sh carries the parent checkout's ladder only when its axes match the locked intake and it is no older than that intake; otherwise it keeps the intake stub and prints the reason.",
+    "arm-check.sh's ladder message no longer claims a carry outcome it does not decide.",
+    "arm-check.sh refuses to arm, naming the field, when the intake's size, risk, or surface is absent or not one of the declared values, instead of silently defaulting to standard/normal/backend.",
+    "ci.yml's lint job runs the doc-reading guard suites, so a docs-only pull request that busts a documentation shape cap fails.",
+    "verify-gate.sh's docs-only mode runs the same doc-reading suites as the lint job.",
+    "A new src test that reads a doc at run time fails the wiring guard until it is added to both docs-only lanes."
+  ],
+  "invariants": [
+    "The promised-tests row can still only fail when a promised title is absent from every searched root; normalization never makes an absent title match.",
+    "A gate row name stays one status slot, one log file, and one coverage directory (#696).",
+    "lefthook.yml continues to mirror every ci:* audit the lint job runs, as src/__tests__/ci-audit-wiring.test.ts enforces (#590).",
+    "The docs-only short-circuit stays intact: a docs diff still skips the full test job, the build, promised-tests, reclassify, and diff-coverage.",
+    ".feature/intake.json stays the authoritative record of a run's axes; the ladder never overrides it.",
+    "The intake stays gitignored at .feature/ and committed only as the docs/superpowers/plans audit copy (#512)."
+  ],
+  "edge_cases": [
+    "A promised title containing both an apostrophe and a quotation mark: the matcher tries the verbatim spelling and each single-character escape spelling, so either source quoting style matches.",
+    "A promised title containing a literal backslash: the verbatim spelling still matches, because normalization adds candidate spellings and never rewrites the searched files.",
+    "A promised title that is genuinely absent: every candidate spelling misses, and the row reports it missing, as today.",
+    "Steps 0 and 1 legitimately run on main while the worktree is on the feature branch, so the carry decision must not compare branches.",
+    "No parent ladder exists at all: arm-check's stub stands and feature-setup prints nothing about a carry.",
+    "The parent ladder exists but predates the locked intake (a merged earlier run): the carry is refused and the stub stands.",
+    "The parent ladder's axes match the intake and its timestamp is newer: the carry proceeds exactly as today.",
+    "An intake whose risk is an object rather than a string: arm-check fails loudly naming the field instead of reading normal.",
+    "A docs-only change that touches no doc a guard suite reads: the doc-reading suites run anyway and pass; they are fast file reads.",
+    "A future fourth doc-reading suite: the wiring guard fails until it appears in ci.yml's lint job and in verify-gate.sh."
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/gate-rows.sh — the sourceable-helper seam for bash logic the gate needs and a test must exercise without running the gate; its header states the rationale.",
+    "scripts/ci/__tests__/gate-rows.test.ts — sources the helper under the gate's own shell flags and calls its functions directly.",
+    "scripts/ci/__tests__/feature-workflow-runtime.test.ts — drives progress.mjs and the arming scripts as CLIs against a fixture repo.",
+    "src/__tests__/ci-audit-wiring.test.ts — a guard test, not another ci:* script, because an audit that checks wiring would have to be wired itself.",
+    "scripts/ci/__tests__/red-team-status.test.ts:28 — the file-level vi.setConfig timeout precedent for process-spawning suites.",
+    ".claude/rules/ci-tooling.md — a test that spawns git in a throwaway repo passes env: GIT_FREE_ENV."
+  ],
+  "test_seams": [
+    "scripts/gate-promised-tests.sh — promised_title_spellings and promised_title_found, sourced directly by a vitest suite.",
+    "node .agents/skills/feature/scripts/progress.mjs carry — invoked as a CLI against a fixture parent and worktree.",
+    "bash scripts/arm-check.sh — invoked as a CLI against a fixture worktree with a crafted .feature/intake.json.",
+    "The parsed text of .github/workflows/ci.yml, lefthook.yml and scripts/verify-gate.sh, read by the wiring guard."
+  ],
+  "allowed_edit_surface": [
+    "scripts/gate-promised-tests.sh",
+    "scripts/verify-gate.sh",
+    "scripts/feature-setup.sh",
+    "scripts/arm-check.sh",
+    ".agents/skills/feature/scripts/progress.mjs",
+    ".github/workflows/ci.yml",
+    "lefthook.yml",
+    "scripts/ci/__tests__/gate-promised-tests.test.ts",
+    "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+    "src/__tests__/ci-audit-wiring.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "scripts/ci/__tests__/gate-rows.test.ts"
+  ],
+  "tests_to_add": [
+    "finds a promised title spelled verbatim in the test source",
+    "finds a promised title whose apostrophe the source escapes inside a single-quoted name",
+    "finds a promised title whose quotation mark the source escapes inside a double-quoted name",
+    "keeps the gate honest about a title that carries an author's apostrophe",
+    "reports a title no test file spells, so the row goes red only on real absence",
+    "searches src, worker, scripts and tests, and no other root",
+    "the verify gate reads its promised-tests verdict from the shared matcher",
+    "carries the parent ladder when its axes match the intake and it is no older",
+    "refuses to carry a parent ladder whose axes disagree with the intake",
+    "refuses to carry a parent ladder older than the locked intake",
+    "names the reason when feature-setup keeps the intake stub instead of carrying",
+    "builds the arm-check stub from the intake size, risk and surface",
+    "refuses to arm when the intake risk is absent or not a declared value",
+    "reports the stub without claiming a carry outcome it does not decide",
+    "every src test that reads a doc at run time runs in the docs-only lane",
+    "the lint job runs the doc-reading suites, and the lint job never skips",
+    "verify-gate docs-only mode runs the same doc-reading suites as the lint job",
+    "counts the design-system doc pin as a doc-reading suite"
+  ],
+  "verification_commands": [
+    "pnpm vitest run scripts/ci/__tests__/red-team-status.test.ts"
+  ],
+  "estimated_prod_lines": 190,
+  "estimated_test_lines": 360,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the pull request. Every change is developer tooling: no migration runs, no deployed surface changes, and no runtime code path moves. A revert restores the previous gate behavior on the next gate run with no cleanup.",
+  "observability": [
+    "The verify gate's own PASS/FAIL table names the promised-tests and doc-shape rows on every run.",
+    "feature-setup.sh prints the carry outcome and its reason at arming time.",
+    "The lint job's doc-reading step appears in every pull request's check output, including docs-only ones."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "merge"
+  ],
+  "open_questions": []
+}

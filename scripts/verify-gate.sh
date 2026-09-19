@@ -185,12 +185,21 @@ gate_abort() {
 GATE_SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scripts/gate-rows.sh
 . "$GATE_SCRIPT_DIR/gate-rows.sh"
+# shellcheck source=scripts/gate-promised-tests.sh
+. "$GATE_SCRIPT_DIR/gate-promised-tests.sh"
 # A library that did not load must not surface as a bogus collision: with
 # assert_unique_row_name undefined, `launch` reads the resulting exit 127 as a
 # duplicate and aborts naming a row that is perfectly fine.
 command -v row_slug >/dev/null 2>&1 && [ -n "${GATE_ROW_HASH_CMD:-}" ] \
   || gate_abort "row-identity" \
        "scripts/gate-rows.sh did not load (see above) — row names cannot be made collision-free."
+# A matcher that did not load must not surface as "every title missing": with
+# promised_title_found undefined, the promised-tests loop below would read
+# every call's exit 127 as a genuine absence and fail every promised title
+# (#1108's exact failure direction).
+command -v promised_title_found >/dev/null 2>&1 \
+  || gate_abort "promised-tests" \
+       "scripts/gate-promised-tests.sh did not load (see above) — every promised title would be reported missing."
 
 DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
 
@@ -491,13 +500,16 @@ run_sync() {
 #     promises 13 corpus titles there.
 # Adding a root is cheap; the grep is fixed-string and bounded by --include.
 #
-# Matching is fixed-string against the file, so a promised title must appear
-# UNESCAPED in source: write a title containing an apostrophe with double
-# quotes, or the `\'` will not match the locked text.
+# Quoting style no longer matters (#1108): promised_title_found
+# (scripts/gate-promised-tests.sh) tries the title verbatim and each
+# single-character escape a JavaScript test name might spell it with — `\'`
+# for a single-quoted name, `\"` for a double-quoted one, `` \` `` for a
+# template literal — so a promised title matches regardless of which quoting
+# style its test source happens to use.
 MISSING_TITLES=""
 while IFS= read -r TITLE; do
   [ -n "$TITLE" ] || continue
-  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts tests 2>/dev/null && continue
+  promised_title_found "$TITLE" src worker scripts tests && continue
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)
