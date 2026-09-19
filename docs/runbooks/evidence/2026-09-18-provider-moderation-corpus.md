@@ -159,20 +159,37 @@ is what actually gates an owner widening their auto-approval policy).
 | staging | Railway worker | `true` | 2026-09-18T23:50Z | read back through the environment; worker booted clean at 23:51:14Z, deployment `6470b372` SUCCESS |
 | staging | Vercel | `true` | 2026-09-18T23:56Z | `env pull` returned `"true"`; redeploy `dpl_F8azrmoSqpKKWPVvYx7LVBRheM4d` READY 23:60Z, aliased `staging.repworth.net` |
 | production | Railway worker | `true` | 2026-09-19T00:01Z | read back through the environment |
-| production | Vercel | **NOT SET** | — | **blocked by the operator's permission policy; see below** |
+| production | Vercel | `true` | 2026-09-19T00:14Z | set by the owner (the agent's write was refused by the operator's permission policy); `env pull` returned `"true"`; redeploy `dpl_5TkCxzN7DVn91xZDLt92YCKvk9DU` READY 00:16:59Z, aliased `repworth.net` |
 
 **Why:** both environments hold a `VERDICT: PASS` corpus run (above), which is
 the condition the validation runbook sets for this flag, and production already
 carried the three per-outcome checks from 2026-08-31.
 
-**Production is deliberately left HALF-FLIPPED, and the half that is missing is
-the one that matters.** The Railway value is inert there — the worker only
-validates it at boot. `canExpand` is computed in the Next.js lane, which still
-reads the flag as unset, so **owner policy expansion remains blocked in
-production** exactly as before. That is the safe direction, not a broken state,
-but it is not finished: complete it by setting
-`AUTO_APPROVAL_PROVIDER_MODERATION_READY=true` on Vercel production and
-redeploying, then smoke the settings readiness surface.
+### Smoke — what the flip actually changed
+
+Run against BOTH environments through `railway run`, calling the real flag
+accessors and the real `buildAutoApprovalReadiness`. The per-account inputs
+(`autopilotAvailable`, `accountWritable`, `policySuspended`, `impersonated`)
+were supplied at their BEST CASE, so anything still blocking is an
+environment-level block rather than an account one.
+
+```
+env: production                        env: staging
+  AUTO_APPROVAL_ENABLED    -> false      AUTO_APPROVAL_ENABLED    -> false
+  OPENAI_MODERATION_ENABLED-> true       OPENAI_MODERATION_ENABLED-> true
+  …_PROVIDER_MODERATION_READY -> true    …_PROVIDER_MODERATION_READY -> true
+
+  canExpand    : false                   canExpand    : false
+  blockReasons : auto_approval_disabled  blockReasons : auto_approval_disabled
+```
+
+**This is the correct result, and it is the whole point of the flip.**
+`provider_moderation_not_validated` is GONE from `blockReasons` — that is the
+flag doing its job. `auto_approval_disabled` REMAINS, because
+`AUTO_APPROVAL_ENABLED` is still `false`. `canExpand` is
+`blockReasons.length === 0`, so it stays `false` and **no owner can widen a
+policy today**. The flip removed exactly one of eight block reasons and changed
+nothing an owner can do.
 
 **Nothing was enabled by any of this.** `AUTO_APPROVAL_ENABLED` reads `false` in
 both environments and `JUDGE_ENABLED` is unset in production — the ordered
