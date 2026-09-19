@@ -313,11 +313,16 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** — reset by the **2026-09-12 pass**
+**Merges since last architecture pass: 5** — reset by the **2026-09-12 pass**
 (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-09-12/`. Incremented by PR #1337 (#1329, the
 release-scan fairness arms) — one production module, no migration, no
-dependency, no flag, no new writer.
+dependency, no flag, no new writer — and by PR #1340 (#616, the fallow
+complexity decomposition) — two production modules refactored, two new
+modules, no migration, no dependency, no flag, no new writer.
+
+**A pass is DUE at 5.** Scheduling one is the user's call and is never started
+automatically.
 
 > ## The counting rule is STILL under repair — do NOT hand-count this file
 >
@@ -372,6 +377,33 @@ Prior passes: `PATHFINDER-2026-08-26/`, `-08-24/`, `-08-22/`, `-08-18/`, `-08-15
 
 Merges since the 2026-09-12 pass:
 
+- **PR #1340** — #616, the fallow complexity decomposition (2026-09-19, squash
+  `3a7cd6653`; counts: yes). Behaviour-preserving. `logger.ts` `emit` becomes
+  assembly over six module-private helpers; `handleOnboardingDemo` becomes
+  orchestration only, with the subscription guard and the two best-effort cost
+  steps moved into the existing `worker/jobs/onboarding-demo/` DI package.
+  **New single owners:** `onboarding-demo/subscription-guard.ts` (the demo's
+  subscription gate, taking `failTerminal` as an injected parameter because the
+  package's one test file tests the real terminal writer in its own `describe`)
+  and `onboarding-demo/cost-reconcile.ts`. **Allowlist moved:** three
+  `scripts/ci/tenant-scope-allowlist.ts` entries follow the query to its new
+  file — same SQL, same `od.id` scoping; the allowlist is FILE-keyed, which is
+  also why #1337 deferred its own `release-candidates.ts` extraction. No
+  migration, env var, flag, dependency or new writer. **What the next pass
+  should look at:** this branch shipped with the `reviewed` transition WAIVED,
+  because a round-3 red-team finding's own fix has no round 4 to verify it
+  (#1342) and an `oracle`-class inconclusive row makes `CLEAR` unreachable
+  (#1343) — two structural gaps in the step-7.5 checker, not in this code. Also
+  worth a look: `expect.objectContaining` plus an `undefined` fixture default
+  hid a droppable argument at FOUR call sites across three rounds, which is a
+  test-harness class, not a worker one.
+- **PR #1337** — #1329, the release-scan fairness arms (2026-09-19, squash
+  `48ba6e4fb`; counts: yes). Bullet added late, by the #1340 sweep — the
+  counter line already named it, the list did not, which is reason 1 in the
+  block above. One production module (`release.ts`), plus
+  `FULL_ACCESS_SUBSCRIPTION_STATUSES` as the single owner
+  `subscriptionGrantsFullAccess` is now implemented over. No migration,
+  dependency, flag or new writer; the tenant-scope allowlist grew 380 → 382.
 - #1293 — Owner Operator Run E, `d4a96f3205bc1061cd03f6fe0bceb0eabb546ebf`: production Restore preparation/timeline, exact policy inverses and fenced refusal ledger extension (counts: yes).
 - #1291 — Owner Operator Run D, `fb91cd2f4a3769f5ac35227cf58751720d83b381`: production dispatch/turn recovery and fenced predecessor waiting (counts: yes).
 - #1278 — Owner Operator Run C, `280d1b0137f4f5a3e2cd613abe7464238d0f665e`: production policy Apply, consequence provenance, provider schemas and Console cards (counts: yes).
