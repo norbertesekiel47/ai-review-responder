@@ -35,11 +35,13 @@ type WrappedNextHandler<TArgs extends unknown[] = [], TRes extends Response = Re
  *
  * A HANDLER OPTS OUT BY ANNOTATING ITSELF. `TRes` is inferred, so a handler
  * declared `: Promise<Response>` pins `TRes = Response` and keeps the old widened
- * export — ten sites under src/app/api/dashboard/ do exactly that today. That is
- * correct for one that really returns a bare `Response`, and merely stale for one
- * that does not; either way the fix is the HANDLER's annotation, never a cast at
- * the export (that was #865 D5's mistake). Drop the annotation and let `TRes`
- * infer, or annotate `: Promise<NextResponse>`.
+ * export — THREE wrapped handlers do exactly that today (#1327), and all three
+ * return `NextResponse` on every path, so the annotation is stale rather than
+ * deliberate. The fix is the HANDLER's annotation, never a cast at the export
+ * (that was #865 D5's mistake): drop it and let `TRes` infer, or annotate
+ * `: Promise<NextResponse>`. Counting this by grepping `: Promise<Response>`
+ * under src/app/api overcounts to ten — the other seven are GETs or inline
+ * `assertSameOrigin` callers that this wrapper never wraps.
  */
 export function withSameOrigin(): <TArgs extends unknown[], TRes extends Response>(
   handler: NextHandler<TArgs, TRes>
