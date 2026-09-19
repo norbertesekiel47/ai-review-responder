@@ -22,9 +22,9 @@ function render(doc: LegalDoc): string {
 describe('LegalPage meta line (M23)', () => {
   it('says the effective date once, in words, when the version is the same date', () => {
     const html = render(legalDocs.privacy);
-    expect(html).toContain('Effective 9 June 2026');
+    expect(html).toContain('Effective 16 September 2026');
     expect(html).not.toContain('Version');
-    expect(html).not.toContain('2026-06-09');
+    expect(html).not.toContain('2026-09-16');
     expect(html).not.toContain(' - Effective');
   });
 
@@ -37,7 +37,7 @@ describe('LegalPage meta line (M23)', () => {
     for (const doc of Object.values(legalDocs)) {
       const html = render(doc);
       expect(html).toContain('<h1');
-      expect(html).toContain('Effective 9 June 2026');
+      expect(html).toContain('Effective 16 September 2026');
     }
   });
 });

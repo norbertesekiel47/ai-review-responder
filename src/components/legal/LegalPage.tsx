@@ -29,7 +29,7 @@ function sectionAnchorId(heading: string): string {
 export function LegalPage({ doc }: { doc: LegalDoc }) {
   const selfServeEnabled = selfServeSignupEnabled();
   const trialOn = selfServeEnabled && isTrialEnabled();
-  const tableCaption = `${doc.title} sub-processor table`;
+  const tableCaption = `${doc.title} reference table`;
 
   return (
     <PageShell sections={[]}>
