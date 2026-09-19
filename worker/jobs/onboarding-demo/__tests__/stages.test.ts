@@ -4,6 +4,8 @@ import { releaseOnboardingDemoReservation } from '../reservation';
 import { resolveOnboardingDemoPlaceId } from '../place-resolution';
 import { buildOnboardingDemoSource } from '../demo-source';
 import { failOnboardingDemoTerminal } from '../terminal';
+import { guardOnboardingDemoSubscription } from '../subscription-guard';
+import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 import { resolvePlaceId } from '../../../../src/lib/reviews/place-id-resolver';
 import { fetchSerpApiReviews } from '../../../../src/lib/demos/fetch-reviews';
 import { selectQualifyingReviews } from '../../../../src/lib/demos/select-qualifying';
@@ -367,5 +369,176 @@ describe('failOnboardingDemoTerminal', () => {
     expect(logger.error).toHaveBeenCalledWith(
       'Failed to record failure for demo demo_123: tx failed',
     );
+  });
+});
+
+describe('guardOnboardingDemoSubscription', () => {
+  /**
+   * A tagged-template `sql` fake that CAPTURES the query it was handed. A fake
+   * that returned the fixture regardless of the query could not detect a
+   * dropped `od.id` predicate or a rewritten account join, which is exactly
+   * what the scope test below has to catch.
+   */
+  function capturingSql(rows: unknown[]) {
+    const calls: Array<{ text: string; values: unknown[] }> = [];
+    const fake = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ text: strings.join(' ? ').replace(/\s+/g, ' ').trim(), values });
+      return Promise.resolve(rows);
+    };
+    return {
+      sql: fake as unknown as Sql,
+      lastQuery(): { text: string; values: unknown[] } {
+        const call = calls.at(-1);
+        if (!call) throw new Error('sql was never called');
+        return call;
+      },
+    };
+  }
+
+  function makeLogger() {
+    return { warn: vi.fn(), error: vi.fn() };
+  }
+
+  it('guardOnboardingDemoSubscription reports not handled when the account is still pending_payment', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
+    const failTerminal = vi.fn();
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(false);
+    expect(failTerminal).not.toHaveBeenCalled();
+    expect(releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('guardOnboardingDemoSubscription reports not handled when the demo row is missing', async () => {
+    // A missing row is NOT a changed subscription — the demo may have been
+    // deleted. Failing it here would turn a clean `not_found` completion into
+    // a spurious subscription_state_changed failure.
+    const { sql } = capturingSql([]);
+    const failTerminal = vi.fn();
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(false);
+    expect(failTerminal).not.toHaveBeenCalled();
+    expect(releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('guardOnboardingDemoSubscription fails the demo and releases the reservation when the account has paid', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.ACTIVE }]);
+    const failTerminal = vi.fn().mockResolvedValue(undefined);
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+    const logger = makeLogger();
+
+    const handled = await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger,
+      releaseReservation,
+      failTerminal,
+    });
+
+    expect(handled).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Demo demo_123 account status=active, marking failed',
+    );
+    expect(failTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ failureKind: 'subscription_state_changed' }),
+    );
+    expect(releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('guardOnboardingDemoSubscription releases the reservation and re-throws when the terminal write fails', async () => {
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.ACTIVE }]);
+    const failTerminal = vi.fn().mockRejectedValue(new Error('tx failed'));
+    const releaseReservation = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      guardOnboardingDemoSubscription({
+        sql,
+        demoId: 'demo_123',
+        outboxId: 'outbox_123',
+        outboxAttempt: undefined,
+        logger: makeLogger(),
+        releaseReservation,
+        failTerminal,
+      }),
+    ).rejects.toThrow('tx failed');
+
+    // The finally releases BEFORE the re-throw propagates, exactly once.
+    expect(releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it("guardOnboardingDemoSubscription reads status only through the demo's own business and account", async () => {
+    const { sql, lastQuery } = capturingSql([
+      { subscription_status: SubscriptionStatus.PENDING_PAYMENT },
+    ]);
+
+    await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_123',
+      outboxId: 'outbox_123',
+      outboxAttempt: undefined,
+      logger: makeLogger(),
+      releaseReservation: vi.fn().mockResolvedValue(undefined),
+      failTerminal: vi.fn(),
+    });
+
+    const { text, values } = lastQuery();
+    expect(text).toContain('FROM onboarding_demos od');
+    expect(text).toContain('JOIN businesses b ON b.id = od.business_id');
+    expect(text).toContain('JOIN accounts a ON a.id = b.account_id');
+    expect(text).toContain('WHERE od.id =');
+    // The demo id is BOUND, not interpolated, and it is the only bound value.
+    expect(values).toEqual(['demo_123']);
+  });
+
+  it('guardOnboardingDemoSubscription forwards the sql client, outbox id and numeric attempt to the terminal write', async () => {
+    // Distinct ids and a NONZERO numeric attempt: failDemo only adds its
+    // `AND attempts = $n` predicate when the attempt is a number, so losing it
+    // would let a stale worker fail a newer dispatch.
+    const { sql } = capturingSql([{ subscription_status: SubscriptionStatus.CANCELLED }]);
+    const failTerminal = vi.fn().mockResolvedValue(undefined);
+    const logger = makeLogger();
+
+    await guardOnboardingDemoSubscription({
+      sql,
+      demoId: 'demo_abc',
+      outboxId: 'outbox_xyz',
+      outboxAttempt: 3,
+      logger,
+      releaseReservation: vi.fn().mockResolvedValue(undefined),
+      failTerminal,
+    });
+
+    expect(failTerminal).toHaveBeenCalledWith({
+      sql,
+      demoId: 'demo_abc',
+      outboxId: 'outbox_xyz',
+      outboxAttempt: 3,
+      error: expect.any(Error),
+      failureKind: 'subscription_state_changed',
+      logger,
+    });
   });
 });

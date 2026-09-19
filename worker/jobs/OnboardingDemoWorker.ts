@@ -10,11 +10,11 @@ import {
 } from '../../src/lib/costs/onboarding-demo-cost-guard';
 import { deploymentLane, requiresProductionConfig } from '../../src/lib/config/deployment-lane';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
-import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import * as Sentry from '@sentry/node';
 import { buildOnboardingDemoSource } from './onboarding-demo/demo-source';
 import { resolveOnboardingDemoPlaceId } from './onboarding-demo/place-resolution';
 import { releaseOnboardingDemoReservation } from './onboarding-demo/reservation';
+import { guardOnboardingDemoSubscription } from './onboarding-demo/subscription-guard';
 import { failOnboardingDemoTerminal } from './onboarding-demo/terminal';
 
 /**
@@ -60,34 +60,19 @@ export async function handleOnboardingDemo(
     throw new Error(`MOCK_EXTERNAL_APIS must not be true on deployment lane "${deploymentLane()}"`);
   }
 
-  // Subscription guard (inverted): if user paid between /start and now,
-  // the onboarding demo is no longer relevant. Mark failed so /onboarding/demo
-  // can render a graceful notice (NOT completeDemo with empty arrays which
-  // would lock the user out via the partial-unique-on-completed index).
-  const [biz] = await sql<{ subscription_status: string }[]>`
-    SELECT a.subscription_status
-    FROM onboarding_demos od
-    JOIN businesses b ON b.id = od.business_id
-    JOIN accounts a ON a.id = b.account_id
-    WHERE od.id = ${demoId}
-  `;
-  if (biz && biz.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
-    logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
-    try {
-      await failOnboardingDemoTerminal({
-        sql,
-        demoId,
-        outboxId,
-        outboxAttempt,
-        error: new Error('subscription_state_changed'),
-        failureKind: 'subscription_state_changed',
-        logger,
-      });
-    } finally {
-      await releaseReservation();
-    }
-    return;
-  }
+  // Subscription guard (inverted): if the owner paid between /start and now,
+  // the onboarding demo is no longer relevant. The guard owns the read, the
+  // decision and its own failure posture; this root only honours the answer.
+  const handled = await guardOnboardingDemoSubscription({
+    sql,
+    demoId,
+    outboxId,
+    outboxAttempt,
+    logger,
+    releaseReservation,
+    failTerminal: failOnboardingDemoTerminal,
+  });
+  if (handled) return;
 
   const claimResult = await claimDemo(sql, 'onboarding_demos', demoId, logger);
 

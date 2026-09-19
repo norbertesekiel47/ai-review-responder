@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import type { OnboardingDemoJobPayload } from '../OnboardingDemoWorker';
 
 const {
@@ -132,7 +133,7 @@ function arrangeClaimedDemo(
 ): { reviews: unknown[]; responses: unknown[] } {
   const reviews = [{ id: 'r1' }, { id: 'r2' }];
   const responses = [{ responseText: 'thanks' }, null];
-  sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+  sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
   mockClaimDemo.mockResolvedValue('claimed');
   mockResolveOnboardingDemoPlaceId.mockResolvedValue('place_resolved');
   mockBuildOnboardingDemoSource.mockResolvedValue({
@@ -302,7 +303,7 @@ describe('OnboardingDemoWorker', () => {
       sqlReturnQueue.length = 0;
       armSharedMockDefaults();
       mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
-      sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+      sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
       mockClaimDemo.mockResolvedValue(outcome);
 
       const { handleOnboardingDemo } = await importWorker();
@@ -315,7 +316,7 @@ describe('OnboardingDemoWorker', () => {
   });
 
   it('throws without releasing the reservation when the claim resets a stale running demo', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
     mockClaimDemo.mockResolvedValue('reset_to_queued');
 
     const { handleOnboardingDemo } = await importWorker();
@@ -343,14 +344,14 @@ describe('OnboardingDemoWorker', () => {
       {
         name: 'claimDemo',
         arrange: () => {
-          sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+          sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
           mockClaimDemo.mockRejectedValue(new Error('claim failed'));
         },
       },
       {
         name: 'markOutboxCompleted',
         arrange: () => {
-          sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+          sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
           mockClaimDemo.mockResolvedValue('race_lost');
           mockMarkOutboxCompleted.mockRejectedValue(new Error('outbox failed'));
         },
@@ -400,7 +401,7 @@ describe('OnboardingDemoWorker', () => {
     // The pre-existing "releases reservation when generic failure recording
     // throws" asserts toHaveBeenCalledWith, which a DOUBLE release also
     // satisfies. This pins the count without touching that test.
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.PENDING_PAYMENT }]);
     mockClaimDemo.mockResolvedValue('claimed');
     mockResolveOnboardingDemoPlaceId.mockRejectedValue(new Error('place failed'));
     mockFailOnboardingDemoTerminal.mockRejectedValue(new Error('tx failed'));
@@ -408,6 +409,35 @@ describe('OnboardingDemoWorker', () => {
     const { handleOnboardingDemo } = await importWorker();
 
     await expect(handleOnboardingDemo(makeJob())).rejects.toThrow('tx failed');
+    expect(mockReleaseOnboardingDemoReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards the extracted outbox id and numeric attempt through the subscription guard to the terminal write', async () => {
+    // This runs the REAL guard: the worker test mocks
+    // ../onboarding-demo/terminal but deliberately does NOT mock
+    // ../onboarding-demo/subscription-guard, so the root-to-helper hop the
+    // extraction created is itself under test. The helper's own test in
+    // stages.test.ts starts AFTER this boundary, on parameters already handed
+    // over, so it cannot see a rewire that forgets one.
+    mockExtractOutboxHandle.mockReturnValueOnce({
+      outboxId: 'outbox_from_payload',
+      attempt: 4,
+    });
+    sqlReturnQueue.push([{ subscription_status: SubscriptionStatus.ACTIVE }]);
+    mockFailOnboardingDemoTerminal.mockResolvedValue(undefined);
+
+    const { handleOnboardingDemo } = await importWorker();
+    await expect(handleOnboardingDemo(makeJob())).resolves.toBeUndefined();
+
+    expect(mockFailOnboardingDemoTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outboxId: 'outbox_from_payload',
+        // A dropped attempt makes failDemo omit `AND attempts = $n`, which is
+        // what stops a stale worker failing a newer dispatch.
+        outboxAttempt: 4,
+        failureKind: 'subscription_state_changed',
+      }),
+    );
     expect(mockReleaseOnboardingDemoReservation).toHaveBeenCalledTimes(1);
   });
 });
