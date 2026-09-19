@@ -276,7 +276,15 @@ export interface TenantScopeAllowlistEntry {
 //     Same table, same cross-tenant justification, one entry became two.
 //     376 -> 377.
 // Run C: one exact origin-marker read through its independently scoped parent.
-export const ALLOWLIST_BASELINE = 380;
+//   - fix/1329-release-scan-fairness-arm: +2, both in the release lane's P4
+//     discovery, and both are the SAME ticket's two halves. The candidate scan
+//     gained an `accounts` arm (the subscription fairness arm) and the cycle
+//     gained one platform-wide `auto_approval_policies` read (the resolved send
+//     caps the cap arm binds). Each removes work from a 50-row candidate window
+//     that an account-level refusal was otherwise holding for 72h, so each has
+//     to see every account before it can decide which ones to drop.
+//     380 -> 382.
+export const ALLOWLIST_BASELINE = 382;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -482,7 +490,23 @@ const SOLICITATION_LANE_ATTRIBUTION_SQL =
 // (file, table, normalized SQL), so the two solicitation_outreach occurrences
 // share ONE entry and the baseline does not move.
 const RELEASE_CANDIDATE_SCAN_SQL =
-  "WITH capped_accounts AS ( SELECT account_id FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' GROUP BY account_id HAVING COUNT(*) >= ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} ), eligible AS ( SELECT b.id, b.account_id, b.business_id, b.approval_method, b.approved_at, b.sending_started_at, b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AS approval_window_open, EXISTS ( SELECT 1 FROM capped_accounts c WHERE c.account_id = b.account_id ) AS account_capped FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ), candidates AS ( SELECT * FROM eligible WHERE NOT account_capped ORDER BY approved_at ASC LIMIT ${scanLimit} ), withheld AS ( SELECT COUNT(DISTINCT account_id)::int AS capped_accounts_withheld FROM eligible WHERE account_capped ) SELECT w.capped_accounts_withheld, c.id, c.account_id, c.business_id, c.approval_method, c.sending_started_at, c.approval_window_open FROM withheld w LEFT JOIN candidates c ON TRUE ORDER BY c.approved_at ASC";
+  "WITH resolved_caps AS ( SELECT * FROM unnest(${capAccountIds}::uuid[], ${capValues}::int[]) AS t(account_id, cap) ), capped_accounts AS ( SELECT o.account_id FROM solicitation_outreach o LEFT JOIN resolved_caps r ON r.account_id = o.account_id WHERE o.queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' GROUP BY o.account_id, r.cap HAVING COUNT(*) >= COALESCE(r.cap, ${DEFAULT_DAILY_SEND_CAP_ACCOUNT}) ), eligible AS ( SELECT b.id, b.account_id, b.business_id, b.approval_method, b.approved_at, b.sending_started_at, b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AS approval_window_open, EXISTS ( SELECT 1 FROM capped_accounts c WHERE c.account_id = b.account_id ) AS account_capped, NOT EXISTS ( SELECT 1 FROM accounts a WHERE a.id = b.account_id AND a.subscription_status = ANY( ${[...FULL_ACCESS_SUBSCRIPTION_STATUSES] as string[]}::text[] ) ) AS account_unentitled FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ), candidates AS ( SELECT * FROM eligible WHERE NOT account_capped AND NOT account_unentitled ORDER BY approved_at ASC LIMIT ${scanLimit} ), withheld AS ( SELECT COUNT(DISTINCT account_id) FILTER (WHERE account_capped)::int AS capped_accounts_withheld, COUNT(DISTINCT account_id) FILTER (WHERE account_unentitled AND NOT account_capped)::int AS unentitled_accounts_withheld FROM eligible ) SELECT w.capped_accounts_withheld, w.unentitled_accounts_withheld, c.id, c.account_id, c.business_id, c.approval_method, c.sending_started_at, c.approval_window_open FROM withheld w LEFT JOIN candidates c ON TRUE ORDER BY c.approved_at ASC";
+
+// #1329's resolved-cap pre-read. Its own statement rather than a join into the
+// scan above, and that is the single-owner rule doing the choosing: the cap the
+// arm compares against is `resolveAccountDailySendCap`'s output, so the numbers
+// are RESOLVED IN TYPESCRIPT and bound back in as `resolved_caps`. A join would
+// have forced `LEAST(configured, 10)` into SQL — a second owner of the enforced
+// cap, which is exactly what the arm's docstring refuses.
+const RELEASE_RESOLVED_CAPS_SQL =
+  "SELECT account_id, daily_send_cap FROM auto_approval_policies WHERE persona = 'solicitation' AND action_class = 'sending' AND location_id IS NULL";
+
+const RELEASE_RESOLVED_CAPS_REASON =
+  "readResolvedAccountCaps (#1329) — the release cycle's ONE per-tick read of every account-level solicitation send cap, resolved through resolveAccountDailySendCap and handed to BOTH the candidate scan's fairness arm and each per-account gate. "
+  + "CROSS-ACCOUNT FOR THE SAME REASON AS THE SCAN IT FEEDS: the arm decides which accounts may hold slots in a platform-wide 50-row candidate window, so it must know every account's cap before it can drop any of them; a per-account formulation would have to read the list of accounts cross-account first and would move the exemption rather than remove it. "
+  + "IT REPLACED A PER-ACCOUNT READ, so the lane's query count per tick went DOWN: `readAccountDailySendCap` ran once per candidate account and is deleted. "
+  + "Read-only. Projects an account id and one SMALLINT dial — no other policy column (auto_approve_min_star, daily_auto_post_cap, the governor's suspension stamps), no provenance, no tenant rows. The four predicates are the account-default row's identity and match loadSolicitationAccountDefault, the settings module that writes it. "
+  + "Every write the cycle performs afterwards remains bound to account_id AND business_id in a top-level WHERE and is deliberately NOT allowlisted.";
 
 const RELEASE_CANDIDATE_SCAN_REASON =
   "runReleaseCycle's release-candidate scan (#900, predicate P4) — the SolicitationReleasePoller's per-tick discovery of approved batches with a live `rendered` attempt whose veto window has closed. "
@@ -490,8 +514,10 @@ const RELEASE_CANDIDATE_SCAN_REASON =
   + "SAME CLASS AS ITS THREE PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before enqueueing scoped work; this is the send lane's member of that set. "
   + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT, and that distinction is what makes this entry safe rather than a widening. This statement is read-only and projects ids plus one lifecycle stamp — no review text, no contact data, no provenance. Everything the cycle does afterwards is bound to the account_id AND business_id those ids carry: the locked batch re-read, the rendered→queued CAS on solicitation_outreach, the sending_started_at stamp, the Judge downgrade CAS, and each closeBatchIfSettled call all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. "
   + "The module's other cross-account reads are already exempt in their own homes (countPlatformDispatchAttemptsToday in send-caps.ts, readSendBreaker/readBreakerWindow in send-breaker.ts, isJudgeHealthy in judge-health.ts); this is the release lane's ONE additional global statement. "
-  + "THE capped_accounts CTE (round-1 review) IS THE SECOND solicitation_outreach OCCURRENCE and is cross-account for the same reason the ceiling is: it is a platform-wide fairness arm that removes accounts already at the per-account daily cap from the candidate window, so that a capped account cannot hold ORDER BY approved_at ASC LIMIT slots for its whole 72h send window and starve every other account — the locked edge case 'no row is skipped permanently'. It aggregates today's queued_at counts by account_id and projects account ids only. It is a BOUNDING arm, not the enforced cap: resolveAccountDailySendCap stays the single owner of the enforced number, and this arm can only ever under-exclude, because the dial moves toward restraint only so a resolved cap never exceeds DEFAULT_DAILY_SEND_CAP_ACCOUNT. "
-  + "THE eligible/candidates/withheld CTE SHAPE (round-2 review) ADDS NO NEW TABLE AND NO NEW SCOPE. The candidate predicate moved into the eligible CTE so it is spelled ONCE and the fairness arm can report what it excluded: an excluded account never reaches the per-account gate, so a fully cap-bound tick used to report withheldByReason {} and read exactly like an idle tick. withheld aggregates the CAPPED half of the same eligible set and projects a single COUNT(DISTINCT account_id) — no ids, no row data — and the LEFT JOIN is what keeps that one row alive when there are no candidates at all. Splitting it into a second statement would be a second spelling of the candidate predicate, i.e. a second owner that can drift.";
+  + "THE capped_accounts CTE (round-1 review) IS THE SECOND solicitation_outreach OCCURRENCE and is cross-account for the same reason the ceiling is: it is a platform-wide fairness arm that removes accounts already at the per-account daily cap from the candidate window, so that a capped account cannot hold ORDER BY approved_at ASC LIMIT slots for its whole 72h send window and starve every other account — the locked edge case 'no row is skipped permanently'. It aggregates today's queued_at counts by account_id and projects account ids only. "
+  + "THE ARM IS NOW EXACT RATHER THAN BOUNDING (#1329), and that changed no scope: its threshold arrives as the bound `resolved_caps` parameter, which the CALLER computed by passing each stored cap through resolveAccountDailySendCap. So LEAST(configured, 10) still has exactly one spelling, in TypeScript, and the arm refuses exactly the accounts the per-account gate refuses. The earlier version keyed on DEFAULT_DAILY_SEND_CAP_ACCOUNT and could only under-exclude, which #900 accepted because nothing wrote daily_send_cap — false: the owner settings lane writes it (upsertSolicitationAccountDefault) and its schema admits 1..50, so an account configured at 5 held slots until it reached 10, which the gate never let it do. The policy read itself is a SEPARATE allowlisted statement (readResolvedAccountCaps), not a join here. "
+  + "THE accounts OCCURRENCE IS THE SUBSCRIPTION FAIRNESS ARM (#1329), the cap arm's sibling for the other account-level gate: a lapsed account's approved batches held candidate slots for their whole 72h window exactly as a capped account's did. It is a correlated NOT EXISTS on accounts.id — a primary-key probe per candidate row, not a scan of the table — and its status set is the bound FULL_ACCESS_SUBSCRIPTION_STATUSES array, the same array subscriptionGrantsFullAccess is implemented over, so the arm cannot drift from the gate and cannot OVER-exclude (which would starve an account that may send). It projects one boolean; no account row, no status value, no billing column leaves the statement. "
+  + "THE eligible/candidates/withheld CTE SHAPE (round-2 review) ADDS NO NEW TABLE AND NO NEW SCOPE. The candidate predicate moved into the eligible CTE so it is spelled ONCE and the fairness arm can report what it excluded: an excluded account never reaches the per-account gate, so a fully cap-bound tick used to report withheldByReason {} and read exactly like an idle tick. withheld aggregates the EXCLUDED halves of the same eligible set and projects two COUNT(DISTINCT account_id) values — no ids, no row data — and the LEFT JOIN is what keeps that one row alive when there are no candidates at all. The second count carries AND NOT account_capped so an account refused by BOTH gates is ONE withhold, under the gate amendment B6 names first. Splitting any of it into a second statement would be a second spelling of the candidate predicate, i.e. a second owner that can drift.";
 
 // #900's send-window sweep scan (predicate P2). ONE table, not two: unlike P4
 // this statement carries no EXISTS arm, because a batch whose send window has
@@ -3221,6 +3247,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
     category: 'background-global-scan',
     reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "accounts",
+    sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: RELEASE_RESOLVED_CAPS_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_RESOLVED_CAPS_REASON,
   },
   {
     file: "src/lib/solicitation/release.ts",

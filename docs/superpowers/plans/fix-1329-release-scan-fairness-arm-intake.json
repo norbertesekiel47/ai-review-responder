@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The change edits the Release cycle's P4 candidate scan, which the SolicitationReleasePoller runs on the Railway worker every tick",
+    "It re-spells an entitlement gate (subscriptionGrantsFullAccess) inside SQL; an over-exclusion starves an account that could still send",
+    "It edits an allowlisted platform-wide scan, so scripts/ci/tenant-scope-allowlist.ts gains a table entry and a baseline bump",
+    "Its evidence is a live-DB integration suite, not a unit suite"
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "An account the Release cycle refuses at the account level stops occupying candidate slots in selectReleaseCandidates' oldest-first scan, for BOTH account-level refusals — account_cap and subscription — each arm refusing EXACTLY the accounts its per-account gate refuses, while the account_cap and subscription withhold counters keep arriving on a fully excluded tick.",
+  "non_goals": [
+    "Joining auto_approval_policies INTO the candidate scan (amended 2026-09-19 after the owner re-decided: the caps are read in their own statement and resolved in TypeScript, so the scan binds numbers rather than re-deriving the clamp)",
+    "Any second SQL spelling of LEAST(configured, 10) — resolveAccountDailySendCap stays the single owner of the enforced number",
+    "Any state change to a lapsed account's rows: edge case 4 requires the rendered rows to survive so paying inside the window resumes the drip",
+    "Changing the gate order, the ReleaseWithheldReason union, or any per-account gate in runAccountArm",
+    "Changing past_due grace behaviour anywhere else in the product",
+    "Adding a glossary term (docs/context/solicitation-send-mode-breaker-release-attribution.md is 47 words under its 3,000-word cap)",
+    "Touching the three peer sweep scans (P1, P2, P3, P5) or the Veto anchor scan"
+  ],
+  "user_visible_behavior": [
+    "Operationally: a tick whose candidate window was held by a lapsed account now releases for the other accounts instead of releasing nothing",
+    "A Release cycle report on a tick where every candidate account lacks full access carries withheldByReason.subscription = <number of excluded accounts>, where it previously carried an empty map",
+    "An account both at its cap and without full access is reported ONCE, under account_cap, matching runAccountArm's gate order",
+    "A trialing account is never excluded by the new arm: it has full access",
+    "No owner-facing surface changes; no row state changes"
+  ],
+  "invariants": [
+    "Neither arm over-excludes: the subscription arm binds the array subscriptionGrantsFullAccess is implemented over, and the cap arm binds resolveAccountDailySendCap's OUTPUT, so each refuses exactly what its gate refuses",
+    "resolveAccountDailySendCap stays the single owner of the enforced per-account cap: it is called in TypeScript and its numbers are bound into the scan; LEAST(configured, 10) never appears in SQL",
+    "ONE policy read per tick feeds both the cap arm and every per-account cap gate, so the two can never disagree about an account's number",
+    "Invariant #11: entitlement is gated on subscriptionGrantsFullAccess, never a raw equality against 'active'",
+    "Invariant #15: release.ts keeps taking sql as an explicit parameter and imports no db singleton",
+    "The candidate predicate is spelled ONCE, in the eligible CTE; the exclusion counts come from the same set via the LEFT JOIN, never from a second statement",
+    "Both counters arrive on a tick that returns zero candidate rows",
+    "The account_cap counter keeps its current meaning and value: COUNT(DISTINCT account_id) over the capped half of eligible",
+    "A lapsed account's outreach rows stay delivery_status = 'rendered'; nothing is terminalized",
+    "ci:tenant-scope stays green with an exact-match baseline bump, and ci:static-policy stays green with no new subscription-status literal allowlist entry"
+  ],
+  "edge_cases": [
+    "Account capped AND lapsed: excluded once, counted under account_cap only, never under both",
+    "Account lapsed with status past_due: excluded (the release gate grants no grace; only subscriptionAllowsDashboardRead does)",
+    "Account lapsed with status pending_payment or cancelled: excluded",
+    "Account with status trialing: NOT excluded, releases normally",
+    "Every candidate account lapsed: zero candidate rows, withheldByReason.subscription carries the account count, releasePhaseStoppedBy stays null",
+    "No work due at all: withheldByReason stays {} — the zero-count guard in withhold() already refuses a map of zeroes",
+    "An account that lapses mid-drip: its remaining rendered rows stay rendered, and the next tick after payment includes it in the scan again",
+    "One lapsed account holding 50 approvals no longer starves a healthy sibling account with an older approval"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/solicitation/release.ts:1483-1600 — the capped_accounts / eligible / candidates / withheld CTE shape and its docstring discipline; the new arm is its sibling, not a second statement",
+    "src/lib/solicitation/release.ts:1100-1107 — withhold(report, reason, count) and its zero-count refusal; its docstring says 'exactly one caller' and must be corrected to two",
+    "src/lib/shared/subscription-status.ts — the single owner of the entitlement rule; the new exported status list belongs here, with subscriptionGrantsFullAccess implemented over it",
+    "scripts/ci/tenant-scope-allowlist.ts:484-494 — RELEASE_CANDIDATE_SCAN_SQL (verbatim normalized SQL) plus RELEASE_CANDIDATE_SCAN_REASON, and the exact-match ENTRY_COUNT_BASELINE bump comment style",
+    "scripts/ci/static-policy-audit.ts:879-960 — the PolicyRule union, the per-line scanner inside scanFile, and the file-and-line allowlist idiom used by subscription-status-literal",
+    "src/lib/solicitation/__tests__/release.integration.test.ts:1075-1134 — the three existing fairness-arm cases this change mirrors for the subscription gate",
+    "src/lib/shared/__tests__/subscription-status.test.ts — the exhaustive per-status assertion style for the new list pin",
+    "src/lib/admin/business-summary.ts:164 — the house idiom for binding a TS constant array into SQL: = ANY(${[...CONST] as string[]}::text[])"
+  ],
+  "test_seams": [
+    "runReleaseCycle (src/lib/solicitation/release.ts) — the public entry the integration suite drives, asserting ReleaseCycleReport.released and withheldByReason",
+    "subscriptionGrantsFullAccess and FULL_ACCESS_SUBSCRIPTION_STATUSES (src/lib/shared/subscription-status.ts)",
+    "scanFile (scripts/ci/static-policy-audit.ts) — the pure per-file scanner the audit's unit suite calls"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/release.ts",
+    "src/lib/shared/subscription-status.ts",
+    "src/lib/shared/__tests__/subscription-status.test.ts",
+    "src/lib/solicitation/__tests__/release.integration.test.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-intake.json",
+    "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-deviations.md",
+    "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-handoff.md",
+    "docs/reviews/fix-1329-release-scan-fairness-arm/blast-radius.md"
+  ],
+  "tests_to_add": [
+    "keeps releasing for other accounts when a lapsed account fills the candidate scan",
+    "names the subscription gate on a tick where every candidate account has lapsed",
+    "counts a capped and lapsed account once, under the account cap",
+    "excludes a past_due account from the candidate scan and leaves its rendered rows alone",
+    "does not exclude a trialing account from the candidate scan",
+    "FULL_ACCESS_SUBSCRIPTION_STATUSES holds exactly the statuses subscriptionGrantsFullAccess admits",
+    "excludes an account at its own sub-default cap from the candidate scan",
+    "keeps an account that configured a cap above the platform default bound by the default",
+    "releases for an account that configured a cap it has not yet reached"
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:static-policy",
+    "pnpm vitest run src/lib/solicitation/__tests__/release.integration.test.ts"
+  ],
+  "estimated_prod_lines": 280,
+  "estimated_test_lines": 260,
+  "dependencies_added": [],
+  "rollback_plan": "No migration and no data change: the branch edits one read-only SELECT, one shared predicate's internals, and two CI audits. Revert the squash commit on main and redeploy the worker; the scan returns to its current shape on the next tick. No flag flip is needed, and SOLICITATION_SEND_ENABLED already gates P4 in production.",
+  "observability": [
+    "withheldByReason.subscription on the Release cycle line is the new signal: a tick that releases nothing because every candidate account lapsed now names that gate instead of reading like an idle tick",
+    "withheldByReason.account_cap keeps its existing meaning, so the staging ramp's 'paced vs capped' read is unchanged",
+    "Silent-failure signal: a tick that logs released: 0 with withheldByReason {} and releasePhaseStoppedBy null while approved batches exist means an arm over-excluded or a counter went silent"
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

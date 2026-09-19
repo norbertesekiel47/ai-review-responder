@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  FULL_ACCESS_SUBSCRIPTION_STATUSES,
   SubscriptionStatus,
   type SubscriptionStatusValue,
   isSubscriptionStatus,
@@ -64,6 +65,26 @@ describe('subscriptionGrantsFullAccess', () => {
     expect(subscriptionGrantsFullAccess('pending_payment')).toBe(false);
     expect(subscriptionGrantsFullAccess('past_due')).toBe(false);
     expect(subscriptionGrantsFullAccess('cancelled')).toBe(false);
+  });
+});
+
+describe('FULL_ACCESS_SUBSCRIPTION_STATUSES', () => {
+  // #1329: the Release cycle's candidate scan binds this array into SQL to
+  // exclude an unentitled account from the 50-row window. That arm is only safe
+  // because the array and the predicate are ONE owner — a status admitted by one
+  // and refused by the other either starves an account that may send or holds
+  // scan slots for one that may not. This pin is that lockstep, asserted over
+  // every canonical status rather than the two that happen to grant today.
+  it('FULL_ACCESS_SUBSCRIPTION_STATUSES holds exactly the statuses subscriptionGrantsFullAccess admits', () => {
+    const admitted = Object.values(SubscriptionStatus).filter((status) =>
+      subscriptionGrantsFullAccess(status),
+    );
+    expect([...FULL_ACCESS_SUBSCRIPTION_STATUSES]).toStrictEqual(admitted);
+    for (const status of Object.values(SubscriptionStatus)) {
+      expect(FULL_ACCESS_SUBSCRIPTION_STATUSES.includes(status)).toBe(
+        subscriptionGrantsFullAccess(status),
+      );
+    }
   });
 });
 

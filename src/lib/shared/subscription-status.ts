@@ -40,6 +40,31 @@ export function isSubscriptionStatus(value: string): value is SubscriptionStatus
 // ── Entitlement predicates ───────────────────────────────────────────────────
 
 /**
+ * The full-access set as DATA, so a caller that cannot call the predicate can
+ * still ask the same question of the same owner.
+ *
+ * It exists for exactly one caller today (#1329): the **Release cycle**'s
+ * candidate scan binds it into SQL to keep an unentitled account out of the
+ * oldest-first candidate window, because an excluded account never reaches
+ * `subscriptionGrantsFullAccess` in TypeScript at all. A second SQL spelling of
+ * the membership would be a second owner that can drift, and drift here is not
+ * symmetric: a status the array omits but the predicate admits STARVES an
+ * account that may send. Hence the array, not a literal list in the query, and
+ * the predicate below is implemented OVER it rather than beside it.
+ *
+ * Order is `active` then `trialing` and is not meaningful; the lockstep pin in
+ * `__tests__/subscription-status.test.ts` asserts membership, derived from the
+ * predicate over every canonical status.
+ */
+export const FULL_ACCESS_SUBSCRIPTION_STATUSES: readonly SubscriptionStatusValue[] = [
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.TRIALING,
+];
+
+/** Widened once, the way `ALL_STATUSES` is, so the predicate can take a `string`. */
+const FULL_ACCESS_STATUSES: readonly string[] = FULL_ACCESS_SUBSCRIPTION_STATUSES;
+
+/**
  * Whether a subscription status grants full product entitlement: AI drafts,
  * notifications, approval, posting, channel enrollment, multi-location, tier
  * changes, etc. This is the single owner of the rule "`trialing` is treated like
@@ -50,14 +75,14 @@ export function isSubscriptionStatus(value: string): value is SubscriptionStatus
  * `past_due` is deliberately NOT full access: it gets a grace window with its
  * own recovery rules (see `computePastDueRecoveryState`), so call sites that
  * special-case `past_due` must branch on it BEFORE consulting this predicate.
+ *
+ * `undefined` — a status the caller could not read — is never full access, and
+ * the membership test gives that for free.
  */
 export function subscriptionGrantsFullAccess(
   status: string | undefined,
 ): boolean {
-  return (
-    status === SubscriptionStatus.ACTIVE ||
-    status === SubscriptionStatus.TRIALING
-  );
+  return status !== undefined && FULL_ACCESS_STATUSES.includes(status);
 }
 
 /**
