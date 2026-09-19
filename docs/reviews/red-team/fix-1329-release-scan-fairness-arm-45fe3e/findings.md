@@ -333,3 +333,41 @@ without a disposition. Neither is in the fix hunks.
   closed for the fifth spy, on a spy the `beforeEach` re-arms with
   `mockImplementation` only. If that case ever stops consuming its override, it
   leaks into the next case. Pre-existing and unchanged by this branch.
+
+---
+
+## Orchestrator note, after round 3 (not part of the pass)
+
+Written by the run's orchestrator, and kept HERE rather than in
+`docs/reviews/fix-1329-release-scan-fairness-arm/triage.md` for a mechanical
+reason worth recording: `red-team-status.mjs` binds this sidecar to a HEAD and
+then requires that the tree at HEAD differ from it in **these two files only**.
+Appending the round-3 narrative to the triage record moved the tree and broke the
+binding, so that append was reverted and the narrative lives in the one artifact
+the checker permits to change. Step 7.5's "order is load-bearing" is exactly this:
+everything except the sidecar must be committed BEFORE the last round opens.
+
+### Two corrections to the orchestrator's own statements
+
+1. **The round-2 commit message is imprecise.** It says both mid-tick cases "drive
+   the change from a SIBLING account's count". Only the CAP case does, and must:
+   `runAccountArm` awaits the cap read before the attempts count, so that case
+   cannot use its own count. The LAPSE case correctly fires on its own count,
+   because the subscription read FOLLOWS the count. Round 3 caught the
+   over-generalisation; this sidecar's own text was already scoped correctly.
+2. **The round-3 dispatch brief was wrong** to tell the pass that
+   `red-team-status.mjs` "currently fails only on the stale head binding".
+   `intake_sha256` already matched, and the authorization entry's missing `date`
+   and `finding_ids` were a second and third defect — which the pass then found
+   and fixed as R7. A claim about what a checker reports is worth what the last
+   run of it showed, and that brief's claim was older than its evidence.
+
+### Why a third round existed at all
+
+Rounds are capped at two. Round 2 found two P0s in round 1's fixes; fixing them
+moved HEAD past the pass that reviewed it, which makes the sidecar stale by
+construction. The runner's own comment names the trap: without a grant, the only
+ways out are to leave a known defect unfixed or to hand-edit `head_sha` — "an
+evidence file rewriting its own provenance". The owner granted the round
+(`owner-1329-third-round`), recorded here before it opened, and it verified the
+five fixes the orchestrator had only measured itself. None was corrected downward.
