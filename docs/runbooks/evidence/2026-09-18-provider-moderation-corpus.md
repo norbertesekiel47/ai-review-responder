@@ -144,3 +144,52 @@ provider answered, but **not which concern class fired**. Diagnosing the six
 false positives required a throwaway probe to recover that. Recording `concern`
 on each result row would make the next tuning pass materially cheaper. Filed as
 a follow-up, not fixed here.
+
+## Readiness flag flip — record
+
+Per the `flag-flip` skill step 7. `AUTO_APPROVAL_PROVIDER_MODERATION_READY` is
+read on **both** lanes, so each environment needs two writes: the Railway worker
+(boot validation only — `SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV` in
+`worker/config/startup-assert.ts`; nothing in `worker/` branches on it) and
+Vercel (`providerModerationValidated()` → `buildReadiness` → `canExpand`, which
+is what actually gates an owner widening their auto-approval policy).
+
+| Environment | Lane | Value | UTC | Verified how |
+|---|---|---|---|---|
+| staging | Railway worker | `true` | 2026-09-18T23:50Z | read back through the environment; worker booted clean at 23:51:14Z, deployment `6470b372` SUCCESS |
+| staging | Vercel | `true` | 2026-09-18T23:56Z | `env pull` returned `"true"`; redeploy `dpl_F8azrmoSqpKKWPVvYx7LVBRheM4d` READY 23:60Z, aliased `staging.repworth.net` |
+| production | Railway worker | `true` | 2026-09-19T00:01Z | read back through the environment |
+| production | Vercel | **NOT SET** | — | **blocked by the operator's permission policy; see below** |
+
+**Why:** both environments hold a `VERDICT: PASS` corpus run (above), which is
+the condition the validation runbook sets for this flag, and production already
+carried the three per-outcome checks from 2026-08-31.
+
+**Production is deliberately left HALF-FLIPPED, and the half that is missing is
+the one that matters.** The Railway value is inert there — the worker only
+validates it at boot. `canExpand` is computed in the Next.js lane, which still
+reads the flag as unset, so **owner policy expansion remains blocked in
+production** exactly as before. That is the safe direction, not a broken state,
+but it is not finished: complete it by setting
+`AUTO_APPROVAL_PROVIDER_MODERATION_READY=true` on Vercel production and
+redeploying, then smoke the settings readiness surface.
+
+**Nothing was enabled by any of this.** `AUTO_APPROVAL_ENABLED` reads `false` in
+both environments and `JUDGE_ENABLED` is unset in production — the ordered
+go-live flip (design doc §8.4) has not started. Readiness is an **expansion**
+control; it does not post.
+
+### Two corrections this flip produced
+
+1. **`vercel env add` CAN target a custom environment** on CLI 54.14.5 — it
+   accepted `staging` positionally and wrote correctly. The `OWNER_OPERATOR_ENABLED`
+   note in `.claude/reference/env-vars.md` says the REST API is required because
+   the CLI "cannot target a Custom Environment". That was true once; it is not
+   true now, and the note should be corrected the next time that entry is touched.
+2. **Infisical is NOT a usable source for this.** Its `staging` environment holds
+   zero secrets while Railway staging carries ~100 variables, and its `prod`
+   environment holds 59 — missing every autonomy flag (judge, governor, triage,
+   escalation, owner-operator, and this one) while still carrying
+   `PAST_REPLIES_VIEW_ENABLED`, retired 2026-08-08. It is a stale snapshot, not a
+   live mirror, and writing to it would neither have reached Vercel nor been safe
+   if a replace-all sync existed. Reconciling it is separate work.

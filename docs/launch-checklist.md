@@ -372,20 +372,27 @@ Pre-invite actions from these decisions:
   activation funnel (Wave 2, mig 046/049) are no-ops until this is set.
 - [ ] **`IMPERSONATION_COOKIE_SECRET`** (≥32 chars) — required for the admin
   "view-as" support flow (Wave 2, mig 048).
-- [ ] **`AUTO_APPROVAL_PROVIDER_MODERATION_READY`** (Spec 10) — **UNBLOCKED
-  2026-09-18; not yet set.** G4-F1 is closed. `omni-moderation-latest` still
-  returns clean on veiled threats and sexual innuendo, and the local regex
+- [ ] **`AUTO_APPROVAL_PROVIDER_MODERATION_READY`** (Spec 10) — **STAGING DONE
+  2026-09-18; PRODUCTION HALF-DONE.** G4-F1 is closed. `omni-moderation-latest`
+  still returns clean on veiled threats and sexual innuendo, and the local regex
   layer still covers neither — provider moderation remains a veto against
   **explicit** unsafe text only. What changed is that the **Safety review**
   (#1311) now sits above it and catches exactly that class, proven live: both
   environments score `VERDICT: PASS`, FN 0, injection misses 0, and the two
-  drafts the provider misses are caught by the Safety review alone. Evidence:
+  drafts the provider misses are caught by the Safety review alone.
+  **The flag is read on BOTH lanes** — Railway (boot validation only) and Vercel
+  (`canExpand`, which gates an owner widening their policy). Staging: both set
+  `true` and redeployed. Production: **Railway set `true`, Vercel NOT set**, so
+  owner policy expansion is still blocked in production — the safe direction,
+  but unfinished. **Remaining: set it on Vercel production, redeploy, smoke the
+  settings readiness surface.** Evidence and the per-lane flip record:
   `docs/runbooks/evidence/2026-09-18-provider-moderation-corpus.md`. Procedure:
   `docs/runbooks/auto-approval-provider-moderation-validation.md`; flip via the
-  `flag-flip` skill, staging first.
+  `flag-flip` skill.
   **This flag is an EXPANSION control, not the runtime switch.** Setting it does
-  not start auto-posting. `AUTO_APPROVAL_ENABLED` stays `false` in both
-  environments and is a separate, later decision.
+  not start auto-posting. `AUTO_APPROVAL_ENABLED` reads `false` in both
+  environments, `JUDGE_ENABLED` is unset in production, and the ordered go-live
+  flip (design doc §8.4) has not started.
 - [ ] **Help Scout inboxes** (Spec 13) — set up `support@` / `billing@` /
   `security@` / `report@` before first paying customer. Finish the macro catalog
   (6 of 20 shipped).
