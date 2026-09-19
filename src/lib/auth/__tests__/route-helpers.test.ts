@@ -164,7 +164,7 @@ describe('withSameOrigin', () => {
   // part that matters (tsconfig includes `**/*.ts`, so test files are checked).
   // The runtime expectations beside each assertion keep the vitest row honest;
   // the type assertion is the subject. Idiom precedent: a bare `@ts-expect-error`
-  // whose USED-ness is itself the guard — src/lib/refusals/__tests__/vocabulary.test.ts:733.
+  // whose USED-ness is itself the guard — src/lib/refusals/__tests__/vocabulary.test.ts:738.
 
   it('preserves a NextResponse handler return type through the wrapper', async () => {
     const wrapped = withSameOrigin()(async (_req: NextRequest) =>

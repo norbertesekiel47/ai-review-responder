@@ -32,6 +32,14 @@ type WrappedNextHandler<TArgs extends unknown[] = [], TRes extends Response = Re
  * directions are guarded in route-helpers.test.ts — one case asserts a
  * NextResponse handler stays narrowable, and a `@ts-expect-error` case asserts a
  * bare-Response handler is NOT, so re-pinning `TRes` fails the typecheck row.
+ *
+ * A HANDLER OPTS OUT BY ANNOTATING ITSELF. `TRes` is inferred, so a handler
+ * declared `: Promise<Response>` pins `TRes = Response` and keeps the old widened
+ * export — ten sites under src/app/api/dashboard/ do exactly that today. That is
+ * correct for one that really returns a bare `Response`, and merely stale for one
+ * that does not; either way the fix is the HANDLER's annotation, never a cast at
+ * the export (that was #865 D5's mistake). Drop the annotation and let `TRes`
+ * infer, or annotate `: Promise<NextResponse>`.
  */
 export function withSameOrigin(): <TArgs extends unknown[], TRes extends Response>(
   handler: NextHandler<TArgs, TRes>
