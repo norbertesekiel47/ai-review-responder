@@ -463,24 +463,39 @@ Unproven paths 1–4 above: all closed. Deviations: D-1…D-4, none a product
 defect. Runbook defect fixed in the same change: none needed in the spec, but
 the handoff's `/admin/autonomy` wording is corrected (D-4).
 
-**Resting state — the owner's call, left exactly as the owner made it:** Tanicia
-is `autopilot` with an ARMED 4–5★ dial and every staging autonomy flag is ON, so
-**the next 4–5★ review on that location will auto-post to the real Google
-profile.** Downgrade through the billing UI or set the dial to Off if that is
-not wanted.
+**Resting state — decided by the owner after the run (03:26Z): back to Copilot.**
+The owner downgraded Tanicia through the billing UI: audit `tier_changed`
+`autopilot→copilot` @03:26:27Z, `base_price_cents=4900`; `accounts` and
+`businesses` both `copilot` (re-read 03:32:48Z). The owner-created policy row
+stays ARMED (`auto_approve_min_star=4`, veto 15, not suspended) and is **inert**:
+the runtime refuses every non-Autopilot draft with `autopilot_tier_required`
+(`auto-approval.ts:371`), so **nothing auto-posts on staging now**, even with
+every staging autonomy flag ON. Staging is back to having no Autopilot account —
+the next WS6-style run needs a promotion again.
+
+*(This paragraph replaces the at-merge text of #1313, which recorded Tanicia
+resting at `autopilot` with a live dial. That was true for eight minutes.)*
+
+**Defect found by the downgrade, filed not fixed — #1314.** With the armed row
+and a Copilot tier, `/settings/auto-approval` still headlines "4–5★ reviews post
+a reply automatically…" above the correct red plan notice. `describePolicyStatus`
+reads only the policy row. Display-only: no posting risk. The ticket also records
+why the obvious patch is wrong (`autopilot_unavailable` conflates tier with
+`AUTOPILOT_PURCHASABLE`, so keying on it can say "not posting" while replies
+post).
 
 ### Teardown ledger
 
 | Fixture | Identifier | How to remove | State |
 |---|---|---|---|
 | 5 synthetic `flag` judge_verdicts | `model='e2e-ws6-drill-synthetic'` | `DELETE FROM judge_verdicts WHERE model='e2e-ws6-drill-synthetic'`; verify count 0 and total back to 1 | [x] 03:18:08Z — deleted 5, verified 0 left, total back to 1 |
-| Owner-created account policy (4–5★ / 15 / NULL cap) | `01a0b780-d9f0…` | owner call at the end: keep, or set to Off in the settings UI | [~] left in place — owner-created through the UI; owner's call (see Resting state) |
+| Owner-created account policy (4–5★ / 15 / NULL cap) | `01a0b780-d9f0…` | owner call at the end: keep, or set to Off in the settings UI | [~] left in place, ARMED but inert at Copilot tier (see Resting state; headline defect #1314) |
 | Real auto-posted reply on the Google profile | response `01a0b78d-828b…` | expected product behaviour; owner may delete the review + reply on Google | [~] left in place — expected product behaviour; owner may remove it on Google |
-| Tanicia tier → `autopilot` (owner, billing UI) | `01a0acef…` | owner call at the end: keep or downgrade through the billing UI | [~] left in place — owner-made through the billing UI; owner's call (see Resting state) |
+| Tanicia tier → `autopilot` (owner, billing UI) | `01a0acef…` | owner call at the end: keep or downgrade through the billing UI | [x] 03:26:27Z — owner downgraded to `copilot` through the billing UI; verified 03:32:48Z |
 
 ### Unproven paths (all closed — see Verdict)
 
 1. Auto-post after the veto window (`approval_method='auto_policy'`, `posted`).
 2. Judge verdict within minutes of the post.
 3. Suspension through a real trigger.
-4. Admin unsuspend through `/admin/autonomy` under AAL2, driven in Chrome.
+4. Admin unsuspend through the Admin app's `/admin/autonomy` under AAL2, driven in Chrome.
