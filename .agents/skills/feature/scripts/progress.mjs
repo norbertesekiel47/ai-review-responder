@@ -3,7 +3,7 @@
 // Owns .feature/progress.json — the /feature step ladder and tracer bullets.
 //
 //   progress.mjs init --size <s> --risk <r> --surface <u>
-//   progress.mjs carry <parent-repo-root|parent progress.json>
+//   progress.mjs carry <parent-repo-root|parent progress.json> [--intake <path>] [--runtime codex|claude]
 //   progress.mjs step <id> <status> [--note "..."]
 //   progress.mjs tracers set "T1 title|T2 title|..."
 //   progress.mjs tracer <id> <status> [--note "..."]
@@ -47,7 +47,7 @@ const TRACER_STATUSES = ['pending', 'active', 'done', 'blocked'];
 const USAGE = `usage:
   progress.mjs route --size <${SIZES.join('|')}> --risk <${RISKS.join('|')}>
   progress.mjs init --size <${SIZES.join('|')}> --risk <${RISKS.join('|')}> --surface <${SURFACES.join('|')}>
-  progress.mjs carry <parent-repo-root|parent progress.json>
+  progress.mjs carry <parent-repo-root|parent progress.json> [--intake <path>] [--runtime codex|claude]
   progress.mjs step <${STEP_IDS.join('|')}> <${STEP_STATUSES.join('|')}> [--note "..."]
   progress.mjs tracers set "T1 title|T2 title|..."
   progress.mjs tracer <id> <${TRACER_STATUSES.join('|')}> [--note "..."]
@@ -185,6 +185,16 @@ switch (command) {
   // Steps 0 and 1 run before the worktree exists, so the ladder starts in the
   // parent checkout. `carry` moves it into the armed worktree, mirroring how
   // feature-setup.sh installs the intake from an outside path.
+  //
+  // A `/feature-swarm` wave breaks the assumption that the parent checkout's
+  // ladder belongs to THIS ticket: the parent may hold no per-ticket ladder at
+  // all, or a stale one left over from an earlier, already-merged run (#1107
+  // reproduced this — a `standard·high·ui` carry onto a `small·high·backend`
+  // ticket, sign-off note and all). Branch identity cannot be the
+  // discriminator (steps 0-1 legitimately run on `main`), so `carry` proceeds
+  // only when the parent ladder's axes match the locked intake AND the ladder
+  // is not older than it. Anything else keeps the stub arm-check already
+  // wrote and says why — a refusal is a correct outcome, not a fault.
   case 'carry': {
     const [source] = positional;
     if (!source) fail('carry needs the parent repo root or its progress.json');
@@ -202,7 +212,44 @@ switch (command) {
       fail('carry source and destination are the same worktree');
     }
 
-    const carried = JSON.parse(readFileSync(sourcePath, 'utf8'));
+    let carried;
+    try {
+      carried = JSON.parse(readFileSync(sourcePath, 'utf8'));
+    } catch (error) {
+      fail(`unreadable progress ladder at ${sourcePath}: ${error.message}`);
+    }
+
+    // Refusal keeps the intake stub and exits 0 — it is the correct outcome
+    // when the axes cannot be checked or disagree, not a fault.
+    const refuse = (reason) => {
+      console.log(`ladder: kept the intake stub — ${reason}`);
+      process.exit(0);
+    };
+
+    const intakePath = resolve(root, flags.intake ?? join(dir, 'intake.json'));
+    let intake;
+    let intakeMtimeMs;
+    try {
+      intake = JSON.parse(readFileSync(intakePath, 'utf8'));
+      intakeMtimeMs = statSync(intakePath).mtimeMs;
+    } catch (error) {
+      refuse(`intake unreadable at ${intakePath} (${error.message})`);
+    }
+
+    if (carried.size !== intake.size || carried.risk !== intake.risk || carried.surface !== intake.surface) {
+      refuse(
+        `parent ladder is ${carried.size}/${carried.risk}/${carried.surface}, locked intake is ${intake.size}/${intake.risk}/${intake.surface}`,
+      );
+    }
+
+    const carriedUpdatedAtMs = Date.parse(carried.updatedAt ?? '');
+    if (!Number.isFinite(carriedUpdatedAtMs)) {
+      refuse('parent ladder has no updatedAt to compare against the locked intake');
+    }
+    if (carriedUpdatedAtMs < intakeMtimeMs) {
+      refuse(`parent ladder (updated ${carried.updatedAt}) is older than the locked intake`);
+    }
+
     const runtime = flags.runtime ?? carried.runtime ?? (process.env.CODEX_THREAD_ID ? 'codex' : 'claude');
     if (!['codex', 'claude'].includes(runtime)) fail('--runtime must be codex or claude');
     const steps = { ...emptySteps(), ...(carried.steps ?? {}) };
@@ -218,6 +265,7 @@ switch (command) {
       steps,
       tracers: Array.isArray(carried.tracers) ? carried.tracers : [],
     });
+    console.log(`ladder: carried from ${candidate}`);
     console.log(renderTerminal(buildSnapshot(root)));
     break;
   }

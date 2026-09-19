@@ -78,14 +78,18 @@ echo "intake installed: $DOCS_COPY (uncommitted) + .feature/intake.json; input p
 FEATURE_RUNTIME="$RUNTIME" bash scripts/arm-check.sh || exit 1
 
 # Carry the parent checkout's step ladder into the armed worktree (steps 0–1
-# ran there). arm-check auto-initialized a stub when none existed; the parent
-# ladder, when present, replaces the stub with the real orient/intake history.
-# Best effort: a failed carry leaves the stub, never blocks arming.
+# ran there). arm-check auto-initialized a stub when none existed; `carry`
+# replaces it with the parent's real orient/intake history ONLY when the
+# parent ladder's axes match this run's locked intake and it is not older
+# (see progress.mjs `carry`) — a `/feature-swarm` wave's parent may hold no
+# per-ticket ladder, or a stale one from an earlier merged run (#1107).
+# `carry` speaks for itself on both outcomes (carried or refused — both exit
+# 0); only a genuine fault exits non-zero, and even then arming must never
+# block on it, so the stub is always a safe fallback.
 PARENT_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 if [ -n "$PARENT_ROOT" ] && [ "$PARENT_ROOT" != "$ROOT" ] \
    && [ -f "$PARENT_ROOT/.feature/progress.json" ]; then
-  node .agents/skills/feature/scripts/progress.mjs carry "$PARENT_ROOT" --runtime "$RUNTIME" \
-    || echo "ladder: carry from $PARENT_ROOT failed — keeping the auto-initialized stub."
+  node .agents/skills/feature/scripts/progress.mjs carry "$PARENT_ROOT" --runtime "$RUNTIME" || true
 fi
 
 # Claude alone uses the worktree-scoped profile. Native Codex retains its
