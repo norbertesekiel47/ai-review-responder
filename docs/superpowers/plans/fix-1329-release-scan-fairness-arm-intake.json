@@ -70,6 +70,7 @@
     "src/lib/shared/__tests__/subscription-status.test.ts",
     "src/lib/solicitation/__tests__/release.integration.test.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-intake.json",
     "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-deviations.md",
     "docs/superpowers/plans/fix-1329-release-scan-fairness-arm-handoff.md",
