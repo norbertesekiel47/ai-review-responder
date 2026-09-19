@@ -9,7 +9,7 @@
 // them alive was this file.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // ── Hoisted mock state ───────────────────────────────────────────────────────
 
@@ -156,6 +156,49 @@ describe('withSameOrigin', () => {
     const res = await wrapped(makeReq(undefined, { origin: `${APP_URL}/` }));
 
     expect(res.status).toBe(200);
+  });
+
+  // ── Return-type preservation (#879) ─────────────────────────────────────────
+  //
+  // These two cases are TYPE-level, and `pnpm typecheck` is what executes the
+  // part that matters (tsconfig includes `**/*.ts`, so test files are checked).
+  // The runtime expectations beside each assertion keep the vitest row honest;
+  // the type assertion is the subject. Idiom precedent: a bare `@ts-expect-error`
+  // whose USED-ness is itself the guard — src/lib/refusals/__tests__/vocabulary.test.ts:738.
+
+  it('preserves a NextResponse handler return type through the wrapper', async () => {
+    const wrapped = withSameOrigin()(async (_req: NextRequest) =>
+      NextResponse.json({ ok: true }, { status: 200 }),
+    );
+
+    // NO directive, and its ABSENCE is the assertion. Before #879 the wrapper
+    // pinned its return to `Promise<Response>`, and `Response` is missing
+    // `cookies` and `[INTERNALS]` — the exact TS2739 that made #865 (deviation
+    // D5) re-annotate at the call site instead of fixing the wrapper.
+    type Wrapped = Awaited<ReturnType<typeof wrapped>>;
+    const preserved: NextResponse = null as unknown as Wrapped;
+    void preserved;
+
+    const res = await wrapped(makeReq(undefined, { origin: APP_URL }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it('does not widen a bare Response handler up to NextResponse', async () => {
+    const wrapped = withSameOrigin()((_req: NextRequest) => new Response(null, { status: 204 }));
+
+    // ANTI-VACUITY, and it is the guard the case above exists for. `TRes` must be
+    // INFERRED from the handler, never re-pinned: a handler returning a bare
+    // `Response` stays a bare `Response`. If anyone re-pins `TRes` to
+    // `NextResponse`, this directive goes unused, TS2578 fails the typecheck row,
+    // and the case above can no longer pass for the wrong reason.
+    type Wrapped = Awaited<ReturnType<typeof wrapped>>;
+    // @ts-expect-error — Response is not assignable to NextResponse
+    const notWidened: NextResponse = null as unknown as Wrapped;
+    void notWidened;
+
+    const res = await wrapped(makeReq(undefined, { origin: APP_URL }));
+    expect(res.status).toBe(204);
   });
 });
 

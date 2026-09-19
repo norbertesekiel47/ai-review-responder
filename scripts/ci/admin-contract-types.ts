@@ -500,6 +500,15 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
     if (seen.has(type)) return false;
     seen.add(type);
     if (type.getSymbol()?.name === 'NextResponse' || type.getSymbol()?.name === 'Response') return true;
+    // A GENERIC handler's return is a type PARAMETER, not a named type, so the
+    // symbol-name check above cannot see it. #879 made withSameOrigin
+    // return-type-preserving, which types the wrapped `handler(req, …)` call as
+    // `Promise<TRes> | TRes`; without resolving `TRes` to its `extends Response`
+    // constraint, `call()` reads that call as not-a-response-producer, stops
+    // descending into the wrapped handler, and the two impersonation routes lose
+    // every response variant but the wrapper's own 403.
+    const constraint = type.isTypeParameter() ? checker.getBaseConstraintOfType(type) : undefined;
+    if (constraint) return responseBearing(constraint, seen);
     if (type.isUnion()) return type.types.some((part) => responseBearing(part, seen));
     const promised = type.getSymbol()?.name === 'Promise' ? checker.getTypeArguments(type as ts.TypeReference)[0] : undefined;
     if (promised) return responseBearing(promised, seen);

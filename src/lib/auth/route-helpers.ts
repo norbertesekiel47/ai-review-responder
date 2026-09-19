@@ -6,14 +6,16 @@ import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offbo
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
-type NextHandler<TArgs extends unknown[] = []> = (
+type NextHandler<TArgs extends unknown[] = [], TRes extends Response = Response> = (
   req: NextRequest,
   ...args: TArgs
-) => Promise<Response> | Response;
-type WrappedNextHandler<TArgs extends unknown[] = []> = (
+) => Promise<TRes> | TRes;
+/** The 403 the wrapper itself returns; it joins every wrapped handler's return union. */
+type SameOriginForbidden = NextResponse<{ error: string }>;
+type WrappedNextHandler<TArgs extends unknown[] = [], TRes extends Response = Response> = (
   req: NextRequest,
   ...args: TArgs
-) => Promise<Response>;
+) => Promise<TRes | SameOriginForbidden>;
 
 /**
  * Wraps a handler with a same-origin check.
@@ -21,10 +23,27 @@ type WrappedNextHandler<TArgs extends unknown[] = []> = (
  * Returns 403 when the Origin header is absent, mismatched, or
  * NEXT_PUBLIC_APP_URL is not configured. Any other unexpected error
  * from assertSameOrigin is re-thrown so it surfaces as a 500.
+ *
+ * RETURN-TYPE PRESERVING (#879). `TRes` is inferred from the wrapped handler,
+ * so `withSameOrigin()(h)` returns `Promise<TRes | SameOriginForbidden>` rather
+ * than the old flat `Promise<Response>`. Pinning it to `Response` widened all 58
+ * wrapped routes: a caller annotated `(response: NextResponse) => …` then failed
+ * with TS2739, and #865 (deviation D5) worked around it at the call site. Both
+ * directions are guarded in route-helpers.test.ts — one case asserts a
+ * NextResponse handler stays narrowable, and a `@ts-expect-error` case asserts a
+ * bare-Response handler is NOT, so re-pinning `TRes` fails the typecheck row.
+ *
+ * A HANDLER OPTS OUT BY ANNOTATING ITSELF. `TRes` is inferred, so a handler
+ * declared `: Promise<Response>` pins `TRes = Response` and keeps the old widened
+ * export — ten sites under src/app/api/dashboard/ do exactly that today. That is
+ * correct for one that really returns a bare `Response`, and merely stale for one
+ * that does not; either way the fix is the HANDLER's annotation, never a cast at
+ * the export (that was #865 D5's mistake). Drop the annotation and let `TRes`
+ * infer, or annotate `: Promise<NextResponse>`.
  */
-export function withSameOrigin(): <TArgs extends unknown[]>(
-  handler: NextHandler<TArgs>
-) => WrappedNextHandler<TArgs> {
+export function withSameOrigin(): <TArgs extends unknown[], TRes extends Response>(
+  handler: NextHandler<TArgs, TRes>
+) => WrappedNextHandler<TArgs, TRes> {
   return (handler) => async (req, ...args) => {
     try {
       assertSameOrigin(req);

@@ -42,6 +42,44 @@ function cliFixture() {
   return { root, run };
 }
 
+// #879 made `withSameOrigin` return-type-preserving, which types the wrapped
+// `handler(req, …)` call as `Promise<TRes> | TRes`. `responseBearing` matched on
+// symbol NAME only, so an unresolved type parameter read as not-a-Response, the
+// walker stopped at the wrapper, and `/api/admin/impersonation/{start,end}` lost
+// every response variant but the wrapper's own 403 — a silently emptied contract,
+// not a failure. This fixture is the smallest shape that reproduces it.
+function genericWrapperFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'admin-contract-generic-')); roots.push(root);
+  const files = {
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
+    'src/lib/admin/dto.ts': 'export interface Example { name: string; }',
+    'src/lib/admin/api-contract.ts': "export type { Example } from './dto';",
+    'src/lib/auth/admin-mfa-gate.ts': 'export async function requireAdminWithAal2(_req: Request) { return {ok: true}; }',
+    'src/lib/auth/route-helpers.ts': `type Handler<TRes extends Response = Response> = (req: Request) => Promise<TRes> | TRes;
+      export function withSameOrigin(): <TRes extends Response>(handler: Handler<TRes>) => (req: Request) => Promise<TRes | Response> {
+        return (handler) => async (req) => {
+          if (req.headers.get('origin') !== 'https://app.example.com') {
+            return Response.json({error: 'forbidden'}, {status: 403});
+          }
+          return handler(req);
+        };
+      }`,
+    'src/app/api/admin/wrapped/route.ts': `import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+      import { withSameOrigin } from '@/lib/auth/route-helpers';
+      async function wrapped(req: Request) {
+        await requireAdminWithAal2(req);
+        if (!req.headers.get('x-id')) return Response.json({error: 'missing_id' as const}, {status: 400});
+        return Response.json({ok: true as const}, {status: 200});
+      }
+      export const GET = withSameOrigin()(wrapped);`,
+  };
+  for (const [file, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), contents);
+  }
+  symlinkSync(resolve('node_modules'), join(root, 'node_modules'), 'dir');
+  return root;
+}
+
 describe('admin contract audit', () => {
   it('fails on edited declarations and missing or stale route rows', async () => {
     const root = mkdtempSync(join(tmpdir(), 'admin-contract-audit-')); roots.push(root);
@@ -110,6 +148,22 @@ describe('admin contract audit', () => {
     expect(run('--write').status).toBe(0);
     expect(existsSync(join(destination, 'schemas/stale.json'))).toBe(false);
     expect(run().status).toBe(0);
+  });
+
+  // Builds one small TypeScript graph in a temp tree; no CLI process is spawned.
+  it('descends into a handler wrapped by a return-type-preserving generic wrapper', { timeout: 30_000 }, async () => {
+    const generated = await generateAdminContract(genericWrapperFixture());
+
+    // The wrapper's OWN 403 is never the thing at risk — the walker always reached
+    // it. The handler's 200 and 400 are what disappeared, so they are the assertion.
+    const row = generated.rows.find((entry) => entry.path === '/api/admin/wrapped');
+    expect(row).toBeDefined();
+    const readme = generated.files.get('README.md')!;
+    expect(readme).toContain('GET: 200, 400, 403');
+
+    const declarations = generated.files.get('admin-api.d.ts')!;
+    expect(declarations).toContain('"ok": true');
+    expect(declarations).toContain('"error": "missing_id"');
   });
 
   it('rejects linked output roots and ancestors before reading or deleting outside artifacts', () => {
