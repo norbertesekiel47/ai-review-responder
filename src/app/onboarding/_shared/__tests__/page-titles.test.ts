@@ -10,9 +10,18 @@ import { describe, expect, it } from 'vitest';
 // #1103 — WHAT THIS GUARD OWNS, now that a third guard exists. The app-wide
 // scan `src/app/(public)/__tests__/page-titles.test.ts` walks every `page.tsx`
 // and every non-root `layout.tsx` under `src/app`, these four funnel pages
-// included, and fails any title ENDING in the brand. That is a negative claim
-// over the whole tree, so the `| RepWorth` assertion this file used to carry
-// was a second copy of it and has been removed — one property, one owner.
+// included, and fails any title ENDING in the brand. The file-wide
+// `not.toMatch(/\|\s*RepWorth/)` this guard used to carry is removed in favour
+// of it — one property, one owner.
+//
+// NOT a clean equivalence, and the difference is deliberate. The old regex
+// scanned the whole FILE; the app-wide scan is TITLE-scoped and strips
+// `openGraph`/`twitter` sub-objects on purpose, because `title.template`
+// never rewrites an OG title so a correct one has to spell the brand itself.
+// So a stray "| RepWorth" in body copy or a description is now caught by
+// nothing. That is accepted: the bug being guarded is a DOUBLED title, the
+// scan owns it for all 74 pages rather than these four, and the surviving
+// assertion below already forbids a "|" inside the title literal.
 //
 // What no other guard makes is the POSITIVE claim below: that each of these
 // four pages declares a title of its own at all. The app-wide scan cannot,

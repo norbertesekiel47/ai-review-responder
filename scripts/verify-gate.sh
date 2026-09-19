@@ -44,13 +44,12 @@
 #     exist in a test file; missing titles are listed.
 #   reclassify — WARN when either diff bucket (production / test) exceeds
 #     ~2x its intake estimate (estimated_prod_lines / estimated_test_lines;
-#     legacy fallback: estimated_diff_size vs the combined total). Workflow
-#     artifacts are EXCLUDED — docs/superpowers/plans/**, docs/reviews/**,
-#     docs/runbooks/evidence/** and .claude/reference/** — because a run
-#     cannot commit scope creep against its own mandatory paperwork. #643's
-#     plan+deviations alone were 1,537 of 4,989 "changed lines"; #1082's
+#     legacy fallback: estimated_diff_size vs the combined total). A run's own
+#     mandatory paperwork is EXCLUDED, because a run cannot commit scope creep
+#     against paperwork the lane requires it to produce — #643's plan and
+#     deviations alone were 1,537 of 4,989 "changed lines", and #1082's
 #     staging evidence and arch-review row were 108 against 27 executable
-#     lines (#1114). See `reclassify_bucket` below.
+#     lines (#1114). `reclassify_bucket` below is the ONE list of what counts.
 #
 # `--review` mode (run once before step 7): the test row runs with
 # coverage, then diff-coverage enforces changed-line coverage (default min
@@ -510,22 +509,27 @@ fi
 # --- reclassify: actual diff vs the intake's per-bucket estimates ---
 # Buckets: test (__tests__/, *.test.ts(x), e2e/) vs production (the rest).
 #
-# `skip` is the workflow's OWN paperwork, which a run is required to produce
-# and which therefore cannot be scope creep against itself (#1114):
-#   docs/superpowers/plans/**  the plan, intake and deviations file
-#   docs/reviews/**            the review reports and triage verdicts
-#   docs/runbooks/evidence/**  the staging evidence a RISK = high branch MUST
-#                              write before it may ship
-#   .claude/reference/**       the arch-review-log row `ci:merge-ledger` makes
-#                              mandatory for every merge touching production,
-#                              plus the lab note the lane asks for by name
-# Kept narrow on purpose: only the `evidence/` subtree of docs/runbooks is
-# paperwork — a runbook itself is production. Pinned by
-# scripts/ci/__tests__/gate-rows.test.ts, which runs this function rather than
-# reading the case list.
+# `skip` is the workflow's OWN paperwork: files a run is REQUIRED to produce,
+# which therefore cannot be scope creep against itself (#643, #1114).
+#   docs/superpowers/plans/**            the plan, intake and deviations file
+#   docs/reviews/**                      review reports and triage verdicts
+#   docs/runbooks/evidence/**            the staging evidence a RISK = high
+#                                        branch MUST write before it may ship
+#   .claude/reference/arch-review-log.md the row `ci:merge-ledger` makes
+#                                        mandatory for every merge touching
+#                                        production
+#   .claude/reference/lab-notes/**       the durable lesson step 8 asks for
+#
+# NARROW BY CONSTRUCTION, and the tests are the fence. A runbook that is not
+# evidence is production. `.claude/reference/env-vars.md` and
+# `migrations-log.md` are production: they are the registry half of a new flag
+# or a new migration, so exempting them would hide exactly the scope growth
+# this row exists to notice. Only the two files the lane MANDATES are skipped.
 reclassify_bucket() {
   case "$1" in
-    docs/superpowers/plans/*|docs/reviews/*|docs/runbooks/evidence/*|.claude/reference/*)
+    docs/superpowers/plans/*|docs/reviews/*|docs/runbooks/evidence/*)
+      echo skip; return 0 ;;
+    .claude/reference/arch-review-log.md|.claude/reference/lab-notes/*)
       echo skip; return 0 ;;
   esac
   if echo "$1" | grep -qE '(^|/)__tests__/|\.test\.tsx?$|^e2e/'; then
@@ -535,19 +539,37 @@ reclassify_bucket() {
   fi
 }
 
+# Reads a `git diff --numstat` transcript on stdin; echoes "<prod> <test>".
+# A FUNCTION rather than an inline loop so the test can run the wiring, not
+# only the classifier: the arms below are as easy to swap as the case list is
+# to mis-edit, and a source-text assertion catches neither.
+reclassify_totals() {
+  local prod_lines=0 test_lines=0 adds dels pathname
+  # `|| [ -n "$pathname" ]` keeps the LAST line when the transcript has no
+  # trailing newline: `read` fills the variables and still returns non-zero at
+  # EOF, so a plain `while read` silently drops it. `git diff` always ends with
+  # one, which is why the inline version this replaced never showed the bug.
+  while IFS=$'\t' read -r adds dels pathname || [ -n "$pathname" ]; do
+    [ -n "$pathname" ] || continue
+    # git writes `-\t-\t<path>` for a binary blob; counting the dashes as
+    # lines would poison both totals.
+    case "$adds" in ''|*[!0-9]*) continue ;; esac
+    case "$dels" in ''|*[!0-9]*) continue ;; esac
+    case "$(reclassify_bucket "$pathname")" in
+      skip) continue ;;
+      test) test_lines=$((test_lines + adds + dels)) ;;
+      *)    prod_lines=$((prod_lines + adds + dels)) ;;
+    esac
+  done
+  echo "$prod_lines $test_lines"
+}
+
 RECLASSIFY_MSG=""
 if [ "$DOCS_ONLY" = false ] && [ -n "$BASE" ]; then
   PROD_ACTUAL=0; TEST_ACTUAL=0
-  while IFS=$'\t' read -r ADDS DELS PATHNAME; do
-    [ -n "$PATHNAME" ] || continue
-    case "$ADDS" in ''|*[!0-9]*) continue ;; esac
-    case "$DELS" in ''|*[!0-9]*) continue ;; esac
-    case "$(reclassify_bucket "$PATHNAME")" in
-      skip) continue ;;
-      test) TEST_ACTUAL=$((TEST_ACTUAL + ADDS + DELS)) ;;
-      *)    PROD_ACTUAL=$((PROD_ACTUAL + ADDS + DELS)) ;;
-    esac
-  done < <(git diff --numstat "$BASE" 2>/dev/null)
+  read -r PROD_ACTUAL TEST_ACTUAL < <(
+    git diff --numstat "$BASE" 2>/dev/null | reclassify_totals
+  )
 
   EST_PROD=$(jq -r '.estimated_prod_lines // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
   EST_TEST=$(jq -r '.estimated_test_lines // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)

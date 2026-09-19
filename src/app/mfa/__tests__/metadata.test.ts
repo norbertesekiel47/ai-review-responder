@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), 'utf-8');
 
 describe('/mfa titles (A26)', () => {
-  it('mfa/layout.tsx owns the title and leaves the brand suffix to the root template', () => {
+  it('mfa/layout.tsx titles the whole subtree, and the value is exactly "Security check"', () => {
     const src = read('src/app/mfa/layout.tsx');
     const [titleLine] = src.match(/^\s*title:.*$/m) ?? [];
     expect(titleLine).toMatch(/title:\s*'Security check',?$/);

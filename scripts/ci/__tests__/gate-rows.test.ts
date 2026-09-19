@@ -273,31 +273,40 @@ describe('promised-tests title discovery', () => {
 // itself. Two more paths are paperwork by exactly that argument and were not
 // excluded: a RISK = high branch MUST write staging evidence under
 // docs/runbooks/evidence/, and every merge touching a production file MUST add
-// an arch-review-log row under .claude/reference/ (ci:merge-ledger). On #1082
-// that counted 108 mandatory non-code lines against a 27-line executable diff,
-// and the estimate was inflated 35 -> 90 -> 250 to keep the row green, which
-// is the number ceasing to mean what it says.
+// an arch-review-log row (ci:merge-ledger). On #1082 that counted 108
+// mandatory non-code lines against a 27-line executable diff, and the estimate
+// was inflated 35 -> 90 -> 250 to keep the row green, which is the number
+// ceasing to mean what it says.
 //
 // Extracted and RUN rather than grepped: this file's own row-wiring tests
-// above record a source-text assertion passing against a disarmed mutant.
-describe('reclassify_bucket', () => {
-  function bucketOf(pathname: string): string {
+// above record a source-text assertion passing against a disarmed mutant. Both
+// halves are covered — `reclassify_bucket` classifies one path, and
+// `reclassify_totals` is the loop that calls it, so swapping the caller's
+// `test)` and `*)` arms fails here rather than passing silently.
+describe('reclassify buckets', () => {
+  /** Run one of verify-gate.sh's reclassify functions, extracted, not sourced. */
+  function runReclassify(snippet: string, input?: string) {
+    const extract = (fn: string) =>
+      `eval "$(sed -n '/^${fn}() {/,/^}/p' ${shellQuote(GATE)})"`;
     const result = spawnSync(
       'bash',
       [
         '-uo',
         'pipefail',
         '-c',
-        [
-          `eval "$(sed -n '/^reclassify_bucket() {/,/^}/p' ${shellQuote(GATE)})"`,
-          `reclassify_bucket ${shellQuote(pathname)}`,
-        ].join('\n'),
+        [extract('reclassify_bucket'), extract('reclassify_totals'), snippet].join('\n'),
       ],
-      { encoding: 'utf8' },
+      { cwd: ROOT, encoding: 'utf8', input },
     );
     expect(result.status, result.stderr).toBe(0);
     return result.stdout.trim();
   }
+
+  const bucketOf = (pathname: string) =>
+    runReclassify(`reclassify_bucket ${shellQuote(pathname)}`);
+
+  /** `<prod> <test>` for a `git diff --numstat` transcript. */
+  const totalsOf = (numstat: string) => runReclassify('reclassify_totals', numstat);
 
   it('skips the workflow artifacts a run is required to produce', () => {
     const skipped = [
@@ -313,16 +322,47 @@ describe('reclassify_bucket', () => {
   });
 
   it('counts test and production paths into their own buckets', () => {
-    // The exclusions above must stay narrow: a real runbook and a real doc are
-    // still production lines, and only the `evidence/` subtree is paperwork.
+    // The exclusions above must stay NARROW, and these rows are the fence.
+    // Only the `evidence/` subtree of docs/runbooks is paperwork, and only the
+    // two `.claude/reference` files the lane mandates — `env-vars.md` and
+    // `migrations-log.md` are the registry half of a real production change
+    // (a new flag, a new migration), so exempting them would hide exactly the
+    // scope growth this row exists to notice.
     expect(bucketOf('src/lib/solicitation/ask-generation.ts')).toBe('prod');
     expect(bucketOf('docs/runbooks/deployment-guide.md')).toBe('prod');
     expect(bucketOf('docs/directory/lib-solicitation-c.md')).toBe('prod');
     expect(bucketOf('scripts/verify-gate.sh')).toBe('prod');
+    expect(bucketOf('.claude/reference/env-vars.md')).toBe('prod');
+    expect(bucketOf('.claude/reference/migrations-log.md')).toBe('prod');
 
     expect(bucketOf('src/lib/solicitation/__tests__/release.integration.test.ts')).toBe('test');
     expect(bucketOf('src/app/mfa/__tests__/metadata.test.ts')).toBe('test');
     expect(bucketOf('src/components/dashboard/EditReplyDrawer.test.tsx')).toBe('test');
     expect(bucketOf('e2e/approval.spec.ts')).toBe('test');
+  });
+
+  it('totals a numstat transcript into the two buckets the WARN compares', () => {
+    // #1082's real shape: a small executable diff beside mandatory paperwork.
+    // No trailing newline, and the LAST row is a counted one on purpose: a
+    // plain `while read` drops that line at EOF, and an earlier draft of this
+    // test hid the bug by ending on a skipped row.
+    const numstat = [
+      '107\t0\tdocs/runbooks/evidence/2026-09-03-solicitation-drill.md',
+      '1\t0\t.claude/reference/arch-review-log.md',
+      '9\t2\tdocs/superpowers/plans/feat-1082-intake.json',
+      '40\t3\tsrc/lib/solicitation/__tests__/ask-generation.test.ts',
+      '20\t7\tsrc/lib/solicitation/ask-generation.ts',
+    ].join('\n');
+    expect(totalsOf(numstat)).toBe('27 43');
+  });
+
+  it('ignores the rows git emits for a binary file', () => {
+    // `git diff --numstat` writes `-\t-\t<path>` for a binary blob. Counting
+    // the dashes as lines would poison both totals.
+    expect(totalsOf('-\t-\tpublic/og.png\n5\t0\tsrc/lib/x.ts')).toBe('5 0');
+  });
+
+  it('keeps a path containing a space in one piece', () => {
+    expect(totalsOf('3\t1\tsrc/my file.test.ts')).toBe('0 4');
   });
 });
