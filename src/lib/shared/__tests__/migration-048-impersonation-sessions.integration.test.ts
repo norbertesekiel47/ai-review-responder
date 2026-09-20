@@ -28,8 +28,9 @@
 // `pg_get_indexdef` strings — including the partial predicate
 // `WHERE (ended_at IS NULL)` on `idx_impersonation_active_actor`, the index
 // that enforces "one active impersonation session per actor" at the
-// database — the three `pg_get_constraintdef` foreign-key strings, and the
-// `id` column's `gen_random_uuid()` default.
+// database — the three `pg_get_constraintdef` foreign-key strings, the
+// primary key, the `id` column's `gen_random_uuid()` default, and the whole
+// column inventory with its nullability set.
 //
 // ── stated limit ─────────────────────────────────────────────────────────────
 //
@@ -40,9 +41,12 @@
 // `NOT NULL` on `account_id` and `impersonated_user_id`, so this suite must
 // never drop and recreate the table either — a fresh `CREATE TABLE` would
 // carry the ORIGINAL `NOT NULL` and the diff would fail for a reason that is
-// not a regression.) Oracle A is what guards the table body: the `id` default
-// and the three FK definitions are pinned literals, read directly off the
-// catalogue at head, independent of any degrade.
+// not a regression.) Oracle A is what guards the table body: the column
+// inventory, the non-null set, the primary key, the `id` default and the three
+// FK definitions are pinned literals, read directly off the catalogue at head,
+// independent of any degrade. The inventory case is the named successor to the
+// deleted text guard's column assertions — `weakened-checks-reasons.md` records
+// that mapping.
 //
 // ── the shared last title ───────────────────────────────────────────────────
 //
@@ -118,6 +122,52 @@ const GUARDED_FOREIGN_KEYS: Readonly<Record<string, string>> = {
 };
 
 const ID_DEFAULT = 'gen_random_uuid()';
+
+/**
+ * The head-posture column inventory, rendered exactly as `readPublicCatalogue`
+ * renders `columns`. The deleted text guard asserted `id UUID PRIMARY KEY`,
+ * `ticket_id TEXT NOT NULL`, `reason TEXT NOT NULL` and
+ * `expires_at TIMESTAMPTZ NOT NULL` against the migration FILE. Oracle B
+ * cannot carry those: `CREATE TABLE IF NOT EXISTS` is a no-op at head, so the
+ * degrade/reapply diff never re-executes the table body (the stated limit
+ * above). Pinning the inventory here is what replaces them.
+ *
+ * These are HEAD literals, not 048's original text. Migration 057 dropped
+ * `NOT NULL` from `account_id` and `impersonated_user_id`, so both render
+ * `NULL` — which is precisely why a regex over 048's file could never have
+ * guarded the live table.
+ */
+const GUARDED_COLUMNS: Readonly<Record<string, string>> = {
+  account_id: 'uuid NULL identity=none generated=none',
+  actor_user_id: 'uuid NOT NULL identity=none generated=none',
+  created_at: 'timestamp with time zone NOT NULL identity=none generated=none',
+  ended_at: 'timestamp with time zone NULL identity=none generated=none',
+  expires_at: 'timestamp with time zone NOT NULL identity=none generated=none',
+  id: 'uuid NOT NULL identity=none generated=none',
+  impersonated_user_id: 'uuid NULL identity=none generated=none',
+  reason: 'text NOT NULL identity=none generated=none',
+  started_at: 'timestamp with time zone NOT NULL identity=none generated=none',
+  ticket_id: 'text NOT NULL identity=none generated=none',
+};
+
+/**
+ * `notNullColumns` as a SET, asserted exhaustively. A per-column check would
+ * pass while an eleventh column arrived NOT NULL; the whole-list comparison
+ * fails on any addition, removal or nullability flip.
+ */
+const GUARDED_NOT_NULL_COLUMNS: readonly string[] = [
+  'actor_user_id',
+  'created_at',
+  'expires_at',
+  'id',
+  'reason',
+  'started_at',
+  'ticket_id',
+];
+
+/** The other half of the deleted `id UUID PRIMARY KEY` assertion. */
+const PRIMARY_KEY_NAME = 'impersonation_sessions_pkey';
+const PRIMARY_KEY_DEFINITION = 'PRIMARY KEY (id)';
 
 // The degrade: the four guarded indexes, plus the one thing 048 turns on.
 // Never DROP TABLE — see the header's stated-limit note.
@@ -277,6 +327,33 @@ describeWithDb(
             BEHIND_HEAD,
           ).toBe(definition);
         }
+      });
+    });
+
+    it('head posture pins the impersonation_sessions column inventory and primary key', async () => {
+      // Oracle A for the table BODY. The stated limit above explains why
+      // oracle B cannot reach it, and `weakened-checks-reasons.md` records
+      // this case as the successor to the deleted text guard's column
+      // assertions. Exhaustive on purpose: an ADDED column is a schema change
+      // 048's suite should report, not tolerate.
+      await withRolledBackTransaction(sql(), async (tx) => {
+        const catalogue = await readPublicCatalogue(tx);
+        const table = catalogue.tables[TABLE];
+        if (!table) {
+          throw new Error(`readPublicCatalogue did not return ${TABLE} — ${BEHIND_HEAD}`);
+        }
+
+        expect(
+          Object.fromEntries(table.columns.map((entry) => [entry.name, entry.definition])),
+          BEHIND_HEAD,
+        ).toEqual(GUARDED_COLUMNS);
+
+        expect([...table.notNullColumns], BEHIND_HEAD).toEqual(GUARDED_NOT_NULL_COLUMNS);
+
+        expect(
+          table.constraints.find((entry) => entry.name === PRIMARY_KEY_NAME)?.definition,
+          BEHIND_HEAD,
+        ).toBe(PRIMARY_KEY_DEFINITION);
       });
     });
   },

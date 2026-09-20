@@ -255,40 +255,59 @@ for it.
 
 ---
 
-## D8 — the same text-guard weakness exists in fourteen suites outside #1301's scope
+## D8 — the same text-guard weakness exists in twenty-two suites outside #1301's scope
 
 **When:** step 4, while surveying which suite files existed after three tracers
 had landed.
 
 **What the survey showed.** #1301 names seven migrations. The same
 `expect(sql).toMatch(...)` text-guard pattern — the one that lost five red-team
-passes on #1171 — is also carried by at least fourteen further suites that the
-ticket does not name:
+passes on #1171 — is also carried by further suites the ticket does not name.
 
+**The first count of this was wrong.** Step 4 said "at least fourteen" and
+listed twelve. RT-9 caught it in review round 1. The count is now MEASURED, on
+a stated definition: a file under `src/lib/shared/__tests__/` that reads a file
+from `supabase/migrations/`, asserts on that text with `toMatch`/`toContain`,
+and opens no database (no `postgres(`, no `acquireLiveDbLock`). By that
+definition the remainder is **twenty-two**:
+
+`migration-034-structure`, `migration-035-rls-policies`,
+`migration-038-structure`, `migration-039-structure`,
 `migration-040-rls-tightening`, `migration-043-structure`,
 `migration-044-approval-audit-snapshot`, `migration-045-onboarding-demos-rls`,
 `migration-046-analytics-events`, `migration-047-backfill-past-due-at`,
 `migration-050-structure`, `migration-052-structure`,
-`migration-054-structure`, `migration-058-offboarding-analytics-events`, and
-the `.test.ts` halves of `migration-055-auto-approval-policy` and
-`migration-056-account-offboarding` (both of which also have an
-`.integration.test.ts` sibling).
+`migration-054-structure`, `migration-055-auto-approval-policy`,
+`migration-056-account-offboarding`,
+`migration-058-offboarding-analytics-events`,
+`migration-060-account-offboarding-reactivation-claim`,
+`migration-061-remove-sms-schema`, `migration-069-trial-subscription`,
+`migration-089-competitor-rival-pick`,
+`migration-094-consent-analytics-events` and
+`migration-097-suppression-analytics-events`.
 
-Two are worth naming specifically. **045** and **040** guard RLS posture — the
-same security property class as 049, 051, 117, 118 and 119, and therefore the
-same blast radius if their guard passes vacuously. **046** created
-`analytics_events` without RLS in the first place, which is the defect 049
-exists to fix.
+`055` and `056` also have an `.integration.test.ts` sibling; only their
+`.test.ts` half is counted. **`094` and `097` are themselves named
+`.integration.test.ts` and open no database** — a filename pattern is not
+evidence of an executing oracle, and a count filtered on the name misses them.
+That is how the first survey lost eight of the twenty-two.
+
+Three are worth naming specifically. **035**, **040** and **045** guard RLS
+posture — the same security property class as 049, 051, 117, 118 and 119, and
+therefore the same blast radius if their guard passes vacuously. The first
+survey named two of the three and missed `035`, the largest of them. **046**
+created `analytics_events` without RLS in the first place, which is the defect
+049 exists to fix.
 
 **Why this is NOT absorbed into this run.** It would roughly triple the diff,
 it is not what the ticket asks for, and the abort criteria already flagged one
-surface amendment as a stop-and-think point. Widening scope by fourteen files
+surface amendment as a stop-and-think point. Widening scope by twenty-two files
 on my own initiative is exactly the creep the surface discipline exists to
 prevent.
 
 **Why it is recorded rather than left unsaid.** This run builds the harness
 (`migration-guard.ts`) and proves the pattern on seven suites. The marginal
-cost of converting the remaining fourteen is now much lower than it was before
+cost of converting the remaining twenty-two is now much lower than it was before
 this branch, and whoever picks it up should know the harness exists rather than
 rediscovering the problem. That is a follow-up issue for the owner to file or
 decline, and step 8 is where it gets raised.

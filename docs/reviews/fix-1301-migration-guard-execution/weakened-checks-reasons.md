@@ -131,5 +131,48 @@ Listed here so no reviewer has to hunt them.
 
 ## What no longer has a guard anywhere
 
-Nothing. Every assertion in the five deleted files either has a named successor
-case or appears in the three retired classes above with a written reason.
+An earlier revision of this section said "Nothing". That was false, and the
+round-1 review wave found it on two axes independently (RT-1, F-A). Two
+mutations survived five red-team runs each against the claim. What follows is
+the measured list, not a restatement.
+
+### Closed in this branch
+
+**The `impersonation_sessions` column inventory** — the deleted 048 text guard
+asserted `id UUID PRIMARY KEY`, `ticket_id TEXT NOT NULL`,
+`reason TEXT NOT NULL` and `expires_at TIMESTAMPTZ NOT NULL`. None of the three
+retired classes covers them, and oracle B cannot: `CREATE TABLE IF NOT EXISTS`
+is a no-op at head, so a degrade/reapply diff never re-executes the table body.
+Mutation M17 survived 5 of 5 runs against the gap.
+
+Successor: **`head posture pins the impersonation_sessions column inventory and
+primary key`** in
+`src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts`.
+It pins all ten column renderings, the seven-name `notNullColumns` set and
+`impersonation_sessions_pkey` as oracle A literals read off the catalogue at
+head. The comparison is exhaustive, so an ADDED column fails it too.
+
+Note the head posture is not 048's file text: migration 057 dropped `NOT NULL`
+from `account_id` and `impersonated_user_id`, so both pin as `NULL`. A regex
+over 048's file asserts the original and would now be wrong about the live
+table — which is the whole argument of this change.
+
+### Still open, tracked as RT-3
+
+**Row-level data mutation of a table the migration does not name.** The deleted
+051 text guard's case "does not drop or mutate data" asserted the file
+contained no `DROP TABLE`, no line-anchored `UPDATE` and no line-anchored
+`DELETE`. Only part of that survives:
+
+| Half of the old assertion | Status |
+|---|---|
+| `DROP TABLE` of any table in `public` | **Guarded.** The table leaves the catalogue and `assertOnlyTablesMoved` reports it as `(disappeared)`. |
+| `UPDATE` / `DELETE` against an off-target table | **Unguarded.** `readPublicCatalogue` records schema, never rows, so an appended `UPDATE accounts SET display_name = …` moves nothing it reads. Mutation M18 survived 5 of 5 runs. |
+| `UPDATE` / `DELETE` against `flagged_responses` itself | **Guarded**, by `re-applying 051 preserves every existing flagged_responses row unchanged`, which seeds a real row first. |
+
+The gap is the off-target row write. It is a `readPublicCatalogue` limit, not a
+051 limit — every suite built on this harness shares it. RT-3 carries the fix:
+a per-table row digest for tables outside the moved list.
+
+Every other assertion in the five deleted files has a named successor case or
+appears in the three retired classes above with a written reason.
