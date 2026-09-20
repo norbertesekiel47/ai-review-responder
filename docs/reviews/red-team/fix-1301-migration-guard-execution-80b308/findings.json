@@ -297,7 +297,17 @@
       "arbiter_reasoning": "Duty 3. prevalidate-plan PASSED on the file, so no citation was stale \u2014 the FALSE claim was the state description, which no citation checker can see. A resumed session bootstraps from this file first and would have re-done finished work. Fixed in 9b4d1e864dab7c376d205f9cdc6a8ff65ff653c7, which also records the two round-1 open questions and their answers, and the two things deliberately left undone."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-2026-09-20-round-3",
+      "date": "2026-09-20",
+      "finding_ids": [
+        "RT3-1",
+        "RT2-1"
+      ],
+      "text": "Owner authorized a THIRD ROUND on 2026-09-20, in answer to: \"The pre-push hook caught a real defect after the red team was already CLEAR (D17: guard transactions needed REPEATABLE READ, plus two assertions that assumed an empty table). Fixing it moved HEAD past the sidecar, so red-team-status now fails 'evidence is stale' and the reviewed phase is void. Red-team rounds are capped at 2 and both are spent. How do you want to proceed?\" \u2014 Owner selected: \"Authorize round 3 (Recommended) \u2014 I record your authorization verbatim in the sidecar, open round 3 scoped to the D17 fix hunks, re-measure the affected mutations plus a concurrency-specific one, re-run the gate, re-transition to reviewed, then push and open the draft PR. Costs roughly 10 minutes. This is the path the skill designed for exactly this case \u2014 a round-2 finding whose fix touches the tree.\" Scope granted: the D17 fix hunks and their direct callers. No new fronts against unchanged code."
+    }
+  ],
   "counts": {
     "inventory_total": 16,
     "killed": 13,
