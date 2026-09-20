@@ -173,11 +173,18 @@ async function handleOwnerNudge(
   }> = [];
 
   for (const row of pendingRows) {
+    // 'never', not 'orphaned_only' (#1363). The nudge records its delivery with
+    // a NULL response_id and template 'owner_nudge', so the orphaned_only probe
+    // — which matches on response_id and the two link-carrying template names —
+    // can never see it and always reads "orphan". A retry therefore revoked the
+    // link the owner already had. With the Send idempotency key below
+    // suppressing the retry's duplicate email, that link is the only one the
+    // owner holds.
     const { rawToken } = await createApprovalLink(sql, {
       responseId: row.response_id,
       businessId,
       channel: 'email',
-      revokeMode: 'orphaned_only',
+      revokeMode: 'never',
     });
     pendingReviews.push({
       reviewerName: row.reviewer_name,
@@ -195,12 +202,27 @@ async function handleOwnerNudge(
 
   const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
 
-  const { messageId } = await sendInternalEmail({
+  // The Send idempotency key is scoped to the outbox row, NOT to the business
+  // (#1363). The nudge RECURS on a 3-day cooldown, so it has no natural domain
+  // identity; the outbox row IS the identity of one send occurrence. A
+  // business-scoped key would suppress a legitimate later nudge inside Resend's
+  // 24h key window. This is the opposite of the drip's choice, whose
+  // stale-claim takeover forces a domain-scoped key.
+  const { messageId, idempotentReplay } = await sendInternalEmail({
     to: business.owner_email,
     subject,
     bodyHtml,
     category: 'marketing',
+    idempotencyKey: `owner_nudge:${outboxId}`,
   });
+
+  if (idempotentReplay) {
+    // Resend refused a second send under this key, which proves the first
+    // attempt was accepted. The delivery row below is the nudge's own cooldown
+    // record, so it MUST still be written — without it the next poll mints a
+    // fresh nudge for an owner who already received one.
+    logger.log(`Owner nudge already delivered under its idempotency key for business ${businessId}`);
+  }
 
   await recordNotificationDelivery(sql, {
     accountId: business.account_id,
@@ -279,12 +301,21 @@ async function handlePartnerAlert(
     }
   }
 
-  const { messageId } = await sendInternalEmail({
+  // Outbox-scoped key, for the same reason as the owner nudge above: partner
+  // alerts recur on a cooldown, so the outbox row is the identity of one send
+  // occurrence. The alert type is in the key only to make it greppable — the
+  // outbox id alone is already unique.
+  const { messageId, idempotentReplay } = await sendInternalEmail({
     to: adminEmail,
     subject,
     bodyHtml,
     category: 'internal',
+    idempotencyKey: `${alertType}:${outboxId}`,
   });
+
+  if (idempotentReplay) {
+    logger.log(`${alertType} already delivered under its idempotency key for business ${businessId}`);
+  }
 
   await recordNotificationDelivery(sql, {
     accountId: business.account_id,
