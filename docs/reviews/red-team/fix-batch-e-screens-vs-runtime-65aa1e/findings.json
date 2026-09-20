@@ -339,11 +339,20 @@
     }
   ],
   "counts": {
-    "total": 27,
-    "open": 2,
+    "inventory_total": 8,
+    "killed": 2,
+    "equivalent": 0,
+    "inconclusive": 2,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 27,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 2,
+    "accepted_risk": 1,
     "fixed": 16,
     "rejected": 8,
-    "accepted_risk": 1
+    "survived_confirmed_p0": 1
   },
-  "status": "CLEAR"
+  "status": "INCOMPLETE_ORACLE"
 }
