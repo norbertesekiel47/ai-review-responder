@@ -77,7 +77,8 @@
     "docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-plan.md",
     "docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-handoff.md",
     "docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-deviations.md",
-    "docs/reviews/fix-1363-drip-alert-email-idempotency/blast-radius.md"
+    "docs/reviews/fix-1363-drip-alert-email-idempotency/blast-radius.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "treats invalid_idempotent_request as a delivered email and reports an idempotent replay",
@@ -107,7 +108,7 @@
     "pnpm vitest run worker/jobs/__tests__/OnboardingDripWorker.test.ts worker/jobs/__tests__/EngagementAlertWorker.test.ts src/lib/approval/__tests__/create-link.test.ts src/lib/notifications/email/templates/__tests__/internal.test.ts",
     "pnpm ci:directory-map"
   ],
-  "estimated_prod_lines": 70,
+  "estimated_prod_lines": 165,
   "estimated_test_lines": 320,
   "dependencies_added": [],
   "rollback_plan": "Revert the single squash-merged commit. No migration, no schema change, no feature flag, no env var. Reverting restores the pre-change send order and the orphaned_only revoke behaviour at both approval-link call sites; the only lasting trace is the 'idempotent-replay:' prefix on any notification_deliveries rows written while the change was live, which is inert data.",
