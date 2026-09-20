@@ -164,7 +164,7 @@ export interface SnapshotPosting {
    * The SERVER's decision that a correction is owed: blocked AND some surface
    * would otherwise claim posting — the account default is armed, or ANY
    * active location override is armed. The same predicate the settings page
-   * applies at `AutoApprovalClient.tsx:726`.
+   * applies at `AutoApprovalClient.tsx:705`.
    *
    * This is the ONLY suppression switch. `blocked`, `reasons` and `sentences`
    * stay complete regardless.
@@ -183,11 +183,14 @@ export interface SnapshotPosting {
  * and for the same reason: a spread silently carries a new field into the
  * snapshot the moment someone adds one to `AutoApprovalPostingStatus`.
  *
- * `settings.readiness` is deliberately untouched. Readiness answers a DIFFERENT
- * question ("may the owner WIDEN auto-approval?") and its
- * `autopilot_unavailable` folds in `autopilotPurchasable()`, which the runtime
- * never reads — an Autopilot account with a paused sale carries that reason and
- * still posts.
+ * `settings.readiness` is deliberately untouched, and the Posting block must
+ * never be derived from it. Readiness answers a DIFFERENT question ("may the
+ * owner WIDEN auto-approval?") and still folds in inputs the posting runtime
+ * never reads (`providerModerationValidated`, `previewEnvironment`,
+ * `impersonated`), so it can refuse on an account whose replies post.
+ * `autopilotPurchasable()` was that divergence's headline example — a paused
+ * sale carried `autopilot_unavailable` while auto-posting continued — until
+ * ADR 0034 made readiness' `autopilot_unavailable` tier entitlement only.
  *
  * `correctionOwed` matches the settings page's armed-override test
  * (`AutoApprovalClient.tsx:684-686`): an override ROW that is not inheriting

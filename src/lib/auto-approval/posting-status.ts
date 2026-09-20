@@ -25,10 +25,14 @@
 //      Never in scope: the settings page has no draft.
 //
 // NOT readiness (`readiness.ts`), which answers a different question: may the
-// owner WIDEN auto-approval? Readiness' `autopilot_unavailable` folds in
-// `autopilotPurchasable()`, which the runtime never reads — an Autopilot
-// account with a paused sale carries that reason AND still posts. Nothing here
-// is keyed on purchasability, and the input field is named
+// owner WIDEN auto-approval? NEVER key posting on readiness — it still folds in
+// inputs the posting runtime never reads (`providerModerationValidated`,
+// `previewEnvironment`, `impersonated`), so a readiness refusal can sit on an
+// account whose replies post. `autopilotPurchasable()` used to be the headline
+// example of that divergence — an Autopilot account with a paused sale carried
+// `autopilot_unavailable` AND still posted — until ADR 0034 made readiness'
+// `autopilot_unavailable` tier entitlement only; the surviving discriminator is
+// `provider_moderation_not_validated`. The input field here is named
 // `tierGrantsAutopilot` so the readiness value cannot be passed by accident.
 //
 // Takes no per-draft input: the settings page has no draft.
