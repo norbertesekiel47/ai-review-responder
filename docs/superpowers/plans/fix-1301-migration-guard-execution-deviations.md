@@ -711,3 +711,63 @@ caught by the pass that exists to disprove "done". No contract changed; no
 surface amendment.
 
 **Verdict:** ACCEPT
+
+---
+
+## D17 — the row digest made every comparison sensitive to a concurrent committer
+
+**When:** the pre-push hook, after red-team round 2 was already CLEAR. The
+hook runs `vitest run --changed origin/main` at DEFAULT parallelism, where the
+gate runs each live-DB file as its own serialized row. Two cases failed that
+had passed in three consecutive green gates.
+
+**What it found, and it was not a flake.** The test container is shared and no
+longer empty: `job_outbox` 8 rows, `analytics_events` 20, `poller_heartbeats` 1
+— a live `judge_sweep` heartbeat. An earlier measurement in this run recorded
+"every public table holds zero rows", which was a SNAPSHOT and was then used as
+though it were an invariant. Two assertions were written on it:
+
+1. The harness off-target case pinned `rows=1` after seeding one row into
+   `poller_heartbeats`. With a pre-existing row the digest reads `rows=2`.
+2. Migration 118's `re-applying 118 restores the table after it is dropped`
+   compared the whole table across a `DROP TABLE`. Rows cannot survive a drop,
+   so with any pre-existing row `before` and `after` differ in `rowDigest`.
+
+**The deeper defect, which neither failing test names.** `readPublicCatalogue`
+is called twice inside one transaction and the difference is attributed to the
+migration. Under READ COMMITTED — PostgreSQL's default, and what these suites
+ran at — every statement takes a FRESH snapshot, so a row any other process
+COMMITS between the two readings appears as a difference the migration did not
+cause. Before `rowDigest` the catalogue held only schema and nothing outside a
+migration moved it, so the isolation level never mattered. Adding rows to the
+comparison made it matter, and the shared advisory lock does not help: it
+serializes the nine sibling suites, not an unrelated suite writing `job_outbox`
+or a poller writing a heartbeat on the same container.
+
+**Fix, and why this one rather than narrowing the guard.** The guard
+transactions now open `ISOLATION LEVEL REPEATABLE READ`. One snapshot for the
+whole transaction makes the comparison mean exactly what it claims: everything
+the migration did is visible, because it happened in THIS transaction, and
+nothing anybody else did is. Narrowing `rowDigest` to the named tables was the
+alternative and was rejected — it would have defeated RT-3, whose entire point
+is the OFF-target write.
+
+Measured rather than argued, on the live container:
+
+| | rows read |
+|---|---|
+| inside REPEATABLE READ, first read | 1 |
+| inside REPEATABLE READ, after another session COMMITTED a row | **1** |
+| outside, same moment | 2 |
+
+118's drop case uses `schemaOnly` — row loss there is its own `DROP TABLE`, not
+a regression — and asserts `'empty rows=0'` separately. The harness case reads
+the count out of the digest instead of pinning a literal.
+
+**Class.** A defect introduced by a review fix and caught by the pre-push hook
+after three green gates and a CLEAR red-team round, because the hook runs the
+suites in a shape the gate does not. Worth not re-deriving: **the gate's
+serialized rows and the hook's parallel run are different tests, and only the
+hook exercises concurrency.**
+
+**Verdict:** ACCEPT

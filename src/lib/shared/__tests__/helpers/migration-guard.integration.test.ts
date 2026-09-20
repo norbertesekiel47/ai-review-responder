@@ -361,11 +361,18 @@ describeWithDb(
         // The row COUNT is identical on both sides, so a count alone would
         // pass here. The digest is what fails. That is the reason the fix is a
         // digest and not a count.
-        expect(before.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=1$/);
-        expect(afterUpdate.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=1$/);
-        expect(afterUpdate.tables.poller_heartbeats?.rowDigest).not.toBe(
-          before.tables.poller_heartbeats?.rowDigest,
-        );
+        //
+        // Read the count OUT of the digest rather than pinning a literal: this
+        // container is shared and `poller_heartbeats` carries a live poller's
+        // committed heartbeat row, so `rows=1` was an assumption of emptiness —
+        // the same class of fragile assertion this branch exists to remove.
+        const countOf = (digest: string | undefined): string =>
+          /\srows=(\d+)$/.exec(digest ?? '')?.[1] ?? 'unparsed';
+        const beforeDigest = before.tables.poller_heartbeats?.rowDigest;
+        const afterDigest = afterUpdate.tables.poller_heartbeats?.rowDigest;
+        expect(countOf(afterDigest)).toBe(countOf(beforeDigest));
+        expect(countOf(beforeDigest)).not.toBe('unparsed');
+        expect(afterDigest).not.toBe(beforeDigest);
 
         expect(() => assertOnlyTablesMoved(before, afterUpdate, [])).toThrow(
           /poller_heartbeats \(rowDigest\)/,
@@ -378,7 +385,10 @@ describeWithDb(
 
         await tx`DELETE FROM poller_heartbeats WHERE poller_name = ${pollerName}`;
         const afterDelete = await readPublicCatalogue(tx);
-        expect(afterDelete.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=0$/);
+        // One fewer row than before the seeding, whatever the container held.
+        expect(Number(countOf(afterDelete.tables.poller_heartbeats?.rowDigest))).toBe(
+          Number(countOf(beforeDigest)) - 1,
+        );
         expect(() => assertOnlyTablesMoved(before, afterDelete, [])).toThrow(
           /poller_heartbeats \(rowDigest\)/,
         );

@@ -155,6 +155,7 @@ import {
   assertOnlyTablesMoved,
   readMigrationSql,
   readPublicCatalogue,
+  schemaOnly,
   withRolledBackTransaction,
 } from '@/lib/shared/__tests__/helpers/migration-guard';
 import { auditLiveDbFile } from '../../../../scripts/ci/live-db-suites-audit';
@@ -463,7 +464,24 @@ describeWithDb(
         // the catalogue is keyed on NAME and every rendering is OID-resolved at
         // read time, so a new OID changes nothing here — the guarantee
         // `CataloguedTable.table`'s JSDoc states for exactly this suite.
-        expect(after.tables[TABLE]).toEqual(before.tables[TABLE]);
+        //
+        // SCHEMA only, and the reason is this degrade specifically: it is
+        // `DROP TABLE`, so the re-applied table is EMPTY whatever the table
+        // held before. Row loss here is the degrade, not a regression, and
+        // `poller_heartbeats` really does carry committed rows on a shared
+        // container — a live poller writes one. Comparing `rowDigest` across
+        // a drop would assert that the migration recreates rows it cannot see.
+        // Every other dimension is still compared. See `schemaOnly`'s JSDoc.
+        const afterTable = after.tables[TABLE];
+        const beforeTable = before.tables[TABLE];
+        if (!afterTable || !beforeTable) {
+          throw new Error(`readPublicCatalogue did not return ${TABLE}`);
+        }
+        expect(schemaOnly(afterTable)).toEqual(schemaOnly(beforeTable));
+
+        // And the row half, stated rather than dropped: a re-created table is
+        // empty. That is the whole of what this degrade does to rows.
+        expect(afterTable.rowDigest).toBe('empty rows=0');
       });
     });
 

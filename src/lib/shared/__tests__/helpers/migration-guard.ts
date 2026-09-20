@@ -701,13 +701,20 @@ export interface OnlyTablesMovedOptions {
 /**
  * One relation's SCHEMA — every catalogue property except `rowDigest`.
  *
- * Narrow, and deliberately awkward to reach for. It exists for a case that
- * SEEDS ITS OWN ROWS between the two readings it compares: migration 053's
- * idempotence case plants role fixtures after its `before` reading, so the two
- * sides legitimately differ in rows while the schema must be identical. Such a
- * case owes a separate, stronger row assertion of its own — 053 deep-compares
- * every column of every seeded row — and `assertOnlyTablesMoved` still
- * compares `rowDigest` for every relation it guards.
+ * Narrow, and deliberately awkward to reach for. Two cases legitimately need
+ * it, and both are about the CASE's own doing rather than the migration's:
+ *
+ *   - a case that SEEDS ITS OWN ROWS between the two readings it compares.
+ *     Migration 053's idempotence case plants role fixtures after its `before`
+ *     reading, so the two sides differ in rows while the schema must not. It
+ *     owes a stronger row assertion of its own, and has one: it deep-compares
+ *     every column of every seeded row.
+ *   - a case whose DEGRADE destroys rows by construction. Migration 118's
+ *     degrade is `DROP TABLE`, so the re-applied table is empty whatever the
+ *     table held before. Row loss there is the degrade, not a regression.
+ *
+ * `assertOnlyTablesMoved` still compares `rowDigest` for every relation it
+ * guards; this only narrows one deliberate whole-table equality.
  *
  * Never use it to quiet a `rowDigest` difference a MIGRATION caused. That
  * difference is the finding (#1301 RT-3).
@@ -1037,7 +1044,21 @@ export async function withRolledBackTransaction(
 ): Promise<void> {
   const before = await readLeakSentinel(db);
   try {
-    await db.begin(async (tx) => {
+    // REPEATABLE READ, and it is load-bearing rather than tidy. Every
+    // comparison in this family reads the catalogue twice inside one
+    // transaction and attributes the difference to the migration. Under READ
+    // COMMITTED that attribution is false: each statement takes a fresh
+    // snapshot, so a row another process COMMITS between the two readings
+    // shows up as a difference the migration did not cause. `rowDigest` made
+    // that reachable — the shared advisory lock serializes the sibling suites,
+    // but nothing serializes an unrelated suite writing `job_outbox`,
+    // `analytics_events` or a poller heartbeat on the same container, and all
+    // three carry committed rows today.
+    //
+    // A single snapshot for the whole transaction makes the comparison mean
+    // what it claims: everything the migration did is visible, because it
+    // happened in THIS transaction, and nothing anybody else did is.
+    await db.begin('isolation level repeatable read', async (tx) => {
       await fn(tx);
       throw ROLLBACK_SENTINEL;
     });
