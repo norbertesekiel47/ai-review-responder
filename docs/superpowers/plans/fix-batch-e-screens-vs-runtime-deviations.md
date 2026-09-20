@@ -123,3 +123,73 @@ The plan named the fixture amendment in `context.test.ts` as "surface amendment
 1 of 1" and did not anticipate this one; it is test-only and adds no surface.
 
 **Verdict:** PENDING
+
+---
+
+## D7 — Two of T3's titles pin `readFlag` semantics and cannot start RED
+
+`boot flag summary reports false for a flag set to a value other than true` and
+`boot flag summary reports true only for the literal string true` both pin the
+`=== 'true'` comparison, which lives in `readFlag`
+(`src/lib/config/flags.ts:21`) — a file outside this tracer's edit lease and one
+the plan forbids touching (every value must come from a feature's existing
+`flags.ts` accessor). With the accessors wired, both titles are green on
+arrival; no code this tracer is allowed to write could make them RED.
+
+Verified instead by **mutation inside `worker/boot-flag-summary.ts`**: the
+`TRIAGE_ENABLED` slot was temporarily changed from `triageEnabled()` to
+`Boolean(process.env.TRIAGE_ENABLED)` (a truthy read rather than a literal-`true`
+compare). Exactly those two titles failed; the other four builder titles stayed
+green. The mutation was reverted immediately and none remains in the tree.
+
+The other seven T3 titles were driven RED first in the ordinary way. One
+production edit was deliberately backed out mid-tracer: the eleven-key mapping
+was written ahead of
+`boot flag summary maps each key to its own accessor when exactly one flag at a time is true`,
+so the builder was rewound to the simplest form that passed the three key-list
+titles (every key assigned one accessor) until that title was observed failing,
+then re-implemented.
+
+**Verdict:** PENDING
+
+---
+
+## D8 — Four of T2's 13 titles could not start RED and were verified by mutation
+
+T2's TDD contract says every title must first fail because the behavior is
+missing. Four assert an **absence**, or pin a property that today's catalogue
+already satisfies for the wrong reason, so no honest defect-free state of the
+code fails them:
+
+| Title | Why it cannot start RED | Mutation run | Result |
+|---|---|---|---|
+| `tierChangeDirection follows autonomy order when catalogue prices are equal or reversed` | The function is new; once it exists at all, an index-based body satisfies it | `tierChangeDirection` re-implemented over `TIER_CONFIG[...].baseByVariant.list` | exactly that title failed (22 others green); reverted |
+| `billing card labels the copilot option Downgrade for an autopilot account` | Today's catalogue order agrees with autonomy order, so the pre-change price comparison already produces "Downgrade" | card `action` forced to `'Upgrade'` | that title failed, plus the two price-independence card titles as expected; reverted |
+| `billing card labels the autopilot option Upgrade for a copilot account` | Same — the pre-change comparison already produces "Upgrade" | card `action` forced to `'Downgrade'` | that title failed, plus five label-dependent titles as expected; reverted |
+| `tier change modal omits the autonomy warning when moving to autopilot` | Pins an absence; before the warning exists nothing can show it | warning rendered unconditionally (`{true && …}`) | exactly that title failed (22 others green); reverted |
+
+No mutation was left in the tree; the suites are green at both revert points.
+
+Every other T2 title was driven RED in the ordinary way. Two production edits
+were deliberately backed out mid-tracer after being written ahead of their
+tests, and re-driven from the test:
+
+1. `selectedDirection` (the modal's own comparison) was rewritten from
+   `tierChangeDirection` in the same edit as the card fix. It was reverted to a
+   price comparison, the three modal titles were then observed failing, and the
+   fix re-applied.
+2. The autonomy warning was first written ungated on `trialing`. It was
+   re-gated to `!trialing && isDowngrade` so that
+   `trialing autopilot to copilot modal preserves trial billing copy and warns
+   that replies stop posting on their own` could fail for the right reason,
+   then the gate was removed again (invariant #11: a `trialing` account has
+   real autonomy to lose).
+
+One assertion was corrected while RED, not to make a test pass: the modal title
+was queried with `getByText('Downgrade plan')`, but `SettingsModal` exposes its
+`title` as the dialog's `aria-label`. The query became
+`findByRole('dialog', { name: 'Downgrade plan' })`; the two titles were
+re-confirmed RED against the price-based body with the corrected query before
+the fix was restored.
+
+**Verdict:** PENDING

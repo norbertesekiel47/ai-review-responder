@@ -87,10 +87,8 @@ import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsW
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
 import { deploymentLaneFields, requiresProductionConfig } from '../src/lib/config/deployment-lane';
-import { selfServeSignupEnabled } from '../src/lib/auth/flags';
-import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
+import { logBootFlagSummary } from './boot-flag-summary';
 import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
-import { zernioPublishingEnabled } from '../src/lib/publishing/flags';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -624,13 +622,7 @@ async function main(): Promise<void> {
     // silently to the recipient.
     assertUnsubscribeIngressConfigured();
     warnMissingProductionEnv();
-    console.log(
-      `[worker] Feature flags: ` +
-        `Telegram=${channelsTelegramEnabled() ? 'on' : 'off'}, ` +
-        `WhatsApp=${channelsWhatsappEnabled() ? 'on' : 'off'}, ` +
-        `SelfServeSignup=${selfServeSignupEnabled() ? 'on' : 'off'}, ` +
-        `ZernioPublishing=${zernioPublishingEnabled() ? 'on' : 'off'}`,
-    );
+    logBootFlagSummary(createWorkerLogger('[worker]'));
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
