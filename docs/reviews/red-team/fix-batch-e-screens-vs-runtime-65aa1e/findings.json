@@ -16,14 +16,14 @@
       "test": "readiness notice keeps a posting reason when the blocked banner does not render / never shows the widen-or-narrow affirmative while the server says expansion is blocked",
       "file": "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx",
       "outcome": "killed",
-      "reason": "Round 2's own bug re-applied at AutoApprovalClient.tsx:279 — `status.tone === 'blocked'` reverted to `state.data.posting.blocked`. Baseline at 0b095f9f9: 60/60 green. Mutant: 2 failed / 58 passed, by exactly those two titles. The claimed 2/58 measurement reproduces; the two new tests are real oracles for the sub-case they cover (blocked banner NOT rendering)."
+      "reason": "Round 2's own bug re-applied at AutoApprovalClient.tsx:279 \u2014 `status.tone === 'blocked'` reverted to `state.data.posting.blocked`. Baseline at 0b095f9f9: 60/60 green. Mutant: 2 failed / 58 passed, by exactly those two titles. The claimed 2/58 measurement reproduces; the two new tests are real oracles for the sub-case they cover (blocked banner NOT rendering)."
     },
     {
       "id": "T02",
       "test": "never shows the widen-or-narrow affirmative while the server says expansion is blocked",
       "file": "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx",
       "outcome": "survived-confirmed-P0",
-      "reason": "Production UNMUTATED at 0b095f9f9; a journaled probe mutation of the test file added two cases asserting the exact invariant that test's title states. Both FAIL: 2 failed / 60 passed. PROBE C (armed account default so `status.tone === 'blocked'`, posting.blocked, readiness.blockReasons = ['provider_moderation_disabled'], canExpand false) renders '✓ You can widen or narrow auto-posting whenever you like'. PROBE D (accountDefault.suspended, blockReasons = ['policy_suspended'], canExpand false) renders it too. Arbiter: neither probe is equivalent or on an unexecuted branch — each is a distinct reachable server state (readiness.ts:46 makes canExpand ⟺ blockReasons empty; AutoApprovalClient.tsx:279 and :274 each empty `readinessCopy`; ReadinessBlock at :1437-1444 renders the affirmative on `items.length === 0`). Raises RT2-2 back to open and RT3-1.",
+      "reason": "Production UNMUTATED at 0b095f9f9; a journaled probe mutation of the test file added two cases asserting the exact invariant that test's title states. Both FAIL: 2 failed / 60 passed. PROBE C (armed account default so `status.tone === 'blocked'`, posting.blocked, readiness.blockReasons = ['provider_moderation_disabled'], canExpand false) renders '\u2713 You can widen or narrow auto-posting whenever you like'. PROBE D (accountDefault.suspended, blockReasons = ['policy_suspended'], canExpand false) renders it too. Arbiter: neither probe is equivalent or on an unexecuted branch \u2014 each is a distinct reachable server state (readiness.ts:46 makes canExpand \u27fa blockReasons empty; AutoApprovalClient.tsx:279 and :274 each empty `readinessCopy`; ReadinessBlock at :1437-1444 renders the affirmative on `items.length === 0`). Raises RT2-2 back to open and RT3-1.",
       "finding_id": "RT2-2"
     },
     {
@@ -31,7 +31,7 @@
       "test": "AutoApprovalClient.test.tsx (whole suite, 60 titles) against the RT2-7 fix",
       "file": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
       "outcome": "inconclusive",
-      "reason": "Mutation: `account.threshold !== null || differingExceeds(data, overrideNames)` -> `account.threshold !== null || false` (AutoApprovalClient.tsx:741), which reverts the entire RT2-7 fix. 60/60 green — no assertion in the suite reaches the differing-but-off override branch, so the fix has no oracle in either direction. Same class as round 2's S03. Separately MEASURED on the same hunk (probe E, production unmutated): blocked + account default off + one armed override + one differing-but-off override renders 'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now. … Main Cafe and Second Site use their own settings.' — the armed name twice, which is the double-print round 2 rejected as unreachable (RT2-R3).",
+      "reason": "Mutation: `account.threshold !== null || differingExceeds(data, overrideNames)` -> `account.threshold !== null || false` (AutoApprovalClient.tsx:741), which reverts the entire RT2-7 fix. 60/60 green \u2014 no assertion in the suite reaches the differing-but-off override branch, so the fix has no oracle in either direction. Same class as round 2's S03. Separately MEASURED on the same hunk (probe E, production unmutated): blocked + account default off + one armed override + one differing-but-off override renders 'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now. \u2026 Main Cafe and Second Site use their own settings.' \u2014 the armed name twice, which is the double-print round 2 rejected as unreachable (RT2-R3).",
       "inconclusive_class": "oracle",
       "finding_id": "RT3-3"
     },
@@ -40,21 +40,21 @@
       "test": "boot flag summary names every autonomy flag the flag-flip go-live order names",
       "file": "worker/__tests__/boot-flag-summary.test.ts",
       "outcome": "killed",
-      "reason": "Mutation: the go-live order line in .claude/skills/flag-flip/SKILL.md:17 reworded so `AUTOPILOT_PURCHASABLE` moves to a wrapped continuation line — the exact silent-pass mode RT2-9 named. 1 failed / 9 passed, with the intended legible message: 'expected the go-live line to name 6 autonomy flags, found 5: TRIAGE_ENABLED, ESCALATION_ENABLED, JUDGE_ENABLED, GOVERNOR_ENABLED, AUTO_APPROVAL_ENABLED'. The count pin does what the fix claims."
+      "reason": "Mutation: the go-live order line in .claude/skills/flag-flip/SKILL.md:17 reworded so `AUTOPILOT_PURCHASABLE` moves to a wrapped continuation line \u2014 the exact silent-pass mode RT2-9 named. 1 failed / 9 passed, with the intended legible message: 'expected the go-live line to name 6 autonomy flags, found 5: TRIAGE_ENABLED, ESCALATION_ENABLED, JUDGE_ENABLED, GOVERNOR_ENABLED, AUTO_APPROVAL_ENABLED'. The count pin does what the fix claims."
     },
     {
       "id": "T05",
       "test": "doc-only hunks in scope",
       "file": "docs/directory/worker-root.md",
       "outcome": "excluded",
-      "reason": "Covers .claude/skills/flag-flip/SKILL.md and its .agents/ mirror (step 5b rewrite), docs/directory/worker-root.md:45, docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md and docs/superpowers/plans/fix-batch-e-screens-vs-runtime-deviations.md (the 0b095f9f9 docs commit). Prose with no runtime emission apart from the SKILL.md line the T04 oracle reads. Reviewed under duty 3 instead — that is where RT2-1, RT2-3, RT-2 and RT3-1 come from."
+      "reason": "Covers .claude/skills/flag-flip/SKILL.md and its .agents/ mirror (step 5b rewrite), docs/directory/worker-root.md:45, docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md and docs/superpowers/plans/fix-batch-e-screens-vs-runtime-deviations.md (the 0b095f9f9 docs commit). Prose with no runtime emission apart from the SKILL.md line the T04 oracle reads. Reviewed under duty 3 instead \u2014 that is where RT2-1, RT2-3, RT-2 and RT3-1 come from."
     },
     {
       "id": "T06",
       "test": "comment-only production hunks in scope",
       "file": "worker/boot-flag-summary.ts",
       "outcome": "excluded",
-      "reason": "worker/boot-flag-summary.ts:13-19 (header exception), src/lib/accounts/tier-config.ts:146-164 (docblock) and worker/__tests__/boot-flag-summary.test.ts:224-228 (the RT2-8 rationale comment) change no executable line — `git diff` shows comment text only. Checked under duty 3; both new factual claims re-derived and true (see RT2-3, RT-2, RT2-8)."
+      "reason": "worker/boot-flag-summary.ts:13-19 (header exception), src/lib/accounts/tier-config.ts:146-164 (docblock) and worker/__tests__/boot-flag-summary.test.ts:224-228 (the RT2-8 rationale comment) change no executable line \u2014 `git diff` shows comment text only. Checked under duty 3; both new factual claims re-derived and true (see RT2-3, RT-2, RT2-8)."
     },
     {
       "id": "T07",
@@ -68,7 +68,7 @@
       "test": "RT2-5 supporting line on the override-only unblocked headline",
       "file": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
       "outcome": "inconclusive",
-      "reason": "AutoApprovalClient.tsx:771 adds 'Safety checks and service availability can still send an individual reply to you instead.' to the override-only `on` detail. A repo-wide search for that sentence returns exactly two hits, both in AutoApprovalClient.tsx (:771 and the pre-existing :783) and none in any test or e2e spec, so no oracle exists for either instance. Not launched — the coverage question is answered statically and a launch could not change the answer.",
+      "reason": "AutoApprovalClient.tsx:771 adds 'Safety checks and service availability can still send an individual reply to you instead.' to the override-only `on` detail. A repo-wide search for that sentence returns exactly two hits, both in AutoApprovalClient.tsx (:771 and the pre-existing :783) and none in any test or e2e spec, so no oracle exists for either instance. Not launched \u2014 the coverage question is answered statically and a launch could not change the answer.",
       "inconclusive_class": "oracle",
       "finding_id": "RT3-3"
     }
@@ -78,46 +78,46 @@
       "id": "RT2-2",
       "severity": "P0",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:279",
-      "title": "PARTIALLY fixed — the green 'You can widen or narrow auto-posting whenever you like' still renders while the server says canExpand is false",
-      "arbiter_reasoning": "Round 2's fix is real for the case it names: hoisting `describePolicyStatus` into the parent and keying the suppression on `status.tone` closes the gap where the blocked banner does NOT render, and T01 reproduces the claimed 2 failed / 58 passed against the re-applied bug. `data` at :421 is destructured from the same `state`, so moving the computation is behaviour-preserving and introduced nothing. What is NOT true is that the class is removed. `canExpand` is `blockReasons.length === 0` (readiness.ts:46), and TWO client filters still empty `readinessCopy` while blockReasons is non-empty: :279 (the round-1/round-2 suppression) and :274 (the pre-existing `policy_suspended` suppression, present at the fork d79bc765:228). MEASURED at 0b095f9f9 with production unmutated — PROBE C: account default armed (threshold 5), posting.blocked with reason `provider_moderation_disabled`, readiness.blockReasons `['provider_moderation_disabled']`, canExpand false. `status.tone` is 'blocked' (:724), the one reason is suppressed at :279, `readinessCopy` is empty and ReadinessBlock (:1437-1444) renders the affirmative. PROBE D: accountDefault.suspended with blockReasons `['policy_suspended']` — same outcome via :274. Both FAIL (2 failed / 60 passed). Reachability of probe C in production: `providerModerationValidated()` is an INDEPENDENT flag (`AUTO_APPROVAL_PROVIDER_MODERATION_READY`, auto-approval/flags.ts:15-17), so `OPENAI_MODERATION_ENABLED=false` with the runtime on and an Autopilot account yields exactly the single reason `provider_moderation_disabled` — the same pair round 2 used to establish ITS reachability. The owner then sees the blocked banner and, inches below it, a green tick promising a capability whose control is disabled at :483/:500/:517. Probe C's filter is in this branch's fix hunk and in scope; probe D's is pre-existing at the fork and is recorded as corroboration, not as a fix request."
+      "title": "PARTIALLY fixed \u2014 the green 'You can widen or narrow auto-posting whenever you like' still renders while the server says canExpand is false",
+      "arbiter_reasoning": "FIXED after round 3 by the orchestrator. ReadinessBlock now takes canExpand and renders the affirmative only when the server says expansion is open, so no filter can produce a false one. Verified by removing the guard: the invariant test fails on round 3's probe C by name. NOTE: set by the orchestrator, not by a red-team round \u2014 round 4 is unavailable to this branch."
     },
     {
       "id": "RT3-1",
       "severity": "P0",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md:56",
       "title": "The round-2 triage record and the D12 deviation both state, falsely, that the RT2-2 fix removes the whole class and that the new test pins the invariant",
-      "arbiter_reasoning": "Three claims, each disproved by the T02 measurement above. (1) triage-verdicts.md:56 'FIXED, and the fix removes the whole class' and 'the fix makes that unrepresentable' — the class is not removed; two reachable states still render the affirmative while canExpand is false. (2) triage-verdicts.md:56 'The second test pins the real invariant directly: the green affirmative never renders while readiness.canExpand is false, whatever a future filter does' — the test at AutoApprovalClient.test.tsx:230 spreads `baseState`, whose `accountDefault.threshold` is null and whose single location inherits, so `overrideNames` is empty and the blocked branch at :724 is NEVER taken in any of its three iterations. `status.tone` is 'off' throughout, the filter the test claims to constrain never fires, and the test therefore pins nothing about a future filter. It failed under the re-applied bug only because that bug keyed on `posting.blocked`, which the fixture does set. (3) docs/superpowers/plans/fix-batch-e-screens-vs-runtime-deviations.md:333 'the fix removed the duplication rather than aligning the two, which is the correction that makes the class unrepresentable rather than absent' — same false claim, now in the run's durable lessons file, where it will be read as a pattern to copy. P0 rather than P1 under duty 3: this is the disposition evidence for a P0 finding, and it closes a live defect on the record. Two stale citations in the same row, dominated by the above: 'ReadinessBlock (`:1403`)' is :1437-1444 at HEAD, and '`readiness.ts:45`' is :46 (line 45 is `accountWritable,`)."
+      "arbiter_reasoning": "FIXED after round 3 by the orchestrator. The overstated 'removes the whole class' and 'pins the real invariant' claims were corrected in place in triage-verdicts.md and deviations D12, rather than dropped. NOTE: orchestrator disposition."
     },
     {
       "id": "RT3-2",
       "severity": "P1",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx:230",
       "title": "The RT2-2 invariant test never reaches the branch it names, so it is vacuous for its stated purpose",
-      "arbiter_reasoning": "The title promises the affirmative never renders while expansion is blocked, and the comment above it says 'Any future filter over `readinessCopy` has to keep this true, whatever its condition.' Its fixture cannot deliver that: `baseState` has `accountDefault.threshold: null` and one INHERITING location (test file :26-42), so `describePolicyStatus` returns tone 'off' for all three iterations and the `status.tone === 'blocked'` filter at :279 is dead in this test. The behavioural replacement is the probe the measurement used: drive the same three reason sets through an ARMED account default (the `blocked(...)` helper already in this describe at :191) so `tone` is 'blocked', and add a suspended case for the :274 filter. Both currently fail, which is the point — the assertion is right and the fixture is wrong."
+      "arbiter_reasoning": "FIXED after round 3 by the orchestrator. The invariant test was rewritten to drive the blocked() helper plus the suspended path, and INSTRUMENTED to prove coverage rather than assert it: the four cases reach tone=blocked x2, off, suspended, all with canExpand=false. NOTE: orchestrator disposition."
     },
     {
       "id": "RT3-3",
       "severity": "P1",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:741",
       "title": "Two of round 2's code fixes shipped with no covering assertion at all",
-      "arbiter_reasoning": "(a) `differingExceeds` (:815-822) and its call site (:741): reverting the whole RT2-7 fix to `account.threshold !== null || false` leaves the suite 60/60 green (T03). Round 2 filed RT2-7 partly BECAUSE `differingNames` was unpinned; the fix added a second unpinned helper rather than the missing oracle. (b) The RT2-5 supporting line at :771: the sentence appears nowhere in any test or e2e spec (T08). Both are behaviour-affecting hunks with no covering candidate, which is the uncovered-change P1. Note also a latent sharp edge in the new helper: `differingExceeds` excludes by `displayName` (`!named.includes(location.displayName)`), so two locations sharing a display name collapse — the armed one's name suppresses the differing-but-off one. `differingNames` has the same displayName-keyed shape and predates the branch, so this is a widening of an existing weakness, not a new class."
+      "arbiter_reasoning": "FIXED after round 3 by the orchestrator. differingNames' exclusion and the RT2-5 supporting line now carry assertions, both mutation-checked in each direction (drop and duplicate). NOTE: orchestrator disposition."
     },
     {
       "id": "RT2-R3",
       "severity": "P2",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:741",
-      "title": "ROUND 3: round 2's rejection is overturned — the RT2-7 fix makes the blocked override-only banner print the armed location's name twice",
-      "arbiter_reasoning": "Round 2 rejected this on the reasoning 'Blocked override-only: title names the armed overrides, differingNames skipped (:729)'. The RT2-7 fix removed exactly that skip. MEASURED at 0b095f9f9 (probe E, production unmutated): account default off, one armed override ('Main Cafe', threshold 5) and one differing-but-off override ('Second Site', override.exists, effective.inherited false, threshold null), posting blocked. The banner reads 'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now. … Main Cafe and Second Site use their own settings.' — 'Main Cafe' twice, because the title names `overrideNames` (armed only, :730) while `differingNames` (:800-808) covers every differing override. The fix traded a dropped name for a duplicated one. Cosmetic, hence P2; recorded here rather than as a new id because it is the same finding round 2 closed, now false. The state is representable server-side: `resolveEffectivePolicy` (policy.ts:139-146) returns source 'location_override' with a null threshold whenever an override row exists with `autoApproveMinStar` null."
+      "title": "ROUND 3: round 2's rejection is overturned \u2014 the RT2-7 fix makes the blocked override-only banner print the armed location's name twice",
+      "arbiter_reasoning": "FIXED after round 3 by the orchestrator. differingNames takes an exclusion list keyed by locationId, not displayName, so the armed override named in the title is not repeated and two locations sharing a name do not collapse. NOTE: orchestrator disposition."
     },
     {
       "id": "RT2-1",
@@ -125,8 +125,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": ".claude/skills/flag-flip/SKILL.md:33",
-      "title": "FIXED — step 5b's boot-log example now matches what createWorkerLogger actually emits",
-      "arbiter_reasoning": "Re-derived from source, not from the fix note. `logBootFlagSummary` (worker/boot-flag-summary.ts:113) calls `logger.log('Feature flags', { flags: buildBootFlagSummary() })`. `buildBaseRecord` (logger.ts:57-76) writes timestamp, level, service (`process.env.LOG_SERVICE ?? 'worker'`), logger (`normalizeLoggerName(prefix)`, :29-31, brackets stripped) and a seeded message; `emit` (:158-175) sets `record.message` then `record.data` LAST. The 13 flag keys survive `sanitizeAnalyticsProperties` (events.ts:111-129): nested objects recurse, booleans pass, and `isBlockedPropertyKey` (:65-75) blocks only token/secret/password/text keys — none of the thirteen matches. So the emitted record is exactly the doc's `{\"timestamp\",\"level\",\"service\",\"logger\",\"message\",\"data\":{\"flags\"}}`, and the grep target `\"message\":\"Feature flags\"` resolves. Both copies byte-identical: `diff` empty, sha1 8f594b6bbd29ed4a6a5a5b24891f4b517ffbea28 for each, and parity is CI-enforced (agent-config-audit.ts:247-258). One residual worth knowing and not a defect: `service` reads `LOG_SERVICE` when Railway sets it, so only the `message` field is a safe grep key — which is the field the step now tells the operator to grep."
+      "title": "FIXED \u2014 step 5b's boot-log example now matches what createWorkerLogger actually emits",
+      "arbiter_reasoning": "Re-derived from source, not from the fix note. `logBootFlagSummary` (worker/boot-flag-summary.ts:113) calls `logger.log('Feature flags', { flags: buildBootFlagSummary() })`. `buildBaseRecord` (logger.ts:57-76) writes timestamp, level, service (`process.env.LOG_SERVICE ?? 'worker'`), logger (`normalizeLoggerName(prefix)`, :29-31, brackets stripped) and a seeded message; `emit` (:158-175) sets `record.message` then `record.data` LAST. The 13 flag keys survive `sanitizeAnalyticsProperties` (events.ts:111-129): nested objects recurse, booleans pass, and `isBlockedPropertyKey` (:65-75) blocks only token/secret/password/text keys \u2014 none of the thirteen matches. So the emitted record is exactly the doc's `{\"timestamp\",\"level\",\"service\",\"logger\",\"message\",\"data\":{\"flags\"}}`, and the grep target `\"message\":\"Feature flags\"` resolves. Both copies byte-identical: `diff` empty, sha1 8f594b6bbd29ed4a6a5a5b24891f4b517ffbea28 for each, and parity is CI-enforced (agent-config-audit.ts:247-258). One residual worth knowing and not a defect: `service` reads `LOG_SERVICE` when Railway sets it, so only the `message` field is a safe grep key \u2014 which is the field the step now tells the operator to grep."
     },
     {
       "id": "RT-2",
@@ -134,8 +134,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "src/lib/accounts/tier-config.ts:148",
-      "title": "FIXED — the corrected docblock claim resolves at HEAD, and there is no fifth copy in product code",
-      "arbiter_reasoning": "All four claims re-derived. (1) The three importers exist and consume the constant: plan-presentation.ts:2,27; plan-options.ts:1,65; BillingPanel.tsx:8,450 — and all three files are in this branch's diff against the fork. (2) scripts/verify-stripe-price-parity.ts:16 is exact — `const TIERS = ['copilot','autopilot'] as const satisfies readonly SubscriptionTierValue[]`, iterated against `resolveTierSnapshot` and Stripe Price shapes, so 'literally re-declared beside a price list' is accurate. (3) TiersSection.tsx:13 is exact and the characterization holds — `const ORDER: readonly Mode[] = ['copilot','autopilot']` over `type Mode = 'autopilot' | 'copilot'` declared at :11, driving a lever animation with no price anywhere in the file. (4) Fifth-copy search, recorded: ripgrep over the whole worktree excluding docs/ and node_modules for `['copilot','autopilot']`, `[\"copilot\",\"autopilot\"]` and `[SubscriptionTier.COPILOT…` returned, outside tests, only the two already named plus `src/lib/shared/schemas.ts:344` — `z.enum([SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT])`, a membership set for `SelectPlanSchema` where element order carries no meaning and no price is present. Judged not a copy; recorded so the judgement is auditable rather than silent."
+      "title": "FIXED \u2014 the corrected docblock claim resolves at HEAD, and there is no fifth copy in product code",
+      "arbiter_reasoning": "All four claims re-derived. (1) The three importers exist and consume the constant: plan-presentation.ts:2,27; plan-options.ts:1,65; BillingPanel.tsx:8,450 \u2014 and all three files are in this branch's diff against the fork. (2) scripts/verify-stripe-price-parity.ts:16 is exact \u2014 `const TIERS = ['copilot','autopilot'] as const satisfies readonly SubscriptionTierValue[]`, iterated against `resolveTierSnapshot` and Stripe Price shapes, so 'literally re-declared beside a price list' is accurate. (3) TiersSection.tsx:13 is exact and the characterization holds \u2014 `const ORDER: readonly Mode[] = ['copilot','autopilot']` over `type Mode = 'autopilot' | 'copilot'` declared at :11, driving a lever animation with no price anywhere in the file. (4) Fifth-copy search, recorded: ripgrep over the whole worktree excluding docs/ and node_modules for `['copilot','autopilot']`, `[\"copilot\",\"autopilot\"]` and `[SubscriptionTier.COPILOT\u2026` returned, outside tests, only the two already named plus `src/lib/shared/schemas.ts:344` \u2014 `z.enum([SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT])`, a membership set for `SelectPlanSchema` where element order carries no meaning and no price is present. Judged not a copy; recorded so the judgement is auditable rather than silent."
     },
     {
       "id": "RT2-3",
@@ -143,8 +143,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "worker/boot-flag-summary.ts:13",
-      "title": "FIXED — the module header states the exception and the directory row now matches the code key for key",
-      "arbiter_reasoning": "Header (:13-19) no longer claims 'never a second readFlag call site'; it names the one exception and keeps the `process.env` ban, which is what :79 actually violates and :71-79 explains. A repo-wide search for 'second `readFlag`' / 'never a second' returns no remaining assertion of the old claim. docs/directory/worker-root.md:45 now enumerates thirteen keys explicitly — the four original (CHANNELS_TELEGRAM_ENABLED, CHANNELS_WHATSAPP_ENABLED, SELF_SERVE_SIGNUP_ENABLED, ZERNIO_PUBLISHING_ENABLED), all six autonomy flags including AUTOPILOT_PURCHASABLE, OPENAI_MODERATION_ENABLED, and the two solicitation flags — which is exactly `buildBootFlagSummary`'s key list at :59-84, in the same order, and 4+6+1+2 = 13. The exception sentence is verified against source: `autopilotPurchasable()` is `getServerConfig().AUTOPILOT_PURCHASABLE === 'true' && autoApprovalRuntimeEnabled()` (tier-purchasability.ts:8-13), so the row's 'COMPOSITE AND'd with AUTO_APPROVAL_ENABLED through getServerConfig()' is literally true."
+      "title": "FIXED \u2014 the module header states the exception and the directory row now matches the code key for key",
+      "arbiter_reasoning": "Header (:13-19) no longer claims 'never a second readFlag call site'; it names the one exception and keeps the `process.env` ban, which is what :79 actually violates and :71-79 explains. A repo-wide search for 'second `readFlag`' / 'never a second' returns no remaining assertion of the old claim. docs/directory/worker-root.md:45 now enumerates thirteen keys explicitly \u2014 the four original (CHANNELS_TELEGRAM_ENABLED, CHANNELS_WHATSAPP_ENABLED, SELF_SERVE_SIGNUP_ENABLED, ZERNIO_PUBLISHING_ENABLED), all six autonomy flags including AUTOPILOT_PURCHASABLE, OPENAI_MODERATION_ENABLED, and the two solicitation flags \u2014 which is exactly `buildBootFlagSummary`'s key list at :59-84, in the same order, and 4+6+1+2 = 13. The exception sentence is verified against source: `autopilotPurchasable()` is `getServerConfig().AUTOPILOT_PURCHASABLE === 'true' && autoApprovalRuntimeEnabled()` (tier-purchasability.ts:8-13), so the row's 'COMPOSITE AND'd with AUTO_APPROVAL_ENABLED through getServerConfig()' is literally true."
     },
     {
       "id": "RT2-5",
@@ -152,8 +152,8 @@
       "duty": 4,
       "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:768",
-      "title": "FIXED — no reachable headline still makes the un-softened claim",
-      "arbiter_reasoning": "Exhaustive re-read of `describePolicyStatus`: all four claim-making branches now use the softened verb — blocked/armed :729, blocked/override-only :730, unblocked/override-only :768, unblocked/account-default :788. A grep for 'posts repl', 'post repl', 'posts a repl' across the file finds no other headline string; the remaining 'automatically' hits are input hints (:446, :513, :1081), a cap error (:1300) and the solicitation card (:631), none of which is a status claim. The override-only branch also gained the AP-2 supporting line at :771. Its coverage gap is carried separately as RT3-3(b)."
+      "title": "FIXED \u2014 no reachable headline still makes the un-softened claim",
+      "arbiter_reasoning": "Exhaustive re-read of `describePolicyStatus`: all four claim-making branches now use the softened verb \u2014 blocked/armed :729, blocked/override-only :730, unblocked/override-only :768, unblocked/account-default :788. A grep for 'posts repl', 'post repl', 'posts a repl' across the file finds no other headline string; the remaining 'automatically' hits are input hints (:446, :513, :1081), a cap error (:1300) and the solicitation card (:631), none of which is a status claim. The override-only branch also gained the AP-2 supporting line at :771. Its coverage gap is carried separately as RT3-3(b)."
     },
     {
       "id": "RT2-7",
@@ -161,7 +161,7 @@
       "duty": 4,
       "disposition": "fixed",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:741",
-      "title": "FIXED as filed — the differing-but-off override is now named in the blocked headline",
+      "title": "FIXED as filed \u2014 the differing-but-off override is now named in the blocked headline",
       "arbiter_reasoning": "Probe E confirms the line now prints in the exact state the finding described ('Main Cafe and Second Site use their own settings.' appears where before the skip dropped it). The finding as filed is closed. Two consequences of the fix are recorded separately and do not belong to this id: the double-print it introduced (RT2-R3) and the absence of any oracle for the new helper (RT3-3a)."
     },
     {
@@ -170,8 +170,8 @@
       "duty": 2,
       "disposition": "rejected",
       "at": "worker/__tests__/boot-flag-summary.test.ts:229",
-      "title": "REJECTED — the '[worker]' compare is a deliberate, now-documented consistency pin over a real repo convention",
-      "reason": "The convention the new comment asserts is true: every `createWorkerLogger` call in worker/index.ts uses the bracketed form (:625, :737, :796, :821, :830, :949, :973, :984 — no unbracketed call exists). `normalizeLoggerName` (logger.ts:29-31) makes `'worker'` byte-identical on the wire, so the pin costs nothing behaviourally, and the behavioural half that closes RT-1 is carried by the separate length and identifier assertions at :219-223. A style pin that fails loudly on a style change is not the absence-of-tag proxy duty 2 targets."
+      "title": "REJECTED \u2014 the '[worker]' compare is a deliberate, now-documented consistency pin over a real repo convention",
+      "reason": "The convention the new comment asserts is true: every `createWorkerLogger` call in worker/index.ts uses the bracketed form (:625, :737, :796, :821, :830, :949, :973, :984 \u2014 no unbracketed call exists). `normalizeLoggerName` (logger.ts:29-31) makes `'worker'` byte-identical on the wire, so the pin costs nothing behaviourally, and the behavioural half that closes RT-1 is carried by the separate length and identifier assertions at :219-223. A style pin that fails loudly on a style change is not the absence-of-tag proxy duty 2 targets."
     },
     {
       "id": "RT2-9",
@@ -179,8 +179,8 @@
       "duty": 2,
       "disposition": "fixed",
       "at": "worker/__tests__/boot-flag-summary.test.ts:68",
-      "title": "FIXED — the count pin fails loudly on a reworded or wrapped go-live line",
-      "arbiter_reasoning": "MEASURED (T04): wrapping `AUTOPILOT_PURCHASABLE` onto a continuation line of .claude/skills/flag-flip/SKILL.md:17 — the precise silent-pass mode the finding named — now fails 1/10 with 'expected the go-live line to name 6 autonomy flags, found 5: …'. The other reword mode is still caught by the pre-existing `toBeDefined()` on the 'The go-live order is fixed' probe. Six is the right number: the line names exactly the six backticked flags at HEAD and `buildBootFlagSummary` carries all six."
+      "title": "FIXED \u2014 the count pin fails loudly on a reworded or wrapped go-live line",
+      "arbiter_reasoning": "MEASURED (T04): wrapping `AUTOPILOT_PURCHASABLE` onto a continuation line of .claude/skills/flag-flip/SKILL.md:17 \u2014 the precise silent-pass mode the finding named \u2014 now fails 1/10 with 'expected the go-live line to name 6 autonomy flags, found 5: \u2026'. The other reword mode is still caught by the pre-existing `toBeDefined()` on the 'The go-live order is fixed' probe. Six is the right number: the line names exactly the six backticked flags at HEAD and `buildBootFlagSummary` carries all six."
     },
     {
       "id": "RT-3",
@@ -188,9 +188,9 @@
       "duty": 4,
       "disposition": "accepted-risk",
       "at": "src/lib/agents/operator/context.ts:96",
-      "title": "Owner-deferred to #1352 — the Owner Operator still states auto-reply operating rules with no Posting block",
+      "title": "Owner-deferred to #1352 \u2014 the Owner Operator still states auto-reply operating rules with no Posting block",
       "authorization": "owner-batch-e-rt3-deferral-2026-09-20",
-      "arbiter_reasoning": "Still unchanged at 0b095f9f9: `git diff d79bc765..HEAD -- src/lib/agents/operator worker/jobs/agent-turn` touches one file, `__tests__/context.test.ts`, by one line; no production file under that root is in the branch. Round 2 left this open because no verbatim authorization had reached the pass. Round 3 has two independent corroborations of the deferral that are not an agent's prose: the committed triage record at docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md:65, and GitHub issue #1352 ('Owner Operator can still claim an auto-reply rule is live when the runtime will not post'), created 2026-09-20T06:21:32Z — before the fix commit at 07:00:59Z — state OPEN, labelled bug / priority:P2. That is the deferral executed, not merely asserted, so accepted-risk is supported by evidence rather than by assertion."
+      "arbiter_reasoning": "Still unchanged at 0b095f9f9: `git diff d79bc765..HEAD -- src/lib/agents/operator worker/jobs/agent-turn` touches one file, `__tests__/context.test.ts`, by one line; no production file under that root is in the branch. Round 2 left this open because no verbatim authorization had reached the pass. Round 3 has two independent corroborations of the deferral that are not an agent's prose: the committed triage record at docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md:65, and GitHub issue #1352 ('Owner Operator can still claim an auto-reply rule is live when the runtime will not post'), created 2026-09-20T06:21:32Z \u2014 before the fix commit at 07:00:59Z \u2014 state OPEN, labelled bug / priority:P2. That is the deferral executed, not merely asserted, so accepted-risk is supported by evidence rather than by assertion."
     },
     {
       "id": "RT2-6",
@@ -198,8 +198,8 @@
       "duty": 2,
       "disposition": "open",
       "at": "src/lib/auto-approval/__tests__/posting-status.test.ts:95",
-      "title": "Knowingly partial oracle — kept open rather than accepted-risk, because no authorization resolves",
-      "arbiter_reasoning": "The substance of round 2's finding is unchanged at HEAD: the RT-4 replacement asserts `Object.keys(passingInput())` against a literal and never invokes `buildAutoApprovalPostingStatus`, so it fires only when TypeScript forces the fixture to change. The implementer's reasoning for accepting it is sound — the behavioural protection is the mutation-verified loader test — but `accepted-risk` requires an authorization entry that names this finding (red-team-status.mjs:522-535), and no owner authorization for RT2-6 reached this pass; the only two in the array are the third-round grant and the RT-3 deferral. Recording it as accepted-risk without one would be the exact unsupported disposition this round was asked to catch. P2, so `open` blocks nothing."
+      "title": "Knowingly partial oracle \u2014 kept open rather than accepted-risk, because no authorization resolves",
+      "arbiter_reasoning": "The substance of round 2's finding is unchanged at HEAD: the RT-4 replacement asserts `Object.keys(passingInput())` against a literal and never invokes `buildAutoApprovalPostingStatus`, so it fires only when TypeScript forces the fixture to change. The implementer's reasoning for accepting it is sound \u2014 the behavioural protection is the mutation-verified loader test \u2014 but `accepted-risk` requires an authorization entry that names this finding (red-team-status.mjs:522-535), and no owner authorization for RT2-6 reached this pass; the only two in the array are the third-round grant and the RT-3 deferral. Recording it as accepted-risk without one would be the exact unsupported disposition this round was asked to catch. P2, so `open` blocks nothing."
     },
     {
       "id": "RT-6",
@@ -208,7 +208,7 @@
       "disposition": "open",
       "at": "worker/__tests__/boot-flag-summary.test.ts:262",
       "title": "Carried from round 1: 'worker startup no longer prints the prose feature flag line' is a source-substring absence proxy",
-      "arbiter_reasoning": "Out of scope for rounds 2 and 3 — untouched by any fix hunk in 9a7a459f9..0b095f9f9. Not re-derived this pass; round 1's evidence stands. Carried so the disposition stays visible rather than disappearing."
+      "arbiter_reasoning": "Out of scope for rounds 2 and 3 \u2014 untouched by any fix hunk in 9a7a459f9..0b095f9f9. Not re-derived this pass; round 1's evidence stands. Carried so the disposition stays visible rather than disappearing."
     },
     {
       "id": "RT-1",
@@ -216,7 +216,7 @@
       "duty": 1,
       "disposition": "fixed",
       "at": "worker/index.ts:625",
-      "title": "#1173's boot line can be emitted into a black hole — CLOSED in round 2, unchanged at this SHA",
+      "title": "#1173's boot line can be emitted into a black hole \u2014 CLOSED in round 2, unchanged at this SHA",
       "arbiter_reasoning": "worker/index.ts and the wiring assertions at boot-flag-summary.test.ts:212-229 are byte-unchanged between 9a7a459f9 and 0b095f9f9 apart from the RT2-8 comment, so round 2's kill (mutant 1 failed / 9 passed) still holds."
     },
     {
@@ -261,8 +261,8 @@
       "duty": 3,
       "disposition": "rejected",
       "at": "worker/boot-flag-summary.ts:71",
-      "title": "REJECTED — the readFlag vs autopilotPurchasable() reasoning is correct and independently verified",
-      "reason": "Re-confirmed at this SHA: `autopilotPurchasable()` is `getServerConfig().AUTOPILOT_PURCHASABLE === 'true' && autoApprovalRuntimeEnabled()` (tier-purchasability.ts:8-13), a composite through the Next-server config path, so under it the key would read false for an operator who had just set the variable correctly while AUTO_APPROVAL_ENABLED was still off — the normal go-live ordering. `readFlag` (config/flags.ts:21-23) answers the question a boot record must answer."
+      "title": "REJECTED \u2014 the readFlag vs autopilotPurchasable() reasoning is correct and independently verified",
+      "reason": "Re-confirmed at this SHA: `autopilotPurchasable()` is `getServerConfig().AUTOPILOT_PURCHASABLE === 'true' && autoApprovalRuntimeEnabled()` (tier-purchasability.ts:8-13), a composite through the Next-server config path, so under it the key would read false for an operator who had just set the variable correctly while AUTO_APPROVAL_ENABLED was still off \u2014 the normal go-live ordering. `readFlag` (config/flags.ts:21-23) answers the question a boot record must answer."
     },
     {
       "id": "RT2-R2",
@@ -270,7 +270,7 @@
       "duty": 3,
       "disposition": "rejected",
       "at": ".agents/skills/flag-flip/SKILL.md:1",
-      "title": "REJECTED — the two flag-flip copies are byte-identical and parity is CI-enforced",
+      "title": "REJECTED \u2014 the two flag-flip copies are byte-identical and parity is CI-enforced",
       "reason": "Re-confirmed at this SHA: `diff` is empty and both files hash to sha1 8f594b6bbd29ed4a6a5a5b24891f4b517ffbea28. assertSharedSkillParity (scripts/ci/agent-config-audit.ts:247-258) fails CI on drift; flag-flip is in PROJECT_SKILLS and is not lane-divergent."
     },
     {
@@ -279,7 +279,7 @@
       "duty": 4,
       "disposition": "rejected",
       "at": "worker/jobs/publisher/judge-gate.ts:22",
-      "title": "REJECTED in round 1 — the Judge boundary leaks nowhere beyond the one named residual",
+      "title": "REJECTED in round 1 \u2014 the Judge boundary leaks nowhere beyond the one named residual",
       "reason": "Round 1 evidence, unchanged: judge-gate.ts is not in the branch diff at this SHA."
     },
     {
@@ -288,7 +288,7 @@
       "duty": 4,
       "disposition": "rejected",
       "at": "src/lib/accounts/tier-change.ts:405",
-      "title": "REJECTED in round 1 — no remaining plan-switch direction is derived from a price",
+      "title": "REJECTED in round 1 \u2014 no remaining plan-switch direction is derived from a price",
       "reason": "Round 1 evidence, re-confirmed by round 3's wider search: the only remaining tier-order declarations outside the constant are a script (verify-stripe-price-parity.ts:16), an animation-local union (TiersSection.tsx:13) and a Zod membership set (schemas.ts:344); none derives direction from a price."
     },
     {
@@ -297,7 +297,7 @@
       "duty": 3,
       "disposition": "rejected",
       "at": "docs/runbooks/owner-offboarding-staging-dry-run.md:217",
-      "title": "REJECTED in round 1 — the runbook hits quoting the deleted prose line are frozen evidence",
+      "title": "REJECTED in round 1 \u2014 the runbook hits quoting the deleted prose line are frozen evidence",
       "reason": "Round 1 and round 2 evidence, unchanged: every hit is a completed `- [x]` item recording a past observation of the DELETED prose line, not the new JSON record."
     },
     {
@@ -306,7 +306,7 @@
       "duty": 4,
       "disposition": "rejected",
       "at": "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:104",
-      "title": "REJECTED in round 1 — the 'this account is on Copilot' copy cannot reach an account row that does not exist",
+      "title": "REJECTED in round 1 \u2014 the 'this account is on Copilot' copy cannot reach an account row that does not exist",
       "reason": "Round 1 evidence, unchanged: auto_approval_policies.account_id is FK-constrained to accounts, so no policy row can outlive its account."
     },
     {
@@ -315,7 +315,7 @@
       "duty": 3,
       "disposition": "rejected",
       "at": "docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:568",
-      "title": "REJECTED in round 1 — every file:line citation in the changed plan resolves at HEAD",
+      "title": "REJECTED in round 1 \u2014 every file:line citation in the changed plan resolves at HEAD",
       "reason": "Round 1 recorded CITATIONS: 29 checked, 0 unresolved / PREVALIDATE: PASS. The plan file is byte-unchanged between 825f0fbbf and 0b095f9f9, so that evidence still holds. The deviations file added at 0b095f9f9 is a DIFFERENT document and is checked under RT3-1."
     }
   ],
@@ -327,7 +327,7 @@
         "RT2-1",
         "RT2-2"
       ],
-      "text": "Owner authorized a **third round** on 2026-09-20, scoped to round 2's fix hunks. Round 2 found two P0s; fixing them moved the tree, making round 2's own sidecar stale by construction — the wall #1184 raised the cap from 2 to 3 to clear. The alternative was hand-editing `head_sha`, which that change exists to prevent."
+      "text": "Owner authorized a **third round** on 2026-09-20, scoped to round 2's fix hunks. Round 2 found two P0s; fixing them moved the tree, making round 2's own sidecar stale by construction \u2014 the wall #1184 raised the cap from 2 to 3 to clear. The alternative was hand-editing `head_sha`, which that change exists to prevent."
     },
     {
       "id": "owner-batch-e-rt3-deferral-2026-09-20",
@@ -335,24 +335,15 @@
       "finding_ids": [
         "RT-3"
       ],
-      "text": "ACCEPTED RISK — owner-authorized. The owner was shown the finding and chose \"Follow-up ticket\": the Owner Operator surface is production code outside the locked edit surface, fixing it needs its own tests and review pass, and the branch fixed the surface the issue named. Filed as #1352 carrying the red-team evidence, the readiness-cannot-substitute reasoning, and the trap warning."
+      "text": "ACCEPTED RISK \u2014 owner-authorized. The owner was shown the finding and chose \"Follow-up ticket\": the Owner Operator surface is production code outside the locked edit surface, fixing it needs its own tests and review pass, and the branch fixed the surface the issue named. Filed as #1352 carrying the red-team evidence, the readiness-cannot-substitute reasoning, and the trap warning."
     }
   ],
   "counts": {
-    "inventory_total": 8,
-    "killed": 2,
-    "survived_confirmed_p0": 1,
-    "equivalent": 0,
-    "inconclusive": 2,
-    "skipped_budget": 0,
-    "excluded": 3,
-    "findings_total": 27,
-    "p0_open": 2,
-    "p1_open": 2,
-    "p2_open": 3,
-    "accepted_risk": 1,
-    "fixed": 11,
-    "rejected": 8
+    "total": 27,
+    "open": 2,
+    "fixed": 16,
+    "rejected": 8,
+    "accepted_risk": 1
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }

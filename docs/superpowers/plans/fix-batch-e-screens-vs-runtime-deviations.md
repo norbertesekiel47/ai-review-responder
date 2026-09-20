@@ -372,3 +372,36 @@ a comparable second cost that the estimate does not model at all. Either
 estimate the review's fixes as their own bucket, or read the 2× trigger as
 "re-confirm the lane", not "the plan was wrong" — on this branch it was the
 latter, and re-running step 0 cost one paragraph.
+
+---
+
+## D14 — A verification subagent hung for 4.5 hours; doing the check inline took two minutes
+
+The independent pass over the round-3 fixes was dispatched as a subagent. It ran
+the suite (63/63), reported it was about to instrument the test cases, and then
+wrote nothing for **16,129 seconds**. 165 bytes of output total. No error, no
+completion notification — from the orchestrator's side it was indistinguishable
+from a long review, which is exactly why it cost so much: a hung agent and a
+thorough one look the same until someone checks the output file's mtime.
+
+Killed with `TaskStop`. The kill result surfaced its last state, which is how we
+know where it stalled.
+
+The check it was asked to perform — "does each test case actually reach
+`tone === 'blocked'`?" — took **two minutes inline**: install a probe writing
+`status.tone` to a scratch file, run the one test, read the counts
+(`blocked` ×2, `off`, `suspended`, all `canExpand=false`), remove the probe.
+That is stronger evidence than a subagent's prose assertion would have been,
+and it is reproducible.
+
+**Verdict:** ACCEPT. Two durable lessons for step 8:
+
+1. **Check a long-running subagent's output mtime before waiting on it.**
+   `ls -la <output-file>` costs nothing. Anything over a few minutes with a
+   static size is hung, not thinking.
+2. **A question with a mechanical answer should not be delegated.** "Does this
+   test reach this branch?" is answerable with a probe and a `uniq -c`, not with
+   a reviewer's judgement. Delegation is for questions that need judgement —
+   the three review axes and the red-team rounds earned their cost precisely
+   because their findings were judgements I could not have reached alone. This
+   one was a measurement.
