@@ -9,7 +9,6 @@ import {
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
-import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
 import { checkSubscription } from '@/lib/shared/subscription-guard';
 import {
@@ -1193,10 +1192,12 @@ async function buildReadiness(
   const offboardingState = await getOffboardingState(accountId, db);
   const accountWritable = Boolean(account && accountSubscriptionWritable(account))
     && !isBillingMutationBlocked(offboardingState);
-  const autopilotAvailable = Boolean(
-    tierGrantsAutopilot(account?.subscription_tier)
-      && autopilotPurchasable(),
-  );
+  // ADR 0034: tier entitlement ONLY. `autopilotPurchasable()` answers the
+  // sales question (may someone BUY Autopilot right now?), which has no
+  // bearing on whether an existing Autopilot owner may widen what they
+  // already have — and the posting runtime never reads it. Its
+  // `autoApprovalRuntimeEnabled()` half is already on `runtimeEnabled`.
+  const autopilotAvailable = tierGrantsAutopilot(account?.subscription_tier);
 
   return buildAutoApprovalReadiness({
     runtimeEnabled,
@@ -1211,9 +1212,11 @@ async function buildReadiness(
 }
 
 // #1314 — the Posting block: is this account structurally eligible to auto-post?
-// Deliberately NOT derived from readiness. Readiness' `autopilot_unavailable`
-// folds in `autopilotPurchasable()`, which the runtime never reads, so keying
-// the screen on it would claim "not posting" while replies post.
+// Deliberately NOT derived from readiness. The two answer different
+// questions, and readiness carries inputs the runtime never reads —
+// `providerModerationValidated`, `previewEnvironment`, `impersonated` — so
+// keying the screen on it would claim "not posting" while replies post.
+// (Purchasability was one such input until ADR 0034 removed it.)
 // `accountSubscriptionWritable` is likewise the wrong predicate here: that is
 // billing-mutation writability. The publisher runs `checkSubscription` with
 // `workerType: 'publisher'`, so that is what this asks. A missing account row
