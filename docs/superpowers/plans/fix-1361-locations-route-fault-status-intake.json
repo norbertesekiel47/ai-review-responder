@@ -47,7 +47,8 @@
     "src/lib/locations/owner-route.ts",
     "src/lib/locations/__tests__/owner-route.test.ts",
     "src/lib/approval/http-routes.ts",
-    "src/lib/approval/__tests__/http-routes.test.ts"
+    "src/lib/approval/__tests__/http-routes.test.ts",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "re-throws when requireRole rejects with a non-AuthError",
@@ -57,7 +58,7 @@
   "verification_commands": [
     "pnpm vitest run src/lib/locations/__tests__/owner-route.test.ts src/lib/approval/__tests__/http-routes.test.ts"
   ],
-  "estimated_prod_lines": 8,
+  "estimated_prod_lines": 24,
   "estimated_test_lines": 32,
   "dependencies_added": [],
   "rollback_plan": "Revert the single commit. The change is two edited catch blocks plus their tests. There is no migration, no feature flag, and no data change.",
