@@ -63,7 +63,7 @@
   "verification_commands": [
     "pnpm vitest run src/lib/locations/__tests__/owner-route.test.ts src/lib/approval/__tests__/http-routes.test.ts"
   ],
-  "estimated_prod_lines": 30,
+  "estimated_prod_lines": 78,
   "estimated_test_lines": 55,
   "dependencies_added": [],
   "rollback_plan": "Revert the single commit. The change is two edited catch blocks plus their tests. There is no migration, no feature flag, and no data change.",
