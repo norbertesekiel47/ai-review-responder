@@ -146,6 +146,7 @@ import {
   assertDegradeLanded,
   clientGrantNames,
   CLIENT_ROLES,
+  deriveColumnPrivileges,
   deriveTablePrivileges,
   assertOnlyTablesMoved,
   nonEmptyNames,
@@ -167,6 +168,12 @@ const EVENT_INDEX = 'idx_admin_audit_event_created';
 const ACTOR_FK = 'admin_audit_log_actor_user_id_fkey';
 const FOREIGN_KEY_VIOLATION = '23503';
 const BEHIND_HEAD = 'admin_audit_log posture is not at migration head — run pnpm test:db:setup';
+
+const TABLE_COMMENT =
+  'Admin control-plane actor trail (#468): one row per admin action, keyed on the admin ' +
+  'user; no account_id by design. Admin-only (deny-all RLS, client-role privileges ' +
+  'revoked). Keep forever. The only writer is writeAdminAuditLog (src/lib/audit/log.ts); ' +
+  'application code supplies UUIDv7 ids.';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -334,6 +341,20 @@ describeWithDb(
 
     // ── ORACLE A: pinned head posture, independent of the migration file ────
 
+    it('head posture pins the admin_audit_log table comment', async () => {
+      // #1301 RT-12. No suite in this family pinned its table comment, and
+      // deleting 117's `COMMENT ON TABLE` survived 13 of 13 red-team runs.
+      // Oracle B cannot carry it either: the comment is re-applied by the
+      // migration, so a weakened file yields a weakened `before` and
+      // `after === before` still passes. Only a literal pinned HERE breaks
+      // that circle. Migration 118 already pinned its own, with a written
+      // rationale; this is the missed sibling case.
+      await withRolledBackTransaction(sql(), async (tx) => {
+        const catalogue = await readPublicCatalogue(tx);
+        expect(catalogue.tables[TABLE]?.comment, BEHIND_HEAD).toBe(TABLE_COMMENT);
+      });
+    });
+
     it('admin_audit_log carries row security enabled and no policy at head', async () => {
       const [security] = await sql()<
         { rls_enabled: boolean; rls_forced: boolean; policy_count: string }[]
@@ -427,13 +448,14 @@ describeWithDb(
 
       // ARM C — COLUMN-level effective privilege: the intersection A and B
       // leave open, since Arm A filters on grantee NAME and Arm B's
-      // `has_table_privilege` does not consider column grants at all. The four
-      // privileges are fixed by the SQL standard (columns have no DEFAULT
-      // privileges, so `acldefault('c', …)` is empty and nothing can be
-      // derived); the length assertion means a PostgreSQL that ever adds a
-      // fifth fails loudly rather than under-covering.
-      const columnPrivileges = ['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'];
-      expect(columnPrivileges).toHaveLength(4);
+      // `has_table_privilege` does not consider column grants at all. The column-level
+      // privilege set is DERIVED, not spelled: `acldefault('c', …)` is empty,
+      // so `deriveColumnPrivileges` asks `has_column_privilege` about each of
+      // this major's table privileges and keeps the ones it recognises. The
+      // literal it replaces restated its own length, so it could not have
+      // failed on a PostgreSQL that added a fifth (#1301 RT-7); this does.
+            const columnPrivileges = await deriveColumnPrivileges(sql(), 'admin_audit_log', 'id');
+      expect(columnPrivileges.length, 'no column-level privilege derived').toBeGreaterThan(0);
       const columnEffective = await sql()<
         { role: string; attname: string; privilege_type: string }[]
       >`

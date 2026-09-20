@@ -109,6 +109,9 @@ const FIXTURE_REVIEW_ID = '00000000-0000-4000-8000-000000000451';
 const FIXTURE_RESPONSE_ID = '00000000-0000-4000-8000-000000000551';
 const FIXTURE_FLAGGED_RESPONSE_ID = '00000000-0000-4000-8000-000000000651';
 
+const TABLE_COMMENT =
+  'High-confidence unsafe drafts held out of the owner approval path until admin disposition (Wave 3 PR 3a/3b). Admin-only (deny-all RLS).';
+
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
@@ -171,6 +174,20 @@ describeWithDb(
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     // ── ORACLE A: pinned head posture, independent of the migration file ────
+
+    it('head posture pins the flagged_responses table comment', async () => {
+      // #1301 RT-12. No suite in this family pinned its table comment, and
+      // deleting 117's `COMMENT ON TABLE` survived 13 of 13 red-team runs.
+      // Oracle B cannot carry it either: the comment is re-applied by the
+      // migration, so a weakened file yields a weakened `before` and
+      // `after === before` still passes. Only a literal pinned HERE breaks
+      // that circle. Migration 118 already pinned its own, with a written
+      // rationale; this is the missed sibling case.
+      await withRolledBackTransaction(sql(), async (tx) => {
+        const catalogue = await readPublicCatalogue(tx);
+        expect(catalogue.tables[TABLE]?.comment, BEHIND_HEAD).toBe(TABLE_COMMENT);
+      });
+    });
 
     it('flagged_responses carries row security enabled and no policy at head', async () => {
       await withRolledBackTransaction(sql(), async (tx) => {

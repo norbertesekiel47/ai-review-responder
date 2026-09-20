@@ -203,6 +203,8 @@ const ADMIN_ID = '0530f1a1-0000-4053-8000-000000000003';
 const SECOND_OWNER_ID = '0530f1a1-0000-4053-8000-000000000004';
 
 const LEGACY_ROLE = 'sales_partner';
+/** PostgreSQL `check_violation`. */
+const CHECK_VIOLATION = '23514';
 
 interface UserRow {
   id: string;
@@ -356,12 +358,39 @@ describeWithDb(
         USERS_ROLE_CHECK_DEF,
       );
 
-      // No stray legacy row survives at head. 053's UPDATE is the statement
-      // that guarantees it, and #43 blocks the role at every runtime auth path.
+      // No stray legacy row survives at head. As a COUNT this proved nothing:
+      // the container is provisioned empty — every public table holds zero
+      // rows — so `count(*) WHERE role = 'sales_partner'` is 0 whatever 053
+      // does, and the case passed against a migration with no UPDATE at all
+      // (#1301 RT-14).
+      //
+      // The count stays as a cheap tripwire for a seeded container, but the
+      // PROOF is behavioural and cannot be vacuous: at head the allowlist must
+      // REFUSE the legacy role. A rolled-back transaction attempts exactly the
+      // insert `seedRoleFixtures` makes, and PostgreSQL must raise 23514
+      // `check_violation`. A weakened 053 that widened the allowlist back to
+      // include `sales_partner` fails here even on an empty container.
       const [legacy] = await sql()<{ legacy_rows: string }[]>`
         SELECT count(*)::text AS legacy_rows FROM users WHERE role = ${LEGACY_ROLE}
       `;
       expect(legacy?.legacy_rows, BEHIND_HEAD).toBe('0');
+
+      let refusal: { code?: unknown; constraint_name?: unknown } | undefined;
+      await withRolledBackTransaction(sql(), async (tx) => {
+        try {
+          await tx`
+            INSERT INTO users (id, name, email, role, phone)
+            VALUES (${SALES_PARTNER_ID}, 'Migration 053 legacy probe',
+                    'migration-053-legacy-probe@repworth.test', ${LEGACY_ROLE}, '+15550530009')
+          `;
+        } catch (error) {
+          refusal = error as { code?: unknown; constraint_name?: unknown };
+        }
+      });
+      expect(refusal?.code, `${BEHIND_HEAD} — the allowlist admitted ${LEGACY_ROLE}`).toBe(
+        CHECK_VIOLATION,
+      );
+      expect(refusal?.constraint_name, BEHIND_HEAD).toBe(CONSTRAINT);
 
       // The stated `users` fact (see the header): RLS on, FORCE off, exactly
       // ONE policy. Pinned so no comparison in this suite is written against

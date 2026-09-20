@@ -130,6 +130,7 @@ import {
   assertTableRemoved,
   clientGrantNames,
   CLIENT_ROLES,
+  deriveColumnPrivileges,
   deriveTablePrivileges,
   assertOnlyTablesMoved,
   readMigrationSql,
@@ -358,13 +359,14 @@ describeWithDb(
       // leave open between them, since Arm A filters on grantee NAME and Arm
       // B's `has_table_privilege` does not consider column grants at all. A
       // column grant to a role `anon` INHERITS is named nowhere Arm A looks and
-      // is invisible to Arm B. The four privileges are fixed by the SQL
-      // standard (columns have no DEFAULT privileges, so `acldefault('c', …)`
-      // is empty and nothing can be derived); the count assertion means a
-      // PostgreSQL that ever adds a fifth fails loudly rather than
-      // under-covering.
-      const columnPrivileges = ['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'];
-      expect(columnPrivileges).toHaveLength(4);
+      // is invisible to Arm B. The column-level privilege set is DERIVED, not
+      // spelled: `acldefault('c', …)` is empty, so `deriveColumnPrivileges`
+      // asks `has_column_privilege` about each of this major's table
+      // privileges and keeps the ones it recognises. The literal it replaces
+      // restated its own length, so it could not have failed on a PostgreSQL
+      // that added a fifth (#1301 RT-7); this does.
+            const columnPrivileges = await deriveColumnPrivileges(sql(), 'poller_heartbeats', 'poller_name');
+      expect(columnPrivileges.length, 'no column-level privilege derived').toBeGreaterThan(0);
       const columnEffective = await sql()<
         { role: string; attname: string; privilege_type: string }[]
       >`
@@ -550,10 +552,19 @@ describeWithDb(
         // `REVOKE ALL` from `REVOKE SELECT`: with only SELECT checked, a
         // migration weakened to `REVOKE SELECT` would still pass.
         const afterGrantNames = (after.tables[TABLE]?.grants ?? []).map((entry) => entry.name);
-        expect(afterGrantNames).not.toEqual([]); // the owner's grants survive
         for (const grant of inheritedGrants) {
           expect(afterGrantNames).not.toContain(grant);
         }
+
+        // The POSITIVE half, and the twin of `117:664`. `not.toEqual([])` was
+        // standing in for it: a non-empty list proves only that SOMETHING
+        // survived, not that the right things did, so a revoke that also
+        // caught the owner would pass it as long as one grant remained
+        // (#1301 RT-13). Comparing the whole grant list against `before`
+        // states the real contract — the re-apply restores exactly the ACL the
+        // table had, grantor and GRANT OPTION included — and it subsumes the
+        // proxy, because `before` is never empty.
+        expect(after.tables[TABLE]?.grants).toEqual(before.tables[TABLE]?.grants);
       });
 
       // And the hazard the brief for this suite calls the riskiest step in

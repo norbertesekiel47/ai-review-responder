@@ -209,9 +209,21 @@ export function nonEmptyNames(names: readonly string[]): NamedObjects {
 
 const MIGRATIONS_DIR = ['supabase', 'migrations'] as const;
 
-/** Separators that cannot occur in a catalogue name or definition. */
-const FIELD = '\u0000';
-const RECORD = '\u0001';
+/**
+ * Renders one entry so that two renderings are equal EXACTLY when the entry is.
+ *
+ * It was `name + '\u0000' + definition`, joined on `'\u0001'`, under a comment
+ * claiming those two characters "cannot occur in a catalogue name or
+ * definition". That claim is false: a `COMMENT ON COLUMN` body is arbitrary
+ * text and PostgreSQL accepts U+0001 in it, so two different entries could
+ * render identically and a real difference would compare equal (#1301 RT-17).
+ *
+ * `JSON.stringify` of the pair is injective for any string content, so there
+ * is no separator to reason about and no claim to keep true.
+ */
+function renderEntry(name: string, definition: string): string {
+  return JSON.stringify([name, definition]);
+}
 
 /**
  * Every property, with its KIND. Exhaustive by construction: `satisfies` makes
@@ -543,9 +555,9 @@ function renderValue(value: CataloguedTable[keyof CataloguedTable]): string {
   if (value === null) return '(null)';
   if (typeof value === 'string') return value;
   return [...value]
-    .map((item) => (typeof item === 'string' ? item : `${item.name}${FIELD}${item.definition}`))
+    .map((item) => (typeof item === 'string' ? renderEntry(item, '') : renderEntry(item.name, item.definition)))
     .sort()
-    .join(RECORD);
+    .join('\n');
 }
 
 /** One list of named entries, rendered order-independently, exactly as
@@ -553,9 +565,9 @@ function renderValue(value: CataloguedTable[keyof CataloguedTable]): string {
  * ACLs, which hang off the catalogue rather than off any one table. */
 function renderEntries(entries: readonly CatalogueEntry[]): string {
   return [...entries]
-    .map((entry) => `${entry.name}${FIELD}${entry.definition}`)
+    .map((entry) => renderEntry(entry.name, entry.definition))
     .sort()
-    .join(RECORD);
+    .join('\n');
 }
 
 /**
@@ -843,6 +855,73 @@ export async function deriveTablePrivileges(tx: TransactionSql, table: string): 
 /** The PostgreSQL 16 floor: SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
  * REFERENCES, TRIGGER. 17 adds MAINTAIN, so a lane on 17 derives eight. */
 const PRIVILEGE_FLOOR = 7;
+
+/**
+ * Which of this major's table privileges are also COLUMN-level privileges,
+ * DERIVED from the server rather than spelled out.
+ *
+ * `acldefault('c', …)` is empty — columns have no default privileges — so the
+ * column set cannot be derived the way `deriveTablePrivileges` derives the
+ * table set. It is derived here by asking `has_column_privilege` about each
+ * table privilege: PostgreSQL raises `22023 invalid_parameter_value`
+ * ("unrecognized privilege type") for one that is not column-level, and
+ * answers for one that is. Each probe runs in its own SAVEPOINT, because an
+ * error otherwise aborts the caller's transaction.
+ *
+ * It replaces `expect(['SELECT','INSERT','UPDATE','REFERENCES']).toHaveLength(4)`,
+ * which restated its own literal's length while its comment claimed it would
+ * "fail loudly" if PostgreSQL added a fifth. It could not: the literal and the
+ * expectation were the same four names (#1301 RT-7). This can — a fifth
+ * column-level privilege appears in the returned list.
+ *
+ * On PostgreSQL 16 and 17 alike this returns SELECT, INSERT, UPDATE and
+ * REFERENCES; 17's new MAINTAIN is table-level only.
+ */
+export async function deriveColumnPrivileges(
+  db: Sql,
+  table: string,
+  column: string,
+): Promise<string[]> {
+  const supported: string[] = [];
+  // Its own transaction, so a caller outside one can use it and so the
+  // SAVEPOINTs below have something to roll back to. Read-only throughout.
+  await db.begin(async (tx) => {
+    for (const privilege of await deriveTablePrivileges(tx, table)) {
+      try {
+        await tx.savepoint(
+          async (probe) =>
+            probe`
+              SELECT has_column_privilege(
+                current_user, ${`public.${table}`}, ${column}, ${privilege}
+              )
+            `,
+        );
+        supported.push(privilege);
+      } catch (error) {
+        // Narrow, never silent: 22023 is "unrecognized privilege type", which
+        // is the ANSWER — this privilege has no column-level form on this
+        // major. Anything else is a real failure and must not be read as one.
+        if (!isUnrecognizedPrivilegeType(error)) throw error;
+      }
+    }
+  });
+  if (supported.length === 0) {
+    throw new Error(
+      `deriveColumnPrivileges(${table}.${column}) found no column-level privilege at all — ` +
+        'every column-grant assertion built on this list would be vacuous',
+    );
+  }
+  return supported;
+}
+
+/** `22023 invalid_parameter_value`, raised by `has_column_privilege` for a
+ * privilege type with no column-level form. */
+function isUnrecognizedPrivilegeType(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  const message = (error as { message?: unknown }).message;
+  return code === '22023' && typeof message === 'string' && message.includes('privilege type');
+}
 
 /** `"<client role>:<privilege>"` for every pair — the `grants` entry names a
  * client role would hold if a migration granted it these privileges. */

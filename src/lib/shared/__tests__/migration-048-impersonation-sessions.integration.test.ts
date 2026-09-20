@@ -92,6 +92,10 @@ const SUITE_FILE =
   'src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts';
 const BEHIND_HEAD =
   'impersonation_sessions posture is not at migration head — run pnpm test:db:setup';
+/** For a mismatch AFTER the re-apply: the container is fine, the file is not. */
+const WEAKENED_MIGRATION =
+  `re-applying ${MIGRATION_FILE} did not restore this object — the container is at head, so ` +
+  'the checked-in migration is what changed';
 
 // ── Oracle A: pinned literals, from .feature/oracle-a-literals.txt ─────────
 
@@ -190,6 +194,9 @@ const DEGRADE = `
   DROP INDEX idx_impersonation_active_actor;
   ALTER TABLE impersonation_sessions DISABLE ROW LEVEL SECURITY;
 `;
+
+const TABLE_COMMENT =
+  'Admin-owned, time-boxed view-as sessions. Application code should pass UUIDv7 ids.';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -299,10 +306,18 @@ describeWithDb(
         // against `before`. This is what a weakened migration cannot survive
         // even on a container that was itself provisioned from that same
         // weakened file (see header).
+        //
+        // NOT `BEHIND_HEAD`. The re-apply has already happened here, so a
+        // mismatch means the MIGRATION did not restore the index — telling the
+        // reader to run `pnpm test:db:setup` sends them to re-provision a
+        // container that is already at head, while the real fault is in the
+        // file (#1301 RT-11). The two messages are kept apart on purpose:
+        // `BEHIND_HEAD` belongs to the head-posture cases, which read the
+        // container and nothing else.
         for (const [name, definition] of Object.entries(GUARDED_INDEX_DEFINITIONS)) {
           expect(
             table.indexes.find((entry) => entry.name === name)?.definition,
-            BEHIND_HEAD,
+            WEAKENED_MIGRATION,
           ).toBe(definition);
         }
 
@@ -343,7 +358,7 @@ describeWithDb(
       });
     });
 
-    it('head posture pins the impersonation_sessions column inventory and primary key', async () => {
+    it('head posture pins the impersonation_sessions column inventory, primary key and table comment', async () => {
       // Oracle A for the table BODY. The stated limit above explains why
       // oracle B cannot reach it, and `weakened-checks-reasons.md` records
       // this case as the successor to the deleted text guard's column
@@ -367,6 +382,15 @@ describeWithDb(
           table.constraints.find((entry) => entry.name === PRIMARY_KEY_NAME)?.definition,
           BEHIND_HEAD,
         ).toBe(PRIMARY_KEY_DEFINITION);
+
+        // #1301 RT-12. No suite in this family pinned its table comment, and
+        // deleting 117's `COMMENT ON TABLE` survived 13 of 13 red-team runs.
+        // Oracle B cannot carry it either: the comment is re-applied by the
+        // migration, so a weakened file yields a weakened `before` and
+        // `after === before` still passes. Only a literal pinned HERE breaks
+        // that circle. Migration 118 already pinned its own, with a written
+        // rationale; this is the missed sibling case.
+        expect(table.comment, BEHIND_HEAD).toBe(TABLE_COMMENT);
       });
     });
   },
