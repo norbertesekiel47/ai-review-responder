@@ -53,7 +53,35 @@ no CSS, no component and no PostCSS plugin.
 breakage (2026-09-20 session note: pre-existing on `main`, passes in CI). CI runs
 `pnpm build` on a fresh Blacksmith install, which is the authoritative signal.
 
-**Verdict:** ACCEPT — out of scope for #1361, with the pre-existence proven by
-the revert-and-rebuild test rather than asserted. The gate carries this row as a
-known-RED environmental row; the PR's own `build` check is the real gate, and it
-must be green before merge.
+**Second proof, from CI rather than from this machine.** PR #1389 — the merge
+that produced `650f625e`, this branch's merge-base — has a **green `build`
+check** (54s, run 35542835421). The same tree that fails here builds in CI. The
+defect is this worktree's environment, not the code.
+
+**Verdict:** ACCEPT — out of scope for #1361, with the pre-existence proven twice
+rather than asserted: by revert-and-rebuild locally, and by CI's green `build` on
+the merge-base. The gate carries this row as a known-RED environmental row; the
+PR's own `build` check is the authoritative gate and must be green before merge.
+
+## D4 — one unrelated test timed out under gate load
+
+**What the plan did not anticipate.** Gate round 2's `test` row failed on one
+test: `scripts/ci/__tests__/red-team-mutation-runner.test.ts > Operator
+same-round continuation safeguards > runs an admitted baseline mutant and
+restoration with corroborated report evidence`. It exceeded the 30,000 ms
+timeout. The same row PASSED in gate round 1.
+
+**Evidence that it is a load flake, not a defect.** Run alone the test passes in
+**19.4 s** against a 30 s budget — a 10.6 s margin that a parallel Turbopack
+compile (the RED `build` row, 567 errors) consumes. The suite exercises
+`scripts/ci/red-team-mutation-runner`. This change touches `src/lib/locations/`
+and `src/lib/approval/` and shares no module, fixture or file with it.
+
+**Action.** Not fixed on this branch. Re-running the gate would very likely clear
+it, but the `build` row keeps the gate RED regardless, so a re-run changes no
+decision.
+
+**Verdict:** ACCEPT — an unrelated timing flake, reproduced green in isolation.
+Both suites this change actually touches pass: 37 tests across
+`owner-route.test.ts` and `http-routes.test.ts`, plus 187 across the 12
+consuming route suites.
