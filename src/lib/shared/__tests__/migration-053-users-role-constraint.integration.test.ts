@@ -100,6 +100,21 @@
 //
 // The DB-free registry case (title 1) is the only one that cannot silently
 // skip; every other case sits behind `describeWithDb` and needs a database.
+//
+// ── stated limits: NONE, and that is unusual here ──────────────────────────
+//
+// Every sibling suite in this set carries an un-guarded remainder, because
+// `CREATE TABLE IF NOT EXISTS` is skipped at head: 048, 051 and 117 cannot
+// prove their table BODY — columns, inline CHECKs, foreign keys — through the
+// executing case, so oracle A carries those alone. 053 has no such remainder.
+// It creates no relation. Both of its statements — the `UPDATE` and the
+// catalogue-guarded `DO` block — execute in full on every re-apply, so oracle
+// B reaches everything the migration declares, and oracle A is here for
+// independence rather than for coverage the executing case cannot get.
+//
+// Stated explicitly because silence is ambiguous: a reader comparing the seven
+// suites should be able to tell "this suite has no limit" from "nobody wrote
+// the limit down".
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
