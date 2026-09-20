@@ -130,3 +130,69 @@ and surfaced to the owner rather than actioned as an abort. If a THIRD amendment
 arrives, the criteria apply without argument.
 
 **Verdict:** ACCEPT
+
+---
+
+## D5 — Surface amendment 3: four Snapshot fixture sites
+
+**When:** step 4, after T2 and T3 returned. Owner waived the step 5 abort gate
+explicitly on 2026-09-20. Recorded with `incr-amendment --reason`;
+`surfaceAmendments=3`.
+
+**What.** Four paths joined `allowed_edit_surface`:
+
+- `src/lib/agents/operator/__tests__/model-call.test.ts`
+- `src/lib/agents/operator/__tests__/render.test.ts`
+- `src/lib/agents/operator/__tests__/policy-apply.integration.test.ts`
+- `tests/llm-eval/structured-runner.ts`
+
+**Why.** T3 made `posting` a REQUIRED field on the shared `Snapshot` interface,
+so every literal that constructs a `Snapshot` must supply it. Three of the four
+need one added key. The fourth, `policy-apply.integration.test.ts:354`, asserts
+`readinessBlockReasons` containing `autopilot_unavailable`, which ADR 0034
+deliberately removes for a paused-sale Autopilot account.
+
+Zero production files. All four are test fixtures or test assertions.
+
+**Why this was not an abort.** Step 5's abort criteria name "a 2nd surface
+amendment" as a trigger. The owner was shown the trigger, the evidence and three
+options, and chose to amend and continue. The stated reasoning: these are
+mechanical consequences of two already-locked decisions rather than scope
+growth; the design has not moved since plan revision 2 and survived two
+adversarial review rounds; and the other abort trigger is not close — the diff
+measured 182 production and 398 test lines against estimates of 240 and 520.
+
+**What the intake got wrong, for the postmortem record.** The surface
+enumerated the files that IMPLEMENT the change but not the files that CONSTRUCT
+the type it changes. Any future run that adds a required field to a shared type
+should enumerate its fixture sites at intake time — `rg` for the type name in
+test files before declaring the surface.
+
+**Verdict:** ACCEPT
+
+---
+
+## D6 — T3 shipped a docblock that T2 made false
+
+**When:** step 4, found during the T3 spec check.
+
+**What.** `projectPostingBlock`'s docblock in
+`src/lib/agents/operator/context.ts` says readiness' `autopilot_unavailable`
+"folds in `autopilotPurchasable()`, which the runtime never reads". T2 removed
+exactly that behaviour in the same execution phase.
+
+**Why it happened.** T2 and T3 ran in parallel against disjoint file sets. T3's
+brief quoted the pre-T2 reality because both briefs were written before either
+landed. The parallel dispatch was still correct — the files never collided — but
+a shared FACT changed under one of them.
+
+**Resolution.** T6's docs sweep already owns "correct every claim that readiness
+folds in `autopilotPurchasable()`" (plan T6 item 5). `context.ts` is added to
+that item's sites, alongside `posting-status.ts:27-32`, `settings.ts` and the
+glossary. `context.ts` is already in the surface, so this needs no amendment.
+
+**Lesson for the lab notes at step 8.** Parallel tracers may share a FACT even
+when they share no FILE. A brief written before a concurrent task lands can
+quote a reality that expires mid-flight.
+
+**Verdict:** ACCEPT
