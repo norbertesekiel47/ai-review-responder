@@ -8,8 +8,10 @@
 // an `account_id` predicate.
 import type postgres from 'postgres';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { postingBlockSentences } from '@/lib/auto-approval/posting-block-copy';
 import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
 import type {
+  AutoApprovalPostingBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
   VetoWindowMinutes,
@@ -144,6 +146,74 @@ export function projectOperatingRules(
   };
 }
 
+/** The account-wide **Posting block**, projected for the model. */
+export interface SnapshotPosting {
+  /** The account-wide **Posting block** itself. */
+  blocked: boolean;
+  reasons: AutoApprovalPostingBlockReason[];
+  /**
+   * `POSTING_BLOCK_COPY` rendered in `reasons` order. COMPLETE whenever
+   * `blocked` is true — one sentence per reason, never filtered and never
+   * truncated. `[]` only when `blocked` is false.
+   *
+   * These are account DATA, not correction copy. Whether the model may say
+   * them is `correctionOwed`'s job alone.
+   */
+  sentences: string[];
+  /**
+   * The SERVER's decision that a correction is owed: blocked AND some surface
+   * would otherwise claim posting — the account default is armed, or ANY
+   * active location override is armed. The same predicate the settings page
+   * applies at `AutoApprovalClient.tsx:726`.
+   *
+   * This is the ONLY suppression switch. `blocked`, `reasons` and `sentences`
+   * stay complete regardless.
+   *
+   * The model must not re-derive it. It cannot: the snapshot projects
+   * operating rules for the SELECTED location only, so an armed override on
+   * another location is invisible to it.
+   */
+  correctionOwed: boolean;
+}
+
+/**
+ * `AutoApprovalSettingsResponse` → the **Posting block** the model may see.
+ *
+ * Read FIELD BY FIELD, never a spread — the same rule `facts` follows below,
+ * and for the same reason: a spread silently carries a new field into the
+ * snapshot the moment someone adds one to `AutoApprovalPostingStatus`.
+ *
+ * `settings.readiness` is deliberately untouched. Readiness answers a DIFFERENT
+ * question ("may the owner WIDEN auto-approval?") and its
+ * `autopilot_unavailable` folds in `autopilotPurchasable()`, which the runtime
+ * never reads — an Autopilot account with a paused sale carries that reason and
+ * still posts.
+ *
+ * `correctionOwed` matches the settings page's armed-override test
+ * (`AutoApprovalClient.tsx:684-686`): an override ROW that is not inheriting
+ * and carries a threshold. An inheriting location is armed only because the
+ * account default is, which the first clause already covers. `settings.locations`
+ * is active-only (`loadActiveLocationSettings`), so an archived location cannot
+ * make a correction owed.
+ */
+export function projectPostingBlock(settings: AutoApprovalSettingsResponse): SnapshotPosting {
+  const blocked = settings.posting.blocked;
+  const reasons = settings.posting.reasons.slice();
+  const accountArmed = settings.accountDefault.threshold !== null;
+  const anyLocationArmed = settings.locations.some(
+    (location) =>
+      location.override.exists
+      && !location.effective.inherited
+      && location.effective.threshold !== null,
+  );
+  return {
+    blocked,
+    reasons,
+    sentences: postingBlockSentences(reasons),
+    correctionOwed: blocked && (accountArmed || anyLocationArmed),
+  };
+}
+
 /** The voice facts the model may see. NO `sampleResponses` — that is response text. */
 export interface SnapshotFacts {
   tone: string | null;
@@ -189,6 +259,24 @@ export interface Snapshot {
   turns: SnapshotTurn[];
   pendingProposals: SnapshotProposal[];
   operatingRules: OperatingRulesProjection;
+  /**
+   * The account-wide **Posting block** — deliberately NOT readiness (#1352).
+   *
+   * Readiness answers "may the owner WIDEN auto-approval?"; this answers "is
+   * the account structurally eligible to auto-post at all?". Two of its
+   * reasons, `judge_disabled` and `publisher_subscription_denied`, have NO
+   * readiness analogue, so before this field a model reading only
+   * `allowedOperations`' readiness reasons could not see them and told owners
+   * their auto-reply rule was live while nothing would post. That is the #1352
+   * defect, and it is why this rides beside readiness rather than being
+   * derived from it.
+   *
+   * `sentences` rides the SNAPSHOT rather than the system prompt on purpose:
+   * the prompt is a hashed constant (`operatorSystemPromptHash`, recorded on
+   * every `api_costs` row), and an owner-facing copy edit must not move that
+   * hash.
+   */
+  posting: SnapshotPosting;
   /**
    * The four voice FACTS, and deliberately not `VoiceConfig`:
    * `sampleResponses` is stored RESPONSE TEXT, which the snapshot may never
@@ -395,6 +483,10 @@ export async function buildSnapshot(db: Sql, input: BuildSnapshotInput): Promise
     // `AutoApprovalPolicyApiState` and each entry of `locations` is an
     // `AutoApprovalLocationSettings` (both in `src/lib/auto-approval/types.ts`).
     operatingRules: projectOperatingRules(settings, input.locationId),
+    // Same `settings` read, no extra query: the Posting block is account-wide
+    // and already in that response. See `projectPostingBlock` for why this is
+    // not readiness.
+    posting: projectPostingBlock(settings),
     // Field-by-field, never a spread: a spread would carry `sampleResponses`
     // (response text) into the snapshot the moment someone adds a field.
     facts: {
