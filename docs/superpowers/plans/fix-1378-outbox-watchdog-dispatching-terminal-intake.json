@@ -49,7 +49,8 @@
     "worker/background/pollers/OutboxPoller.ts",
     "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
     "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
-    "docs/context/core-platform-runtime.md"
+    "docs/context/core-platform-runtime.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "terminalizes a stale dispatching row at max_attempts on a non-agent_turn topic",
