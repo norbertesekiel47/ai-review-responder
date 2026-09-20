@@ -93,9 +93,9 @@ Mature, well-engineered codebase with genuinely strong security and reliability 
 
 ## 🟡 MEDIUM — verified correctness bugs
 
-### [ ] M-A — Tombstone flow splits dependent writes across two autocommit statements · **Verified** · Effort: S
+### [x] M-A — Tombstone flow splits dependent writes across two autocommit statements · **Verified** · Effort: S
 
-`worker/background/pollers/ZernioRecentReviewPoller.ts:220-236` marks reviews `'deleted'` (UPDATE #1) and fails their responses (UPDATE #2) as **two separate `await sql` statements, no `sql.begin`**. If #2 fails or the process dies between them, the next cycle's SELECT (`status <> 'deleted'`) never returns those reviews again → responses stranded forever in `pending_approval`/`approved` pointing at a source-deleted review; an `approved` orphan can even reach the publisher. **Fix:** wrap both UPDATEs in one `sql.begin`.
+`worker/background/pollers/ZernioRecentReviewPoller.ts:220-236` marks reviews `'deleted'` (UPDATE #1) and fails their responses (UPDATE #2) as **two separate `await sql` statements, no `sql.begin`**. If #2 fails or the process dies between them, the next cycle's SELECT (`status <> 'deleted'`) never returns those reviews again → responses stranded forever in `pending_approval`/`approved` pointing at a source-deleted review; an `approved` orphan can even reach the publisher. **Fix:** wrap both UPDATEs in one `sql.begin`. **Fixed (#1360):** both UPDATEs run in one `db.begin`; rollback + next-cycle recovery proven by `ZernioRecentReviewPoller.tombstone.integration.test.ts`.
 
 ### [ ] M-B — Malformed-UUID params → uncaught `22P02` 500s across ~8 owner routes · **Verified** · Effort: S
 
