@@ -433,3 +433,37 @@ as a triage habit — check the FAILING TEST'S DURATION before assuming a real
 break: a multi-second unit test that passes alone is contention, and re-running
 is the right first move rather than reading the diff for a cause that is not
 there.
+
+---
+
+## D16 — The CLAUDE.md screenshot rule is not met; the mechanism is committed instead
+
+CLAUDE.md § Design work: "Prove the change with before/after screenshots at
+390px and 1440px before asking for approval." **Not met on this branch**, and
+recorded here rather than quietly skipped.
+
+The spec exists and is committed — `e2e/batch-e-screens.spec.ts`, following the
+`e2e/operator.spec.ts` precedent, asserting the right state before it shoots so
+an image proves the state and not merely that a page loaded. It self-skips
+here, and the reason is environmental rather than a gap in the spec:
+
+`isAuthHarnessConfigured` needs `E2E_SUPABASE_URL` + `E2E_SUPABASE_SERVICE_KEY`,
+and the harness additionally needs `TEST_DATABASE_POOL_URL` to name the SAME
+database as that Supabase project, because the app reads `users` through both
+Postgres.js and PostgREST. This machine has `TEST_DATABASE_POOL_URL` on a local
+Docker Postgres (`localhost:5499`) and Supabase remote, so a seeded owner
+cannot resolve and every signed-in lane skips — not just this one.
+
+Owner decided to ship without the images, with the spec as the standing
+mechanism: the first E2E run in a configured environment produces all four.
+
+What stands in for them meanwhile: 63 component assertions covering both the
+blocked and unblocked headline states and both tier directions, and — for
+#1173, the one change with no UI at all — the live staging boot record, which
+is stronger than a screenshot because it is the artifact the issue was about.
+
+**Verdict:** ACCEPT (owner-decided). Durable lesson for step 8: the screenshot
+rule presumes a configured auth harness. A UI branch on a local-DB machine
+cannot satisfy it, and that is worth knowing at INTAKE time — when the surface
+is declared — rather than at the end, where it costs a spec written under the
+assumption it could run.
