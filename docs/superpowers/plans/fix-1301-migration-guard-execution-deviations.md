@@ -675,3 +675,39 @@ runtime. A leak large enough to matter moves the relation set or the default
 ACLs — the two things 118's own degrade performs.
 
 **Verdict:** ACCEPT
+
+---
+
+## D16 — deriving a privilege set fixed growth and opened shrink; red team round 2 caught it
+
+**When:** red-team round 2, mutating the previous commit's own RT-7 fix.
+
+**What RT-7 was.** Both the 117 and 118 suites carried
+`expect(['SELECT','INSERT','UPDATE','REFERENCES']).toHaveLength(4)` under a
+comment claiming a PostgreSQL that adds a fifth column privilege "fails
+loudly". It could not: the literal and the expectation were the same four
+names. The fix derived the set from the server instead.
+
+**What round 2 found (RT2-1).** Narrowing `deriveColumnPrivileges` to return
+`SELECT` alone left every caller PASSING. Each asserts only that the client
+roles hold none of whatever the function returns, so a probe that returns less
+simply checks less. The mutation survived.
+
+**The general shape, worth not re-deriving.** A literal cannot grow; a
+derivation can shrink. Replacing one with the other trades a known blind spot
+for a new one unless a FLOOR comes with it. `deriveTablePrivileges` already
+had that floor — seven, the PostgreSQL 16 set — and the column function
+shipped without it because its list "is fixed by the SQL standard", which is
+an argument about the standard rather than about the probe.
+
+**Fix.** `COLUMN_PRIVILEGE_FLOOR = 4` inside the helper, which throws below it,
+so both call sites inherit it and neither can forget it. Their local assertion
+changed from `length > 0` — the one the surviving mutation satisfied — to
+`toContain('SELECT')`. Re-measured at the fix HEAD: the same mutation is now
+killed, with the floor's message naming what it returned.
+
+**Class.** A defect the review pass introduced while fixing a review finding,
+caught by the pass that exists to disprove "done". No contract changed; no
+surface amendment.
+
+**Verdict:** ACCEPT

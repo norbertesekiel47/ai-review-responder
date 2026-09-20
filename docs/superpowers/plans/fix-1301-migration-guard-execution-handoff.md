@@ -9,133 +9,116 @@ plan. It never needs the prior transcript.
 
 ## Where the run stopped
 
-Step 7 review wave, round 1, **complete**. All four axes reported and all four
-were adverse. The owner chose to FIX the findings and re-review, rather than
-ship with named open gaps.
+**Step 7.5.** Review wave round 1 was adverse on all four axes; the owner chose
+to FIX rather than ship with named gaps. All seven fix workstreams have landed,
+the gate is green, and red-team round 2 has run and is CLEAR. What remains is
+the `reviewed` transition, then the draft PR.
 
-| Axis | Verdict |
-|---|---|
-| Standards & maintainability | do-not-approve (2 HIGH) |
-| Spec & correctness | 8 findings |
-| Red team | **OPEN_P0** |
-| Adversarial approach (Codex) | REVISE |
-
-**Read `docs/reviews/fix-1301-migration-guard-execution/triage-round-1.md`
-next.** It carries every finding with a verdict, grouped into seven
-workstreams, with the proving mutation for each. Do not re-read the four raw
-reports unless triage is unclear on a point; they are 100 KB together.
+| Axis (round 1) | Verdict | Now |
+|---|---|---|
+| Standards & maintainability | do-not-approve (2 HIGH) | every accepted finding fixed |
+| Spec & correctness | 8 findings | fixed; the one unverified claim is disproved (below) |
+| Red team | OPEN_P0 | round 2 **CLEAR** |
+| Adversarial approach (Codex) | REVISE | the P1 is fixed; see D15 |
 
 ## State on disk
 
-- Phase `gate_green` at the wave's HEAD. Branch round 1 counted.
-- Gate was GREEN at `a4becdc44` with fingerprint
-  `70372003d0cd591811929197c3b6416e246d96944281eb8f6ca46b2a45ad0f56`.
-  **That evidence is now void** — the report commits moved HEAD.
-- Red-team finalizer RAN CLEAN: 40 process groups reaped, 0 mutations left.
-  Sidecar status is `OPEN_P0` and will stay so until workstream 1 lands.
+- Phase `gate_green`. Branch review round 1 counted. Red-team round 2 spent.
+- Gate GREEN at `476145667` — 45 of 45 rows, full `test` row included.
+- Red-team sidecar: `docs/reviews/red-team/fix-1301-migration-guard-execution-80b308/`,
+  round 2, status CLEAR, every round-1 finding disposed `fixed`.
 - Surface amendments: 2, the second owner-waived (deviations D4). **A third
-  has no waiver behind it and returns to the abort criteria.**
-- Deviations D1–D13, all ACCEPT.
+  still has no waiver behind it and returns to the abort criteria.**
+- Deviations D1–D16, all ACCEPT.
 
 ## Environment — read before running anything
 
 - Container `repworth-testdb-pg17`, PostgreSQL **17.11**, host port **5500**,
-  database **`test_1301`**, at migrations head. `.env.local` points there.
+  database **`test_1301`**, at migrations head. `.env.local` points there and
+  is 322 lines; verify that before assuming otherwise.
 - **NEVER run `pnpm test:db:setup`** while any agent is running: it drops
   schema `public`.
 - **NEVER touch `repworth-testdb-recovery-20260914`** (postgres:16, port 5499).
-  It serves seven databases for other worktrees including
-  `fix/batch-e-screens-vs-runtime`.
-- `.env.local` was verified intact at 322 lines with the correct
-  `TEST_DATABASE_POOL_URL`. A review appendix claimed it had been scrubbed to
-  three lines; that claim is disproved in the triage record. **Do not act on
-  it.**
+  It serves seven databases for other worktrees.
 - Run the gate with `MAX_PARALLEL=2 VITEST_WORKERS=3`. At default fan-out it
-  oversubscribes the machine and two unrelated load-sensitive suites
-  (`red-team-mutation-runner`, `review-qr`) time out at 5s. Both pass in
-  isolation; neither imports anything this branch touches.
+  oversubscribes the machine and two unrelated load-sensitive suites time out.
 
-## The fix order, and why
+## What the fix pass changed, by workstream
 
-**1. Workstream 1 — the P0. Blocks everything.** My
-`weakened-checks-reasons.md` claims "What no longer has a guard anywhere:
-Nothing." It is false, the head commit message repeats it, and two axes found
-it independently. Fix the document, add 048's column inventory to its oracle A,
-amend the arch-review-log.
+1. **The P0 (RT-1/F-A).** `weakened-checks-reasons.md` said "What no longer has
+   a guard anywhere: Nothing". Replaced with the measured list. 048's column
+   inventory, `notNullColumns` set and primary key are pinned as oracle A;
+   off-target row writes are named and closed by workstream 2.
+2. **The four catalogue blind spots.** `readPublicCatalogue` now reads VIEWS
+   and materialized views with their ACLs, `pg_default_acl`, and a per-relation
+   `rowDigest`. Each proven live against the mutation that used to survive.
+3. **The rollback licence.** `readLeakSentinel` fingerprints the relation set
+   and `pg_default_acl` OUTSIDE the transaction; `withRolledBackTransaction`
+   compares before and after. The text pre-check was REJECTED — see D15.
+4. **One shape for the vacuity guard.** All seven "moves no other table" cases
+   now prove the degrade landed.
+5. **One owner per helper.** `deriveTablePrivileges`, `clientGrantNames`,
+   `CLIENT_ROLES`, `deriveColumnPrivileges` and `schemaOnly` live in the
+   harness. S-5, S-6, S-7, S-11, S-12 folded in.
+6. **Self-confirming assertions retired.** RT-7, RT-11, RT-12, RT-13, RT-14,
+   RT-17.
+7. **Documentation truth.** 60 promised titles and 22 remaining text-guard
+   suites are MEASURED. Two audit comments, one stale plan claim and 17 oracle-A
+   citations corrected. F-E and F-H addressed.
 
-**2. Workstream 2 — the four catalogue blind spots.** All are gaps in
-`readPublicCatalogue`, all proven by surviving mutations, so each fix has a
-ready-made test. Do **RT-5 first**: a view over a deny-all table with `GRANT
-SELECT TO anon` defeats every suite, which re-opens the exact boundary
-migration 049 exists to close. Confirmed independently in psql; the probe is in
-the triage record.
+## Findings this pass produced, in the code it was fixing
 
-**3. Workstream 3 — the adversarial P1.** A migration carrying its own
-`BEGIN … COMMIT` would commit 118's permissive default ACLs before the rollback
-sentinel fires. Migration **119 already carries its own `BEGIN`/`COMMIT`**
-(plan §2, Fact 1), so this is one migration away. Triage recommends detecting
-the condition after the transaction rather than predicting it from the text.
+- **D14** — migration 118 does NOT restore the schema default ACLs. Measured
+  through the whole cycle on 17.11: all sixteen entries survive the re-apply.
+  118's REVOKE reaches what its own TABLE inherited; the schema default is
+  migration 122's subject. Both off-target calls now declare the measurement.
+- **D15** — the rollback text check is unimplementable without a SQL lexer,
+  because `DO $$ BEGIN … END $$` is ordinary PL/pgSQL and migration 053 uses
+  it. Detection replaced prediction.
+- **D16 / RT2-1** — deriving the column-privilege set fixed RT-7's growth axis
+  and opened a shrink axis. Red-team round 2 narrowed the probe to `SELECT`
+  alone and every caller still passed. Closed by a floor of four inside
+  `deriveColumnPrivileges`.
 
-**4. Workstreams 4–7** are consistency, harness quality, fragile assertions and
-false doc claims. Workstream 7 is entirely my own wrong numbers — the title
-count, the "fourteen" further suites (really twenty), "201 tests", and three
-wrong descriptions in checked-in comments.
+## The two open questions from round 1, both answered
 
-**One item needs measuring before it can be triaged:** F-B, 118 is
-nondeterministic at roughly 1 in 46 runs. A flaky security guard is not
-cosmetic. Reproduce it before merging.
+- **"Three failures in a full `--project integration` run"** (spec axis):
+  DISPROVED. The full `test` row passed in the gate at `1f2a33136` and again at
+  `476145667`.
+- **F-B, 118 flaky at ~1 in 46:** NOT REPRODUCED. 25 consecutive runs of the
+  nine live-DB files, 64 of 64 each time, plus two full gate runs. Recorded as
+  unreproduced rather than fixed — if it returns, the suspect is the
+  `columnComments` literal, which failed once while `columnDefaults` two lines
+  above passed.
 
-**One claim still unverified:** the spec axis reported three failures in a full
-`--project integration` run. Its stated cause is disproved, but the failures
-themselves were never checked — the red team was mutating migrations at the
-time and a concurrent run would have corrupted its baseline. Check this early.
+## Known, deliberately not done
 
-## Do not undo these — the wave confirmed them sound
+- The byte-identical `MIGRATION_117_ADMIN_AUDIT_LOG` copies in
+  `scripts/ci/__tests__/{mint,revoke}-admin.integration.test.ts` still exist.
+  Both files are OUTSIDE `allowed_edit_surface`; pointing them at the shared
+  export needs a third surface amendment. The shared definition is now a strict
+  SUPERSET of both, and its JSDoc says to delete the local copies when either
+  file is next touched. **Owner decision.**
+- Two `not.toEqual([])` absence proxies survive outside this branch's surface
+  (`src/lib/agents/operator/__tests__/schema.test.ts`,
+  `src/lib/demos/__tests__/select-qualifying.test.ts`). Same shape as RT-13,
+  unchanged code, out of scope for a round-2 pass.
 
-- No oracle-A drift: all 19 `readMigrationSql` uses are `tx.unsafe(...)`.
-- All 21 `assertDegradeLanded` sites are per-object with full object coverage.
-- No rollback leak, verified outside any transaction across 40 launches
-  including three that failed mid-transaction under a mutated 118.
-- The seven suites pass as a set, serially, under one shared advisory lock.
-- **21 migration mutations, 14 caught.** `REVOKE ALL` vs `REVOKE SELECT`
-  caught. A block-commented `ENABLE ROW LEVEL SECURITY` caught — the evasion
-  class that beat #1171's regex. A widened role allowlist caught by oracle A.
-- The two-oracle design is not the problem. The catalogue's coverage is.
+## What remains
 
-## Round budget
-
-Branch review round 1 spent. Rounds 2–3 are **verification-only**: one agent
-per axis that had accepted findings, briefed with that axis's findings table
-and the fix commits. They may not open new fronts. After round 3 the cap is
-reached and the remaining disagreement goes to the owner.
-
-The Codex adversarial axis should RESUME its session rather than start cold.
-Plan-round session id: `01a0bda7-0982-7773-8164-298827ad35d0`. The round-1
-adversarial axis ran as a fresh `codex exec` — check `.feature/logs/adversarial.log`
-for its session id before resuming it.
-
-## After the fixes
-
-1. Re-run `bash .agents/skills/feature/scripts/verified-gate.sh --review`
-   (not `verify-gate.sh` — only the wrapper writes the fingerprint).
-2. Re-run the red-team pass scoped to the FIX HUNKS and their direct callers.
-   `round-start` refuses a third round outright.
-3. `node .agents/skills/feature/scripts/red-team-status.mjs` must pass before
-   any external action. It recomputes status rather than trusting the sidecar.
-4. Only then `bash scripts/feature-state.sh set-phase reviewed`.
-5. PR with `gh pr create --draft`, CI green, then `gh pr ready`. Merge needs
-   owner approval.
+1. `bash scripts/feature-state.sh set-phase reviewed` — after
+   `node .agents/skills/feature/scripts/red-team-status.mjs` passes.
+2. PR with `gh pr create --draft`, CI green, then `gh pr ready`.
+3. **Push and merge both need owner approval** (`required_approvals`).
 
 ## Issue scope, unchanged
 
 - **#1301** — the seven suites. This branch.
 - **#1307 RT-4** — the PostgreSQL 17 lane. Done and measured: `acldefault`
-  yields 8 privileges including MAINTAIN on 17 against 7 on 16, so migration
-  122's MAINTAIN branch is asserted in CI for the first time.
+  yields 8 privileges including MAINTAIN on 17 against 7 on 16.
 - **#1307 RT-5** — already closed by `08c2b4a0e` before this run started.
 - **#1173** — NOT this branch. Already built on the unmerged
   `fix/batch-e-screens-vs-runtime` (commit `696d4bb2e`). Owner decision.
-- **Deferred:** twenty further suites carry the same text-guard weakness
-  (deviations D8, corrected from fourteen by RT-9), including
-  `migration-035-rls-policies`, `migration-040-rls-tightening` and
-  `migration-045-onboarding-demos-rls` — the same deny-all RLS class.
+- **Deferred:** twenty-two further suites carry the same text-guard weakness
+  (deviations D8, measured), including `migration-035-rls-policies`,
+  `migration-040-rls-tightening` and `migration-045-onboarding-demos-rls`.
