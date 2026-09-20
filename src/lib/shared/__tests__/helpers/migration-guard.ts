@@ -884,6 +884,14 @@ const PRIVILEGE_FLOOR = 7;
  *
  * On PostgreSQL 16 and 17 alike this returns SELECT, INSERT, UPDATE and
  * REFERENCES; 17's new MAINTAIN is table-level only.
+ *
+ * IT THROWS BELOW A FLOOR OF FOUR, and that half is as load-bearing as the
+ * derivation. A derivation catches the set GROWING — the thing the literal it
+ * replaced could not do — but on its own it lets the set silently SHRINK: red
+ * team round 2 narrowed this function to `SELECT` alone and every caller still
+ * passed, because each only asserts that the roles hold none of whatever it
+ * returns (#1301 RT2-1). A shorter list is never a smaller SQL standard; it is
+ * a broken probe.
  */
 export async function deriveColumnPrivileges(
   db: Sql,
@@ -913,14 +921,22 @@ export async function deriveColumnPrivileges(
       }
     }
   });
-  if (supported.length === 0) {
+  if (supported.length < COLUMN_PRIVILEGE_FLOOR) {
     throw new Error(
-      `deriveColumnPrivileges(${table}.${column}) found no column-level privilege at all — ` +
-        'every column-grant assertion built on this list would be vacuous',
+      `deriveColumnPrivileges(${table}.${column}) returned ${supported.length} privileges ` +
+        `(${supported.join(', ') || 'none'}), below the SQL-standard floor of ` +
+        `${COLUMN_PRIVILEGE_FLOOR} — every "grants none of them" assertion built on this ` +
+        'list would under-cover. A short list means the probe broke, not that the standard ' +
+        'shrank.',
     );
   }
   return supported;
 }
+
+/** SELECT, INSERT, UPDATE, REFERENCES — the four column-level privileges the
+ * SQL standard defines, present on PostgreSQL 16 and 17 alike. A FLOOR, not a
+ * spelled expectation: the derivation is what admits a fifth. */
+const COLUMN_PRIVILEGE_FLOOR = 4;
 
 /** `22023 invalid_parameter_value`, raised by `has_column_privilege` for a
  * privilege type with no column-level form. */

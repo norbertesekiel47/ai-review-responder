@@ -450,7 +450,9 @@ describeWithDb(
       // literal it replaces restated its own length, so it could not have
       // failed on a PostgreSQL that added a fifth (#1301 RT-7); this does.
             const columnPrivileges = await deriveColumnPrivileges(sql(), 'admin_audit_log', 'id');
-      expect(columnPrivileges.length, 'no column-level privilege derived').toBeGreaterThan(0);
+      // The floor lives in `deriveColumnPrivileges`, which THROWS below four, so a
+      // silently narrowed probe never reaches this assertion (#1301 RT2-1).
+      expect(columnPrivileges).toContain('SELECT');
       const columnEffective = await sql()<
         { role: string; attname: string; privilege_type: string }[]
       >`
