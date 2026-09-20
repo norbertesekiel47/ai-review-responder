@@ -155,10 +155,13 @@ describe('location owner route helpers', () => {
   });
 
   // #1361: a non-AuthError rejection is a SERVER FAULT, not a refusal. Masking
-  // it as 401 hid outages behind "Unauthorized" and let the client sign the
-  // owner out. The helper re-throws so the fault surfaces as a real 5xx — the
-  // same shape as requireRoleOr401 (route-helpers.ts) and as this file's own
-  // assertSameOrigin catch.
+  // it as 401 hid outages behind "Unauthorized" — the owner read an outage as a
+  // permissions problem, and the fault never reached `onRequestError`. (No
+  // client of these routes branches on 401, so it did NOT sign the owner out;
+  // the review wave measured that and the original claim was withdrawn.) The
+  // helper re-throws so the fault surfaces as a real 5xx — the same shape as
+  // requireRoleOr401 (route-helpers.ts) and as this file's own assertSameOrigin
+  // catch.
   it('re-throws when requireRole rejects with a non-AuthError', async () => {
     const fault = new Error('redis down');
     mockRequireRole.mockRejectedValueOnce(fault);

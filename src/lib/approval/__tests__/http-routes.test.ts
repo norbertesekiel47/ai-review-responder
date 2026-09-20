@@ -441,6 +441,12 @@ describe('requireDashboardReviewOwner', () => {
 
     await expect(requireDashboardReviewOwner(request())).rejects.toBe(fault);
   });
+
+  it('re-throws a non-Error rejection value unchanged', async () => {
+    mockRequireRole.mockRejectedValueOnce('database unavailable');
+
+    await expect(requireDashboardReviewOwner(request())).rejects.toBe('database unavailable');
+  });
 });
 
 describe('runDashboardReviewAction', () => {

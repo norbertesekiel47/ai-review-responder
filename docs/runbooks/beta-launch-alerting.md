@@ -494,6 +494,50 @@ Confirm rule delivery in staging before marking this requirement complete.
 This is a runbook requirement only: no Sentry rule, grouping override,
 destination integration, or delivery drill was installed or executed here.
 
+**Rule 12 — Owner-gate server fault on the scoped owner routes (#1361).** The
+emitted identity is whatever `requireRole` rejected with — a Postgres pool
+error, a Redis error, or a bug — propagated UNCHANGED. There is no wrapper
+class and no constant message, so there is nothing stable to filter on by
+message; this rule is defined by its ROUTES, not by its text.
+
+Three owner gates re-throw a non-`AuthError` rather than answering 401:
+`readOwnerForMultiLocationRoute` (`src/lib/locations/owner-route.ts`),
+`requireDashboardReviewOwner` (`src/lib/approval/http-routes.ts`) and
+`resolveOwnerScope` (`src/lib/auth/resolve-owner-scope.ts`). The throw escapes
+the handler and `src/instrumentation.ts` exports `Sentry.captureRequestError`
+as `onRequestError`, so the event arrives from the source app's Sentry project
+with Next's own route context. No fault or subsystem tag and no custom
+fingerprint is emitted. Filter on the source app's Sentry project and
+environment plus the route path; do not invent tags, and do not promise a
+single global group — default stack-based grouping splits a pool outage, a
+Redis outage and a bug into separate issues by construction.
+
+**Affected routes — 18.** `/api/locations/{add,archive,promote-primary,reactivate}`
+· the six `/api/dashboard/reviews/[reviewId]/*` · the two
+`/api/dashboard/escalations/[escalationId]/*` · `/api/settings/postal-address` ·
+`/api/dashboard/import-offer` · `/api/dashboard/past-replies/draft-status` ·
+the `/api/dashboard/past-replies` edit paths.
+
+**Why a frequency, not every event.** These are owner-facing mutation routes
+behind an auth gate, so the volume is low and a single event is already worth
+reading. But the signal this rule exists for is an OUTAGE, and an outage
+arrives as a burst across several stacks at once. Count across the rule's route
+filter rather than per issue, for the reason spelled out under
+`safety-review-failed-closed` above: a per-issue threshold sits below the line
+on three separate stacks through a total outage and never fires.
+
+**Operator action — check the infrastructure first, not the auth path.** A
+storm here means Postgres or Redis, not a permissions problem. Read the
+Postgres pool saturation and the admission chokepoint
+(`src/lib/db/admission.ts`) before anything else, then Upstash. Do NOT respond
+by "fixing" the gate: answering 401 again is the #1361 defect, and it hides
+exactly the outage this rule is reporting. Keep owner and review text out of
+the incident record; the event carries the rejection only, never a request body.
+
+**Scope.** This is a runbook requirement only. No Sentry rule, grouping
+override, destination integration or delivery drill was installed or executed
+here. Configure staging first and read the saved rule and destination back.
+
 **Rule 11 — Owner Operator `agent_turn` retry exhaustion (Run B).** The event is
 whatever `worker/job-failure-sink.ts` captures after BullMQ exhausts the job's
 attempts, tagged `subsystem:worker_job` and `queue:agent_turn`. It carries ids

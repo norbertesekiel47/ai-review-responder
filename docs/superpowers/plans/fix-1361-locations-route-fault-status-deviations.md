@@ -83,5 +83,77 @@ decision.
 
 **Verdict:** ACCEPT — an unrelated timing flake, reproduced green in isolation.
 Both suites this change actually touches pass: 37 tests across
-`owner-route.test.ts` and `http-routes.test.ts`, plus 187 across the 12
+`owner-route.test.ts` and `http-routes.test.ts`, plus 166 across the 13
 consuming route suites.
+
+## D5 — surface amendment 2: the third catch-all-401 site
+
+**What the plan did not anticipate.** The review wave found a THIRD gate with the
+same defect: `resolveOwnerScope` (`src/lib/auth/resolve-owner-scope.ts:106`)
+wrapped any non-`AuthError` as `ScopeError('unauthorized', 401)` and discarded
+the original error. Both the spec axis (Medium) and red team (P1) raised it;
+red team called the original sweep incomplete. It fronts 5 more owner routes.
+
+**The design question it raised, and how the CODE answered it.** `ScopeError`
+carries `statusCode`, which consumers map straight to the HTTP status, so a raw
+`throw err` looked like it would break their contract. It does not: all four
+consumers already end their catch with a bare `throw error`
+(`settings/postal-address/route.ts:93`, `dashboard/import-offer/route.ts`,
+`past-replies/draft-status/route.ts:65`, `past-replies/_shared/edit-reply-request.ts:82`).
+The raw re-throw therefore needs no `ScopeError` 500 variant and no `cause`
+plumbing — it matches the other two gates exactly.
+
+**Action.** Owner decided to fix it on this branch rather than defer it. Surface
+amendment 2 of 2, recorded with a reason. Added
+`src/lib/auth/resolve-owner-scope.ts` and its test file. The test that pinned the
+401 (`requireRole throws non-AuthError plain Error → wraps as ScopeError 401`)
+is REPLACED by two re-throw cases.
+
+**Verdict:** ACCEPT — an owner decision taken with the finding in front of them.
+It completes the sweep the issue's framing ("this file") caused us to under-scope.
+
+## D6 — surface amendment 2: the runbook row
+
+**What the plan did not anticipate.** The change makes 18 owner routes newly
+emit an operator-actionable 5xx through `onRequestError`, with no entry in
+`docs/runbooks/beta-launch-alerting.md`. Red team raised it as P1 and named the
+precedent: Rule 10 (#1192) shipped its runbook row with the change that created
+the same `onRequestError` signal.
+
+**Action.** Added Rule 12, defined by ROUTE rather than by message — there is no
+wrapper class and no constant text to filter on, because the rejection propagates
+unchanged. It tells the operator to read the Postgres pool and the admission
+chokepoint before the auth path, and states explicitly that "fixing" the gate
+back to 401 is the #1361 defect. Runbook requirement only; no Sentry rule was
+installed.
+
+**Verdict:** ACCEPT — the operational half of this change, shipped with it rather
+than left open.
+
+## D7 — three factual errors in this branch's own artifacts
+
+Found by the review wave, in documents this run wrote. Each is corrected, not
+merely noted.
+
+1. **Wrong line citations.** The ledger entry cited `owner-route.ts:69` and
+   `http-routes.ts:151` — the PRE-change line numbers. At HEAD `:69` is `return {`
+   and `:151` is the first line of the new comment; the functions are at `:26`
+   and `:141`. The entry now cites paths only, which cannot rot.
+2. **Wrong diff size.** The entry said "24 lines". The measured production diff
+   was 21 at that point (24 was the intake ESTIMATE, which included the ledger
+   line itself). It now says 30, measured across all three files.
+3. **Wrong test count.** D4 said "187 across the 12 consuming route suites".
+   Re-measured: 166 across 13 files. The 187 came from a four-path vitest run
+   that also included `src/lib/escalations` and reported 8 skips, mislabelled as
+   the route suites.
+
+**A fourth correction, to a CLAIM rather than a number.** The intake, a test
+comment and the PR body all said the 401 "let the client sign the owner out".
+Both Codex and red team measured it: no client of these routes branches on 401,
+and there is no global interceptor or sign-out chain. Misleading "session
+expired" messaging existed; an auto sign-out did not. The claim is withdrawn in
+all four places rather than softened silently.
+
+**Verdict:** ACCEPT — all four corrected at the source. The lesson belongs in the
+lab notes at step 8: a figure copied from a vitest run with a different file set
+is not evidence for the set you name in prose.

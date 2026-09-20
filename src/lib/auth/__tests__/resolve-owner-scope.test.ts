@@ -133,18 +133,27 @@ describe('resolveOwnerScope', () => {
     });
   });
 
-  it('requireRole throws non-AuthError plain Error → wraps as ScopeError 401 (catch-all)', async () => {
-    // A plain Error is not instanceof AuthError (different class identity in vitest mock context),
-    // so the catch-all branch fires and wraps it as ScopeError('unauthorized', 401).
+  // #1361: a non-AuthError rejection is a SERVER FAULT, not a refusal. Wrapping
+  // it as ScopeError('unauthorized', 401) hid outages behind "unauthorized" on
+  // every route this preamble fronts, and discarded the original error so
+  // nothing downstream could report it. The helper re-throws the rejection
+  // unchanged. Every consumer already re-throws a non-ScopeError
+  // (postal-address/route.ts, import-offer/route.ts, draft-status/route.ts,
+  // edit-reply-request.ts), so the fault escapes to a real 5xx and reaches
+  // `onRequestError` — no ScopeError 500 variant is needed or wanted.
+  it('re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401', async () => {
     const boom = new Error('unexpected DB crash');
     mockRequireRole.mockRejectedValue(boom);
-    const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
+    const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
-    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
-      message: 'unauthorized',
-      statusCode: 401,
-    });
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toBe(boom);
+  });
+
+  it('re-throws a non-Error rejection value unchanged', async () => {
+    mockRequireRole.mockRejectedValue('pool exhausted');
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toBe('pool exhausted');
   });
 
   it('user.accountId is null → throws ScopeError 403 no_business', async () => {

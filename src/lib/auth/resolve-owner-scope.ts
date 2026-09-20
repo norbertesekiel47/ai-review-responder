@@ -103,7 +103,14 @@ export async function resolveOwnerScope(
     if (err instanceof AuthError) {
       throw new ScopeError(err.message, err.statusCode);
     }
-    throw new ScopeError('unauthorized', 401);
+    // #1361: anything that is not an AuthError is a server fault, not a
+    // refusal. Re-throw it UNCHANGED rather than wrapping it as
+    // ScopeError('unauthorized', 401): the wrap both mislabelled the outage and
+    // discarded the original error, so nothing downstream could report it.
+    // Every consumer already re-throws a non-ScopeError, so the fault escapes
+    // to a real 5xx and `onRequestError` (src/instrumentation.ts) captures it.
+    // Same contract as `requireRoleOr401` in ./route-helpers.ts.
+    throw err;
   }
 
   if (!user.accountId) {
