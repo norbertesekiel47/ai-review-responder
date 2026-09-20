@@ -63,15 +63,10 @@
     "src/lib/shared/__tests__/helpers/migration-guard.test.ts",
     "src/lib/shared/__tests__/helpers/migration-guard.integration.test.ts",
     "src/lib/shared/__tests__/helpers/schema-ready.ts",
-    "src/lib/shared/__tests__/migration-048-impersonation-sessions.test.ts",
     "src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts",
-    "src/lib/shared/__tests__/migration-049-analytics-events-rls.test.ts",
     "src/lib/shared/__tests__/migration-049-analytics-events-rls.integration.test.ts",
-    "src/lib/shared/__tests__/migration-051-structure.test.ts",
     "src/lib/shared/__tests__/migration-051-flagged-responses.integration.test.ts",
-    "src/lib/shared/__tests__/migration-053-structure.test.ts",
     "src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts",
-    "src/lib/shared/__tests__/migration-057-account-offboarding-tombstone-nullability.test.ts",
     "src/lib/shared/__tests__/migration-057-account-offboarding-tombstone-nullability.integration.test.ts",
     "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts",
     "src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts",
@@ -95,7 +90,8 @@
     "docs/reviews/fix-1301-migration-guard-execution/adversarial-approach.md",
     ".claude/reference/env-vars.md",
     "docs/runbooks/e2e-local-setup.md",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts"
   ],
   "tests_to_add": [
     "assertDegradeLanded throws when the target table did not change",
@@ -155,7 +151,9 @@
     "poller_heartbeats pins its table comment, column comment and last_cycle_at default at head",
     "assertDegradeLanded matches object names exactly and not by substring",
     "assertDegradeLanded requires every named object to be present after an additive degrade",
-    "re-applying 053 ignores a same-named constraint in another schema"
+    "re-applying 053 ignores a same-named constraint in another schema",
+    "readPublicCatalogue reports every catalogue dimension for a known table",
+    "assertDegradeLanded cannot be called with an empty object list"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/shared/__tests__/helpers/migration-guard.test.ts",
@@ -164,8 +162,8 @@
     "pnpm ci:merge-ledger",
     "pnpm vitest run src/__tests__/ci-audit-wiring.test.ts"
   ],
-  "estimated_prod_lines": 60,
-  "estimated_test_lines": 2250,
+  "estimated_prod_lines": 50,
+  "estimated_test_lines": 4558,
   "dependencies_added": [],
   "rollback_plan": "Revert the merge commit. No migration SQL changes, so neither Supabase project is touched and no apply or inverse is owed. Reverting restores the six text-guard suites, removes the 118 suite, and returns the CI and e2e test services to postgres:16. The only local action is recreating the test container on postgres:16 and running pnpm test:db:setup, and the container is disposable.",
   "observability": [

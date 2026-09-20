@@ -106,8 +106,11 @@ const NOT_LIVE_DB = new Set([
 ]);
 
 /**
- * Migration-shape files: applying the migration IS the subject. Five suites test
- * a migration's shape; `apply-migration-074.ts` is the shared guarded apply that
+ * Migration-shape files: applying the migration IS the subject. Each suite's
+ * subject is one migration's shape (no count here — it moves with every suite
+ * that converts from parsing SQL text to executing it, and a figure written in
+ * prose goes stale the way R1's did);
+ * `apply-migration-074.ts` is the shared guarded apply that
  * the 074 shape suite and three further integration suites delegate to, and it
  * executes the real file via `db.unsafe(readMigration074Sql())` — an argument
  * this walk cannot read, which counts as DDL by design (#706 made it visible; it
@@ -136,6 +139,43 @@ const MIGRATION_SHAPE_FILES = new Set([
   // 122 (#1176) degrades every public table's client grants and the owner's
   // default ACL, executes the real file twice, then restores and verifies.
   'src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts',
+  // #1301 — the seven suites that stopped PARSING their migration's SQL text
+  // and started EXECUTING it, on the shared `migration-guard.ts` helper. Each
+  // degrades the objects its migration creates inside a rolled-back
+  // transaction, proves the degrade landed, applies the checked-in file
+  // verbatim, and diffs the whole `public` catalogue against the before-read.
+  // The helper itself is NOT here: it only reads, compares and wraps the
+  // transaction, so it executes no DDL and holds no lock — every `unsafe(ddl)`
+  // call stays in the suite, which is what makes the lock check below
+  // meaningful (it reads the file's OWN text).
+  //
+  // Entries for suites that do not exist yet are inert, not aspirational:
+  // membership is read ONLY as `MIGRATION_SHAPE_FILES.has(file)` below, for a
+  // file `listAuditedFiles()` actually found, so an entry naming a missing file
+  // is never consulted and nothing iterates this set.
+  //
+  // 048 degrades impersonation_sessions: RLS off and its four indexes dropped,
+  // including the partial one-active-session-per-actor unique.
+  'src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts',
+  // 049 degrades analytics_events: row level security switched off, the one
+  // thing the migration turns on.
+  'src/lib/shared/__tests__/migration-049-analytics-events-rls.integration.test.ts',
+  // 051 degrades flagged_responses: deny-all RLS off and both indexes dropped,
+  // including the partial one-open-flag-per-response unique.
+  'src/lib/shared/__tests__/migration-051-flagged-responses.integration.test.ts',
+  // 053 degrades users: the users_role_check owner/admin allowlist CHECK
+  // dropped — the migration's only object.
+  'src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts',
+  // 057 degrades the four columns the OTHER way: NOT NULL reinstated on
+  // account_offboardings.zernio_*, approval_audit_log.response_id and
+  // impersonation_sessions.account_id / impersonated_user_id.
+  'src/lib/shared/__tests__/migration-057-account-offboarding-tombstone-nullability.integration.test.ts',
+  // 117 degrades admin_audit_log: deny-all RLS off, client-role privileges
+  // granted back, and both actor/event indexes dropped.
+  'src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts',
+  // 118 degrades poller_heartbeats: deny-all RLS off and the client-role
+  // privileges the migration revokes granted back.
+  'src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 

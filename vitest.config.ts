@@ -10,7 +10,7 @@ import path from 'path';
 // `groupOrder` keeps the two groups from overlapping, so a parallel-project
 // file can never hold a lock an integration file is waiting on.
 //
-// These suites DO run in CI. ci.yml's `test` job stands up a `postgres:16`
+// These suites DO run in CI. ci.yml's `test` job stands up a `postgres:17`
 // service, sets `TEST_DATABASE_POOL_URL` and provisions the schema, so `pnpm
 // test` executes BOTH projects — 91 of the 92 run per PR (the lone abstainer
 // needs live Stripe credentials). The same job runs `pnpm test:coverage`, so

@@ -23,7 +23,7 @@ FAIL → with the run-time DDL removed, `batch-builder.integration.test.ts` bega
 - [2026-08-15] A 2026-08-15 architecture pass filed a false "correct tests that
   no gate runs" finding → it read `pnpm test:integration`'s one-suite list as
   "CI's coverage" → CORRECT: the live-DB lane IS gated in CI, by `pnpm test`.
-  ci.yml's `test` job (a required check) stands up a `postgres:16` service,
+  ci.yml's `test` job (a required check) stands up a `postgres:17` service,
   sets `TEST_DATABASE_POOL_URL` and provisions the schema via
   `.github/actions/test-db`, so `vitest run` executes both projects: 91 of 92
   integration suites run per PR (the abstainer, `trial-test-clock`, needs live

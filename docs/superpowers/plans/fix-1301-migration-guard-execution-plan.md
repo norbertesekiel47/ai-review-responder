@@ -483,8 +483,16 @@ migration 097's and 119's situation exactly.
 - `readMigrationSql throws when the migration file is missing`
 - `readMigrationSql returns every byte of an existing migration unchanged`
 
-**Test title (verbatim), in `migration-guard.integration.test.ts`:**
+**Test titles (verbatim), in `migration-guard.integration.test.ts`:**
 - `withRolledBackTransaction preserves callback errors and rolls back successful and failed callbacks`
+- `readPublicCatalogue reports every catalogue dimension for a known table`
+
+The second title was added during T2's spec check; see deviations D5. The pure
+fixtures are hand-built, so they cannot detect the reader itself omitting a
+dimension — and a reader that dropped one would leave all 14 pure cases green
+while every suite went blind to it. The case asserts on CONTENT for all eleven
+`CataloguedTable` fields, and it runs BEFORE T3–T8 fan out, because six suites
+build on this reader.
 
 ---
 
@@ -595,9 +603,14 @@ high-confidence unsafe drafts are held, not notified.
 Degrade: drop the two indexes and `DISABLE ROW LEVEL SECURITY`.
 
 **Oracle A must pin literals** (F11): the full column inventory with types and
-nullability, the five foreign-key definitions including
-`api_cost_id … ON DELETE SET NULL`, and the three `CHECK` definitions on
-`source`, `severity` and `status`.
+nullability, **all six** foreign-key definitions, and the three `CHECK`
+definitions on `source`, `severity` and `status`.
+
+The six foreign keys are `response_id`, `account_id`, `business_id` and
+`review_id` (all `ON DELETE CASCADE`), `api_cost_id` (`ON DELETE SET NULL`),
+and `reviewed_by_user_id` (no action). An earlier draft of this plan said five
+and omitted `reviewed_by_user_id` — corrected during T2's foundation check,
+deviations D6. Read the count from the catalogue, never from this prose.
 
 **Row preservation** (F10, corrected in round 2): the old suite banned
 `DROP TABLE`, `UPDATE` and `DELETE` by regex. Catalogue equality cannot see row
@@ -607,12 +620,14 @@ container a `DELETE` has nothing to delete, so a count-only check is vacuous
 in both directions.
 
 The case therefore seeds **one real row** inside the rolled-back transaction
-and asserts it is byte-identical after the apply. `flagged_responses` has five
-foreign keys, so the fixture inserts the parent chain first —
-`accounts`, `businesses`, `reviews`, `responses` — with fixed UUID literals and
-only the columns those tables require. Seeding the chain is not overhead: it
-also proves the five foreign keys accept real values, which is the head
-posture oracle A pins.
+and asserts it is byte-identical after the apply. `flagged_responses` has six
+foreign keys, four of them `NOT NULL`, so the fixture inserts the parent chain
+first — `accounts`, `businesses`, `reviews`, `responses` — with fixed UUID
+literals and only the columns those tables require. The two nullable parents,
+`api_cost_id` and `reviewed_by_user_id`, may be left `NULL`; seeding them is
+optional and needs `api_costs` and `users` rows if you do. Seeding the chain is
+not overhead: it also proves the four mandatory foreign keys accept real
+values, which is part of the head posture oracle A pins.
 
 Read the row back with `SELECT *` ordered by column name and compare the whole
 record, not selected fields. A future `UPDATE` added to 051 then fails whatever

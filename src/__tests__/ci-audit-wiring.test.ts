@@ -132,7 +132,7 @@ describe('ci:* audit wiring', () => {
 // `import-offer-view`'s `ORDER BY jo.created_at DESC`, leaves the entire
 // 862-file `parallel` project green. Only the live lane fails.
 //
-// That lane runs today: ci.yml's `test` job stands up a `postgres:16` service,
+// That lane runs today: ci.yml's `test` job stands up a `postgres:17` service,
 // sets `TEST_DATABASE_POOL_URL`, provisions the schema, and runs the whole
 // suite — 91 of 92 integration suites execute per PR. But NOTHING pinned that,
 // and every suite degrades to a SILENT SKIP rather than a failure when the
@@ -153,6 +153,12 @@ describe('ci:* audit wiring', () => {
 // to be wired itself.
 
 const CI_YML = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf-8');
+const E2E_YML = readFileSync(join(WORKFLOWS_DIR, 'e2e.yml'), 'utf-8');
+
+/** The `postgres:<major>` value from a `services:` image line in workflow YAML. */
+function postgresImageMajor(text: string): string | undefined {
+  return text.match(/^\s+image:\s*postgres:(\d+)/m)?.[1];
+}
 
 /**
  * One top-level job's YAML, comment-stripped.
@@ -201,6 +207,35 @@ describe('live-DB lane is gated in CI', () => {
 
   it('ci.yml test job runs a Postgres service container', () => {
     expect(testJob).toMatch(/^\s+image:\s*postgres:\d+/m);
+  });
+
+  it('the test job and the e2e job pin the same postgres major', () => {
+    // #1307 RT-4: migration 122's `MAINTAIN` grants are version-guarded to
+    // PostgreSQL >= 17 inside a `DO` block, so a lane pinned below 17 never
+    // executes them — CI would stay green while shipping an unexercised
+    // branch. Two assertions, not one: pinning "both equal 17" alone would
+    // miss the two files drifting apart to some OTHER shared major, and "the
+    // two equal each other" alone would miss both regressing to 16 together.
+    const ciMajor = postgresImageMajor(testJob);
+    const e2eMajor = postgresImageMajor(E2E_YML);
+    expect(ciMajor, 'ci.yml test job has no postgres image').toBeDefined();
+    expect(e2eMajor, 'e2e.yml has no postgres image').toBeDefined();
+    expect(ciMajor).toBe('17');
+    expect(e2eMajor).toBe('17');
+    expect(e2eMajor).toBe(ciMajor);
+  });
+
+  it('local E2E setup uses the same PostgreSQL 17 image as both CI database services', () => {
+    const docPath = join(ROOT, 'docs', 'runbooks', 'e2e-local-setup.md');
+    const doc = readFileSync(docPath, 'utf-8');
+    const docMajor = doc.match(/postgres:(\d+)/)?.[1];
+    expect(docMajor, 'e2e-local-setup.md has no postgres:<major> in its docker run recipe').toBeDefined();
+    // Hardcode the target major, not just cross-file equality: the three
+    // files happen to already agree with each other pre-#1307 (all pinned to
+    // 16), so an equality-only check would pass vacuously without this line.
+    expect(docMajor).toBe('17');
+    expect(docMajor).toBe(postgresImageMajor(testJob));
+    expect(docMajor).toBe(postgresImageMajor(E2E_YML));
   });
 
   it('ci.yml test job sets TEST_DATABASE_POOL_URL', () => {
