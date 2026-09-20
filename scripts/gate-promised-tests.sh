@@ -51,15 +51,34 @@ promised_title_spellings() {
   local apostrophe="'" escaped_apostrophe="\\'"
   local quote='"' escaped_quote='\"'
   local backtick='`' escaped_backtick='\`'
-  local backslash='\' escaped_backslash='\\'
   local single="${title//$apostrophe/$escaped_apostrophe}"
   local double="${title//$quote/$escaped_quote}"
   local btick="${title//$backtick/$escaped_backtick}"
-  # Backslash is a pattern-matching escape character in bash's ${var//pat/rep}
-  # syntax, unlike the three characters above, so the pattern side must be
-  # quoted ("$backslash") to be matched literally rather than as a dangling
-  # escape — an unquoted $backslash here silently fails to substitute.
-  local bslash="${title//"$backslash"/$escaped_backslash}"
+  # The doubled-backslash candidate is built with sed, NOT with bash's
+  # ${var//pat/rep}, because that construct is not version-stable when the
+  # REPLACEMENT text is a backslash — and macOS ships bash 3.2 while CI runs
+  # bash 5.x, so the local gate cannot see the difference at all.
+  #
+  # Measured on bash 3.2.57 (macOS /bin/bash) and bash 5.2.15 (linux), for
+  # the title `a \ b escape`:
+  #   ${title//"$bs"/$esc}    3.2 → `a \\ b escape`    5.2 → `a \ b escape`
+  #   ${title//"$bs"/"$esc"}  3.2 → `a "\\" b escape`  5.2 → `a \\ b escape`
+  #   printf … | sed          3.2 → `a \\ b escape`    5.2 → `a \\ b escape`
+  # bash >= 4.3 performs backslash processing on the unquoted replacement, so
+  # `\\` collapses to `\`, the candidate then equals the title, the guard
+  # below suppresses it, and no backslash candidate is ever emitted (#1345).
+  # Quoting the replacement is NOT the fix: bash 3.2 inserts the quote
+  # characters themselves. sed is byte-identical on both, and on BSD and GNU
+  # sed alike, so no bash version can change this candidate.
+  #
+  # The three quote candidates above are left on ${var//pat/rep}: their
+  # replacements (`\'`, `\"`, `` \` ``) are a backslash before a character
+  # bash's replacement processing does not consume, and both versions emit
+  # them identically. promised_title_spellings' candidate-list test asserts
+  # the exact emitted list, so any future divergence in ANY candidate shows
+  # up as a missing line rather than as a silent false from the matcher.
+  local bslash
+  bslash=$(printf '%s' "$title" | sed 's/\\/\\\\/g')
 
   printf '%s\n' "$title"
   [ "$single" = "$title" ] || printf '%s\n' "$single"

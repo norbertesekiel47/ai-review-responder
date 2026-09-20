@@ -57,6 +57,96 @@ function titleFound(dir: string, title: string, roots: string[] = STANDARD_ROOTS
   return result.status === 0;
 }
 
+/** Runs the real promised_title_spellings and returns the candidate lines it emits. */
+function titleSpellings(title: string): string[] {
+  const result = spawnSync(
+    'bash',
+    ['-euo', 'pipefail', '-c', `. ${shellQuote(LIB)}; promised_title_spellings ${shellQuote(title)}`],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.replace(/\n$/, '').split('\n');
+}
+
+// #1345. Asserting only the BOOLEAN match hides a version-dependent candidate:
+// macOS ships bash 3.2 and CI runs bash 5.x, and bash >= 4.3 performs
+// backslash processing on the replacement text of ${var//pat/rep}. A doubled
+// `\\` therefore collapsed back to `\` under CI's bash only, the candidate
+// became identical to the title, promised_title_spellings suppressed it as a
+// duplicate, and the matcher returned a silent false — green locally, red in
+// CI, with nothing in the failure naming bash. Pinning the exact emitted LIST
+// makes that class visible as a MISSING CANDIDATE on whichever bash runs the
+// suite, with no container and no second interpreter.
+const CANDIDATE_LISTS: ReadonlyArray<{ readonly what: string; readonly title: string; readonly candidates: readonly string[] }> = [
+  {
+    what: 'a literal backslash, doubled the way any JS quote style spells it',
+    title: 'a \\ b escape',
+    candidates: ['a \\ b escape', 'a \\\\ b escape'],
+  },
+  {
+    what: 'an apostrophe, escaped for a single-quoted name',
+    title: "arms' latch",
+    candidates: ["arms' latch", "arms\\' latch"],
+  },
+  {
+    what: 'a quotation mark, escaped for a double-quoted name',
+    title: 'say "yes" now',
+    candidates: ['say "yes" now', 'say \\"yes\\" now'],
+  },
+  {
+    what: 'a backtick, escaped for a template literal',
+    title: 'a `tick` title',
+    candidates: ['a `tick` title', 'a \\`tick\\` title'],
+  },
+  {
+    what: 'both an apostrophe and a quotation mark, one candidate per quote style',
+    title: 'both \' and " here',
+    candidates: ['both \' and " here', 'both \\\' and " here', 'both \' and \\" here'],
+  },
+  {
+    what: 'no special character at all, so the verbatim spelling is the only candidate',
+    title: 'plain title no specials',
+    candidates: ['plain title no specials'],
+  },
+];
+
+describe('promised_title_spellings candidate list', () => {
+  for (const { what, title, candidates } of CANDIDATE_LISTS) {
+    it(`emits the same candidates on every bash version for ${what}`, () => {
+      expect(titleSpellings(title)).toEqual([...candidates]);
+    });
+  }
+
+  it('builds the doubled-backslash candidate without bash pattern substitution', () => {
+    // The assertions above can only observe the ONE bash that runs them, so on
+    // macOS's bash 3.2 they stay green against the construct that breaks under
+    // CI's bash 5 — they turn the CI failure into a readable missing-candidate
+    // diff, they do not catch it locally. This one does, on every version: a
+    // source assertion is the only thing a single interpreter can check about
+    // a difference between interpreters. It is deliberately narrow — it pins
+    // the ONE construct whose behaviour is unobservable here, not the search
+    // roots or anything else a regex would pin badly.
+    const source = readFileSync(LIB, 'utf8');
+    expect(source).toContain(`bslash=$(printf '%s' "$title" | sed 's/\\\\/\\\\\\\\/g')`);
+    // ${var//pat/rep} is version-dependent for a backslash REPLACEMENT in both
+    // its unquoted and its quoted form, so neither may come back.
+    expect(source).not.toMatch(/\$\{title\/\/[^}]*backslash/);
+  });
+
+  it('emits each candidate exactly once, so a suppressed one reads as absent not as a duplicate', () => {
+    for (const { title, candidates } of CANDIDATE_LISTS) {
+      const emitted = titleSpellings(title);
+      expect(new Set(emitted).size, title).toBe(emitted.length);
+      // The verbatim title is always first, and every extra candidate differs
+      // from it — that is exactly the property a collapsed replacement breaks.
+      expect(emitted[0]).toBe(title);
+      for (const candidate of candidates.slice(1)) {
+        expect(candidate).not.toBe(title);
+      }
+    }
+  });
+});
+
 describe('promised_title_found', () => {
   it('finds a promised title spelled verbatim in the test source', () => {
     const dir = makeFixture();
