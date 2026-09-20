@@ -328,9 +328,14 @@ and three axes; the fixes had none of that until round 2.
 **Verdict:** ACCEPT. Durable lesson: the `/feature` rule that round 2 "is not
 optional" is load-bearing and should not be traded away for wall clock. On this
 branch it was the only thing standing between a false capability claim and
-`main`. Note also that the second P0's root cause was two predicates for one
-question — the fix removed the duplication rather than aligning the two, which
-is the correction that makes the class unrepresentable rather than absent.
+`main`. Note also that the second P0's root cause was two predicates for one question.
+**The round-2 fix removed one of them and I claimed that removed the class. It
+did not** — round 3 found the affirmative still rendering beside a blocked
+banner, and found that the test I had cited as proof never reached the blocked
+branch. The class was only removed when `ReadinessBlock` was keyed on the
+server's `canExpand` instead of on an incidentally empty list. **Recorded as a
+lesson in its own right: "removes the class" is a claim about every path, and
+I asserted it twice from a green suite that exercised one.**
 
 ---
 

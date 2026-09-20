@@ -448,7 +448,8 @@ export function AutoApprovalClient({ initialState }: Props) {
           </div>
         </div>
 
-        <ReadinessBlock items={readinessCopy} />
+        {console.log('[PROBE] tone=', status.tone, 'title=', status.title, 'detail=', JSON.stringify(status.detail)) as unknown as null}
+        <ReadinessBlock items={readinessCopy} canExpand={data.readiness.canExpand} />
 
         <label className="field">
           <span className="field-label">Account default policy</span>
@@ -738,9 +739,13 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): PolicyStatus 
         // dropped a differing-but-OFF override, because the title names the
         // ARMED ones (`overrideNames`) while the helper covers every override
         // that differs.
-        ...(account.threshold !== null || differingExceeds(data, overrideNames)
-          ? differingNames(data)
-          : []),
+        // Name the differing locations the TITLE did not already name. Round 2
+        // RT2-7 dropped a differing-but-off override; round 3 showed the first
+        // correction then printed the armed one TWICE, because the title names
+        // `postingOverrides` while the helper covered every differing override.
+        // Excluding by locationId settles both, and by ID rather than display
+        // name so two locations sharing a name do not collapse.
+        ...differingNames(data, account.threshold !== null ? [] : postingOverrides.map((l) => l.locationId)),
       ],
       // `set_account_manual` clears only the ACCOUNT DEFAULT threshold, so on an
       // override-only account the action would change nothing and leave those
@@ -797,28 +802,20 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): PolicyStatus 
  * per-location setting the owner still has (red team RT-5). The block is
  * temporary; the overrides are not, and they resume when it clears.
  */
-function differingNames(data: AutoApprovalSettingsResponse): string[] {
+function differingNames(
+  data: AutoApprovalSettingsResponse,
+  excludeLocationIds: readonly string[] = [],
+): string[] {
   const differing = data.locations.filter(
-    (location) => location.override.exists && !location.effective.inherited,
+    (location) =>
+      location.override.exists
+      && !location.effective.inherited
+      && !excludeLocationIds.includes(location.locationId),
   );
   if (differing.length === 0) return [];
   return [
     `${joinNames(differing.map((location) => location.displayName))} ${differing.length === 1 ? 'uses its' : 'use their'} own settings.`,
   ];
-}
-
-/**
- * True when some override DIFFERS from the account default but is not among the
- * names the override-only title already printed — i.e. an override that is set
- * to Off. Without this the blocked headline silently drops it (round 2 RT2-7).
- */
-function differingExceeds(data: AutoApprovalSettingsResponse, named: string[]): boolean {
-  return data.locations.some(
-    (location) =>
-      location.override.exists
-      && !location.effective.inherited
-      && !named.includes(location.displayName),
-  );
 }
 
 function joinNames(names: string[]): string {
@@ -1434,8 +1431,27 @@ function SolicitationSection({
   );
 }
 
-function ReadinessBlock({ items }: { items: ReadinessCopy[] }) {
+/**
+ * The affirmative is a CAPABILITY CLAIM, so it is driven by the server's
+ * `canExpand` — never by an incidentally empty item list.
+ *
+ * Red team rounds 2 and 3 both landed here. `items` is `blockReasons` after two
+ * filters (the suspended one, and the de-duplication one), and EITHER can empty
+ * it while the server says expansion is blocked. Round 2 fixed one sub-case by
+ * re-keying a filter; round 3 proved the other still rendered "you can widen or
+ * narrow auto-posting whenever you like" beside a blocked banner, with the
+ * widen control disabled. Keying on the same fact the server computed makes a
+ * false affirmative unrepresentable, whatever a future filter does — which is
+ * what "removes the class" should have meant the first time it was claimed.
+ *
+ * When expansion is blocked but every reason was filtered away, render nothing:
+ * the banner above already carries the explanation, and that is exactly the
+ * duplication the filters exist to prevent.
+ */
+function ReadinessBlock({ items, canExpand }: { items: ReadinessCopy[]; canExpand: boolean }) {
+  console.log('[PROBE] ReadinessBlock items=', items.length, 'canExpand=', canExpand);
   if (items.length === 0) {
+    if (!canExpand) { console.log('[PROBE] -> NULL BRANCH'); return null; }
     return (
       <div className="auto-policy-readiness ok">
         <Icon name="check" size={14} /> You can widen or narrow auto-posting whenever you like.

@@ -53,7 +53,7 @@ this run's record for not skipping it. Neither was in the original branch.
 | ID | Verdict |
 |---|---|
 | RT2-1 | **FIXED.** Step 5b's boot-log example named four fields the logger does not emit. The real record is `{"timestamp","level","service","logger","message","data":{"flags"}}`; the doc said `prefix` / `"[worker]"` / `msg` / top-level `flags`. `createWorkerLogger`'s docblock states "the prefix becomes `logger`", and `normalizeLoggerName` (`logger.ts:29`) strips the brackets, so `logger` reads `worker` even though the call passes `'[worker]'`. An operator following the step would have grepped a field that does not exist and, per the step's own wording, waited forever. **The procedure written to close RT-7 did not work.** Corrected in both parity-checked copies, with the grep target named explicitly. |
-| RT2-2 | **FIXED, and the fix removes the whole class.** The std-M3 suppression keyed on `posting.blocked`, but the blocked banner also requires `!suspended` and an armed policy. In the gap the reason was suppressed while nothing said it, `readinessCopy` fell to zero items, and `ReadinessBlock` (`:1403`) rendered the green "✓ You can widen or narrow auto-posting whenever you like" — while `canExpand` was computed server-side from the UNFILTERED list (`readiness.ts:45`). A false capability claim, newly introduced, on the exact surface #1314 exists to fix. Root cause was two predicates for one question, so the fix makes that unrepresentable: `describePolicyStatus` is now computed ONCE in the parent and both the banner and the suppression read the same `status.tone`. Two tests added and **verified against the re-applied bug** — 2 failed / 58 passed with it, 60/60 without. The second test pins the real invariant directly: the green affirmative never renders while `readiness.canExpand` is false, whatever a future filter does. |
+| RT2-2 | **PARTIALLY FIXED in round 2 — see the round-3 section below, which corrects this row.** Round 2's account was: The std-M3 suppression keyed on `posting.blocked`, but the blocked banner also requires `!suspended` and an armed policy. In the gap the reason was suppressed while nothing said it, `readinessCopy` fell to zero items, and `ReadinessBlock` (`:1403`) rendered the green "✓ You can widen or narrow auto-posting whenever you like" — while `canExpand` was computed server-side from the UNFILTERED list (`readiness.ts:45`). A false capability claim, newly introduced, on the exact surface #1314 exists to fix. Root cause was two predicates for one question, so the fix makes that unrepresentable: `describePolicyStatus` is now computed ONCE in the parent and both the banner and the suppression read the same `status.tone`. Two tests added and verified against the re-applied bug — 2 failed / 58 passed. **Both claims in the previous sentence were wrong, and round 3 proved it:** the fix closed only the sub-case where the blocked banner is NOT rendering, and the test that claimed to pin the invariant never reached the blocked branch at all. Corrected in round 3. |
 
 ## P1 — fixed or adjudicated
 
@@ -81,3 +81,37 @@ this run's record for not skipping it. Neither was in the original branch.
 3. The settings page reads flags in the Vercel process; the gates read them on Railway. Pre-existing, mitigated by copy, not eliminated.
 4. The Owner Operator surface still makes the #1314 claim — **#1352**, owner-authorized deferral.
 5. `scripts/verify-stripe-price-parity.ts:16` keeps its own tier-order copy.
+
+---
+
+# Red team round 3 — owner-authorized, scoped to round 2's fix hunks
+
+Round 3 was authorized because round 2's fixes moved the tree, making its own
+sidecar stale by construction — the wall #1184 raised the cap from 2 to 3 to
+clear. It found that **round 2's headline fix was half a fix, and that three
+committed documents said otherwise.**
+
+| ID | Verdict |
+|---|---|
+| RT2-2 | **NOW FIXED, structurally.** Round 2 closed only the sub-case where the blocked banner is not rendering. Round 3's probe C — armed default, `posting.blocked`, `blockReasons: ['provider_moderation_disabled']`, `canExpand: false` — reaches `tone === 'blocked'`, the filter suppresses the reason, and the green affirmative renders **beside the blocked banner with the widen control disabled**. Reachable in production: `providerModerationValidated()` is an independent flag, so `OPENAI_MODERATION_ENABLED=false` yields exactly that one reason. Probe D showed the pre-existing `policy_suspended` filter does the same. The real fix is not another filter condition: `ReadinessBlock` now takes `canExpand` and renders the affirmative only when the SERVER says expansion is open, so no filter can produce a false one. Verified by removing the guard: the test fails on probe C by name. |
+| RT3-1 | **FIXED (the claims).** `triage-verdicts.md` said "the fix removes the whole class" and D12 said the test "pins the real invariant". Both false. Corrected in place rather than quietly dropped, because a review record that overstates a fix is worse than one that omits it. |
+| RT3-2 | **FIXED.** The invariant test was vacuous for its stated purpose: it spread `baseState` (`threshold: null`, one inheriting location), so `overrideNames` was empty, the blocked branch was never taken and `tone` was `'off'` in all three iterations. **It failed under the re-applied bug only because that bug keyed on `posting.blocked`, which the fixture does set** — so my "2 failed / 58 passed" proof was real but measured the wrong thing. Rewritten to drive the `blocked()` helper plus the suspended path, covering both filters that can empty the list, and re-verified against the surviving defect. |
+| RT3-3 | **FIXED.** `differingExceeds` and the RT2-5 supporting line shipped with no covering assertion. Both now pinned, and both mutation-checked in both directions. |
+| RT2-R3 | **Rejection correctly overturned; now FIXED.** The RT2-7 correction traded a dropped name for a duplicated one — the title names the armed overrides while the helper covered every differing one. `differingNames` now takes an exclusion list keyed by `locationId`, not display name, so two locations sharing a name do not collapse. |
+| RT2-1, RT-2, RT2-3, RT2-5, RT2-7, RT2-9 | **Verified FIXED** by round 3, independently re-derived. Notably RT2-1's record shape was re-derived from `buildBaseRecord`/`emit`/`sanitizeAnalyticsProperties`, and round 3 added a fact worth keeping: `service` reads `LOG_SERVICE` if Railway sets it, so `"message":"Feature flags"` is the only safe grep key — which is the key the step already names. |
+| RT2-8 | **Rejected** — a deliberate style pin, and the bracketed-prefix convention claim verified. |
+| RT-3 | **accepted-risk**, corroborated: #1352 exists, is OPEN, and was created *before* the fix commit. The deferral is executed, not merely asserted. |
+| RT2-6 | **open, NOT accepted-risk** — and round 3 was right to refuse my disposition. `accepted-risk` requires an authorization entry naming the finding; none exists for RT2-6. It is P2 and blocks nothing. |
+
+## The lesson this round is worth keeping
+
+Round 1's fixes created two P0s. Round 2's fix for one of them was half a fix,
+and the test proving it was vacuous. **Three times on this branch, a fix applied
+under review pressure got less scrutiny than the code it corrected** — and each
+time the evidence looked green.
+
+The pattern is not carelessness; it is that a fix is written with the failing
+case in mind and tested against that case alone. The corrections that held were
+the ones that changed the SHAPE rather than the condition: computing
+`describePolicyStatus` once instead of aligning two predicates, and keying the
+affirmative on `canExpand` instead of adding a third filter clause.

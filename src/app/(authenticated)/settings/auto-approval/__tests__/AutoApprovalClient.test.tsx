@@ -224,27 +224,127 @@ describe('AutoApprovalClient', () => {
       });
 
       // The invariant behind RT2-2, pinned directly: the green affirmative is a
-      // capability claim, and it must never appear while the server says the
-      // owner cannot widen. Any future filter over `readinessCopy` has to keep
-      // this true, whatever its condition.
+      // capability claim and must never appear while the server says the owner
+      // cannot widen. Round 3 caught the first version of this test being
+      // VACUOUS for its stated purpose — it spread `baseState` (threshold null,
+      // one inheriting location), so `overrideNames` was empty, the blocked
+      // branch was never taken, and `tone` was 'off' in every iteration. It
+      // failed under the re-applied bug only because that bug keyed on
+      // `posting.blocked`, which the fixture does set. These drive the
+      // BLOCKED branch through the `blocked()` helper, plus the suspended
+      // path, so both filters that can empty the list are covered.
       it('never shows the widen-or-narrow affirmative while the server says expansion is blocked', () => {
-        for (const reasons of [
-          ['provider_moderation_disabled'],
-          ['auto_approval_disabled'],
-          ['auto_approval_disabled', 'provider_moderation_disabled'],
-        ] as const) {
-          const { unmount } = render(<AutoApprovalClient initialState={{
-            ...baseState,
-            posting: { blocked: true, reasons: [...reasons] as AutoApprovalSettingsResponse['posting']['reasons'] },
-            readiness: { ...baseState.readiness, canExpand: false, blockReasons: [...reasons] },
-          }} />);
+        const cases: Array<{ name: string; state: AutoApprovalSettingsResponse }> = [
+          {
+            name: 'blocked banner rendering, moderation the only reason',
+            state: {
+              ...blocked(['provider_moderation_disabled']),
+              readiness: {
+                ...baseState.readiness,
+                providerModerationEnabled: false,
+                canExpand: false,
+                blockReasons: ['provider_moderation_disabled'],
+              },
+            },
+          },
+          {
+            name: 'blocked banner rendering, runtime the only reason',
+            state: {
+              ...blocked(['runtime_disabled']),
+              readiness: {
+                ...baseState.readiness,
+                runtimeEnabled: false,
+                canExpand: false,
+                blockReasons: ['auto_approval_disabled'],
+              },
+            },
+          },
+          {
+            name: 'no blocked banner — account default off, posting still blocked',
+            state: {
+              ...baseState,
+              posting: { blocked: true, reasons: ['provider_moderation_disabled'] },
+              readiness: {
+                ...baseState.readiness,
+                providerModerationEnabled: false,
+                canExpand: false,
+                blockReasons: ['provider_moderation_disabled'],
+              },
+            },
+          },
+          {
+            name: 'suspended — the pre-existing filter empties the list',
+            state: {
+              ...baseState,
+              accountDefault: { ...baseState.accountDefault, suspended: true, suspendedReason: 'Paused by support.' },
+              readiness: { ...baseState.readiness, canExpand: false, blockReasons: ['policy_suspended'] },
+            },
+          },
+        ];
 
+        for (const { name, state } of cases) {
+          console.log('[PROBE] ===== CASE:', name);
+          const { unmount } = render(<AutoApprovalClient initialState={state} />);
           expect(
             screen.queryByText(/You can widen or narrow auto-posting whenever you like/),
-            `canExpand false with ${reasons.join(', ')}`,
+            name,
           ).not.toBeInTheDocument();
           unmount();
         }
+      });
+
+      it('still shows the widen-or-narrow affirmative when the server says expansion is open', () => {
+        render(<AutoApprovalClient initialState={baseState} />);
+
+        expect(screen.getByText(/You can widen or narrow auto-posting whenever you like/)).toBeInTheDocument();
+      });
+
+      // Round 3 RT3-3: `differingNames`' exclusion list shipped with no covering
+      // assertion, and round 3 then found the fix double-printing. Both
+      // directions are pinned here — the dropped name, and the duplicate.
+      it('blocked override-only headline names a differing override exactly once', () => {
+        const armed = overriddenLocation();
+        const differingButOff: AutoApprovalLocationSettings = {
+          locationId: 'loc-2',
+          displayName: 'Second Site',
+          override: { ...emptyPolicyState, policyId: 'policy-loc-2', threshold: null, exists: true },
+          effective: {
+            threshold: null,
+            source: 'location_override',
+            inherited: false,
+            vetoWindowMinutes: 15,
+            dailyAutoPostCap: null,
+            effectiveDailyCap: 10,
+            suspended: false,
+          },
+        };
+
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          posting: { blocked: true, reasons: ['autopilot_tier_required'] },
+          locations: [armed, differingButOff],
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        // The differing-but-off override is NAMED (round 2 RT2-7 dropped it)…
+        expect(within(banner).getByText(/Second Site uses its own settings\./)).toBeInTheDocument();
+        // …and the armed one, already named in the title, is not repeated
+        // (round 3 overturned RT2-R3 when the first correction printed it twice).
+        expect(within(banner).queryByText(/Main Cafe and Second Site use their own settings\./))
+          .not.toBeInTheDocument();
+        expect(within(banner).getAllByText(/Main Cafe/)).toHaveLength(1);
+      });
+
+      it('override-only unblocked headline carries the availability caveat', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          locations: [overriddenLocation()],
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(
+          /Safety checks and service availability can still send an individual reply to you instead\./,
+        )).toBeInTheDocument();
       });
 
       it('headline does not claim automatic posting for an armed policy on a copilot tier', () => {
