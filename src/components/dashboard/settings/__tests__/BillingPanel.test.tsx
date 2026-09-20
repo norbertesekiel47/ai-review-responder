@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
 import {
+  AUTONOMY_LOSS_COPY,
   AUTOPILOT_UNAVAILABLE_COPY,
   BillingPanel,
   TIER_CAPABILITY,
@@ -78,12 +79,20 @@ const AUTOPILOT_LIST_PREVIEW = {
   totalCents: 14900,
 };
 
+const COPILOT_LIST_PREVIEW = {
+  basePriceCents: 7900,
+  includedLocations: 1,
+  overagePriceCents: 7900,
+  overageUnits: 0,
+  totalCents: 7900,
+};
+
 describe('TierChangeModal billing disclosure', () => {
   it('discloses taxes, monthly renewal, and exact target snapshot', () => {
     render(
       <TierChangeModal
         newTier="autopilot"
-        isDowngrade={false}
+        direction="up"
         priceVariant="list"
         trialing={false}
         billingPreview={AUTOPILOT_LIST_PREVIEW}
@@ -106,7 +115,7 @@ describe('TierChangeModal billing disclosure', () => {
     render(
       <TierChangeModal
         newTier="autopilot"
-        isDowngrade={false}
+        direction="up"
         priceVariant="founding"
         trialing={false}
         billingPreview={{ ...AUTOPILOT_LIST_PREVIEW, basePriceCents: 9900, totalCents: 9900 }}
@@ -127,7 +136,7 @@ describe('TierChangeModal billing disclosure', () => {
     render(
       <TierChangeModal
         newTier="autopilot"
-        isDowngrade={false}
+        direction="up"
         priceVariant="list"
         trialing
         billingPreview={AUTOPILOT_LIST_PREVIEW}
@@ -141,6 +150,201 @@ describe('TierChangeModal billing disclosure', () => {
 
     expect(screen.getByText(/current trial continues/i)).toBeInTheDocument();
     expect(screen.getByText(/price applies when the trial ends/i)).toBeInTheDocument();
+  });
+});
+
+/** Catalogue prices the card must NOT read a direction from. */
+function withCataloguePrices(
+  data: AccountSettingsData,
+  copilotCents: number,
+  autopilotCents: number,
+): AccountSettingsData {
+  data.planPresentation.prices = {
+    copilot: { ...data.planPresentation.prices.copilot, basePriceCents: copilotCents },
+    autopilot: { ...data.planPresentation.prices.autopilot, basePriceCents: autopilotCents },
+  };
+  return data;
+}
+
+describe('TierChangeModal autonomy warning', () => {
+  it('tier change modal warns that replies stop posting on their own when moving to copilot', () => {
+    render(
+      <TierChangeModal
+        newTier="copilot"
+        direction="down"
+        priceVariant="list"
+        trialing={false}
+        billingPreview={COPILOT_LIST_PREVIEW}
+        previewLoading={false}
+        previewError={null}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        changing={false}
+      />,
+    );
+
+    expect(screen.getByText(AUTONOMY_LOSS_COPY)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Every reply waits for your approval from the moment the plan changes/i),
+    ).toBeInTheDocument();
+  });
+
+  it('tier change modal omits the autonomy warning when moving to autopilot', () => {
+    render(
+      <TierChangeModal
+        newTier="autopilot"
+        direction="up"
+        priceVariant="list"
+        trialing={false}
+        billingPreview={AUTOPILOT_LIST_PREVIEW}
+        previewLoading={false}
+        previewError={null}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        changing={false}
+      />,
+    );
+
+    expect(screen.queryByText(AUTONOMY_LOSS_COPY)).toBeNull();
+  });
+});
+
+function previewFetch(preview: typeof AUTOPILOT_LIST_PREVIEW) {
+  return vi.fn(async () => new Response(JSON.stringify({ newBilling: preview }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  }));
+}
+
+describe('BillingPanel tier-change modal direction', () => {
+  it('opening the copilot modal from a grandfathered autopilot account shows downgrade wording regardless of stored price', async () => {
+    vi.stubGlobal('fetch', previewFetch(COPILOT_LIST_PREVIEW));
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'autopilot', basePriceCents: 3900 })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /to Copilot/i }));
+    // SettingsModal exposes its title as the dialog's accessible name.
+    const dialog = await screen.findByRole('dialog', { name: 'Downgrade plan' });
+    expect(within(dialog).getByText(/Downgrade to Copilot\?/i)).toBeInTheDocument();
+    expect(await within(dialog).findByRole('button', { name: /Confirm downgrade/i })).toBeInTheDocument();
+  });
+
+  it('opening the autopilot modal from a copilot account whose stored price exceeds both catalogue prices shows upgrade wording', async () => {
+    vi.stubGlobal('fetch', previewFetch(AUTOPILOT_LIST_PREVIEW));
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'copilot', basePriceCents: 20000 })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /to Autopilot/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upgrade plan' });
+    expect(within(dialog).getByText(/Upgrade to Autopilot\?/i)).toBeInTheDocument();
+    expect(await within(dialog).findByRole('button', { name: /Confirm upgrade/i })).toBeInTheDocument();
+  });
+
+  it('trialing autopilot to copilot modal preserves trial billing copy and warns that replies stop posting on their own', async () => {
+    vi.stubGlobal('fetch', previewFetch(COPILOT_LIST_PREVIEW));
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'autopilot', status: 'trialing' })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /to Copilot/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/current trial continues/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(AUTONOMY_LOSS_COPY)).toBeInTheDocument();
+  });
+});
+
+describe('BillingPanel plan-switch direction', () => {
+  it('billing card labels the copilot option Downgrade for an autopilot account', () => {
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'autopilot' })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Downgrade to Copilot/i })).toBeInTheDocument();
+  });
+
+  it('billing card labels the autopilot option Upgrade for a copilot account', () => {
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'copilot' })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Upgrade to Autopilot/i })).toBeInTheDocument();
+  });
+
+  it('billing card direction ignores a grandfathered stored base price', () => {
+    // Stored 39.00 sits below BOTH catalogue prices (invariant #9a), so a
+    // price comparison labels the Copilot card "Upgrade".
+    render(
+      <BillingPanel
+        accountData={accountData({ tier: 'autopilot', basePriceCents: 3900 })}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', { name: /Downgrade to Copilot \(\$79.00\/month\)/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Upgrade to Copilot/i })).toBeNull();
+  });
+
+  it('billing cards retain upgrade and downgrade labels when both catalogue prices are equal', () => {
+    render(
+      <BillingPanel
+        accountData={withCataloguePrices(
+          accountData({ tier: 'copilot', basePriceCents: 9900 }),
+          9900,
+          9900,
+        )}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Upgrade to Autopilot/i })).toBeInTheDocument();
+
+    cleanup();
+
+    render(
+      <BillingPanel
+        accountData={withCataloguePrices(
+          accountData({ tier: 'autopilot', basePriceCents: 9900 }),
+          9900,
+          9900,
+        )}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Downgrade to Copilot/i })).toBeInTheDocument();
   });
 });
 

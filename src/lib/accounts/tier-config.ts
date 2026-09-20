@@ -141,3 +141,41 @@ export function lookupTierConfig(tier: string): TierConfig | undefined {
   if (!isSubscriptionTier(tier)) return undefined;
   return TIER_CONFIG[tier];
 }
+
+// ── Tier order and change direction ─────────────────────────────────────────
+
+/**
+ * Ascending AUTONOMY, not price. Copilot is owner-approves-everything;
+ * Autopilot grants bounded autonomy.
+ *
+ * The owner of tier order for PRODUCT code: `plan-presentation.ts`,
+ * `BillingPanel.tsx` and `onboarding/pay/plan-options.ts` all import it, and
+ * #1054 collapsed their three separate copies into this one. Import it; do not
+ * re-declare the array beside a price map, which is how the direction bug got
+ * three homes in the first place.
+ *
+ * Known remaining copy, deliberately not collapsed here (red team round 2
+ * RT-2): `scripts/verify-stripe-price-parity.ts:16` declares its own `TIERS`
+ * to iterate Stripe Price shapes. It is a script, not product code, and
+ * pulling it in is out of this change's surface — but it IS the same concept
+ * and should import this constant when that file is next touched.
+ * `TiersSection.tsx:13` is NOT a copy: its `ORDER` is over a local
+ * `Mode = 'autopilot' | 'copilot'` animation union, a different concept that
+ * happens to share both element names.
+ */
+export const SUBSCRIPTION_TIER_ORDER = [
+  SubscriptionTier.COPILOT,
+  SubscriptionTier.AUTOPILOT,
+] as const satisfies readonly SubscriptionTierValue[];
+
+export type TierChangeDirection = 'up' | 'down' | 'same';
+
+export function tierChangeDirection(
+  from: SubscriptionTierValue,
+  to: SubscriptionTierValue,
+): TierChangeDirection {
+  const fromIndex = SUBSCRIPTION_TIER_ORDER.indexOf(from);
+  const toIndex = SUBSCRIPTION_TIER_ORDER.indexOf(to);
+  if (toIndex === fromIndex) return 'same';
+  return toIndex > fromIndex ? 'up' : 'down';
+}

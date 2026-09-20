@@ -8,6 +8,7 @@ import {
   lookupTierConfig,
   resolveTierSnapshot,
   TIER_CONFIG,
+  tierChangeDirection,
   tierGrantsAutopilot,
 } from '../tier-config';
 
@@ -85,5 +86,43 @@ describe('tierGrantsAutopilot', () => {
     expect(tierGrantsAutopilot(null)).toBe(false);
     expect(tierGrantsAutopilot(undefined)).toBe(false);
     expect(tierGrantsAutopilot('enterprise')).toBe(false);
+  });
+});
+
+describe('tierChangeDirection', () => {
+  it('tierChangeDirection returns up for copilot to autopilot', () => {
+    expect(tierChangeDirection(SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT)).toBe('up');
+  });
+
+  it('tierChangeDirection returns down for autopilot to copilot', () => {
+    expect(tierChangeDirection(SubscriptionTier.AUTOPILOT, SubscriptionTier.COPILOT)).toBe('down');
+  });
+
+  it('tierChangeDirection returns same for a tier to itself', () => {
+    expect(tierChangeDirection(SubscriptionTier.COPILOT, SubscriptionTier.COPILOT)).toBe('same');
+    expect(tierChangeDirection(SubscriptionTier.AUTOPILOT, SubscriptionTier.AUTOPILOT)).toBe('same');
+  });
+
+  // Today's catalogue order happens to agree with autonomy order, so every
+  // other direction test also passes a price-based implementation. This one
+  // pins the contract: direction comes from SUBSCRIPTION_TIER_ORDER, never a
+  // price.
+  it('tierChangeDirection follows autonomy order when catalogue prices are equal or reversed', () => {
+    const originalCopilot = TIER_CONFIG.copilot;
+    const originalAutopilot = TIER_CONFIG.autopilot;
+    try {
+      TIER_CONFIG.copilot = { ...originalCopilot, baseByVariant: { list: 9900, founding: 9900 } };
+      TIER_CONFIG.autopilot = { ...originalAutopilot, baseByVariant: { list: 9900, founding: 9900 } };
+      expect(tierChangeDirection(SubscriptionTier.AUTOPILOT, SubscriptionTier.COPILOT)).toBe('down');
+      expect(tierChangeDirection(SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT)).toBe('up');
+
+      TIER_CONFIG.copilot = { ...originalCopilot, baseByVariant: { list: 14900, founding: 9900 } };
+      TIER_CONFIG.autopilot = { ...originalAutopilot, baseByVariant: { list: 7900, founding: 4900 } };
+      expect(tierChangeDirection(SubscriptionTier.AUTOPILOT, SubscriptionTier.COPILOT)).toBe('down');
+      expect(tierChangeDirection(SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT)).toBe('up');
+    } finally {
+      TIER_CONFIG.copilot = originalCopilot;
+      TIER_CONFIG.autopilot = originalAutopilot;
+    }
   });
 });

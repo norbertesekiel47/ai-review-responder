@@ -332,6 +332,9 @@ function resetDb(): void {
 
 function enableReadiness(): void {
   process.env.AUTO_APPROVAL_ENABLED = 'true';
+  // Not a readiness input — the Posting block's Judge gate (#1314). Set here so
+  // every suite starts from "every structural flag on".
+  process.env.JUDGE_ENABLED = 'true';
   process.env.AUTOPILOT_PURCHASABLE = 'true';
   process.env.OPENAI_MODERATION_ENABLED = 'true';
   process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'true';
@@ -2360,5 +2363,140 @@ describe('solicitation persona opt-in (#631)', () => {
 
     dbState.subscriptionTier = SubscriptionTier.AUTOPILOT;
     await expect(read()).resolves.toMatchObject({ solicitation: { available: true } });
+  });
+
+});
+
+// #1314 — the Posting block. These prove the loader passes the RIGHT value to
+// each builder input; a pure-builder test cannot catch a caller that forwards
+// the wrong boolean, which is exactly the purchasability trap.
+describe('posting block', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlCalls.length = 0;
+    resetDb();
+    enableReadiness();
+    mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
+  });
+
+  async function readPosting() {
+    const { getAutoApprovalSettings } = await import('../settings');
+    const result = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+    return result;
+  }
+
+  it('loadAutoApprovalSettings returns posting.blocked true for a copilot account', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['autopilot_tier_required'] },
+    });
+  });
+
+  it('loadAutoApprovalSettings reports runtime_disabled for an autopilot account when the runtime is off', async () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'false';
+    resetServerConfigForTests();
+
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['runtime_disabled'] },
+    });
+  });
+
+  it('loadAutoApprovalSettings reports provider_moderation_disabled when provider moderation is off', async () => {
+    process.env.OPENAI_MODERATION_ENABLED = 'false';
+    resetServerConfigForTests();
+
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['provider_moderation_disabled'] },
+    });
+  });
+
+  it('loadAutoApprovalSettings reports judge_disabled when the judge flag is off and every other structural gate passes', async () => {
+    process.env.JUDGE_ENABLED = 'false';
+    resetServerConfigForTests();
+
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['judge_disabled'] },
+    });
+  });
+
+  // Three propagations in one test, not three re-derivations of checkSubscription's
+  // arithmetic (it owns its own suite): the status reaches the check with
+  // workerType 'publisher' (a 'generator' workerType lets pending_payment through),
+  // past_due_at reaches it (a hard-coded true never denies), and flags reach it
+  // (a live past_due_extension is the only thing that lifts an expired grace).
+  it('loadAutoApprovalSettings passes the loaded status past_due_at and flags to the publisher subscription check and propagates its denial', async () => {
+    dbState.subscriptionStatus = SubscriptionStatus.PENDING_PAYMENT;
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['publisher_subscription_denied'] },
+    });
+
+    dbState.subscriptionStatus = SubscriptionStatus.PAST_DUE;
+    dbState.pastDueAt = new Date(Date.now() - 30 * 86_400_000);
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: true, reasons: ['publisher_subscription_denied'] },
+    });
+
+    dbState.flags = {
+      past_due_extension: {
+        days: 14,
+        expires_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+      },
+    };
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: false, reasons: [] },
+    });
+  });
+
+  it('loadAutoApprovalSettings reports tier and publisher subscription blocks when the account row is missing', async () => {
+    dbState.accountExists = false;
+
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: {
+        blocked: true,
+        reasons: ['autopilot_tier_required', 'publisher_subscription_denied'],
+      },
+    });
+  });
+
+  it('loadAutoApprovalSettings returns posting.blocked false for an autopilot account with the runtime on', async () => {
+    await expect(readPosting()).resolves.toMatchObject({
+      posting: { blocked: false, reasons: [] },
+    });
+  });
+
+  it('loadAutoApprovalSettings leaves readiness.blockReasons unchanged by the posting fact', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    const result = await readPosting();
+
+    expect(result.posting.blocked).toBe(true);
+    // The admin-facing contract: readiness keeps its own vocabulary, and no
+    // AutoApprovalPostingBlockReason member leaks into it.
+    expect(result.readiness.blockReasons).toEqual(['autopilot_unavailable']);
+    expect(Object.keys(result.readiness).sort()).toEqual([
+      'accountWritable',
+      'blockReasons',
+      'canExpand',
+      'providerModerationEnabled',
+      'providerModerationValidated',
+      'runtimeEnabled',
+    ]);
+  });
+
+  // THE TRAP. Readiness folds `autopilotPurchasable()` into
+  // `autopilot_unavailable`; the runtime never reads purchasability. A loader
+  // that forwarded the readiness value into `tierGrantsAutopilot` fails only
+  // this test — it would print "not posting" while replies post.
+  it('loadAutoApprovalSettings returns posting.blocked false and readiness.blockReasons containing autopilot_unavailable for an autopilot account whose sale is paused', async () => {
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+
+    const result = await readPosting();
+
+    expect(result.posting).toEqual({ blocked: false, reasons: [] });
+    expect(result.readiness.blockReasons).toContain('autopilot_unavailable');
   });
 });

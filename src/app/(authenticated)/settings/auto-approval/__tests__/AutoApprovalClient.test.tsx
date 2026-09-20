@@ -49,6 +49,8 @@ const baseState: AutoApprovalSettingsResponse = {
     canExpand: true,
     blockReasons: [],
   },
+  // #1314: no Posting block — the account is structurally eligible to auto-post.
+  posting: { blocked: false, reasons: [] },
   // #631 D20: unavailable by default so the existing Reply-lane tests render
   // no Solicitation card; the solicitation describe block opts in explicitly.
   solicitation: {
@@ -162,7 +164,7 @@ describe('AutoApprovalClient', () => {
 
       const banner = screen.getByTestId('auto-approval-status');
       expect(within(banner).getByText(
-        "4–5★ reviews post a reply automatically 30 minutes after you're notified, up to 12 a day.",
+        "4–5★ reviews are set to post a reply automatically 30 minutes after you're notified, up to 12 a day.",
       )).toBeInTheDocument();
       expect(within(banner).getByText(/Those 30 minutes are your veto window, the time you have to stop a reply before it posts\./))
         .toBeInTheDocument();
@@ -176,10 +178,373 @@ describe('AutoApprovalClient', () => {
       expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_manual' });
     });
 
+    // #1314 — the Posting block: the headline stops claiming replies post when
+    // the account is not structurally eligible to auto-post.
+    describe('posting block', () => {
+      const armedAccount = {
+        ...emptyPolicyState,
+        policyId: 'policy-1',
+        exists: true,
+        threshold: 5 as const,
+      };
+
+      function blocked(
+        reasons: AutoApprovalSettingsResponse['posting']['reasons'],
+        overrides: Partial<AutoApprovalSettingsResponse> = {},
+      ): AutoApprovalSettingsResponse {
+        return {
+          ...baseState,
+          accountDefault: { ...armedAccount },
+          posting: { blocked: true, reasons },
+          ...overrides,
+        };
+      }
+
+      // Red team round 2 RT2-2. The suppression that de-duplicates the banner's
+      // sentence used to key on `posting.blocked`, but the banner ALSO needs
+      // `!suspended` and an armed policy. In the gap the reason was hidden
+      // while nothing said it, ReadinessBlock fell to zero items, and the page
+      // rendered its green affirmative for an account that could not widen.
+      it('readiness notice keeps a posting reason when the blocked banner does not render', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          // account default OFF and no overrides, so the blocked banner does
+          // not render — but posting IS blocked and expansion IS blocked.
+          posting: { blocked: true, reasons: ['provider_moderation_disabled'] },
+          readiness: {
+            ...baseState.readiness,
+            providerModerationEnabled: false,
+            canExpand: false,
+            blockReasons: ['provider_moderation_disabled'],
+          },
+        }} />);
+
+        expect(screen.getByTestId('auto-approval-status')).toHaveTextContent(/^Off\./);
+        expect(screen.getByText(/Safety screening for replies is switched off/)).toBeInTheDocument();
+      });
+
+      // The invariant behind RT2-2, pinned directly: the green affirmative is a
+      // capability claim and must never appear while the server says the owner
+      // cannot widen. Round 3 caught the first version of this test being
+      // VACUOUS for its stated purpose — it spread `baseState` (threshold null,
+      // one inheriting location), so `overrideNames` was empty, the blocked
+      // branch was never taken, and `tone` was 'off' in every iteration. It
+      // failed under the re-applied bug only because that bug keyed on
+      // `posting.blocked`, which the fixture does set. These drive the
+      // BLOCKED branch through the `blocked()` helper, plus the suspended
+      // path, so both filters that can empty the list are covered.
+      it('never shows the widen-or-narrow affirmative while the server says expansion is blocked', () => {
+        const cases: Array<{ name: string; state: AutoApprovalSettingsResponse }> = [
+          {
+            name: 'blocked banner rendering, moderation the only reason',
+            state: {
+              ...blocked(['provider_moderation_disabled']),
+              readiness: {
+                ...baseState.readiness,
+                providerModerationEnabled: false,
+                canExpand: false,
+                blockReasons: ['provider_moderation_disabled'],
+              },
+            },
+          },
+          {
+            name: 'blocked banner rendering, runtime the only reason',
+            state: {
+              ...blocked(['runtime_disabled']),
+              readiness: {
+                ...baseState.readiness,
+                runtimeEnabled: false,
+                canExpand: false,
+                blockReasons: ['auto_approval_disabled'],
+              },
+            },
+          },
+          {
+            name: 'no blocked banner — account default off, posting still blocked',
+            state: {
+              ...baseState,
+              posting: { blocked: true, reasons: ['provider_moderation_disabled'] },
+              readiness: {
+                ...baseState.readiness,
+                providerModerationEnabled: false,
+                canExpand: false,
+                blockReasons: ['provider_moderation_disabled'],
+              },
+            },
+          },
+          {
+            name: 'suspended — the pre-existing filter empties the list',
+            state: {
+              ...baseState,
+              accountDefault: { ...baseState.accountDefault, suspended: true, suspendedReason: 'Paused by support.' },
+              readiness: { ...baseState.readiness, canExpand: false, blockReasons: ['policy_suspended'] },
+            },
+          },
+        ];
+
+        for (const { name, state } of cases) {
+          console.log('[PROBE] ===== CASE:', name);
+          const { unmount } = render(<AutoApprovalClient initialState={state} />);
+          expect(
+            screen.queryByText(/You can widen or narrow auto-posting whenever you like/),
+            name,
+          ).not.toBeInTheDocument();
+          unmount();
+        }
+      });
+
+      it('still shows the widen-or-narrow affirmative when the server says expansion is open', () => {
+        render(<AutoApprovalClient initialState={baseState} />);
+
+        expect(screen.getByText(/You can widen or narrow auto-posting whenever you like/)).toBeInTheDocument();
+      });
+
+      // Round 3 RT3-3: `differingNames`' exclusion list shipped with no covering
+      // assertion, and round 3 then found the fix double-printing. Both
+      // directions are pinned here — the dropped name, and the duplicate.
+      it('blocked override-only headline names a differing override exactly once', () => {
+        const armed = overriddenLocation();
+        const differingButOff: AutoApprovalLocationSettings = {
+          locationId: 'loc-2',
+          displayName: 'Second Site',
+          override: { ...emptyPolicyState, policyId: 'policy-loc-2', threshold: null, exists: true },
+          effective: {
+            threshold: null,
+            source: 'location_override',
+            inherited: false,
+            vetoWindowMinutes: 15,
+            dailyAutoPostCap: null,
+            effectiveDailyCap: 10,
+            suspended: false,
+          },
+        };
+
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          posting: { blocked: true, reasons: ['autopilot_tier_required'] },
+          locations: [armed, differingButOff],
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        // The differing-but-off override is NAMED (round 2 RT2-7 dropped it)…
+        expect(within(banner).getByText(/Second Site uses its own settings\./)).toBeInTheDocument();
+        // …and the armed one, already named in the title, is not repeated
+        // (round 3 overturned RT2-R3 when the first correction printed it twice).
+        expect(within(banner).queryByText(/Main Cafe and Second Site use their own settings\./))
+          .not.toBeInTheDocument();
+        expect(within(banner).getAllByText(/Main Cafe/)).toHaveLength(1);
+      });
+
+      it('override-only unblocked headline carries the availability caveat', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          locations: [overriddenLocation()],
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(
+          /Safety checks and service availability can still send an individual reply to you instead\./,
+        )).toBeInTheDocument();
+      });
+
+      it('headline does not claim automatic posting for an armed policy on a copilot tier', () => {
+        render(<AutoApprovalClient initialState={blocked(['autopilot_tier_required'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
+        expect(within(banner).getByText(
+          'Set to 5★ only, but this account is not set up to post automatically right now.',
+        )).toBeInTheDocument();
+      });
+
+      it('headline names the autopilot tier reason for an armed policy on a copilot tier', () => {
+        render(<AutoApprovalClient initialState={blocked(['autopilot_tier_required'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(
+          'Auto-posting is part of the Autopilot plan, and this account is on Copilot.',
+        )).toBeInTheDocument();
+        expect(within(banner).getByText(
+          'Every reply waits for your approval until that changes.',
+        )).toBeInTheDocument();
+      });
+
+      it('headline does not claim automatic posting for an armed policy when the runtime flag is off', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
+        expect(within(banner).getByText('Auto-posting is not switched on for RepWorth yet.'))
+          .toBeInTheDocument();
+      });
+
+      // THE TRAP, at the screen. AUTOPILOT_PURCHASABLE=false gives an Autopilot
+      // account the readiness reason while the runtime keeps posting. A headline
+      // driven by readiness would print a correction over a true sentence.
+      it('headline still claims automatic posting for an autopilot tier whose sale is paused', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          accountDefault: { ...armedAccount },
+          posting: { blocked: false, reasons: [] },
+          readiness: {
+            ...baseState.readiness,
+            canExpand: false,
+            blockReasons: ['autopilot_unavailable'],
+          },
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(/post a reply automatically/)).toBeInTheDocument();
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
+          .not.toBeInTheDocument();
+      });
+
+      it('headline does not claim automatic posting for an armed autopilot policy when the judge flag is off', () => {
+        render(<AutoApprovalClient initialState={blocked(['judge_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
+        expect(within(banner).getByText(
+          'Our reply review step is switched off right now, and nothing posts without it.',
+        )).toBeInTheDocument();
+      });
+
+      it('suspended headline wins over a posting block', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'], {
+          accountDefault: {
+            ...emptyPolicyState,
+            policyId: 'policy-1',
+            exists: true,
+            threshold: 5,
+            suspended: true,
+            suspendedReason: 'Too many owner edits.',
+          },
+        })} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText('Auto-approval is suspended for this account.'))
+          .toBeInTheDocument();
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
+          .not.toBeInTheDocument();
+        expect(banner).toHaveAttribute('role', 'alert');
+      });
+
+      it('headline does not claim location overrides post when posting is structurally blocked', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'], {
+          accountDefault: { ...emptyPolicyState },
+          locations: [overriddenLocation()],
+        })} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/is set to post replies automatically with its own settings/))
+          .not.toBeInTheDocument();
+        expect(within(banner).getByText(
+          'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now.',
+        )).toBeInTheDocument();
+      });
+
+      // The plain "Off" sentence is already true, so a structural block must not
+      // turn it into a correction.
+      it('plain off headline still renders when no threshold is set and posting is blocked', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'], {
+          accountDefault: { ...emptyPolicyState },
+        })} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText('Off. You approve every reply before it posts.'))
+          .toBeInTheDocument();
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
+          .not.toBeInTheDocument();
+      });
+
+      it('blocked headline keeps the turn off auto-posting action', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByRole('button', { name: 'Turn off auto-posting' }))
+          .toBeInTheDocument();
+      });
+
+      // `set_account_manual` clears only the account default, so on an
+      // override-only account it changes nothing and leaves those locations
+      // armed to resume the moment the block clears.
+      it('blocked override-only headline does not offer an account-default turn-off action', () => {
+        render(<AutoApprovalClient initialState={blocked(['runtime_disabled'], {
+          accountDefault: { ...emptyPolicyState },
+          locations: [overriddenLocation()],
+        })} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByRole('button', { name: 'Turn off auto-posting' }))
+          .not.toBeInTheDocument();
+      });
+
+      it('headline does not claim automatic posting when provider moderation is the only posting block', () => {
+        render(<AutoApprovalClient initialState={blocked(['provider_moderation_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
+        expect(within(banner).getByText(
+          'Safety screening for replies is switched off right now, so nothing posts on its own.',
+        )).toBeInTheDocument();
+      });
+
+      it('headline does not claim automatic posting when publisher subscription denial is the only posting block', () => {
+        render(<AutoApprovalClient initialState={blocked(['publisher_subscription_denied'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
+        expect(within(banner).getByText('Your billing needs attention before any reply can post.'))
+          .toBeInTheDocument();
+      });
+
+      // The two facts are contradictory on purpose: posting happens, expansion
+      // is blocked. A headline driven by `!readiness.canExpand` fails only here.
+      it('headline remains on when posting is unblocked but readiness blocks expansion for autopilot_unavailable', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          accountDefault: { ...armedAccount },
+          posting: { blocked: false, reasons: [] },
+          readiness: {
+            runtimeEnabled: true,
+            providerModerationEnabled: true,
+            providerModerationValidated: true,
+            accountWritable: true,
+            canExpand: false,
+            blockReasons: ['autopilot_unavailable'],
+          },
+        }} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(/post a reply automatically/)).toBeInTheDocument();
+        expect(banner).toHaveClass('banner-blue');
+      });
+
+      // Text-only assertions would let the presentation stay wrong: an alarm
+      // colour, role="alert", or only the first reason rendered.
+      it('blocked headline uses the attention banner and renders every posting reason on its own detail line', () => {
+        render(<AutoApprovalClient
+          initialState={blocked(['runtime_disabled', 'judge_disabled'])}
+        />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(banner).toHaveClass('banner-attn');
+        expect(banner).not.toHaveClass('banner-red');
+        expect(banner).toHaveAttribute('role', 'status');
+
+        const lines = Array.from(banner.querySelectorAll('.b-sub')).map((node) => node.textContent);
+        expect(lines).toEqual([
+          'Auto-posting is not switched on for RepWorth yet.',
+          'Our reply review step is switched off right now, and nothing posts without it.',
+          'Every reply waits for your approval until that changes.',
+        ]);
+      });
+    });
+
     it('names a location that posts on its own while the account default is Off', () => {
       render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
       const banner = screen.getByTestId('auto-approval-status');
-      expect(within(banner).getByText(/Off by default. Main Cafe posts replies automatically with its own settings\./))
+      expect(within(banner).getByText(/Off by default. Main Cafe is set to post replies automatically with its own settings\./))
         .toBeInTheDocument();
     });
   });
