@@ -76,6 +76,43 @@ None. Every finding was verified true before it was fixed.
    file cannot distinguish a review-mode run from a plain one even though they
    differ by the `diff-coverage` row. Same class as this batch; not fixed here.
 
+## The reclassify WARN, and why the estimate was NOT edited
+
+The final gate is GREEN at `7818fa37e` with one WARN:
+
+    RECLASSIFY: test 1250 > 2x estimated_test_lines (430)
+
+Real numbers against the fork point:
+
+| Bucket | Estimate | Actual | Ratio |
+|---|---|---|---|
+| Production | 250 | 450 | 1.8x — under the trigger |
+| Tests | 430 | 1250 | 2.9x — over |
+
+Production stayed within bounds; only the test bucket tripled. The growth is
+attributable, not diffuse:
+
+- `red-team-mutation-runner.test.ts` 432 lines, of which ~130 are a fixture
+  MOVED verbatim into a shared builder — churn counted as +237/-145, not new
+  coverage.
+- `ci-audit-wiring.test.ts` 351 lines, most of it 18 excuse entries each
+  carrying a prose reason. That is data, not logic.
+- The rest is review-driven coverage the findings demanded: the pin that makes
+  T5's fix falsifiable, the end-to-end carry test, the `--include` fixture, the
+  regex-literal regression test.
+
+**Step 0 re-run, as the trigger requires.** The lane is CONFIRMED, not revised:
+the surface is 14 named files rather than top-level directories; it spans one
+risk domain (tooling — no worker, ingress, migration, billing, approval or
+auth); it decomposed into 5 tickets, not more than 8; and no investigation
+questions remain. `standard · normal · backend` stands.
+
+**The estimate was deliberately left alone.** Editing it to clear the row is
+the failure `.claude/reference/arch-review-log.md` already records against
+#1082 — an estimate inflated 35 → 90 → 250 "to keep the row green, which is the
+measurement ceasing to measure". The WARN stays visible and is repeated in the
+PR body instead.
+
 ## Round protocol
 
 Round 1 only. `bash scripts/feature-state.sh branch-round-owed <sha>` decides

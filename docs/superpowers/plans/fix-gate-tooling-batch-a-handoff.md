@@ -4,6 +4,26 @@ Batch A, gate tooling. Three implementation tickets plus one verify-and-close.
 
 ## Where the run is
 
+**Step 7 complete. Review round 1 closed, gate GREEN, ready for the draft PR.**
+
+Batch A grew from four tickets to five. #1305 needed no code — verified against
+`c9b2a2f9a`, 92/92 under three-agent load. The fifth ticket was found BY this
+branch's own gate: `mutation-runner.mjs`'s watcher scan was machine-global
+while its docstring claimed worktree scope, so an unrelated checkout's dev
+server turned a gate row red. Owner-directed, second surface amendment,
+reason recorded.
+
+Review round 1: **11 findings, 11 verified, 11 fixed, 0 rejected** — one
+BLOCKING (the carry anchor, my design error), three MAJOR. Full record in
+`docs/reviews/fix-gate-tooling-batch-a/triage.md`.
+
+Final gate GREEN with one WARN left deliberately standing: the test bucket is
+2.9x its estimate (production is 1.8x, under the trigger). Step 0 was re-run
+as the trigger requires and CONFIRMED the lane. The estimate was not edited —
+see triage.md for why.
+
+### Original plan note
+
 Plan approved. Step 4 (execute tracers) next.
 
 - Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-gate-tooling-batch-a`
