@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AutoApprovalClient } from '../AutoApprovalClient';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import type {
   AutoApprovalLocationSettings,
   AutoApprovalSettingsResponse,
@@ -407,6 +408,17 @@ describe('AutoApprovalClient', () => {
         expect(within(banner).getByText(
           'Our reply review step is switched off right now, and nothing posts without it.',
         )).toBeInTheDocument();
+      });
+
+      // #1352 — the Owner Operator's Proposal card (a later task, T5) needs the
+      // same owner-facing block sentences as this page. This task only moves
+      // the copy to a shared module; it asserts the settings page still reads
+      // from it. A later task extends this title to the card.
+      it('the settings page and the Proposal card render the same sentence for judge_disabled', () => {
+        render(<AutoApprovalClient initialState={blocked(['judge_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
       });
 
       it('suspended headline wins over a posting block', () => {
