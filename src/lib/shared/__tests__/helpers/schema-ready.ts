@@ -204,16 +204,12 @@ export const MIGRATION_048_IMPERSONATION_SESSIONS: SchemaRequirement = {
  * 119's. Its guard suite degrades the flag and executes the file instead.
  */
 
-/**
- * 051 creates the admin-only held-draft queue. The partial
- * one-open-flag-per-response unique is the migration's LAST object, so its
- * presence implies the whole file ran.
- */
-export const MIGRATION_051_FLAGGED_RESPONSES: SchemaRequirement = {
-  migration: '051_flagged_responses',
-  tables: ['flagged_responses'],
-  indexes: ['idx_flagged_responses_status_created', 'idx_flagged_responses_open_response'],
-};
+/* `MIGRATION_051_FLAGGED_RESPONSES` was added here by #1301 T2 and had ZERO
+ * consumers: the 051 suite proves the container is at head through its own
+ * oracle A/B assertions and never calls `assertSchemaReady`. An exported
+ * constant nobody imports is a claim without a caller, so it is deleted rather
+ * than kept "for later" (#1301 F-E). Re-add it when a suite actually needs it;
+ * the definition is one `git log -S` away. */
 
 /**
  * 053 adds the first CHECK on `users.role` (owner/admin) and nothing else — no
@@ -590,11 +586,28 @@ export const MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE: SchemaRequirement = 
  * Both indexes are named because they are the migration's last objects, and the
  * actor FK because `actor_user_id` deliberately carries NO `ON DELETE` action —
  * a container whose FK is missing accepts a delete that would cascade a
- * security trail away.
+ * security trail away. The two columns are named because a container with the
+ * table but without `actor_user_id` fails on an INSERT with an
+ * undefined-column error rather than the actionable `pnpm test:db:setup`
+ * message.
+ *
+ * THIS IS THE THIRD DEFINITION OF THIS FACT IN THE TREE, and the other two are
+ * not yet consumers. `scripts/ci/__tests__/mint-admin.integration.test.ts` and
+ * `…/revoke-admin.integration.test.ts` each declare a local, byte-identical
+ * `MIGRATION_117_ADMIN_AUDIT_LOG` naming the table, the two columns and ONE
+ * index. Both files sit outside #1301's `allowed_edit_surface`, so pointing
+ * them here would need a third surface amendment; #1301 F-E recorded the drift
+ * rather than taking one silently.
+ *
+ * What this definition does about it: it is now a strict SUPERSET of the local
+ * pair — the same table, the same two columns, plus the second index and the
+ * FK — so a container that satisfies this satisfies both copies. When either
+ * script test is next touched, delete its local copy and import this one.
  */
 export const MIGRATION_117_ADMIN_AUDIT_LOG: SchemaRequirement = {
   migration: '117_admin_audit_log',
   tables: ['admin_audit_log'],
+  columns: ['admin_audit_log.actor_user_id', 'admin_audit_log.event_type'],
   indexes: ['idx_admin_audit_actor_created', 'idx_admin_audit_event_created'],
   constraints: [{ table: 'admin_audit_log', name: 'admin_audit_log_actor_user_id_fkey' }],
 };

@@ -33,7 +33,7 @@
 //
 // ORACLE A — the PINNED literals (titles 2 and 9). The exact
 // `pg_get_constraintdef` rendering of `users_role_check`, taken from
-// `.feature/oracle-a-literals.txt`, which was captured from the container
+// `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`, which was captured from the container
 // independently of the migration file. That independence is the whole point:
 // oracle B alone is CIRCULAR on a freshly provisioned database, because
 // `pnpm test:db:setup` builds the container FROM the migration under test. Widen
@@ -155,7 +155,7 @@ const BEHIND_HEAD =
 
 /**
  * ORACLE A. The exact `pg_get_constraintdef` rendering of `users_role_check`,
- * copied byte for byte from `.feature/oracle-a-literals.txt` — captured from
+ * copied byte for byte from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` — captured from
  * the container, NOT derived from `053_users_role_constraint.sql`. The column
  * is `VARCHAR`, so PostgreSQL renders the allowlist as a `character varying`
  * ARRAY cast to `text[]` rather than as the source's `role IN ('owner',
@@ -169,7 +169,7 @@ const USERS_ROLE_CHECK_DEF =
 /**
  * ORACLE A, the other half of title 9. Migration 048's partial unique index,
  * whose `WHERE (ended_at IS NULL)` predicate is what enforces one active
- * impersonation session per actor. Also from `.feature/oracle-a-literals.txt`.
+ * impersonation session per actor. Also from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`.
  */
 const ACTIVE_ACTOR_INDEX_DEF =
   'CREATE UNIQUE INDEX idx_impersonation_active_actor ON ' +
@@ -312,13 +312,8 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        // max: 1, not 2 — every case runs the checked-in migration verbatim
-        // through `unsafe` inside a transaction it also owns
-        // (`withRolledBackTransaction`), and postgres.js refuses a
-        // transaction-bearing `unsafe` on a pooled client
-        // (`UNSAFE_TRANSACTION: Only use sql.begin, sql.reserved or max: 1`)
-        // because it cannot guarantee the statements land on one backend.
-        // Every case here is sequential, so a single connection costs nothing.
+        // max: 1, not 2 — `readMigrationSql`'s JSDoc owns why. In short:
+        // postgres.js refuses a transaction-bearing `unsafe` on a pooled client.
         max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
@@ -472,12 +467,8 @@ describeWithDb(
         await tx.unsafe(DROP_ROLE_CHECK);
         const degraded = await readPublicCatalogue(tx);
 
-        // The degrade must LAND before the re-apply gets credit for undoing it.
-        // Four of the seven "moves no other table" cases ran this cycle
-        // without proving it, while three proved it — one plan, three shapes
-        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
-        // from an oversight, so every one of the seven now proves it, with the
-        // same targets its sibling case uses.
+        // The degrade must LAND before the re-apply gets credit for undoing it;
+        // `assertDegradeLanded`'s JSDoc owns why all seven cases call this.
         assertDegradeLanded(before, degraded, {
           table: TABLE,
           property: 'constraints',

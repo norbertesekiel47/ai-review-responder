@@ -589,6 +589,14 @@ function listNames(value: readonly CatalogueEntry[] | readonly string[]): string
  * Names are matched EXACTLY, never as a substring. Both directions are checked,
  * because the reverse — a typo'd name that was never in `before` — is what
  * makes a substring implementation pass while establishing nothing.
+ *
+ * WHY EVERY DEGRADE/RE-APPLY CASE CALLS THIS, stated once here so the seven
+ * suites do not each restate it: four of the seven "moves no other table"
+ * cases ran the cycle WITHOUT proving the degrade landed while three proved
+ * it — one plan, three shapes, and a reader could not tell a deliberate
+ * omission from an oversight (#1301 S-1/F-F/RT-15). All seven now prove it,
+ * each with the same targets its sibling case uses. A call site needs a
+ * pointer here, not a copy of this paragraph.
  */
 export function assertDegradeLanded(
   before: PublicCatalogue,
@@ -1045,6 +1053,14 @@ export async function withRolledBackTransaction(
 /**
  * The checked-in migration, VERBATIM. No normalising, trimming or splitting:
  * the whole point is that PostgreSQL parses what ships, not that we do.
+ *
+ * WHY EVERY SUITE ON THIS MODULE OPENS ITS CLIENT WITH `max: 1`, stated once
+ * here rather than in each `beforeAll`: the text this returns is executed
+ * through `tx.unsafe` inside a transaction the suite also owns, and
+ * postgres.js REFUSES a transaction-bearing `unsafe` on a pooled client
+ * (`UNSAFE_TRANSACTION: Only use sql.begin, sql.reserved or max: 1`) because
+ * it cannot guarantee the statements land on one backend. Every case in these
+ * suites is sequential, so a single connection costs nothing.
  */
 export function readMigrationSql(fileName: string): string {
   const path = join(process.cwd(), ...MIGRATIONS_DIR, fileName);

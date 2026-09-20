@@ -32,7 +32,7 @@
 // ── the two oracles ─────────────────────────────────────────────────────────
 //
 // ORACLE A (titles 2-4) pins the HEAD posture from literals captured
-// independently of the migration file (`.feature/oracle-a-literals.txt`). This
+// independently of the migration file (`docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`). This
 // is what catches a WEAKENED migration: `pnpm test:db:setup` provisions the
 // container FROM the migration under test, so oracle B alone is circular — a
 // weakened 118 yields a weakened BEFORE reading and `AFTER == BEFORE` passes
@@ -98,13 +98,33 @@
 //
 // ── stated limits ───────────────────────────────────────────────────────────
 //
-// None. The whole table is dropped and re-created, so every object 118 declares
-// — the table, both columns with their types and nullability, the natural-key
-// primary index and constraint, the table comment, the column comment, the
-// `last_cycle_at` default, RLS enabled with zero policies, and the client-role
-// REVOKE — is produced by the executing cases and asserted against either the
-// before-read or a pinned literal. Unlike 117, no `CREATE TABLE IF NOT EXISTS`
-// is skipped here, because the table really is absent when the file runs.
+// TWO, and the first was previously written as "None".
+//
+// 1. THE `CREATE TABLE` BODY IS NOT INDEPENDENTLY PROVEN HERE. The whole table
+//    is dropped and re-created, so every object 118 declares — both columns
+//    with their types and nullability, the natural-key primary index and
+//    constraint, the table comment, the column comment, the `last_cycle_at`
+//    default, RLS enabled with zero policies, and the client-role REVOKE — is
+//    produced by the executing cases. But "produced by the executing cases"
+//    and "proven" are not the same thing: the comment, the default and the
+//    column comment carry PINNED LITERALS below and are genuinely proven,
+//    while the rest are proven only by the `after == before` comparison this
+//    very header calls circular (#1301 F-H). The independent literals for the
+//    table body live in `helpers/migration-guard.integration.test.ts`, whose
+//    `readPublicCatalogue reports every catalogue dimension for a known table`
+//    case pins them for `poller_heartbeats` off a container at head. That is
+//    the file to change if the table's shape changes — not this one.
+//
+// 2. THE SCHEMA DEFAULT ACLs ARE NOT RESTORED BY 118, and this suite no longer
+//    implies they are. Measured through the whole cycle on PostgreSQL 17.11:
+//    the degrade's `ALTER DEFAULT PRIVILEGES … GRANT ALL` survives the
+//    re-apply, all sixteen entries intact. 118's REVOKE reaches what its own
+//    TABLE inherited; the schema-level default is migration 122's subject.
+//    Both off-target calls declare `{ schemaDefaultAcls: 'changed' }`, which
+//    is an assertion — it throws if nothing changed — not an exemption.
+//
+// Unlike 117, no `CREATE TABLE IF NOT EXISTS` is skipped here, because the
+// table really is absent when the file runs.
 //
 // The DB-free registry case is the only one that cannot silently skip; every
 // other case sits behind `describeWithDb` and needs a database.
@@ -153,7 +173,7 @@ const BEHIND_HEAD =
  */
 const DEFAULT_ACL_PROBE_TABLE = 'poller_heartbeats_default_acl_probe';
 
-// ── ORACLE A literals, from `.feature/oracle-a-literals.txt` ────────────────
+// ── ORACLE A literals, from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` ────────────────
 //
 // Captured by introspecting the container, DELIBERATELY not derived from the
 // migration file: that independence is the whole point. A literal copied out of
@@ -230,13 +250,8 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        // max: 1, not more — every executing case runs the checked-in migration
-        // verbatim through `unsafe` inside a transaction it also owns
-        // (`withRolledBackTransaction`), and postgres.js refuses a
-        // transaction-bearing `unsafe` on a pooled client (`UNSAFE_TRANSACTION:
-        // Only use sql.begin, sql.reserved or max: 1`) because it cannot
-        // guarantee the statements land on one backend. Every case here is
-        // sequential, so a single connection costs nothing.
+        // max: 1, not 2 — `readMigrationSql`'s JSDoc owns why. In short:
+        // postgres.js refuses a transaction-bearing `unsafe` on a pooled client.
         max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
@@ -274,7 +289,7 @@ describeWithDb(
         WHERE cls.oid = 'public.poller_heartbeats'::regclass
       `;
 
-      // Literals from `.feature/oracle-a-literals.txt` ("row security posture
+      // Literals from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` ("row security posture
       // at head"): poller_heartbeats: rowsecurity=true force=false policies=0.
       expect(security?.rls_enabled, BEHIND_HEAD).toBe(true);
 
@@ -389,7 +404,7 @@ describeWithDb(
     });
 
     it('poller_heartbeats pins its table comment, column comment and last_cycle_at default at head', async () => {
-      // Three INDEPENDENT literals from `.feature/oracle-a-literals.txt`
+      // Three INDEPENDENT literals from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`
       // ("118 comments and default"). Independence is the point: without them,
       // the executing cases below prove only that the re-apply reproduced
       // whatever the container already had — the circular oracle. A comment and

@@ -75,7 +75,7 @@
 //
 // ORACLE A (the head cases) pins the posture the container actually carries
 // after `pnpm test:db:setup`, from literals captured independently of the
-// migration file (`.feature/oracle-a-literals.txt`). This is what catches a
+// migration file (`docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`). This is what catches a
 // WEAKENED migration: `pnpm test:db:setup` provisions the container FROM the
 // migration under test, so oracle B alone is circular — a weakened 117 yields a
 // weakened BEFORE reading and `AFTER == BEFORE` would pass regardless.
@@ -241,13 +241,8 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        // max: 1, not 4 — the executing cases run the checked-in migration
-        // verbatim through `unsafe` inside a transaction they also own
-        // (`withRolledBackTransaction`), and postgres.js refuses a
-        // transaction-bearing `unsafe` on a pooled client (`UNSAFE_TRANSACTION:
-        // Only use sql.begin, sql.reserved or max: 1`) because it cannot
-        // guarantee the statements land on one backend. Every case here is
-        // sequential, so a single connection costs nothing.
+        // max: 1, not 2 — `readMigrationSql`'s JSDoc owns why. In short:
+        // postgres.js refuses a transaction-bearing `unsafe` on a pooled client.
         max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
@@ -370,7 +365,7 @@ describeWithDb(
         WHERE cls.oid = 'public.admin_audit_log'::regclass
       `;
 
-      // Literals from `.feature/oracle-a-literals.txt` ("row security posture
+      // Literals from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` ("row security posture
       // at head"): admin_audit_log: rowsecurity=true force=false policies=0.
       // Captured by introspection, DELIBERATELY not derived from the migration
       // file — that independence is what catches a weakened 117 on a freshly
@@ -587,12 +582,8 @@ describeWithDb(
         await degrade(tx);
         const degraded = await readPublicCatalogue(tx);
 
-        // The degrade must LAND before the re-apply gets credit for undoing it.
-        // Four of the seven "moves no other table" cases ran this cycle
-        // without proving it, while three proved it — one plan, three shapes
-        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
-        // from an oversight, so every one of the seven now proves it, with the
-        // same targets its sibling case uses.
+        // The degrade must LAND before the re-apply gets credit for undoing it;
+        // `assertDegradeLanded`'s JSDoc owns why all seven cases call this.
         assertDegradeLanded(before, degraded, {
           table: TABLE,
           property: 'grants',

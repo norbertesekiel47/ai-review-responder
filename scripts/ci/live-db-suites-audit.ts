@@ -166,15 +166,24 @@ const MIGRATION_SHAPE_FILES = new Set([
   // 053 degrades users: the users_role_check owner/admin allowlist CHECK
   // dropped — the migration's only object.
   'src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts',
-  // 057 degrades the four columns the OTHER way: NOT NULL reinstated on
-  // account_offboardings.zernio_*, approval_audit_log.response_id and
-  // impersonation_sessions.account_id / impersonated_user_id.
+  // 057 degrades FIVE columns the OTHER way: NOT NULL reinstated on
+  // account_offboardings.zernio_account_ids and .zernio_profile_ids,
+  // approval_audit_log.response_id, and impersonation_sessions.account_id and
+  // .impersonated_user_id. (This said "four" and then listed five; the suite's
+  // own title says five — #1301 RT-10/S-9.)
   'src/lib/shared/__tests__/migration-057-account-offboarding-tombstone-nullability.integration.test.ts',
   // 117 degrades admin_audit_log: deny-all RLS off, client-role privileges
   // granted back, and both actor/event indexes dropped.
   'src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts',
-  // 118 degrades poller_heartbeats: deny-all RLS off and the client-role
-  // privileges the migration revokes granted back.
+  // 118 degrades poller_heartbeats TOTALLY, and it is the only suite here that
+  // does: `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO
+  // anon, authenticated` followed by `DROP TABLE poller_heartbeats`. The
+  // re-applied CREATE TABLE then inherits the permissive defaults, which is
+  // what makes the migration's REVOKE a challenged assertion rather than a
+  // restatement. It never disables RLS. (This said "deny-all RLS off and the
+  // client-role privileges the migration revokes granted back", which hid the
+  // one degrade in this set that reaches a SCHEMA-level object — #1301
+  // RT-6/S-8.)
   'src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);

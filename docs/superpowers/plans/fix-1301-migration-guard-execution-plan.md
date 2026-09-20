@@ -911,8 +911,27 @@ re-created, so every object 118 declares is proven by the executing case.
 
 ## 6. Coverage check against the intake
 
-58 promised titles. T1 two, T2 sixteen, T3 four, T4 five, T5 five, T6 nine,
-T7 four, T8 fourteen. Each title is implemented exactly once. Two titles are
+**60 promised titles, measured against `.feature/intake.json` at HEAD.** The
+prose here said 58 while the per-tracer breakdown below it summed to 59, and
+neither matched the intake — three numbers for one countable fact (#1301
+RT-8/F-G). The breakdown is now per OWNING FILE, which is what a reader can
+check with a grep, and it is derived by searching each title's exact text:
+
+| Titles | Owning file |
+|---:|---|
+| 15 | `src/lib/shared/__tests__/helpers/migration-guard.test.ts` |
+| 9 | `src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts` |
+| 8 | `src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts` |
+| 6 | `src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts` |
+| 5 | `src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts` |
+| 5 | `src/lib/shared/__tests__/migration-051-flagged-responses.integration.test.ts` |
+| 4 | `src/lib/shared/__tests__/migration-049-analytics-events-rls.integration.test.ts` |
+| 4 | `src/lib/shared/__tests__/migration-057-account-offboarding-tombstone-nullability.integration.test.ts` |
+| 2 | `src/lib/shared/__tests__/helpers/migration-guard.integration.test.ts` |
+| 2 | `src/__tests__/ci-audit-wiring.test.ts` |
+| **60** | **total, every title found, none missing** |
+
+Each title is implemented exactly once. Two titles are
 worded as cross-cutting and their single owning suite is stated explicitly:
 `head posture pins migration 048 defaults and foreign keys and migration 051
 columns and foreign keys` lives in T4, with T5 carrying the 051 half under its

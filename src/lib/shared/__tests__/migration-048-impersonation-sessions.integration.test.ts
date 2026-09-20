@@ -21,7 +21,7 @@
 // `after === before` passes even though both sides are wrong.
 //
 // Oracle A — literals pinned IN THIS FILE, independent of the migration file,
-// taken from `.feature/oracle-a-literals.txt` (machine-generated exact
+// taken from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` (machine-generated exact
 // catalogue renderings, captured on a known-good container). These break the
 // circle: a weakened migration still fails a DIRECT comparison against a
 // hardcoded string, whatever `before` happens to read. Guarded here: all four
@@ -97,7 +97,7 @@ const WEAKENED_MIGRATION =
   `re-applying ${MIGRATION_FILE} did not restore this object — the container is at head, so ` +
   'the checked-in migration is what changed';
 
-// ── Oracle A: pinned literals, from .feature/oracle-a-literals.txt ─────────
+// ── Oracle A: pinned literals, from docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt ─────────
 
 /** The four indexes 048 creates, keyed by name. Never the pkey index — that
  * one comes from the PRIMARY KEY constraint, not from one of 048's own

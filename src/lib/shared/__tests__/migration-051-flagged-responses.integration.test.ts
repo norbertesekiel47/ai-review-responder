@@ -17,7 +17,7 @@
 // ── the two oracles ──────────────────────────────────────────────────────────
 //
 // ORACLE A (title 2) is a full pinned head posture — literals captured
-// independently of the migration file (`.feature/oracle-a-literals.txt`). This
+// independently of the migration file (`docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt`). This
 // is what catches a WEAKENED migration on a freshly provisioned container:
 // `pnpm test:db:setup` provisions the container FROM the migration under test,
 // so oracle B alone is circular — a weakened migration yields a weakened
@@ -150,14 +150,8 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        // max: 1, not 2 — every case here runs the checked-in migration
-        // verbatim through `unsafe` inside a transaction it also owns
-        // (`withRolledBackTransaction`), and postgres.js refuses a
-        // transaction-bearing `unsafe` on a pooled client
-        // (`UNSAFE_TRANSACTION: Only use sql.begin, sql.reserved or max: 1`)
-        // because it cannot guarantee the statements land on one backend.
-        // Every case here is sequential, so a single connection costs
-        // nothing.
+        // max: 1, not 2 — `readMigrationSql`'s JSDoc owns why. In short:
+        // postgres.js refuses a transaction-bearing `unsafe` on a pooled client.
         max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
@@ -203,7 +197,7 @@ describeWithDb(
         expect(table?.policies, BEHIND_HEAD).toEqual([]);
 
         // The full column inventory — types and nullability — pinned from
-        // .feature/oracle-a-literals.txt, independent of the migration file.
+        // docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt, independent of the migration file.
         const expectedColumns: CatalogueEntry[] = [
           { name: 'account_id', definition: 'uuid NOT NULL identity=none generated=none' },
           { name: 'api_cost_id', definition: 'uuid NULL identity=none generated=none' },

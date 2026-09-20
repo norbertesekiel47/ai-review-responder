@@ -54,7 +54,7 @@
 //
 // ── ORACLE A pins BOTH directions ────────────────────────────────────────────
 //
-// Literals from `.feature/oracle-a-literals.txt` ("057 nullability"),
+// Literals from `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` ("057 nullability"),
 // independent of the migration file: oracle B alone is circular, because
 // `pnpm test:db:setup` provisions the container FROM the migration under
 // test, so a weakened 057 would yield a weakened BEFORE reading and
@@ -130,7 +130,7 @@ const TABLES = [
   'impersonation_sessions',
 ] as const;
 
-// Oracle A — `.feature/oracle-a-literals.txt` "057 nullability", verbatim.
+// Oracle A — `docs/reviews/fix-1301-migration-guard-execution/oracle-a-literals.txt` "057 nullability", verbatim.
 // Both halves: the five loosened columns (nullable=YES) and the five
 // deliberately untouched ones (nullable=NO).
 const HEAD_NULLABILITY: readonly { table: string; column: string; nullable: boolean }[] = [
@@ -236,14 +236,8 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        // max: 1, not 2 — every case here runs the checked-in migration
-        // verbatim through `unsafe` inside a transaction it also owns
-        // (`withRolledBackTransaction`), and postgres.js refuses a
-        // transaction-bearing `unsafe` on a pooled client
-        // (`UNSAFE_TRANSACTION: Only use sql.begin, sql.reserved or max: 1`)
-        // because it cannot guarantee the statements land on one backend.
-        // Every case here is sequential, so a single connection costs
-        // nothing.
+        // max: 1, not 2 — `readMigrationSql`'s JSDoc owns why. In short:
+        // postgres.js refuses a transaction-bearing `unsafe` on a pooled client.
         max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
@@ -348,12 +342,8 @@ describeWithDb(
         await tx.unsafe(DEGRADE);
         const degraded = await readPublicCatalogue(tx);
 
-        // The degrade must LAND before the re-apply gets credit for undoing it.
-        // Four of the seven "moves no other table" cases ran this cycle
-        // without proving it, while three proved it — one plan, three shapes
-        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
-        // from an oversight, so every one of the seven now proves it, with the
-        // same targets its sibling case uses.
+        // The degrade must LAND before the re-apply gets credit for undoing it;
+        // `assertDegradeLanded`'s JSDoc owns why all seven cases call this.
         assertDegradeLanded(before, degraded, {
           table: 'account_offboardings',
           property: 'notNullColumns',
