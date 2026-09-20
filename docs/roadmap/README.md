@@ -53,6 +53,7 @@ assignments; its numeric targets are proposed, not achieved results.
 | [Investor theses](2026-08-29-investor-theses-overlay.md) | Ideas to test with buyers and investors; pricing and funding decisions |
 | [Launch explainer](2026-08-29-launch-explainer-script.md) | A short demonstration first, with a longer film concept for later |
 | [Operating costs](2026-08-30-operating-cost-baseline.md) | Dated service-cost inventory and the missing inputs for a cash plan |
+| [Agentic design of record](2026-07-01-agentic-reputation-platform-design.md) | The accepted engineering design for the agentic platform: locked decisions, §8 as-built status, §9 Solicitation roadmap. Moved here from `docs/future-plans/` on 2026-09-20 |
 | [Owner operator](2026-09-11-owner-operator.md) | The v1 spec (conversation → proposal cards → Apply → receipts) and its build status. Its architecture and framework posture are [agentic architecture §6](2026-08-26-agentic-architecture.md#6-owner-operator-durable-commitments-and-framework-posture); the stages beyond v1 close the [forward roadmap](2026-08-26-forward-roadmap.md#owner-operator-stages-beyond-version-1) |
 | [Competitor evidence](../plans/2026-09-11-reputation-competitor-landscape.md) | Desk review of NiceJob, TrueReview and GatherUp (checked Sep 11): documented AI replies, automation and international coverage |
 | [Roadmap review](2026-09-07-roadmap-review.md) | Two Claude review rounds, changes made, and documentation checks |
@@ -112,8 +113,13 @@ assignments; its numeric targets are proposed, not achieved results.
 
 ## Relationship to engineering documents
 
-This folder owns product priorities. The
-[agentic design of record](../future-plans/2026-07-01-agentic-reputation-platform-design.md),
+This folder owns product priorities. It also houses two engineering
+documents by named exception, because the roadmap pages cite them
+throughout: the
+[agentic design of record](2026-07-01-agentic-reputation-platform-design.md)
+and the [Owner Operator spec](2026-09-11-owner-operator.md). They keep their
+authority over implementation; living here does not make them priorities.
+The design of record,
 [feature specs](../superpowers/specs/), [plans](../superpowers/plans/), and
 [runbooks](../runbooks/) own implementation requirements and operating
 procedures. A roadmap entry does not override a safety invariant, authorize
@@ -134,6 +140,12 @@ external API/MCP access, and adds tests for business memory and
 international transferability. Cash gates, existing beta promises and the
 20-hour default cap for other improvements remain in force. The September 7
 review predates this revision and did not evaluate it.
+
+The September 20 retirement of `docs/future-plans/` (which predated this
+folder) moved the design of record here, moved the worker-scaling backlog
+and the July codebase audit to `docs/audits/`, turned four open follow-ups
+into issues #1354–#1357, and removed six finished or superseded files (in
+git history at `415106887`).
 
 The September 20 consolidation removes the `2026-09-11-owner-operator/`
 subfolder. The spec is now `2026-09-11-owner-operator.md`; its architecture

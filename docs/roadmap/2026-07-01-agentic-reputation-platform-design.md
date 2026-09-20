@@ -1,8 +1,14 @@
 # RepWorth → Agentic Reputation-Management Platform — Design of Record
 
 **Status:** Accepted (grilling session 2026-07-01, Norbert + Claude). Supersedes
-[2026-05-22-saas-2-0-vertical-agent-platform-design.md](2026-05-22-saas-2-0-vertical-agent-platform-design.md)
-and [2026-06-04-ai-native-transformation-design.md](2026-06-04-ai-native-transformation-design.md).
+`2026-05-22-saas-2-0-vertical-agent-platform-design.md` and
+`2026-06-04-ai-native-transformation-design.md`. Both were removed on 2026-09-20
+when `docs/future-plans/` was retired and this page moved to `docs/roadmap/`;
+they are in git history at `415106887` under `docs/future-plans/`. The parts of
+them this page once called live reference (the May trust-dial safety
+architecture and Solicitation design, the June asset inventory) are now owned
+by the shipped code, `.claude/rules/agentic-platform.md` and
+`.claude/rules/solicitation.md`.
 Where those docs and this one disagree, this one wins. Architecture invariants in
 [.claude/CLAUDE.md](../../.claude/CLAUDE.md) still win over everything.
 **Altitude:** Fresh analysis + locked decisions. Each build phase below still gets its own

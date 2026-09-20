@@ -147,7 +147,7 @@ thing to bite next."*
 `runAdminTx:222-346` and `runSelfServeTx:348-474` remain two ~125-line siblings
 with two 21-column `businesses` INSERTs (`:275-321` / `:402-448`) synchronized by
 comment only (`:273-274`, `:399-401`). Tracking doc
-`docs/future-plans/2026-08-14-unify-create-business-insert-paths.md:6` —
+`docs/future-plans/2026-08-14-unify-create-business-insert-paths.md:6` (removed 2026-09-20; now issue #1356) —
 **"Status: open, not scheduled."** Carried from the #821 log entry; re-confirmed
 live, not re-litigated.
 

@@ -5,7 +5,7 @@
 // idempotency guard (OVERAGE-F1), and the in-process LLM circuit breaker. The
 // backlog's P2 section lists the pollers that become duplicate-processing bugs
 // the moment a second replica exists
-// (docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md).
+// (docs/audits/2026-06-17-worker-scaling-hardening-backlog.md).
 //
 // Nothing can enforce that invariant from inside one process: Railway injects a
 // per-replica `RAILWAY_REPLICA_ID` but NO replica count, so a booting worker

@@ -165,7 +165,7 @@ concurrency is the default 1, and the worker is single-replica by invariant
 (`CLAUDE.md` gotcha "Single-replica worker"). Serial execution makes A finish
 its tombstone before B starts, and B then sees `stripe_customer_id IS NULL` for
 A. The guard's correctness therefore rests on a property the branch never states
-and `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` exists to
+and `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md` exists to
 relax. The customer-keyed advisory lock serializes the two stages against each
 other but does **not** rescue this: serialization is exactly what produces the
 mutual skip, because the lock is released at each stage's commit, long before

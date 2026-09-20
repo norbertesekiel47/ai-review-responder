@@ -11,7 +11,7 @@
 > **§5 rows 6–8** rather than re-deriving them, and packages its **§6** as Part II.
 > Attestation model inherited from **#535**
 > (`docs/superpowers/specs/2026-07-23-contacts-csv-contract-design.md` §4/§5/§6).
-> Reference design: `docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` §6.5.
+> Reference design: `docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` (removed 2026-09-20; in git history at `415106887`) §6.5.
 >
 > **Consumes:** `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` (§1.2 lookup contract, §4.3 dispatch gate, §6.3
 > purge dispositions, §8.1 the precedence sentence); `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` (D5

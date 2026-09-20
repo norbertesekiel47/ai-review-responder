@@ -177,7 +177,7 @@ beforeEach(() => {
   //
   // Stubbed locally, not in `worker/__tests__/helpers/mock-sql.ts`, because that
   // helper is outside this branch's `allowed_edit_surface`; promoting it there is
-  // filed in `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md`.
+  // filed in `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md` (removed 2026-09-20; now issue #1356).
   //
   // Rejections PROPAGATE, matching Postgres: a failed savepoint rolls back to
   // the savepoint and leaves the transaction usable, and what that means is the

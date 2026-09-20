@@ -179,7 +179,7 @@ Clean pass; zero regressions:
   zero zernio/serpapi references in `src/lib/responses/`. Known GBP-readiness gap
   confirmed: ingest parses then **discards** the Google-native `review.name`
   (`src/lib/reviews/zernio-normalize.ts`) — already designed-for in
-  `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md:239-241`.
+  `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md:239-241`.
 - **Stripe**: single construction site `stripe-client.ts:35`. **Redis**: construction
   confined to `db/redis-cache.ts` (Upstash) + `worker/redis-connection.ts` (queue); the
   one outlier (`worker/index.ts:356` readiness probe) reuses `getRedisOptions()` — wiring,

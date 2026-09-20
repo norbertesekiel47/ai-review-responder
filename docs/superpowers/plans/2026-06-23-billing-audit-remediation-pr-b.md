@@ -1293,7 +1293,7 @@ docs/superpowers/specs/2026-06-23-core-billing-audit-remediation-design.md §5
 - B5a RECONCILE-F3: document StripeCheckoutReconcileWorker as the pending_payment backstop.
 - B5b RECONCILE-F6: scope the duplicate-subscription scan to the account's lineage.
 - B6 CONFIG-1: verify (or fix) Sentry routing for reconcile drift.
-- NOTE-B comment folded in. locations_paid retirement tracked in docs/future-plans/.
+- NOTE-B comment folded in. locations_paid retirement tracked in docs/future-plans/ (folder retired 2026-09-20; now issue #1354).
 
 Money-path: soaked on staging with Stripe test clocks (convert/decline/cancel/
 overage↑↓/reconcile) before this PR. Full gate green (lint/typecheck/test/build +

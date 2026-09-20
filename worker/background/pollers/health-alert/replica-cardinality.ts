@@ -14,7 +14,7 @@
 // latent "two replicas duplicate work" risk for an active "zero replicas run"
 // outage. Detection stays the posture (CLAUDE.md); this closes the gap that
 // nothing acted on it. When the P2 items in
-// docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md clear and
+// docs/audits/2026-06-17-worker-scaling-hardening-backlog.md clear and
 // multiple replicas become legitimate, this becomes a threshold to raise rather
 // than architecture to remove.
 import type { Redis } from 'ioredis';

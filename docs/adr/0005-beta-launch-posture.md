@@ -55,7 +55,7 @@ scale-shaped to explicit growth triggers.
    horizontal scale, circuit breakers, ArchivalPoller drain, poller keyset
    rewrites, Stripe-webhook decoupling, Upstash `KEYS`→`SCAN`, cost-cap
    non-terminal redesign) — tracked in
-   `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`, the single
+   `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`, the single
    action list.
 
 5. **Beta billing is subscription-invoices-only** — an explicit operating

@@ -236,7 +236,7 @@ rg -n "kpi/service|api/dashboard/kpis|getLocationKpiSummary|getAccountKpiSummary
 
 `src/app/api/dashboard/kpis/` is gone. Remaining doc references are: `docs/reviews/**` and root
 `PLAN.md` (deliberately retained per `non_goals`); `docs/audits/**`,
-`docs/future-plans/2026-07-06-codebase-audit-findings.md`, `docs/sass_ready/**` (dated historical
+`docs/audits/2026-07-06-codebase-audit-findings.md`, `docs/sass_ready/**` (dated historical
 snapshots — `docs/sass_ready/11-data-analytics-bi.md:5` is explicitly stamped "Implementation status
 (Wave 3, 2026-05-27)"); and `docs/currents.md`, which is the LOW finding above.
 `docs/directory.md` never carried a row for the deleted route and now carries a correct `kpi/`

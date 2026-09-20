@@ -448,7 +448,7 @@ The `checkout_coupon_decision` event belongs to F6.
 ### 1. `createBusinessTx` still holds TWO near-duplicate insert paths — NOT unified
 
 The deferral is still open. The tracking doc lives at
-`docs/future-plans/2026-08-14-unify-create-business-insert-paths.md` (not
+`docs/future-plans/2026-08-14-unify-create-business-insert-paths.md` (removed 2026-09-20; now issue #1356) (not
 `docs/decisions/`), and its own header says **"Status: open, not scheduled"**
 (`:6`).
 

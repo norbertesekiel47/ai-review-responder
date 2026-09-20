@@ -78,7 +78,7 @@ FAIL → with the run-time DDL removed, `batch-builder.integration.test.ts` bega
   Redis so `HealthAlertPoller` pages when >1 is live (#587) — deliberately a
   registry, NOT a boot-gating lease (a Redis outage must never stop the worker
   starting). Before ever scaling: clear the P2 list in
-  `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`.
+  `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`.
 - JSONB carve-out: `typeof x === 'string' ? JSON.parse(x) : x` then narrow is
   the *only* sanctioned exception to the no-`any` rule (never paper over it
   with `: any`); the allowlist (19 sites today) is the note above; HTTP/request

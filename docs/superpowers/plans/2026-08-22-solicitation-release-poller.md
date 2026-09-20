@@ -601,7 +601,7 @@ row, not two.
 
 **Files:**
 - Create: `worker/background/pollers/SolicitationReleasePoller.ts`
-- Modify: `worker/index.ts`, `src/lib/config/worker.ts`, `.claude/reference/env-vars.md`, `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`
+- Modify: `worker/index.ts`, `src/lib/config/worker.ts`, `.claude/reference/env-vars.md`, `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`
 
 - [ ] **Step 1: Write the poller as a near-copy of `JudgeSweepPoller.ts`.** Same `createGuardedPoll` shape. `DEFAULT_INTERVAL_MS = 60_000`, `CYCLE_TIMEOUT_MS = 45_000` (below the interval, per `GuardedPollOptions`). Export `runSolicitationReleaseCycle(exec)`, `startSolicitationReleasePoller()`, `stopSolicitationReleasePoller()`.
 
@@ -613,7 +613,7 @@ row, not two.
 
 - [ ] **Step 4: Add the env-vars registry row.** Model it on the `JUDGE_POLL_INTERVAL_MS` row. State that the poller is NOT inert when `SOLICITATION_SEND_ENABLED` is off — only its release phase is.
 
-- [ ] **Step 5: Add the P2 single-replica entry.** In `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`, add `SolicitationReleasePoller` with amendment B3's condition verbatim: *if the releaser is ever parallelized, the single-choke-point cap resolution must be revisited.*
+- [ ] **Step 5: Add the P2 single-replica entry.** In `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`, add `SolicitationReleasePoller` with amendment B3's condition verbatim: *if the releaser is ever parallelized, the single-choke-point cap resolution must be revisited.*
 
 - [ ] **Step 6: Run, then commit**
 

@@ -297,7 +297,7 @@ Each high was verified against the code before triage; all three held.
 
 | # | Sev | Verdict |
 |---|---|---|
-| 1 | HIGH | `create-business.ts` duplication — **ACCEPTED, DEFERRED by owner decision.** Real, and the column-order hazard is correctly characterised. Deferred because it is the highest-risk file on the branch and already proven end-to-end on staging; a ~230-line no-behaviour-change restructure would void that proof. Filed: `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md`. |
+| 1 | HIGH | `create-business.ts` duplication — **ACCEPTED, DEFERRED by owner decision.** Real, and the column-order hazard is correctly characterised. Deferred because it is the highest-risk file on the branch and already proven end-to-end on staging; a ~230-line no-behaviour-change restructure would void that proof. Filed: `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md` (removed 2026-09-20; now issue #1356). |
 | 2 | HIGH | Missing `archived_at IS NULL` on the aggregate primary join — **ACCEPTED, FIXED.** Confirmed against `034`'s partial unique index. The only finding this round that silently corrupts a live owner's payload. |
 | 3 | HIGH | `recordCouponDecision` post-commit + swallow — **ACCEPTED, FIXED** via `tx.savepoint`. Half the reasoning corrected: the rollback direction cannot occur (gated on `result.kind === 'ok'`), but crash-after-commit is real — and the un-migrated-106 objection the original comment raised is answered by the savepoint rather than by the ordering, so the fix keeps both properties. |
 | 4 | MED | Silent `catch {}` on the fail-closed invite rate limit — **ACCEPTED, FIXED** (`reportCaughtError` before the 503). |

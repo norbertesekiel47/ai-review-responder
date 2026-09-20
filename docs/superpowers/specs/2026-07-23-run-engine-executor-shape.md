@@ -4,7 +4,7 @@ Locked in the 2026-07-23 grilling session. Part of wayfinder map #528
 (Solicitation watch-mode). Seeded by the #529 gap analysis
 (`docs/research/2026-07-23-run-engine-gap.md`, branch `research/run-engine-gap`)
 and bound by design doc §9.1
-(`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md`).
+(`docs/roadmap/2026-07-01-agentic-reputation-platform-design.md`).
 Rationale for the two reference-design deviations: ADR 0011.
 
 These decisions bind the implementation tickets on map #528 (restraint policy

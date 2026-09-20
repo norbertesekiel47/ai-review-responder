@@ -63,7 +63,7 @@
 // selected-but-uncommitted rows, i.e. its remaining per-tick budget. That is a
 // re-read, NOT a reservation: if this loop is ever parallelized across
 // replicas, the resolution must be revisited (P2 entry in
-// docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md).
+// docs/audits/2026-06-17-worker-scaling-hardening-backlog.md).
 //
 // THE PER-CHILD **Dispatch gate** IS #899's AND RUNS NOWHERE IN THIS FILE. What
 // this module decides is whether a `rendered` attempt may become `queued`; what
