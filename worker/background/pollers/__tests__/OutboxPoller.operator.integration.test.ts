@@ -136,7 +136,7 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
     // an owner. A fresh dispatch is left alone; an aged one fails atomically.
     await runOutboxWatchdogRecovery(db, 900, logger);
     expect(await readPair(fixture.turnId, fixture.outboxId)).toMatchObject({ turn_status: 'accepted', outbox_status: 'dispatching' });
-    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ${fixture.outboxId}::uuid`;
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '20 minutes' WHERE id = ${fixture.outboxId}::uuid`;
     await runOutboxWatchdogRecovery(db, 900, logger);
     const recovered = await readPair(fixture.turnId, fixture.outboxId);
     expect(recovered).toMatchObject({ turn_status: 'failed', failure_reason: 'dispatch_exhausted', outbox_status: 'failed', attempts: 5 });
@@ -165,7 +165,7 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
     const otherTopic = await seedTurn();
     const missingTimestamp = await seedTurn();
     await claimTurn(db, { turnId: live.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
-    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ANY(${[live.outboxId, otherTopic.outboxId]}::uuid[])`;
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '20 minutes' WHERE id = ANY(${[live.outboxId, otherTopic.outboxId]}::uuid[])`;
     await db`UPDATE job_outbox SET topic = 'generate_response' WHERE id = ${otherTopic.outboxId}::uuid`;
     await db`UPDATE job_outbox SET dispatched_at = NULL WHERE id = ${missingTimestamp.outboxId}::uuid`;
 
@@ -175,7 +175,10 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
     // What stays topic-scoped is the RECONCILIATION: the array_agg(...) FILTER
     // keeps reconcileTurnForFailedOutbox off a non-agent_turn row, so the turn
     // must still read 'accepted' with no failure_reason.
-    expect(await readPair(otherTopic.turnId, otherTopic.outboxId)).toMatchObject({ turn_status: 'accepted', failure_reason: null, outbox_status: 'failed', attempts: 5 });
+    const other = await readPair(otherTopic.turnId, otherTopic.outboxId);
+    expect(other).toMatchObject({ turn_status: 'accepted', failure_reason: null, outbox_status: 'failed', attempts: 5 });
+    expect(other.outbox_completed).not.toBeNull();
+    expect(other.turn_completed).toBeNull();
     const recovered = await readPair(missingTimestamp.turnId, missingTimestamp.outboxId);
     expect(recovered).toMatchObject({ turn_status: 'failed', outbox_status: 'failed', failure_reason: 'dispatch_exhausted', attempts: 5 });
     expect(recovered.turn_completed).not.toBeNull();
@@ -185,7 +188,7 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
   it('watchdog recovery of exhausted dispatching work defers a turn locked by completion', async () => {
     const fixture = await seedTurn();
     await claimTurn(db, { turnId: fixture.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
-    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ${fixture.outboxId}::uuid`;
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '20 minutes' WHERE id = ${fixture.outboxId}::uuid`;
     let announceLock!: () => void;
     let releaseLock!: () => void;
     const locked = new Promise<void>((resolve) => { announceLock = resolve; });

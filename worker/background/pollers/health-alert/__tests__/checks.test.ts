@@ -139,12 +139,8 @@ describe('health-alert checks', () => {
       const findings = await checkFailedOutboxByTopic(mockSql, CFG);
       expect(findings).toHaveLength(1);
       expect(findings[0]?.key).toBe('outbox_failed:generate_response');
-      // SQL-text assertion: the row-queued mock returns whatever is queued
-      // regardless of the query, so also prove the production topic filter
-      // actually includes generate_response (passed as an interpolated value).
-      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
-      expect(template.join(' ')).toContain('FROM job_outbox');
-      expect(values).toContain(QUEUE_NAMES.GENERATE_RESPONSE);
+      // Allowlist-membership assertion removed at #1378: the list is gone.
+      // `covers every topic` below pins the stronger property it replaced.
     });
 
     it('health alerts include terminal build_solicitation_batch outbox failures', async () => {
@@ -163,9 +159,8 @@ describe('health-alert checks', () => {
           },
         }),
       ]);
-      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
-      expect(template.join(' ')).toContain('FROM job_outbox');
-      expect(values).toContain(QUEUE_NAMES.BUILD_SOLICITATION_BATCH);
+      // Allowlist-membership assertion removed at #1378: the list is gone.
+      // `covers every topic` below pins the stronger property it replaced.
     });
 
     // #628 round 5: the ask-generation lane's dead-letter concedes a stranded
@@ -187,8 +182,8 @@ describe('health-alert checks', () => {
           },
         }),
       ]);
-      const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
-      expect(values).toContain(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS);
+      // Allowlist-membership assertion removed at #1378: the list is gone.
+      // `covers every topic` below pins the stronger property it replaced.
     });
 
     // Owner Operator Run A (red-team P1-2): a failed agent_turn row means the
@@ -210,8 +205,41 @@ describe('health-alert checks', () => {
           },
         }),
       ]);
-      const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
-      expect(values).toContain(QUEUE_NAMES.AGENT_TURN);
+      // Allowlist-membership assertion removed at #1378: the list is gone.
+      // `covers every topic` below pins the stronger property it replaced.
+    });
+
+    // #1378: the seven-topic allowlist is OPEN. The four cases above still pin
+    // that each named lane raises its finding; this pins the property that
+    // replaced their membership assertions — no topic filter exists at all, so
+    // a lane that nobody remembers to register is covered by construction.
+    // That is strictly stronger than "these seven are present".
+    it('covers every topic — the query binds no topic allowlist', async () => {
+      sqlReturnQueue.push([]);
+
+      await checkFailedOutboxByTopic(mockSql, CFG);
+
+      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const sqlText = template.join(' ');
+      expect(sqlText).toContain('FROM job_outbox');
+      expect(sqlText).not.toContain('topic IN');
+      // Every QUEUE_NAMES value absent from the bind list proves no allowlist
+      // was reintroduced under a different SQL spelling (ANY(), OR-chain, …).
+      for (const topic of Object.values(QUEUE_NAMES)) {
+        expect(values).not.toContain(topic);
+      }
+    });
+
+    // The capability the widening actually buys: a topic that was NEVER in the
+    // old allowlist now pages. `csv_ingest` is deliberately one of those.
+    it('raises a finding for a topic that the old allowlist never covered', async () => {
+      sqlReturnQueue.push([{ topic: QUEUE_NAMES.CSV_INGEST, count: 3 }]);
+
+      const findings = await checkFailedOutboxByTopic(mockSql, CFG);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.key).toBe(`outbox_failed:${QUEUE_NAMES.CSV_INGEST}`);
+      expect(findings[0]?.level).toBe('error');
     });
   });
 

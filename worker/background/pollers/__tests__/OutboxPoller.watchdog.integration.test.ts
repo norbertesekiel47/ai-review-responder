@@ -28,8 +28,14 @@
 // max_attempts AND on any other topic matching no watchdog arm and no claim —
 // a permanent orphan. The cases below are seeded on PROBE_TOPIC precisely
 // because it is not `agent_turn`: re-scoping the predicate turns case 1 red.
-// The 2-minute window is the same one arm 3 uses; the fresh-row case pins the
-// guard that keeps a row the current cycle is still dispatching out of reach.
+//
+// The two dispatching arms use DIFFERENT windows and that separation is the
+// point: arm 3 re-pends after 2 minutes, the terminal arm gives up only after
+// `watchdogStaleSecs` (15 min). `dispatchBatch` walks topic groups serially,
+// so the claim→dispatched gap can reach ~6 min; terminalizing at 2 min would
+// kill live work, and unlike `agent_turn` no other topic has a rollback valve.
+// The `in the gap` case below is what pins it — collapsing the terminal arm
+// back onto arm 3's 2 minutes turns that case red and nothing else.
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
@@ -48,6 +54,7 @@ import {
   type SchemaRequirement,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import type { WorkerLogger } from '@/lib/shared/logger';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 
 vi.mock('../../../queues', () => ({ topicToQueue: {} }));
 
@@ -72,8 +79,15 @@ const GENERIC_RECLAIM_TEXT = 'Stale dispatched entry exceeded max_attempts';
  * `dispatched` one above — asserting it is what proves the branch taken. */
 const DISPATCHING_RECLAIM_TEXT = 'Stale dispatching entry exceeded max_attempts';
 
-/** Hard-coded `INTERVAL '2 minutes'` in both dispatching arms, not env-tunable. */
-const DISPATCHING_STALE_SECS = 120;
+/**
+ * Arm 3's re-pend window: a hard-coded `INTERVAL '2 minutes'`, not env-tunable.
+ * The TERMINAL arm deliberately does NOT share it — it uses
+ * `watchdogStaleSecs` (15 min), because the claim→dispatched gap is bounded
+ * only by (topics × dispatch timeout) ≈ 6 min and a premature terminalization
+ * is unrecoverable. Tests that age a row between these two values pin exactly
+ * that separation.
+ */
+const REPEND_STALE_SECS = 120;
 
 const OUTBOX_WATCHDOG_SCHEMA: SchemaRequirement = {
   migration: '001_initial_schema + 004_outbox_dispatching',
@@ -112,9 +126,9 @@ interface SeedOptions {
    * boundary is exactly what these rows sit on either side of. `null` seeds a
    * NULL dispatched_at. `claimPendingBatch` always stamps NOW(), so no known
    * production path reaches dispatching-with-NULL; both dispatching arms carry
-   * `dispatched_at IS NULL OR …` anyway, and the terminal arm inherits that
-   * disjunct verbatim from arm 3. This case pins the inherited behavior so a
-   * later simplification of either arm cannot silently drop it from one only. */
+   * `dispatched_at IS NULL OR …` anyway, though they pair it with different
+   * intervals. This case pins that NULL disjunct on the terminal arm so a
+   * later simplification cannot silently drop it from one arm only. */
   dispatchedSecsAgo: number | null;
   lastError?: string | null;
 }
@@ -269,8 +283,10 @@ describeWithDb(
       const id = await seedRow({
         status: 'dispatching',
         attempts: 5,
-        dispatchedSecsAgo: DISPATCHING_STALE_SECS + 60,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
       });
+      // The fixture is only meaningful while the probe topic is NOT agent_turn.
+      expect(PROBE_TOPIC).not.toBe(QUEUE_NAMES.AGENT_TURN);
 
       await runWatchdog();
 
@@ -299,13 +315,13 @@ describeWithDb(
       const nullError = await seedRow({
         status: 'dispatching',
         attempts: 5,
-        dispatchedSecsAgo: DISPATCHING_STALE_SECS + 60,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
         lastError: null,
       });
       const emptyError = await seedRow({
         status: 'dispatching',
         attempts: 5,
-        dispatchedSecsAgo: DISPATCHING_STALE_SECS + 60,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
         lastError: '',
       });
 
@@ -313,7 +329,10 @@ describeWithDb(
 
       expect((await rowState(nullError)).last_error).toBe(DISPATCHING_RECLAIM_TEXT);
       expect((await rowState(emptyError)).last_error).toBe(DISPATCHING_RECLAIM_TEXT);
-      expect(DISPATCHING_RECLAIM_TEXT).not.toBe(GENERIC_RECLAIM_TEXT);
+      // Asserting the dispatched text is NOT written is the half that catches
+      // a CASE whose branches are swapped; comparing the two local constants
+      // to each other would be a tautology that can never fail.
+      expect((await rowState(nullError)).last_error).not.toBe(GENERIC_RECLAIM_TEXT);
     });
 
     it('keeps a per-job last_error when terminalizing a stale dispatching row', async () => {
@@ -323,7 +342,7 @@ describeWithDb(
       const id = await seedRow({
         status: 'dispatching',
         attempts: 5,
-        dispatchedSecsAgo: DISPATCHING_STALE_SECS + 60,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
         lastError: perJobError,
       });
 
@@ -340,7 +359,7 @@ describeWithDb(
       const id = await seedRow({
         status: 'dispatching',
         attempts: 1,
-        dispatchedSecsAgo: DISPATCHING_STALE_SECS + 60,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
       });
 
       await runWatchdog();
@@ -349,6 +368,45 @@ describeWithDb(
       expect(row.status).toBe('pending');
       expect(row.dispatched_at).toBeNull();
       expect(row.completed_at).toBeNull();
+    });
+
+    it('leaves a dispatching row at max_attempts alone in the gap between the two windows', async () => {
+      // THE guard for the window separation. 5 minutes is past arm 3's 2-minute
+      // re-pend window and short of the terminal arm's 15 minutes — exactly
+      // where a serial multi-topic dispatch cycle legitimately sits. Collapsing
+      // the terminal arm onto 2 minutes turns this case red and nothing else.
+      const id = await seedRow({
+        status: 'dispatching',
+        attempts: 5,
+        dispatchedSecsAgo: 300,
+      });
+      expect(300).toBeGreaterThan(REPEND_STALE_SECS);
+      expect(300).toBeLessThan(WATCHDOG_STALE_SECS);
+
+      await runWatchdog();
+
+      const row = await rowState(id);
+      expect(row.status).toBe('dispatching');
+      expect(row.completed_at).toBeNull();
+      expect(row.last_error).toBeNull();
+    });
+
+    it('reports terminalized dispatching rows in the watchdog failed count', async () => {
+      // The intake declares the log line's `failed` field as user-visible
+      // operational behavior; without this nothing covers it.
+      vi.mocked(loggerStub.log).mockClear();
+      await seedRow({
+        status: 'dispatching',
+        attempts: 5,
+        dispatchedSecsAgo: WATCHDOG_STALE_SECS + 300,
+      });
+
+      await runWatchdog();
+
+      const entry = vi.mocked(loggerStub.log).mock.calls
+        .find((c) => String(c[0]).includes('Watchdog recovered stale entries'));
+      expect(entry, 'watchdog logged no recovery line').toBeDefined();
+      expect((entry![1] as { failed: number }).failed).toBeGreaterThanOrEqual(1);
     });
 
     it('leaves a freshly claimed dispatching row at max_attempts alone', async () => {

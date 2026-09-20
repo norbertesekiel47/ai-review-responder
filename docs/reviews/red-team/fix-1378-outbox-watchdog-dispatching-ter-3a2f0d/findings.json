@@ -1,0 +1,243 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1378-outbox-watchdog-dispatching-ter-3a2f0d",
+  "branch": "fix/1378-outbox-watchdog-dispatching-terminal",
+  "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
+  "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
+  "head_sha": "3bc5f1a31cf857ad991e2b5387e90b2da929cda6",
+  "intake_sha256": "950c1de55af51703653a30a113c33c1bec776487c28bf58fecd3dd4ed4933767",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-20T23:33:40Z",
+  "inventory": [
+    {
+      "id": "A1",
+      "test": "terminalizes a stale dispatching row at max_attempts on a non-agent_turn topic",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M1 (predicate re-scoped to topic = AGENT_TURN), M2 (terminal window 2m -> 2h) and M5 (>= -> >)"
+    },
+    {
+      "id": "A2",
+      "test": "terminalizes a stale dispatching row whose dispatched_at is NULL",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M1, M4 (dispatched_at IS NULL OR dropped) and M5"
+    },
+    {
+      "id": "A3",
+      "test": "writes the dispatching reclaim text when a terminalized dispatching row recorded no error",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M1, M2, M3 (CASE branch inverted) and M5"
+    },
+    {
+      "id": "A4",
+      "test": "keeps a per-job last_error when terminalizing a stale dispatching row",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M1, M2 and M5"
+    },
+    {
+      "id": "A5",
+      "test": "re-pends a stale dispatching row that still has attempts left",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "sole killer of M9 (arm 3 re-pend window 2m -> 2h); survives M1 by design, it guards arm 3 not the widened arm"
+    },
+    {
+      "id": "A6",
+      "test": "leaves a freshly claimed dispatching row at max_attempts alone",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "sole killer of M7 (terminal window narrowed 2m -> 2s); survives M1 by design, it is the false-positive guard"
+    },
+    {
+      "id": "A7",
+      "test": "watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M1, M2, M4, M5 and M8 (both topic guards removed)"
+    },
+    {
+      "id": "B1",
+      "test": "keeps a per-job last_error when terminalizing a stale exhausted row",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "pre-existing case covering the shared COALESCE/NULLIF and WHERE clause; killed by M5"
+    },
+    {
+      "id": "B2",
+      "test": "writes the generic reclaim text only when no error was recorded",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "outcome": "killed",
+      "reason": "pre-existing case covering the CASE dispatched branch; killed by M3 and M5"
+    },
+    {
+      "id": "B3",
+      "test": "dispatch exhaustion rolls back the outbox transition when its turn update fails",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M2, M3 and M5"
+    },
+    {
+      "id": "B4",
+      "test": "watchdog recovery of exhausted dispatching work defers a turn locked by completion",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M2 and M5"
+    },
+    {
+      "id": "B5",
+      "test": "a worker crash after ambiguous dispatch exhaustion remains recoverable by the watchdog",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M5"
+    },
+    {
+      "id": "B6",
+      "test": "watchdog exhaustion terminalizes an accepted Operator turn in the same transaction",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M5"
+    },
+    {
+      "id": "B7",
+      "test": "dispatch exhaustion ignores mismatched account and aggregate identities",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "outcome": "killed",
+      "reason": "killed by M8"
+    },
+    {
+      "id": "B8",
+      "test": "reconciliation stays Operator-only via the array_agg(id) FILTER (WHERE topic = AGENT_TURN)",
+      "file": "worker/background/pollers/OutboxPoller.ts",
+      "outcome": "equivalent",
+      "reason": "M6 removed the FILTER so reconcileTurnForFailedOutbox runs for every terminalized row on every topic; all 19 cases stayed green. PROVEN equivalent for correctness: the callee re-filters on topic in its own first statement, src/lib/agents/operator/turns.ts:58 (AND topic = QUEUE_NAMES.AGENT_TURN AND aggregate_type = topic), so a non-agent_turn outbox id returns unchanged before touching agent_turns; deferredCount and terminatedCount are therefore identical. Corroborated constructively by M8: removing BOTH guards IS killed by the operator otherTopic case. Cost, not correctness, differs (one extra SELECT per terminalized row). The documentation defect this exposes is raised as P1-1, which is a claim about the docs, not about this mutant."
+    },
+    {
+      "id": "X1",
+      "test": "supabase/migrations/ SQL",
+      "file": "supabase/migrations/",
+      "outcome": "excluded",
+      "reason": "out of scope per the protocol — the database is provisioned before the run, so mutating a migration changes nothing under test"
+    },
+    {
+      "id": "X2",
+      "test": "Playwright/E2E specs",
+      "file": "e2e/",
+      "outcome": "excluded",
+      "reason": "out of scope per the protocol (fragile-assertion review only); no E2E spec touches runOutboxWatchdogRecovery"
+    },
+    {
+      "id": "X3",
+      "test": "replacement comment hunk",
+      "file": "worker/background/pollers/OutboxPoller.ts:131-137",
+      "outcome": "excluded",
+      "reason": "comment-only hunk — 10 of the 12 changed production lines; no behaviour to mutate. Its one falsifiable claim (re-scoping turns the non-agent_turn case red) was verified by M1."
+    }
+  ],
+  "findings": [
+    {
+      "id": "P1-1",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "open",
+      "title": "The array_agg FILTER is named as the reconciliation safety boundary in three places, but removing it alone is caught by nothing — the real guard is src/lib/agents/operator/turns.ts:58",
+      "at": "worker/background/pollers/OutboxPoller.ts:135-136",
+      "reason": "M6 removed the FILTER and all 19 live-DB cases stayed green, including the operator case that deviations D1 says exists to pin exactly this. M8 shows the invariant only bites when the callee guard at turns.ts:58 also falls. The production comment (:135-136), docs/context/core-platform-runtime.md:9 and deviations D1 therefore credit a redundant pre-filter as the safety boundary, and D1 justifies weakening the operator assertion on a premise that does not hold.",
+      "arbiter_reasoning": "The survivor is semantically meaningful (it changes which rows reach reconcileTurnForFailedOutbox and adds one SELECT per terminalized row), but it is PROVEN behaviour-preserving for correctness by turns.ts:58, so the inventory row is equivalent and this is filed as a docs/oracle finding rather than a P0."
+    },
+    {
+      "id": "P1-2",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "open",
+      "title": "The 2-minute terminal window is smaller than the worst-case claim-to-markDispatched gap the dispatch path itself can produce, so a still-dispatching row on any topic can now be terminalized",
+      "at": "worker/background/pollers/OutboxPoller.ts:150-151",
+      "reason": "Topic groups dispatch serially (:441-455), each bounded by OUTBOX_DISPATCH_TIMEOUT_MS default 10s (:54), across up to 37 registered topics — roughly 6 minutes worst case. The overlap guard (:84) supersedes a cycle after 60s and the superseding cycle runs the watchdog first, so a third cycle can terminalize rows the first cycle claimed and has not yet dispatched. markDispatched (:244) is status-scoped to dispatching and then writes nothing SILENTLY while addBulk may have succeeded. The same race already existed on arm 3 for retryable rows where the cost is an idempotent duplicate; #1378 makes the consequence TERMINAL and generalizes it from agent_turn to every topic. Raised for adjudication only — the intake non_goals forbid changing the window in this run."
+    },
+    {
+      "id": "P1-3",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "open",
+      "title": "The terminal path the diff adds for ~30 of 37 topics has no alert half at all, and it removes the outbox_stale_dispatching signal those rows used to raise",
+      "at": "worker/background/pollers/health-alert/checks.ts:105-124",
+      "reason": "checkFailedOutboxByTopic is a CLOSED 7-topic allowlist; the Job-failure sink fires only on BullMQ terminal failed events, which a watchdog terminalization never produces; and docs/runbooks/beta-launch-alerting.md:346-349 still scopes the companion signal to a long-dispatched row, with no rule row added or amended for the long-dispatching class. Before #1378 such a row raised outbox_stale_dispatching (checks.ts:166, level error) permanently — the change trades a loud misleading signal for silence on the non-allowlisted topics. The intake acknowledgement is accurate in what it says but omits that an existing signal is removed, frames the clearing as a benefit in user_visible_behavior #3, and names a symbol that does not exist. ArchivalPoller.ts:78 retains failed rows 90 days, so the row stays auditable in /admin/jobs but never pages."
+    },
+    {
+      "id": "P1-4",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "open",
+      "title": "The claimed gate evidence was recorded 14 minutes before HEAD was committed and is pinned to the base SHA",
+      "at": ".feature/gate-status.json:1",
+      "reason": "gate-status.json timestamp 1789945687 = 2026-09-20T23:08:07Z with passed:false; .feature/state.json pins headSha to 650f625e788d1a87a770c77d40ae8a2d41730982 (the base) with intakeSha256 empty and phase executing; f9aa7d350 and 3bc5f1a31 were both committed at 2026-09-20T23:22:31Z; and surfaceAmendmentLog[1] — the arch-review-log row that ci:merge-ledger requires — is stamped 23:18:12Z, after the gate recorded merge-ledger PASS. The claim \"15,299 tests pass; lint, typecheck and 26 ci:* audits green\" therefore describes a tree that is not 3bc5f1a31, and the gate must be re-run against current HEAD as the last serialized step."
+    },
+    {
+      "id": "P2-1",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "Deviations D3 cites OutboxPoller.ts:158-159 for the predicate change and reports line counts that do not resolve",
+      "at": "docs/superpowers/plans/fix-1378-outbox-watchdog-dispatching-terminal-deviations.md:63",
+      "reason": ":158 is the statement terminator and :159 is \"let deferredCount = 0;\"; the changed predicate is at :150-151. \"16 production lines\" and \"the remaining 14 are the comment\" are not derivable from git diff --numstat, which reports 8 added / 4 removed (12 touched)."
+    },
+    {
+      "id": "P2-2",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "\"Six new live-DB cases prove the widened watchdog arm\" is overstated — four do",
+      "at": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:262",
+      "reason": "M1, which reverts the predicate to its pre-#1378 topic-scoped form, turns four of the six red. The other two are guards on arm 3 (killed only by M9) and on the false-positive window (killed only by M7) — both independently real and correctly described in-file, but neither pins the fix."
+    },
+    {
+      "id": "P2-3",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "A tautological assertion compares two file-local literals, while the assertion that would pin the suite premise is absent",
+      "at": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:315",
+      "reason": "expect(DISPATCHING_RECLAIM_TEXT).not.toBe(GENERIC_RECLAIM_TEXT) compares two string constants declared at :68 and :72 of the same file and can never fail on any implementation. Behavioural replacement: expect(PROBE_TOPIC).not.toBe(QUEUE_NAMES.AGENT_TURN), which pins the premise the whole topic-blindness acceptance rests on and is currently stated only in a comment."
+    },
+    {
+      "id": "P2-4",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "Intake citations are stale and one names a symbol that does not exist",
+      "at": "docs/superpowers/plans/fix-1378-outbox-watchdog-dispatching-terminal-intake.json:14",
+      "reason": "OutboxPoller.ts:152 for the FILTER (now :156 — explicitly acknowledged in D1), :166-176 and :172 for arm 3 (now :170-180 and :176), and checkFailedOutboxJobs, which does not exist; the function is checkFailedOutboxByTopic at worker/background/pollers/health-alert/checks.ts:105. Line drift in a contract locked at the pre-change HEAD is expected; the wrong symbol name is not, and the review brief inherited it."
+    },
+    {
+      "id": "P2-5",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The declared user-visible log-line behaviour has no covering assertion",
+      "at": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:89",
+      "reason": "loggerStub is a vi.fn() triple that is never asserted and never cleared between cases, while the intake declares as user_visible_behavior #2 that the \"[OutboxPoller] Watchdog recovered stale entries\" line’s failed count now includes these rows. The terminalization itself is covered four ways; only the counter’s declared behaviour is unasserted."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 18,
+    "killed": 14,
+    "survived_confirmed_p0": 0,
+    "equivalent": 1,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 9,
+    "p0_open": 0,
+    "p1_open": 4,
+    "p2_open": 5,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P1"
+}
