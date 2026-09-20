@@ -395,6 +395,71 @@ describeWithDb(
       });
     });
 
+    it('a guard transaction does not see a row another session commits mid-comparison', async () => {
+      // #1301 D17, and it is the reason `withRolledBackTransaction` opens
+      // ISOLATION LEVEL REPEATABLE READ.
+      //
+      // Every comparison in this family reads the catalogue TWICE inside one
+      // transaction and attributes the difference to the migration. Under READ
+      // COMMITTED — PostgreSQL's default, and what these suites ran at until
+      // `rowDigest` existed — each statement takes a fresh snapshot, so a row
+      // any other process COMMITS between the two readings reads as a change
+      // the migration did not make. The shared advisory lock does not cover
+      // it: it serializes the nine sibling suites, not an unrelated suite
+      // writing `job_outbox` or a live poller writing a heartbeat on the same
+      // container. All three carry committed rows today.
+      //
+      // The committer here is a SEPARATE connection, because the point is a
+      // transaction this one cannot see into. It is cleaned up in a `finally`.
+      const intruderName = `d17-concurrency-probe-${randomUUID()}`;
+      const intruder = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl), {
+        max: 1,
+        prepare: false,
+        connection: { statement_timeout: 30_000 },
+      });
+
+      try {
+        await withRolledBackTransaction(sql(), async (tx) => {
+          const before = await readPublicCatalogue(tx);
+
+          await intruder`
+            INSERT INTO poller_heartbeats (poller_name) VALUES (${intruderName})
+          `;
+
+          const after = await readPublicCatalogue(tx);
+
+          // The row is committed and visible to anyone reading fresh...
+          const [outside] = await intruder<{ present: boolean }[]>`
+            SELECT EXISTS (
+              SELECT 1 FROM poller_heartbeats WHERE poller_name = ${intruderName}
+            ) AS present
+          `;
+          expect(outside?.present, 'the intruder row did not commit').toBe(true);
+
+          // ...and invisible inside this transaction's snapshot, so the
+          // comparison still means what it claims.
+          expect(after.tables.poller_heartbeats?.rowDigest).toBe(
+            before.tables.poller_heartbeats?.rowDigest,
+          );
+          expect(() => assertOnlyTablesMoved(before, after, [])).not.toThrow();
+        });
+      } finally {
+        try {
+          await intruder`DELETE FROM poller_heartbeats WHERE poller_name = ${intruderName}`;
+        } finally {
+          await intruder.end({ timeout: 5 });
+        }
+      }
+
+      // Cleanup verified, not assumed — this case commits to a shared table.
+      const [remaining] = await sql()<{ present: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM poller_heartbeats WHERE poller_name = ${intruderName}
+        ) AS present
+      `;
+      expect(remaining?.present, 'the probe row outlived the case').toBe(false);
+    });
+
     it('withRolledBackTransaction detects a callback that commits its own transaction', async () => {
       // #1301, the adversarial P1. `withRolledBackTransaction` rolls back by
       // throwing a sentinel AFTER the callback returns. A migration carrying
