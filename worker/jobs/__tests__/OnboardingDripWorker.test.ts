@@ -224,6 +224,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       subject: 'Welcome to RepWorth, Jane!',
       bodyHtml: '<html>day1</html>',
       category: 'marketing',
+      idempotencyKey: 'onboarding_drip_day_1:biz-drip-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -296,6 +297,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       subject: 'Your first week with RepWorth — Drip Test Biz',
       bodyHtml: '<html>day7</html>',
       category: 'marketing',
+      idempotencyKey: 'onboarding_drip_day_7:biz-drip-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -329,13 +331,13 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       responseId: 'resp-p1',
       businessId: 'biz-drip-1',
       channel: 'email',
-      revokeMode: 'orphaned_only',
+      revokeMode: 'never',
     });
     expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-p2',
       businessId: 'biz-drip-1',
       channel: 'email',
-      revokeMode: 'orphaned_only',
+      revokeMode: 'never',
     });
 
     const day7Params = (mockBuildOnboardingDay7Html.mock.calls as unknown[][])[0]![0] as Record<string, unknown>;
@@ -405,6 +407,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       subject: 'Your first month with RepWorth — Drip Test Biz',
       bodyHtml: '<html>day30</html>',
       category: 'marketing',
+      idempotencyKey: 'onboarding_drip_day_30:biz-drip-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -498,5 +501,153 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     expect(mockSendInternalEmail).toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).toHaveBeenCalled();
+  });
+});
+
+// ── Send idempotency key (#1363) ───────────────────────────────────────────
+// The handler sends, THEN marks sent_at. A crash in that gap leaves
+// sent_at NULL, and the takeover branch re-enters and sends a second welcome
+// email. The key is scoped to (business_id, drip_type) — matching
+// onboarding_drip_log's UNIQUE constraint — precisely BECAUSE the takeover
+// admits a SECOND outbox row, which an outbox-scoped key could not dedupe.
+
+describe('OnboardingDripWorker – Send idempotency key', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    process.env.RESEND_FROM_EMAIL = 'RepWorth <noreply@repworth.com>';
+  });
+
+  /** Queue for a plain day_1 run: business, claim, owner auth, UPDATE sent_at. */
+  function queueDay1() {
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);
+    sqlReturnQueue.push([{ id: 'user-1' }]);
+    sqlReturnQueue.push([]);
+  }
+
+  it('day_1 drip sends with an idempotency key scoped to the business and drip type', async () => {
+    queueDay1();
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'onboarding_drip_day_1:biz-drip-1' }),
+    );
+  });
+
+  it('day_7 drip sends with an idempotency key scoped to the business and drip type', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
+    sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
+    sqlReturnQueue.push([{ reviews_handled: 2 }]); // 4. reviews handled
+    sqlReturnQueue.push([]);                       // 5. no highlight
+    sqlReturnQueue.push([]);                       // 6. no edits
+    sqlReturnQueue.push([]);                       // 7. no pending reviews
+    sqlReturnQueue.push([{ total: 4 }]);           // 8. total reviews
+    sqlReturnQueue.push([]);                       // 9. UPDATE sent_at
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'onboarding_drip_day_7:biz-drip-1' }),
+    );
+  });
+
+  it('day_30 drip sends with an idempotency key scoped to the business and drip type', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);     // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // 2. claim
+    sqlReturnQueue.push([{ id: 'user-1' }]);      // 3. owner auth
+    sqlReturnQueue.push([{ total: 15 }]);         // 4. total reviews
+    sqlReturnQueue.push([{ responded: 12 }]);     // 5. responded
+    sqlReturnQueue.push([]);                      // 6. no ranking
+    sqlReturnQueue.push([]);                      // 7. onboarded_by sign-off
+    sqlReturnQueue.push([]);                      // 8. UPDATE sent_at
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'onboarding_drip_day_30:biz-drip-1' }),
+    );
+  });
+
+  it('a drip taken over by a second outbox row reuses the same idempotency key', async () => {
+    // This is the defect the issue names. Attempt 1 sends and crashes before
+    // marking sent_at; 15 minutes later a DIFFERENT outbox row takes the claim
+    // over. Two rows, two outbox ids — so only a (business, drip_type) key can
+    // dedupe them at the provider.
+    queueDay1();
+    await handleOnboardingDrip({
+      data: { business_id: 'biz-drip-1', drip_type: 'day_1', outbox_id: 'outbox-first' },
+      id: 'outbox-first',
+    } as unknown as Job<OnboardingDripPayload>);
+
+    sqlReturnQueue.push([mockBusinessRow()]);   // 1. business
+    sqlReturnQueue.push([]);                    // 2. INSERT conflict — row exists
+    sqlReturnQueue.push([{ id: 'stale-id' }]);  // 3. takeover succeeds
+    sqlReturnQueue.push([{ id: 'user-1' }]);    // 4. owner auth
+    sqlReturnQueue.push([]);                    // 5. UPDATE sent_at
+    await handleOnboardingDrip({
+      data: { business_id: 'biz-drip-1', drip_type: 'day_1', outbox_id: 'outbox-second' },
+      id: 'outbox-second',
+    } as unknown as Job<OnboardingDripPayload>);
+
+    const keys = (mockSendInternalEmail.mock.calls as unknown[][]).map(
+      (call) => (call[0] as { idempotencyKey?: string }).idempotencyKey,
+    );
+    expect(keys).toEqual([
+      'onboarding_drip_day_1:biz-drip-1',
+      'onboarding_drip_day_1:biz-drip-1',
+    ]);
+  });
+
+  it('a drip replay marks sent_at and records the delivery with an idempotent-replay message id', async () => {
+    // Resend refused the send because the key was already used. The email IS
+    // delivered, so every downstream fact must still be written — otherwise the
+    // claim stays open and a third attempt tries again.
+    mockSendInternalEmail.mockResolvedValueOnce({
+      messageId: 'idempotent-replay:onboarding_drip_day_1:biz-drip-1',
+      idempotentReplay: true,
+    });
+    queueDay1();
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
+
+    const sentAtUpdate = (mockSql.mock.calls as unknown[][]).find((call) =>
+      /UPDATE onboarding_drip_log SET sent_at/i.test((call[0] as string[]).join('')),
+    );
+    expect(sentAtUpdate).toBeDefined();
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        template: 'onboarding_drip_day_1',
+        externalMessageId: 'idempotent-replay:onboarding_drip_day_1:biz-drip-1',
+      }),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
+  });
+
+  it('day_7 drip builds its approval links with revokeMode never so the delivered link survives a retry', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
+    sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
+    sqlReturnQueue.push([{ reviews_handled: 2 }]); // 4. reviews handled
+    sqlReturnQueue.push([]);                       // 5. no highlight
+    sqlReturnQueue.push([]);                       // 6. no edits
+    sqlReturnQueue.push([                          // 7. one pending review
+      { response_id: 'resp-p1', reviewer_name: 'Bob', star_rating: 3 },
+    ]);
+    sqlReturnQueue.push([{ total: 4 }]);           // 8. total reviews
+    sqlReturnQueue.push([]);                       // 9. UPDATE sent_at
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
+
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
+      responseId: 'resp-p1',
+      businessId: 'biz-drip-1',
+      channel: 'email',
+      revokeMode: 'never',
+    });
   });
 });

@@ -274,12 +274,33 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 7. Send email ─────────────────────────────────────────────────
-  const { messageId } = await sendInternalEmail({
+  // The Send idempotency key is scoped to (business_id, drip_type), NOT to the
+  // outbox row (#1363). That is deliberate and the scope is load-bearing: the
+  // stale-claim takeover at step 4 admits a SECOND outbox row on a claim still
+  // carrying sent_at IS NULL, which is exactly the crash-after-send case this
+  // key defends. Two outbox rows carry two ids, so an outbox-scoped key would
+  // not dedupe them; (business_id, drip_type) mirrors the
+  // onboarding_drip_log UNIQUE constraint that already bounds one drip per pair.
+  //
+  // It is spelled to match the notification_deliveries.template written at
+  // step 9, so one grep ties the provider key to the delivery record.
+  const { messageId, idempotentReplay } = await sendInternalEmail({
     to: business.owner_email,
     subject,
     bodyHtml: html,
     category: 'marketing',
+    idempotencyKey: `onboarding_drip_${drip_type}:${businessId}`,
   });
+
+  if (idempotentReplay) {
+    // Resend refused a second send under this key, which proves the first
+    // attempt was accepted. The email IS delivered, so steps 8-10 below run
+    // unchanged — skipping them would leave the claim open for a third attempt.
+    logger.log(`${drip_type} already delivered under its idempotency key`, {
+      business_id: businessId,
+      drip_type,
+    });
+  }
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────
   await sql`
@@ -407,11 +428,18 @@ async function buildDay7(
   }
   if (appUrl) {
     for (const row of pendingRows) {
+      // 'never', not 'orphaned_only' (#1363). This drip records its delivery
+      // with a NULL response_id and template 'onboarding_drip_day_7', so the
+      // orphaned_only probe — which matches on response_id and the two
+      // link-carrying template names — can never see it and always reads
+      // "orphan". A retry therefore revoked the link the owner already had.
+      // With the Send idempotency key suppressing the retry's duplicate email,
+      // that link is the only one the owner holds.
       const { rawToken } = await createApprovalLink(sql, {
         responseId: row.response_id,
         businessId: business.id,
         channel: 'email',
-        revokeMode: 'orphaned_only',
+        revokeMode: 'never',
       });
       pendingReviews.push({
         reviewerName: row.reviewer_name,
