@@ -126,6 +126,26 @@ export interface AutoApprovalReadiness {
   blockReasons: AutoApprovalReadinessBlockReason[];
 }
 
+/**
+ * Structural, account-wide conditions that make the Auto-approval lane decline
+ * every draft, independent of the policy row. Deliberately NOT
+ * `AutoApprovalReadinessBlockReason`: readiness answers "may the owner WIDEN
+ * auto-approval?", this answers "is the account structurally eligible to
+ * auto-post at all?". `policy_suspended` is absent on purpose — suspension is
+ * already the headline's first branch and readiness' own reason.
+ */
+export type AutoApprovalPostingBlockReason =
+  | 'runtime_disabled'
+  | 'judge_disabled'
+  | 'autopilot_tier_required'
+  | 'provider_moderation_disabled'
+  | 'publisher_subscription_denied';
+
+export interface AutoApprovalPostingStatus {
+  blocked: boolean;
+  reasons: AutoApprovalPostingBlockReason[];
+}
+
 export interface AutoApprovalPolicyApiState {
   policyId: string | null;
   threshold: AutoApprovalThreshold | null;
@@ -175,6 +195,7 @@ export interface AutoApprovalSettingsResponse {
   accountDefault: AutoApprovalPolicyApiState;
   locations: AutoApprovalLocationSettings[];
   readiness: AutoApprovalReadiness;
+  posting: AutoApprovalPostingStatus;
   solicitation: SolicitationAutoApprovalApiState;
 }
 

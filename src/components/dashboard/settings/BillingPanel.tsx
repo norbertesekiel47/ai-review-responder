@@ -5,18 +5,19 @@ import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import {
+  SUBSCRIPTION_TIER_ORDER,
   SubscriptionTier,
   isSubscriptionTier,
+  tierChangeDirection,
   type PriceVariant,
   type SubscriptionTierValue,
+  type TierChangeDirection,
 } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { CancelSubscriptionPanel } from '@/components/dashboard/settings/CancelSubscriptionPanel';
 import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
-
-const BILLING_PLAN_ORDER = [SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT] as const satisfies readonly SubscriptionTierValue[];
 
 /**
  * One line per tier on what the owner actually gets — the price cards said
@@ -127,9 +128,18 @@ function formatMoney(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * What a downgrade actually costs the owner: the Auto-approval lane closes and
+ * every reply goes back to owner approval. Shown for any downgrade, including a
+ * trialing account — invariant #11 gives `trialing` full access, so a trialing
+ * Autopilot really does have autonomy to lose.
+ */
+export const AUTONOMY_LOSS_COPY =
+  'Replies will stop posting on their own. Every reply waits for your approval from the moment the plan changes.';
+
 interface TierChangeModalProps {
   newTier: SubscriptionTierValue;
-  isDowngrade: boolean;
+  direction: TierChangeDirection;
   priceVariant: PriceVariant;
   trialing: boolean;
   billingPreview: BillingPreview | null;
@@ -142,7 +152,7 @@ interface TierChangeModalProps {
 
 export function TierChangeModal({
   newTier,
-  isDowngrade,
+  direction,
   priceVariant,
   trialing,
   billingPreview,
@@ -152,6 +162,7 @@ export function TierChangeModal({
   onCancel,
   changing,
 }: TierChangeModalProps) {
+  const isDowngrade = direction === 'down';
   return (
     <SettingsModal
       title={isDowngrade ? 'Downgrade plan' : 'Upgrade plan'}
@@ -161,13 +172,18 @@ export function TierChangeModal({
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         {isDowngrade ? 'Downgrade' : 'Upgrade'} to {planLabel(newTier)}?
       </div>
+      {/* Two independent decisions: what happens to the bill, and what happens
+          to autonomy. A trialing downgrade gets both. */}
       <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
         {trialing
           ? 'Your current trial continues. The selected monthly plan price applies when the trial ends unless you cancel.'
-          : isDowngrade
-            ? 'Your plan will change immediately and Stripe will apply any required proration.'
-            : 'Your plan will change immediately and Stripe will apply any required proration.'}
+          : 'Your plan will change immediately and Stripe will apply any required proration.'}
       </p>
+      {isDowngrade && (
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+          {AUTONOMY_LOSS_COPY}
+        </p>
+      )}
 
       {previewLoading && (
         <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', textAlign: 'center', padding: 8 }}>
@@ -396,12 +412,10 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
   const currentTier = accountData && isSubscriptionTier(accountData.subscription.tier)
     ? accountData.subscription.tier
     : null;
-  const selectedPrice = accountData && selectedTier
-    ? accountData.planPresentation.prices[selectedTier]
-    : null;
-  const selectedIsDowngrade = Boolean(
-    accountData && selectedPrice && selectedPrice.basePriceCents < accountData.billing.basePriceCents,
-  );
+  // Same rule as the cards: autonomy order, never a price comparison.
+  const selectedDirection: TierChangeDirection = currentTier && selectedTier
+    ? tierChangeDirection(currentTier, selectedTier)
+    : 'same';
 
   return (
     <>
@@ -433,12 +447,17 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
                 <p className="billing-plan-note">Plan changes are unavailable until this account is on a launch tier.</p>
               )}
               <div className="billing-plan-grid">
-                {BILLING_PLAN_ORDER.map((tier) => {
+                {SUBSCRIPTION_TIER_ORDER.map((tier) => {
                   const option = accountData.planPresentation.prices[tier];
                   const isCurrent = tier === currentTier;
                   const isAvailable = accountData.planPresentation.purchasable[tier];
-                  const isDowngrade = option.basePriceCents < accountData.billing.basePriceCents;
-                  const action = isDowngrade ? 'Downgrade' : 'Upgrade';
+                  // Direction comes from autonomy order, never from a price:
+                  // the stored base price is grandfathered (invariant #9a) and
+                  // is not comparable with the live catalogue price.
+                  const direction: TierChangeDirection | null = currentTier
+                    ? tierChangeDirection(currentTier, tier)
+                    : null;
+                  const action = direction === 'down' ? 'Downgrade' : 'Upgrade';
                   const displayedBaseCents = isCurrent
                     ? accountData.billing.basePriceCents
                     : option.basePriceCents;
@@ -473,7 +492,7 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
                       ) : (
                         <button
                           type="button"
-                          className={isDowngrade ? 'btn btn-secondary' : 'btn btn-primary'}
+                          className={direction === 'down' ? 'btn btn-secondary' : 'btn btn-primary'}
                           onClick={() => openTierChangeModal(tier)}
                           disabled={!currentTier || !isAvailable}
                           aria-describedby={!isAvailable ? `${tier}-billing-unavailable` : undefined}
@@ -503,7 +522,7 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
       {selectedTier && accountData && isPriceVariantForDisplay(accountData.subscription.priceVariant) && (
         <TierChangeModal
           newTier={selectedTier}
-          isDowngrade={selectedIsDowngrade}
+          direction={selectedDirection}
           priceVariant={accountData.subscription.priceVariant}
           trialing={accountData.subscription.status === SubscriptionStatus.TRIALING}
           billingPreview={billingPreview}

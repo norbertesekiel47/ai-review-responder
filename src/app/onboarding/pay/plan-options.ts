@@ -1,7 +1,5 @@
-import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { SUBSCRIPTION_TIER_ORDER, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
-
-const ONBOARDING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
 
 export interface OnboardingPlan {
   tier: SubscriptionTierValue;
@@ -64,7 +62,7 @@ export function formatMonthlyPrice(cents: number): string {
 export function getOnboardingPlans(
   viewModel: PlanPresentationViewModel,
 ): readonly OnboardingPlan[] {
-  return ONBOARDING_PLAN_ORDER.map((tier) => {
+  return SUBSCRIPTION_TIER_ORDER.map((tier) => {
     const price = viewModel.prices[tier];
     return {
       ...PLAN_COPY[tier],

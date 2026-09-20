@@ -10,6 +10,8 @@ import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
+import { judgeEnabled } from '@/lib/responses/judge-flags';
+import { checkSubscription } from '@/lib/shared/subscription-guard';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -22,6 +24,7 @@ import {
   resolveDailyCap,
   resolveEffectivePolicy,
 } from './policy';
+import { buildAutoApprovalPostingStatus } from './posting-status';
 import { buildAutoApprovalReadiness } from './readiness';
 import {
   AutoApprovalExpansionBlockedError,
@@ -37,6 +40,7 @@ import type {
   AutoApprovalConfirmationLevel,
   AutoApprovalPatchRequest,
   AutoApprovalPolicyApiState,
+  AutoApprovalPostingStatus,
   AutoApprovalReadiness,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
@@ -207,6 +211,7 @@ async function loadAutoApprovalSettings(
     accountDefault: toApiState(accountDefault),
     locations,
     readiness,
+    posting: buildPostingStatus(account),
     solicitation,
   };
 }
@@ -1202,6 +1207,34 @@ async function buildReadiness(
     policySuspended: context.policySuspended,
     previewEnvironment: preview,
     impersonated: context.impersonated,
+  });
+}
+
+// #1314 — the Posting block: is this account structurally eligible to auto-post?
+// Deliberately NOT derived from readiness. Readiness' `autopilot_unavailable`
+// folds in `autopilotPurchasable()`, which the runtime never reads, so keying
+// the screen on it would claim "not posting" while replies post.
+// `accountSubscriptionWritable` is likewise the wrong predicate here: that is
+// billing-mutation writability. The publisher runs `checkSubscription` with
+// `workerType: 'publisher'`, so that is what this asks. A missing account row
+// cannot post: absent tier, denied publisher subscription.
+function buildPostingStatus(
+  account: SettingsAccountEntitlementRow | undefined,
+): AutoApprovalPostingStatus {
+  const publisherSubscriptionAllowed = account !== undefined
+    && checkSubscription({
+      status: account.subscription_status,
+      workerType: 'publisher',
+      pastDueAt: account.past_due_at,
+      accountFlags: account.flags,
+    }).allowed;
+
+  return buildAutoApprovalPostingStatus({
+    runtimeEnabled: autoApprovalRuntimeEnabled(),
+    judgeEnabled: judgeEnabled(),
+    tierGrantsAutopilot: tierGrantsAutopilot(account?.subscription_tier),
+    providerModerationEnabled: providerModerationEnabled(),
+    publisherSubscriptionAllowed,
   });
 }
 
