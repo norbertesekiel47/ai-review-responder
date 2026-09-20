@@ -66,13 +66,12 @@ export async function readOwnerForMultiLocationRoute(
         ),
       };
     }
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401, headers: LOCATION_ROUTE_NO_STORE },
-      ),
-    };
+    // #1361: anything that is not an AuthError is a server fault, not a
+    // refusal. Re-throw it so it surfaces as a real 5xx (captured by
+    // `onRequestError` in src/instrumentation.ts) instead of being masked as
+    // 401 — the same contract as `requireRoleOr401` in
+    // src/lib/auth/route-helpers.ts and as the assertSameOrigin catch above.
+    throw err;
   }
 
   if (!user.accountId) {

@@ -154,16 +154,22 @@ describe('location owner route helpers', () => {
     }
   });
 
-  it('falls back to 401 when auth rejects with a non-AuthError', async () => {
-    mockRequireRole.mockRejectedValueOnce(new Error('redis down'));
+  // #1361: a non-AuthError rejection is a SERVER FAULT, not a refusal. Masking
+  // it as 401 hid outages behind "Unauthorized" and let the client sign the
+  // owner out. The helper re-throws so the fault surfaces as a real 5xx — the
+  // same shape as requireRoleOr401 (route-helpers.ts) and as this file's own
+  // assertSameOrigin catch.
+  it('re-throws when requireRole rejects with a non-AuthError', async () => {
+    const fault = new Error('redis down');
+    mockRequireRole.mockRejectedValueOnce(fault);
 
-    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
+    await expect(readOwnerForMultiLocationRoute(fakeSql, req())).rejects.toBe(fault);
+  });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.response.status).toBe(401);
-      expect(await result.response.json()).toEqual({ error: 'Unauthorized' });
-    }
+  it('re-throws a non-Error rejection value unchanged', async () => {
+    mockRequireRole.mockRejectedValueOnce('redis down');
+
+    await expect(readOwnerForMultiLocationRoute(fakeSql, req())).rejects.toBe('redis down');
   });
 
   it('builds the canonical account mismatch response', async () => {

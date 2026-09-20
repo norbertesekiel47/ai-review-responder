@@ -430,6 +430,17 @@ describe('requireDashboardReviewOwner', () => {
       error: 'No account associated with this user',
     });
   });
+
+  // #1361: a non-AuthError rejection is a SERVER FAULT, not a refusal. Masking
+  // it as 401 hid outages behind "Unauthorized" across the eight routes this
+  // gate fronts. Re-throwing surfaces the fault as a real 5xx — the same
+  // contract as requireRoleOr401 in src/lib/auth/route-helpers.ts.
+  it('re-throws a non-AuthError rejection instead of masking it as 401', async () => {
+    const fault = new Error('database unavailable');
+    mockRequireRole.mockRejectedValueOnce(fault);
+
+    await expect(requireDashboardReviewOwner(request())).rejects.toBe(fault);
+  });
 });
 
 describe('runDashboardReviewAction', () => {
