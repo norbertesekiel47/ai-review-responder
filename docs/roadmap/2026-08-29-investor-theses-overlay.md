@@ -60,7 +60,7 @@ individual steps are automated. RepWorth aims to take responsibility for one
 recurring job: understand the business's instructions, propose an operating
 plan, perform authorized work, follow up, and show the result. The
 [bounded experiment](2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
-tests this claim; the [v1 spec](2026-09-11-owner-operator/README.md) is the
+tests this claim; the [v1 spec](2026-09-11-owner-operator.md) is the
 build. Conversational setup alone does not prove ongoing delegation.
 
 The [architecture](2026-08-26-agentic-architecture.md) supports keeping domain
@@ -214,7 +214,7 @@ cash decisions.
 
 The owner approved recurring conversational delegation as a bounded product
 hypothesis with a bounded software v1
-([spec](2026-09-11-owner-operator/README.md)), and permissioned memory and
+([spec](2026-09-11-owner-operator.md)), and permissioned memory and
 industry execution as possible advantages to measure. External API/MCP stays
 separately justified. Cash limits, subscription shape, evidence definitions
 and existing beta promises are unchanged. This is a strategy decision, not

@@ -457,7 +457,7 @@ Create `supabase/migrations/120_owner_operator.sql`:
 -- 120_owner_operator.sql
 --
 -- Owner Operator Run A — the conversational configuration surface's four
--- tables. Spec of record: docs/roadmap/2026-09-11-owner-operator/README.md §9.
+-- tables. Spec of record: docs/roadmap/2026-09-11-owner-operator.md §9.
 -- Additive and re-runnable. It touches no existing table and adds no
 -- job_outbox index.
 --
@@ -592,7 +592,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_unsupported_requests_account
   ON agent_unsupported_requests (account_id);
 
 COMMENT ON TABLE agent_conversations IS
-  'Owner Operator conversation (Run A, spec docs/roadmap/2026-09-11-owner-operator/README.md §9). id is CLIENT-generated so a lost first response resumes the same conversation; a client id that already exists under another account is a 404, never an upsert. Deny-all RLS; read only through account-scoped server routes. Offboarding: hard_delete / direct_account_id / must_be_absent.';
+  'Owner Operator conversation (Run A, spec docs/roadmap/2026-09-11-owner-operator.md §9). id is CLIENT-generated so a lost first response resumes the same conversation; a client id that already exists under another account is a 404, never an upsert. Deny-all RLS; read only through account-scoped server routes. Offboarding: hard_delete / direct_account_id / must_be_absent.';
 
 COMMENT ON TABLE agent_turns IS
   'One Owner Operator turn: the owner message (owner_text, stored verbatim) and the single model reply (reply, an ordered segment array). location_id is frozen at POST so moving the location selector never retargets a turn. attempt_token is the completion fence — exactly one dispatch commits. Unique on (account_id, client_turn_key) for idempotent re-POST and on (conversation_id, sequence) for ordering. Deny-all RLS. Offboarding: hard_delete / direct_account_id / must_be_absent.';
@@ -6940,7 +6940,7 @@ Blocking edge: T7 (it cites the final files). Docs only; runs in parallel with T
 
 **Files:**
 - Modify: `docs/directory/lib-platform.md`, `docs/directory/lib-reviews-responses.md`, `docs/directory/worker-jobs-a.md`, `docs/directory.md`
-- Modify: `docs/roadmap/2026-09-11-owner-operator/README.md` (§14 and §15)
+- Modify: `docs/roadmap/2026-09-11-owner-operator.md` (§14 and §15)
 - Modify: `docs/adr/0005-beta-launch-posture.md`
 - Modify: `.claude/reference/env-vars.md`, `docs/eservices-variables.md`
 - Modify: `.claude/reference/lab-notes/postgres.md`
@@ -6986,7 +6986,7 @@ In `docs/directory.md:55`, add `agent-turn/` to the worker-jobs-a Pages cell.
 
 - [ ] **Step 2: Record the decisions in the spec**
 
-In `docs/roadmap/2026-09-11-owner-operator/README.md` §14, replace the "Lease length and the predecessor-stall limit are provisional (120 s, 10 min)" bullet with the L2 values and their derivation, and add a dated line to the "Which pinned model" bullet recording that Run A registered `owner_operator` at the reply-generation primary with `maxTokens: 1200` / `temperature: 0.2` and that the model question is still open at the checkpoint. Add `OWNER_OPERATOR_ENABLED` to §11's invariant checklist beside the #13/#14 line.
+In `docs/roadmap/2026-09-11-owner-operator.md` §14, replace the "Lease length and the predecessor-stall limit are provisional (120 s, 10 min)" bullet with the L2 values and their derivation, and add a dated line to the "Which pinned model" bullet recording that Run A registered `owner_operator` at the reply-generation primary with `maxTokens: 1200` / `temperature: 0.2` and that the model question is still open at the checkpoint. Add `OWNER_OPERATOR_ENABLED` to §11's invariant checklist beside the #13/#14 line.
 
 Add a §15 build-log entry:
 
@@ -7067,7 +7067,7 @@ Expected: PASS — the intake's `verification_commands`, all seven.
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-owner-operator-run-a
 git add docs/directory.md docs/directory/lib-platform.md docs/directory/lib-reviews-responses.md \
-  docs/directory/worker-jobs-a.md docs/roadmap/2026-09-11-owner-operator/README.md \
+  docs/directory/worker-jobs-a.md docs/roadmap/2026-09-11-owner-operator.md \
   docs/adr/0005-beta-launch-posture.md .claude/reference/env-vars.md docs/eservices-variables.md \
   .claude/reference/lab-notes/postgres.md docs/currents.md docs/progresstracking.md \
   docs/context/owner-operator.md CONTEXT-MAP.md

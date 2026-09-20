@@ -58,7 +58,7 @@ provisional 20-hour total cap, including discovery and verification.
 **Later on 2026-09-11:** Norbert selected the owner-operator v1 as a
 software build under a named 60-hour exception, 30 hours committed and 30
 conditional on the staging checkpoint
-([spec](../../2026-09-11-owner-operator/README.md)). A full agent platform
+([spec](../../2026-09-11-owner-operator.md)). A full agent platform
 is not in that scope. Existing controls, beta promises and outreach/spend
 approvals remain.
 

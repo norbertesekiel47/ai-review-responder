@@ -8,7 +8,7 @@ durable recovery (Run D), and receipt-based Restore and refusals (Run E).
 The sibling `agents/` rows (`run-spine.ts`, `read.ts`) stay on
 [lib-platform.md](lib-platform.md); this folder sits here because both default
 pages are at the 3,000-word cap. Glossary: `docs/context/owner-operator.md`;
-spec of record: `docs/roadmap/2026-09-11-owner-operator/README.md`.
+spec of record: `docs/roadmap/2026-09-11-owner-operator.md`.
 
 | File | What it does |
 |------|--------------|

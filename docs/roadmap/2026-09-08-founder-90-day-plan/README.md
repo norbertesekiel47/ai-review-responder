@@ -15,7 +15,7 @@ ordinary language, accepts a bounded operating plan, sees verified work and
 exceptions, and can correct how subsequent work is handled. The
 [forward roadmap](../2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
 owns the evidence rules and stop criteria; the
-[v1 spec](../2026-09-11-owner-operator/README.md) owns the build.
+[v1 spec](../2026-09-11-owner-operator.md) owns the build.
 [Verticals §2](../2026-08-26-verticals.md#2-choose-the-first-customer-type-from-the-beta)
 owns the provisional buyer hypothesis; select the industry, job, initial
 market, languages and software from the roster. No production build or
