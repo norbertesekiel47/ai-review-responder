@@ -277,3 +277,93 @@ label. No check is skipped.
 presence is the reliable signal that review mode ran. Durable lesson for step 8:
 this is the same discrepancy a prior session raised during Batch A; it is worth
 a ticket rather than a third rediscovery.
+
+---
+
+## D11 — Four surface amendments, all one class: workflow-mandated artifacts the intake under-declared
+
+None of the four was feature scope. Every one was a file some gate or rule
+requires for a change of this shape, and every one was discovered by a gate
+failing rather than by planning:
+
+| # | File | Forced by | Discoverable up front? |
+|---|---|---|---|
+| 1 | `src/lib/agents/operator/__tests__/context.test.ts` | typecheck | Yes — the plan skeptic predicted it in round 1 and the intake still missed it |
+| 2 | `.claude/reference/arch-review-log.md` | `ci:merge-ledger` | Yes — `/feature` step 8 mandates this file for any production diff |
+| 3 | `src/app/onboarding/pay/plan-options.ts` | red team RT-2 | No — a genuine review finding |
+| 4 | `.agents/skills/flag-flip/SKILL.md` | `ci:agent-config` | Yes — skills are parity-checked in pairs |
+
+Three of the four were mechanically predictable. The abort criteria treat a
+second amendment as a restart trigger, which fires on exactly this pattern and
+would have torn down a branch whose problem was an incomplete checklist, not a
+misunderstood design. The owner waived it twice on that reasoning.
+
+**Verdict:** ACCEPT. Durable lesson for step 8, and the useful one from this
+run: an intake for a branch that touches any production file under `src/` or
+`worker/` should declare `.claude/reference/arch-review-log.md` from the start,
+and any intake touching `.claude/skills/<name>/SKILL.md` should declare
+`.agents/skills/<name>/SKILL.md` in the same entry. Both are derivable from the
+diff's shape before a line is written. Worth a line in the intake contract
+rather than four amendments per run.
+
+---
+
+## D12 — The scoped red-team round 2 found two P0s that round 1's fixes created
+
+Round 1 found no P0. Round 2, scoped to `825f0fbbf..9a7a459f9` — the fix hunks
+alone — found two, and both were introduced by the round-1 triage:
+
+- A documentation procedure (`flag-flip` step 5b) that named four log fields the
+  logger does not emit, so the verification step written to close RT-7 could
+  never succeed.
+- A de-duplication filter that keyed on a second predicate for "is the blocked
+  banner rendering?", emptying the readiness list in the gap and rendering an
+  affirmative capability claim while the server said the capability was absent.
+
+Both were cheap to fix and neither existed before the review. The pattern is
+that **fixes applied under review pressure, to a branch already declared green,
+get less scrutiny than the original code** — the original had TDD, a plan gate
+and three axes; the fixes had none of that until round 2.
+
+**Verdict:** ACCEPT. Durable lesson: the `/feature` rule that round 2 "is not
+optional" is load-bearing and should not be traded away for wall clock. On this
+branch it was the only thing standing between a false capability claim and
+`main`. Note also that the second P0's root cause was two predicates for one
+question — the fix removed the duplication rather than aligning the two, which
+is the correction that makes the class unrepresentable rather than absent.
+
+---
+
+## D13 — The production bucket finished at 2.13× estimate, tripping the re-classification trigger
+
+Measured at the final gate: **prod 512 against an estimate of 240 (2.13×)**;
+test 1028 against 580 (1.77×, under). The `reclassify` row warned; the gate
+still passed, because the row is a WARN.
+
+Step 0 re-run with the real numbers, as the trigger requires:
+
+- **size** — still `standard`. The honest `allowed_edit_surface` is still
+  declarable file by file (30 entries, no globs), it still decomposes into the
+  same three tracers, and no investigation question is open. Nothing about 512
+  lines makes it an epic.
+- **risk** — still `high`. Unchanged triggers: `worker/`, the auto-approval
+  surface, the billing screen.
+- **surface** — still `mixed`.
+
+**The lane does not change.** That is the point of re-running rather than
+assuming: the trigger exists to catch a feature that was mis-sized into too
+light a lane, and this one was already in the heaviest lane available.
+
+Where the overage came from, since "we underestimated" would be the wrong
+lesson: the three tracers landed close to estimate. The growth is review work —
+two Codex plan rounds took the test contract from 30 titles to 54, the round-1
+wave produced ten fixes across four axes, and round 2 produced two P0 fixes plus
+five more. A `posting-status.ts` of 50 lines did not become 512; the branch
+acquired a second and third pass of corrections, each with its own tests.
+
+**Verdict:** ACCEPT. Durable lesson for step 8: `estimated_prod_lines` is an
+estimate of the IMPLEMENTATION, and on a high-risk branch the review rounds are
+a comparable second cost that the estimate does not model at all. Either
+estimate the review's fixes as their own bucket, or read the 2× trigger as
+"re-confirm the lane", not "the plan was wrong" — on this branch it was the
+latter, and re-running step 0 cost one paragraph.
