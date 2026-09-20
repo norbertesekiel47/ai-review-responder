@@ -405,3 +405,31 @@ and it is reproducible.
    the three review axes and the red-team rounds earned their cost precisely
    because their findings were judgements I could not have reached alone. This
    one was a measurement.
+
+---
+
+## D15 — `review-qr.test.ts` flaked once in the full gate; 17/17 in isolation, three times
+
+One failure in 16,644: `src/lib/locations/__tests__/review-qr.test.ts >
+getOwnerReviewQrLocation > returns the one mapped location and generates
+exactly one QR`, at **6633 ms**. Re-run in isolation three times: 17/17 each
+time. This branch touches neither that file nor anything under
+`src/lib/locations/` — `git diff --name-only d79bc765..HEAD` matches nothing on
+`locations|review-qr`.
+
+The duration is the tell. A 6.6-second unit test under the gate's parallel
+fan-out is a timeout, not an assertion failure, and QR generation is
+CPU-bound — it competes with `lint`, `build` and `static-policy` all running at
+once on the same machine.
+
+Not this branch's defect and not fixed here. Recorded because a single flaked
+row turns the gate RED, which blocks the Stop hook and costs a full re-run
+(~2 min), and because the next person to see it should not spend the time I
+spent proving it unrelated.
+
+**Verdict:** ACCEPT. Durable lesson for step 8: worth a ticket to give that
+test a longer timeout or take it out of the parallel lane. Also worth knowing
+as a triage habit — check the FAILING TEST'S DURATION before assuming a real
+break: a multi-second unit test that passes alone is contention, and re-running
+is the right first move rather than reading the diff for a cause that is not
+there.
