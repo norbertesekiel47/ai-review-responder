@@ -1,0 +1,71 @@
+# Oracle A literals — captured from repworth-testdb-pg17 (PostgreSQL 17.11) at migrations head
+# EXACT catalogue renderings. Paste as literals into each suite.
+# Deliberately NOT derived from the migration files: that independence is what
+# catches a weakened migration on a freshly provisioned container. Plan section 3.
+
+## pg_get_indexdef
+CREATE UNIQUE INDEX admin_audit_log_pkey ON public.admin_audit_log USING btree (id)
+CREATE INDEX idx_admin_audit_actor_created ON public.admin_audit_log USING btree (actor_user_id, created_at DESC)
+CREATE INDEX idx_admin_audit_event_created ON public.admin_audit_log USING btree (event_type, created_at DESC)
+CREATE UNIQUE INDEX flagged_responses_pkey ON public.flagged_responses USING btree (id)
+CREATE UNIQUE INDEX idx_flagged_responses_open_response ON public.flagged_responses USING btree (response_id) WHERE (status = 'open'::text)
+CREATE INDEX idx_flagged_responses_status_created ON public.flagged_responses USING btree (status, created_at DESC)
+CREATE INDEX idx_impersonation_account_started ON public.impersonation_sessions USING btree (account_id, started_at DESC)
+CREATE UNIQUE INDEX idx_impersonation_active_actor ON public.impersonation_sessions USING btree (actor_user_id) WHERE (ended_at IS NULL)
+CREATE INDEX idx_impersonation_actor_started ON public.impersonation_sessions USING btree (actor_user_id, started_at DESC)
+CREATE INDEX idx_impersonation_impersonated_started ON public.impersonation_sessions USING btree (impersonated_user_id, started_at DESC)
+CREATE UNIQUE INDEX impersonation_sessions_pkey ON public.impersonation_sessions USING btree (id)
+CREATE UNIQUE INDEX poller_heartbeats_pkey ON public.poller_heartbeats USING btree (poller_name)
+
+## pg_get_constraintdef
+admin_audit_log.admin_audit_log_actor_user_id_fkey = FOREIGN KEY (actor_user_id) REFERENCES users(id)
+flagged_responses.flagged_responses_account_id_fkey = FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+flagged_responses.flagged_responses_api_cost_id_fkey = FOREIGN KEY (api_cost_id) REFERENCES api_costs(id) ON DELETE SET NULL
+flagged_responses.flagged_responses_business_id_fkey = FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+flagged_responses.flagged_responses_response_id_fkey = FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE
+flagged_responses.flagged_responses_review_id_fkey = FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+flagged_responses.flagged_responses_reviewed_by_user_id_fkey = FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)
+flagged_responses.flagged_responses_severity_check = CHECK ((severity = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text])))
+flagged_responses.flagged_responses_source_check = CHECK ((source = ANY (ARRAY['local_regex'::text, 'openai_moderation'::text, 'eval'::text, 'admin'::text])))
+flagged_responses.flagged_responses_status_check = CHECK ((status = ANY (ARRAY['open'::text, 'approved_for_owner_review'::text, 'dismissed_false_positive'::text, 'requires_regeneration'::text])))
+impersonation_sessions.impersonation_sessions_account_id_fkey = FOREIGN KEY (account_id) REFERENCES accounts(id)
+impersonation_sessions.impersonation_sessions_actor_user_id_fkey = FOREIGN KEY (actor_user_id) REFERENCES users(id)
+impersonation_sessions.impersonation_sessions_impersonated_user_id_fkey = FOREIGN KEY (impersonated_user_id) REFERENCES users(id)
+users.fk_users_account = FOREIGN KEY (account_id) REFERENCES accounts(id) DEFERRABLE INITIALLY DEFERRED
+users.users_role_check = CHECK (((role)::text = ANY ((ARRAY['owner'::character varying, 'admin'::character varying])::text[])))
+
+## 057 nullability — five loosened MUST be YES, five left alone MUST be NO
+account_offboardings.location_ids nullable=NO
+account_offboardings.provider_dispositions nullable=NO
+account_offboardings.zernio_account_ids nullable=YES
+account_offboardings.zernio_profile_ids nullable=YES
+approval_audit_log.account_id nullable=NO
+approval_audit_log.business_id nullable=NO
+approval_audit_log.response_id nullable=YES
+impersonation_sessions.account_id nullable=YES
+impersonation_sessions.actor_user_id nullable=NO
+impersonation_sessions.impersonated_user_id nullable=YES
+
+## 118 comments and default
+table comment = Durable background-loop liveness (#949): one row per poller, last_cycle_at = the time that loop last COMPLETED a cycle. Platform-scoped — no account_id, not a tenant table, not in TABLE_DISPOSITIONS. Deny-all RLS with client-role privileges revoked. Written only by recordPollerCycle (src/lib/shared/poller-liveness.ts); each poller name has exactly one writer.
+column last_cycle_at comment = Set to NOW() after a cycle finishes WITHOUT throwing. A failed or still-running cycle deliberately leaves it stale — a cycle that did not complete is not proof of life.
+column last_cycle_at default = now()
+
+## acldefault privilege set on THIS major — 8 on 17, 7 on 16. NEVER spell it; derive it.
+DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+## client-role grants on the four deny-all tables — MUST be empty at head
+(none — correct)
+
+## row security posture at head — the 'carries row security enabled at head' titles
+account_offboardings: rowsecurity=true force=false policies=0
+admin_audit_log: rowsecurity=true force=false policies=0
+analytics_events: rowsecurity=true force=false policies=0
+approval_audit_log: rowsecurity=true force=false policies=1
+flagged_responses: rowsecurity=true force=false policies=0
+impersonation_sessions: rowsecurity=true force=false policies=0
+poller_heartbeats: rowsecurity=true force=false policies=0
+users: rowsecurity=true force=false policies=1
+
+## tables that DO carry a policy — needed to prove the policy renderer is not vacuous
+account_audit_log, accounts, api_costs, api_costs_daily_rollups, approval_audit_log, approval_links, businesses, channel_enrollments, competitor_snapshots, contact_csv_uploads, monthly_impact_emails, notification_deliveries, onboarding_demos, onboarding_drip_log, ranking_snapshots, responses, review_exceptions, reviews, satisfaction_responses, solicitation_asks, solicitation_batches, solicitation_contacts, solicitation_outreach, solicitation_visits, users, weekly_summaries, zernio_backfill_runs, zernio_connections, zernio_finalize_incidents

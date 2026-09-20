@@ -1,0 +1,395 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1301-migration-guard-execution-80b308",
+  "branch": "fix/1301-migration-guard-execution",
+  "fork_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
+  "merge_base_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
+  "head_sha": "a4becdc44e56030d10384fe7faec17493623b9ab",
+  "intake_sha256": "d38a7dfe37076711433791c1e0385a1f0da08f2939deb5183d4a147ba5509280",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-20T14:26:32Z",
+  "inventory": [
+    {
+      "id": "M01",
+      "file": "supabase/migrations/048_impersonation_sessions.sql",
+      "test": "migration 048 suite — delete `WHERE ended_at IS NULL` from idx_impersonation_active_actor",
+      "outcome": "killed",
+      "reason": "Green 5/5 baseline. Mutant failed `re-applying 048 restores the guarded indexes after they are dropped` on the pinned pg_get_indexdef literal (migration-048-...:240-243). The partial predicate is the one-active-session-per-actor guarantee; the mutation removes it. Original blob restored and verified clean."
+    },
+    {
+      "id": "M02",
+      "file": "supabase/migrations/049_analytics_events_rls.sql",
+      "test": "migration 049 suite — delete the `ALTER TABLE analytics_events ENABLE ROW LEVEL SECURITY;` line",
+      "outcome": "killed",
+      "reason": "Green 4/4 baseline. Mutant failed `re-applying 049 restores row security after it is disabled` on the whole-table catalogue equality. Original blob restored."
+    },
+    {
+      "id": "M03",
+      "file": "supabase/migrations/049_analytics_events_rls.sql",
+      "test": "migration 049 suite — wrap the ENABLE RLS statement in a `/* ... */` block comment (the #1171 lexical evasion)",
+      "outcome": "killed",
+      "reason": "The mutant file still CONTAINS the exact string every retired regex matched, so the deleted text guard would have passed it. PostgreSQL executes nothing; the suite failed `re-applying 049 restores row security after it is disabled`. This is the direct measurement that the approach change closes the #1171 class. Original blob restored."
+    },
+    {
+      "id": "M04",
+      "file": "supabase/migrations/049_analytics_events_rls.sql",
+      "test": "migration 049 suite — split the statement as `ENABLE/**/ROW\\n  LEVEL\\n  SECURITY;`",
+      "outcome": "equivalent",
+      "reason": "PROOF the mutant preserves behaviour: a block comment and newlines are whitespace to the SQL lexer, so the statement parses to the identical `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and the resulting `public` catalogue is byte-identical — which the suite's own oracle-B diff measured as equal (4/4 green under the mutant). Not a weakening, and the fact that lexical form no longer matters is the property the change buys."
+    },
+    {
+      "id": "M05",
+      "file": "supabase/migrations/051_flagged_responses.sql",
+      "test": "migration 051 suite — delete `WHERE status = 'open'` from idx_flagged_responses_open_response",
+      "outcome": "killed",
+      "reason": "Green 5/5 baseline. Mutant failed `re-applying 051 restores the guarded indexes after they are dropped`. The partial predicate is what stops idempotent regeneration stacking duplicate open flags. Original blob restored."
+    },
+    {
+      "id": "M06",
+      "file": "supabase/migrations/051_flagged_responses.sql",
+      "test": "migration 051 suite — delete the inline `CHECK (status IN (...))` from the CREATE TABLE body",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Survived 5/5 in THIS worktree on a branch the suite never executes here: `CREATE TABLE IF NOT EXISTS` is a no-op at head, which the suite's own stated-limits header declares. Resolving it needs a container provisioned FROM the mutant, and this pass was instructed never to run `pnpm test:db:setup` against the shared container. Measured the equivalent instead, inside a rolled-back transaction on test_1301: `DROP TABLE flagged_responses CASCADE` then apply the mutant leaves only flagged_responses_source_check and flagged_responses_severity_check, so the oracle-A literal at migration-051-...:251-254 resolves to `undefined` and title 2 fails. CI re-provisions (.github/actions/test-db -> scripts/test-db-setup.sh), so the mutant is caught there. Recorded inconclusive rather than killed because no vitest launch in this environment killed it."
+    },
+    {
+      "id": "M07",
+      "file": "supabase/migrations/053_users_role_constraint.sql",
+      "test": "migration 053 suite — widen the allowlist to `CHECK (role IN ('owner','admin','sales_partner'))`",
+      "outcome": "killed",
+      "reason": "Green 9/9 baseline. Mutant failed THREE cases on the pinned pg_get_constraintdef literal, including on this un-reprovisioned container — the oracle-A literal is compared against the RE-APPLIED constraint, not against `before`, which is exactly the circularity the design claims to break. Original blob restored."
+    },
+    {
+      "id": "M08",
+      "file": "supabase/migrations/053_users_role_constraint.sql",
+      "test": "migration 053 suite — delete the `UPDATE users SET role = 'admin' WHERE role = 'sales_partner'` statement",
+      "outcome": "killed",
+      "reason": "Mutant failed three cases with PostgresError `check constraint \"users_role_check\" of relation \"users\" is violated by some row` — the seeded legacy row is never converted, so the subsequent ADD CONSTRAINT is refused. Original blob restored."
+    },
+    {
+      "id": "M09",
+      "file": "supabase/migrations/053_users_role_constraint.sql",
+      "test": "migration 053 suite — drop `AND n.nspname = 'public'` from the DO-block catalogue guard",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 053 ignores a same-named constraint in another schema`: the guard matched the decoy_1301.users decoy, skipped the ADD CONSTRAINT, and public.users came back with no allowlist (expected undefined to be the pinned CHECK). The decoy discriminates because it is planted while public.users is unprotected. Original blob restored."
+    },
+    {
+      "id": "M10",
+      "file": "supabase/migrations/053_users_role_constraint.sql",
+      "test": "migration 053 suite — drop `AND t.relname = 'users'` from the DO-block catalogue guard",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 053 is idempotent and ignores same-named constraints outside public.users`: the guard matched the accounts decoy and skipped. Original blob restored."
+    },
+    {
+      "id": "M11",
+      "file": "supabase/migrations/057_account_offboarding_tombstone_nullability.sql",
+      "test": "migration 057 suite — delete the `ALTER TABLE approval_audit_log ALTER COLUMN response_id DROP NOT NULL` clause",
+      "outcome": "killed",
+      "reason": "Green 4/4 baseline. Mutant failed `re-applying 057 restores nullability after NOT NULL is reinstated` on approval_audit_log's whole-table equality: the degrade reinstates NOT NULL and the mutant never drops it again. Original blob restored."
+    },
+    {
+      "id": "M12",
+      "file": "supabase/migrations/057_account_offboarding_tombstone_nullability.sql",
+      "test": "migration 057 suite — add a SIXTH clause `ALTER COLUMN actor_user_id DROP NOT NULL`",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 057 restores nullability after NOT NULL is reinstated`: impersonation_sessions loses actor_user_id from notNullColumns, so the after-catalogue no longer equals before. The loosening 057 deliberately does NOT do is therefore guarded by the executing case, not only by oracle A. Original blob restored."
+    },
+    {
+      "id": "M13",
+      "file": "supabase/migrations/117_admin_audit_log.sql",
+      "test": "migration 117 suite — change `REVOKE ALL` to `REVOKE SELECT`",
+      "outcome": "killed",
+      "reason": "Green 13/13 baseline. Mutant failed BOTH `re-applying 117 restores the revoked client grants after they are granted` and `re-applying 117 revokes every PostgreSQL 17 table privilege from both client roles` (expected the after-grant list not to include 'anon:DELETE'). The GRANT-ALL degrade plus the acldefault-derived privilege list is what distinguishes the two spellings, exactly as the header claims. Original blob restored."
+    },
+    {
+      "id": "M14",
+      "file": "supabase/migrations/118_poller_heartbeats.sql",
+      "test": "migration 118 suite — delete the `REVOKE ALL ON poller_heartbeats FROM anon, authenticated;` line",
+      "outcome": "killed",
+      "reason": "Green 8/8 baseline. Mutant failed `re-applying 118 restores the table after it is dropped` and `re-applying 118 revokes every client privilege inherited from permissive default ACLs`. The ALTER DEFAULT PRIVILEGES half of the degrade is what makes this REVOKE falsifiable; without it the line would be unreachable. Original blob restored."
+    },
+    {
+      "id": "M15",
+      "file": "supabase/migrations/118_poller_heartbeats.sql",
+      "test": "migration 118 suite — delete the `COMMENT ON COLUMN poller_heartbeats.last_cycle_at` statement",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 118 restores the last_cycle_at default and column comment` on the pinned comment literal, and the whole-table equality. Original blob restored."
+    },
+    {
+      "id": "M16",
+      "file": "supabase/migrations/118_poller_heartbeats.sql",
+      "test": "migration 118 suite — delete `DEFAULT NOW()` from last_cycle_at",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 118 restores the last_cycle_at default and column comment` (expected undefined to be 'now()') and the whole-table equality. Original blob restored."
+    },
+    {
+      "id": "M17",
+      "file": "supabase/migrations/048_impersonation_sessions.sql",
+      "test": "migration 048 suite — change `expires_at TIMESTAMPTZ NOT NULL` to `expires_at TIMESTAMPTZ`",
+      "outcome": "inconclusive",
+      "finding_id": "RT-2",
+      "reason": "CONFIRMED SURVIVOR, recorded as inconclusive/oracle because the schema reserves survived-confirmed-P0 for a P0 finding and this is a claim about a MISSING ORACLE rather than a proven-fake test. Survived 5/5. ARBITER: semantically meaningful — expires_at is the time-box on an admin impersonation session, and a NULL expiry is a session that never ages out; the deleted predecessor suite asserted this exact property (`expect(sql).toMatch(/expires_at TIMESTAMPTZ NOT NULL/i)`). Not an unexecuted branch by accident: it survives in BOTH worlds, because the new 048 suite pins only four index definitions, three FK definitions and the `id` default and never pins the impersonation_sessions column inventory (051 and 117 pin theirs). A repo-wide search for any expires_at nullability assertion on impersonation_sessions returns nothing (the only `expires_at TIMESTAMPTZ NOT NULL` assertion left is migration-056's, on a different table). Original blob restored.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M18",
+      "file": "supabase/migrations/051_flagged_responses.sql",
+      "test": "migration 051 suite — append `UPDATE accounts SET display_name = 'red-team off-target';`",
+      "outcome": "inconclusive",
+      "finding_id": "RT-3",
+      "reason": "CONFIRMED SURVIVOR, recorded as inconclusive/oracle because the schema reserves survived-confirmed-P0 for a P0 finding and this is a claim about a MISSING ORACLE rather than a proven-fake test. Survived 5/5. ARBITER: semantically meaningful — an unrelated DML statement rewriting every accounts row is real damage, and the deleted 051 suite banned it (`expect(sql).not.toMatch(/^\\s*UPDATE\\s+/im)`). Executed on every apply, so not an unreached branch. `assertOnlyTablesMoved` compares the CATALOGUE, never rows; the only row assertions in the set cover flagged_responses (051) and the seeded users rows (053). Original blob restored.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M19",
+      "file": "supabase/migrations/049_analytics_events_rls.sql",
+      "test": "migration 049 suite — append `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;`",
+      "outcome": "inconclusive",
+      "finding_id": "RT-4",
+      "reason": "CONFIRMED SURVIVOR, recorded as inconclusive/oracle because the schema reserves survived-confirmed-P0 for a P0 finding and this is a claim about a MISSING ORACLE rather than a proven-fake test. Survived 4/4. ARBITER: semantically meaningful and executed — it permanently grants every privilege on every table created afterwards to both Supabase client roles. Not equivalent: this is the exact statement migration 118's own degrade uses to make its REVOKE falsifiable, so its potency is known inside this change. Invisible because readPublicCatalogue reads pg_class with `relkind IN ('r','p')` only (migration-guard.ts:245, :254) and never pg_default_acl. Original blob restored; pg_default_acl read outside any transaction before and after the whole pass is 0 rows.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M20",
+      "file": "supabase/migrations/049_analytics_events_rls.sql",
+      "test": "migration 049 suite — append `CREATE VIEW public.analytics_events_leak AS SELECT * FROM analytics_events; GRANT SELECT ... TO anon, authenticated;`",
+      "outcome": "inconclusive",
+      "finding_id": "RT-5",
+      "reason": "CONFIRMED SURVIVOR, recorded as inconclusive/oracle because the schema reserves survived-confirmed-P0 for a P0 finding and this is a claim about a MISSING ORACLE rather than a proven-fake test. Survived 4/4. ARBITER: semantically meaningful, executed, and measured to defeat the exact property 049 exists to establish. Independent psql proof inside a rolled-back transaction on test_1301: with the view present, has_table_privilege('anon','public.analytics_events','SELECT') is FALSE while `SET ROLE anon; SELECT count(*) FROM public.analytics_events_leak` returns 10 rows — a non-security_invoker view runs as its owner and the owner bypasses RLS while FORCE is off. relkind is 'v', which readPublicCatalogue filters out, and PostgREST exposes views. Original blob restored; 0 views in schema public afterwards.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M21",
+      "file": "supabase/migrations/117_admin_audit_log.sql",
+      "test": "migration 117 suite — delete the `COMMENT ON TABLE admin_audit_log` statement",
+      "outcome": "inconclusive",
+      "finding_id": "RT-12",
+      "reason": "CONFIRMED SURVIVOR, recorded as inconclusive/oracle because the schema reserves survived-confirmed-P0 for a P0 finding and this is a claim about a MISSING ORACLE rather than a proven-fake test. Survived 13/13. ARBITER: semantically meaningful (the statement executes on every apply and the comment is the table's only in-database posture documentation) and not an unreached branch: 117's degrade never removes the comment and no oracle-A literal pins it, so it survives in both the at-head and the re-provisioned world. Sibling 118 pins both its table and column comments with an explicit rationale; 048, 051 and 117 pin neither. Repo search finds no assertion on the 117 comment text. Original blob restored.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M22",
+      "file": ".github/workflows/ci.yml",
+      "test": "src/__tests__/ci-audit-wiring.test.ts — revert the test job's service image to postgres:16",
+      "outcome": "killed",
+      "reason": "Green 128/128 baseline. Mutant failed BOTH new cases: `the test job and the e2e job pin the same postgres major` and `local E2E setup uses the same PostgreSQL 17 image as both CI database services`. The hardcoded-major plus cross-file-equality shape is genuinely two-sided, as its comment claims. Original blob restored."
+    },
+    {
+      "id": "M23",
+      "file": "docs/runbooks/e2e-local-setup.md",
+      "test": "src/__tests__/ci-audit-wiring.test.ts — revert the local docker recipe to postgres:16",
+      "outcome": "killed",
+      "reason": "Mutant failed `local E2E setup uses the same PostgreSQL 17 image as both CI database services`. Original blob restored."
+    },
+    {
+      "id": "M24",
+      "file": "scripts/ci/live-db-suites-audit.ts",
+      "test": "migration 049 suite — remove the 049 entry from MIGRATION_SHAPE_FILES",
+      "outcome": "killed",
+      "reason": "Mutant failed `migration 049 suite is registered in MIGRATION_SHAPE_FILES` — auditLiveDbFile returned one finding against the suite's own real source text. The registry case measures the EFFECT rather than reading the private Set, as its comment claims. Original blob restored."
+    },
+    {
+      "id": "M25",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "helpers/migration-guard.test.ts — disable the `absent` survivor check in assertDegradeLanded (:519)",
+      "outcome": "killed",
+      "reason": "Green 15/15 baseline. Mutant failed `assertDegradeLanded requires every named object to be absent after the degrade`. This is the vacuity guard the whole design rests on; the helper's own suite is real. Original blob restored."
+    },
+    {
+      "id": "M26",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "helpers/migration-guard.test.ts — make assertOnlyTablesMoved always return (`offenders.length >= 0`, :577)",
+      "outcome": "killed",
+      "reason": "Mutant failed four cases, including the two negative cases for same-name policy changes and grant-option changes. Original blob restored."
+    },
+    {
+      "id": "M27",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "helpers/migration-guard.integration.test.ts — make withRolledBackTransaction swallow a non-sentinel callback error (:605)",
+      "outcome": "killed",
+      "reason": "Mutant failed `withRolledBackTransaction preserves callback errors and rolls back successful and failed callbacks` ('promise resolved \"undefined\" instead of rejecting'). The header calls this re-throw load-bearing because a swallowing wrapper would turn every failing executing case into a pass; that claim is now measured. Original blob restored."
+    },
+    {
+      "id": "M28",
+      "file": "vitest.config.ts",
+      "test": "changed production surface — the postgres:16 -> postgres:17 edit",
+      "outcome": "excluded",
+      "reason": "Comment-only: the diff is two characters inside a `//` line describing which service CI stands up. No config value, project, include glob or option changes, so no mutation of it can alter behaviour under test."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P0",
+      "title": "\"What no longer has a guard anywhere: Nothing\" is false — at least four assertions from the five deleted suites have neither a successor case nor a retired-class entry, and the head commit message repeats the claim.",
+      "at": "docs/reviews/fix-1301-migration-guard-execution/weakened-checks-reasons.md:132",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured, not inferred. M17 and M18 are confirmed survivors of mutations that the deleted suites' own assertions would have caught: migration-048-impersonation-sessions.test.ts asserted `expires_at TIMESTAMPTZ NOT NULL`, `ticket_id TEXT NOT NULL` and `reason TEXT NOT NULL`, and migration-051-structure.test.ts's `does not drop or mutate data` case banned `UPDATE`/`DELETE`/`DROP TABLE` in the file. None of the four appears in the new suites (048 pins four index definitions, three FK definitions and the `id` default and no column inventory; 051's row case covers only flagged_responses rows), none appears in the three 'genuinely retired' classes at :110-130, and a repo-wide search finds no other assertion covering them. The doc's closing sentence is the answer to the exact question ci:weakened-checks raised, so a reviewer reading it stops looking. Fix is small: name the four under the retired-classes section with a reason, or add the two missing oracle-A pins (048 column inventory; a row assertion or a static no-DML ban)."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "Lost coverage: no suite anywhere asserts impersonation_sessions column nullability, so loosening `expires_at NOT NULL` in migration 048 passes every gate.",
+      "at": "src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts:98",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "M17 survived 5/5, and it survives in the re-provisioned world too because no oracle-A literal pins the inventory. 048 is the odd sibling: migration-051-...:190-215 pins a full 14-column inventory and migration-117-...:492-515 pins a full ten-column inventory. The property is the time-box on an admin view-as session. Cheapest fix: add the impersonation_sessions column inventory to 048's head-posture case, matching its two siblings."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "Lost coverage: off-target DML. `assertOnlyTablesMoved` compares the catalogue only, so an unrelated `UPDATE`/`DELETE` appended to any of the seven migrations passes every suite.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:548",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "M18 survived 5/5 with `UPDATE accounts SET display_name = ...` appended to 051. The deleted 051 and 053 suites carried crude text bans for exactly this class. Only 051 and 053 make any row assertion, and each covers only its own table's rows. Either restore a static no-DML ban for the six migrations that declare no DML (053 is the one exception, and it is the only DML in the set), or add a row-count/whole-row check over the parent tables each suite already seeds."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P1",
+      "title": "Off-target blind spot: `readPublicCatalogue` never reads `pg_default_acl`, so appending `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;` to any of the seven migrations passes every suite.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:245",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "M19 survived 4/4. This is the statement migration 118's own degrade uses (migration-118-...:226-228) precisely because it makes every subsequently created table inherit client grants — so the change knows the statement is potent and still does not guard against a migration carrying it. The effect outlives the migration: every table created afterwards is open to anon and authenticated. `assertOnlyTablesMoved` can read it cheaply; migration-118-...:233-242 already has `readDefaultTableAcl`."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P1",
+      "title": "Off-target blind spot: `readPublicCatalogue` filters `relkind IN ('r','p')`, so a migration that appends a view over a deny-all table plus a client-role GRANT re-opens the RLS boundary with every suite green.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:254",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "M20 survived 4/4, and the bypass is measured rather than argued: inside a rolled-back transaction on test_1301, with `CREATE VIEW public.analytics_events_leak AS SELECT * FROM analytics_events` plus `GRANT SELECT ... TO anon`, has_table_privilege('anon','public.analytics_events','SELECT') is false while `SET ROLE anon; SELECT count(*) FROM public.analytics_events_leak` returns 10 rows — a view defaults to security_invoker=false and runs as its owner, who bypasses RLS while FORCE is off. Supabase PostgREST exposes views, so this is the same exposure path migration 049 exists to close. Views, sequences, functions and triggers are all outside the catalogue; the helper's JSDoc framing ('arbitrary damage elsewhere') reads wider than the implementation. Either widen relkind and add nspacl/pg_default_acl, or state the boundary in the JSDoc and in each suite's stated limits."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P1",
+      "title": "A production-file comment describes migration 118's degrade as \"deny-all RLS off and the client-role privileges the migration revokes granted back\" — it is neither, and the description hides the one degrade in the set that touches a schema-level object.",
+      "at": "scripts/ci/live-db-suites-audit.ts:148",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "118's actual degrade (migration-118-poller-heartbeats.integration.test.ts:225-230) is `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;` followed by `DROP TABLE poller_heartbeats;`. It never disables RLS and never grants on the table. 118's own header calls the ALTER DEFAULT PRIVILEGES step the riskiest in #1301 and devotes a section to proving it rolls back; the registry comment that a future reader consults first says nothing about it and asserts two things that are false."
+    },
+    {
+      "id": "RT-7",
+      "severity": "P1",
+      "title": "A self-satisfying assertion with a false stated rationale, newly introduced in two suites: `expect(columnPrivileges).toHaveLength(4)` cannot fail if PostgreSQL adds a fifth column privilege.",
+      "at": "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:470",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "`columnPrivileges` is a hardcoded literal declared on the line above, so the assertion only restates its own input. The comment directly above claims 'the length assertion means a PostgreSQL that ever adds a fifth fails loudly rather than under-covering' — it would do nothing of the kind. The same pair appears at migration-118-poller-heartbeats.integration.test.ts:406-407, and neither existed at the merge-base (117's ARM A/B/C block is new in this change). Behavioural replacement: assert against a derived source, e.g. that `aclexplode(acldefault('c', <owner>))` is empty AND that the four names match a list read from `information_schema.column_privileges`-style introspection, or delete the assertion and keep only the honest comment that the four are fixed by the standard."
+    },
+    {
+      "id": "RT-8",
+      "severity": "P1",
+      "title": "Three mutually inconsistent promised-title counts: the intake carries 60, the plan's §6 says 58, and the plan's own per-tracer breakdown sums to 59.",
+      "at": "docs/superpowers/plans/fix-1301-migration-guard-execution-plan.md:915",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured: `.feature/intake.json` `tests_to_add` has 60 entries; all 60 are present verbatim, exactly once each, across 1204 test files. §6 reads '58 promised titles. T1 two, T2 sixteen, T3 four, T4 five, T5 five, T6 nine, T7 four, T8 fourteen' — that breakdown adds to 59. The coverage check is the artifact a later reader trusts to know the surface was fully covered; it cannot be right about any of the three numbers."
+    },
+    {
+      "id": "RT-9",
+      "severity": "P1",
+      "title": "D8's \"fourteen further suites\" is inconsistent with its own twelve-item list and understates the real remainder, and the same figure is repeated in the durable arch-review-log.",
+      "at": "docs/superpowers/plans/fix-1301-migration-guard-execution-deviations.md:265",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The entry names ten `migration-NNN` suites plus the `.test.ts` halves of 055 and 056 — twelve, against a stated 'at least fourteen'. Measured remainder: twenty pure text-guard `.test.ts` suites still read a migration file and text-match it (034, 035, 038, 039, 040, 043, 044, 045, 046, 047, 050, 052, 054, 055, 056, 058, 060, 061, 069, 089). The survey missed 034, 035, 038, 039, 060, 061, 069 and 089, and 035 is `migration-035-rls-policies` — the same deny-all RLS class D8 singles out 040 and 045 for. `.claude/reference/arch-review-log.md` repeats 'fourteen further suites' into the layer CLAUDE.md calls authoritative, so the understatement becomes the number the next session inherits."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "title": "Production-file comment says migration 057's degrade covers \"the four columns\" and then lists five.",
+      "at": "scripts/ci/live-db-suites-audit.ts:142",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The enumeration that follows is account_offboardings.zernio_account_ids, zernio_profile_ids, approval_audit_log.response_id, impersonation_sessions.account_id and impersonated_user_id — five. The 057 suite says five throughout (its title is `the five tombstone columns are nullable at head`), and five is what the degrade at migration-057-...:150-161 reinstates."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "title": "A weakened migration fails with a message telling the operator to re-provision the container: the BEHIND_HEAD remediation string is attached to oracle-A literal comparisons inside the oracle-B executing case.",
+      "at": "src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts:241",
+      "duty": 5,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured: M01 (the pinned `WHERE (ended_at IS NULL)` predicate deleted from the migration) failed with 'impersonation_sessions posture is not at migration head — run pnpm test:db:setup'. The container was at head; the migration was not. Re-provisioning is the wrong remedy and, worse, would make the failure reproduce for a different reason. The same string is reused at :271 and :276. It belongs on the head-posture case only; inside `withDegradedAndReapplied` the actionable message is 'the checked-in migration no longer produces this object — read the migration diff'."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "title": "Missed sibling case: 118 pins its table and column comments as oracle-A literals with an explicit rationale; 048, 051 and 117 pin no comment, so deleting a COMMENT ON statement is invisible.",
+      "at": "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:371",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "M21 survived 13/13 with 117's `COMMENT ON TABLE admin_audit_log` deleted. 118's header states the reasoning that applies verbatim to the siblings: 'a comment and a column default are circular in exactly the way an index predicate is, so all three are pinned rather than compared' (migration-118-...:40-43). A table comment is documentation rather than a security control, hence P2, but 117's comment is the in-database record of the deny-all posture and the single-writer rule."
+    },
+    {
+      "id": "RT-13",
+      "severity": "P2",
+      "title": "118's challenged-REVOKE case lacks the before/after grants equality that 117's equivalent case carries; `expect(afterGrantNames).not.toEqual([])` is an absence-of-structure proxy for \"the owner's grants survive\".",
+      "at": "src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts:574",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "117's `re-applying 117 revokes every PostgreSQL 17 table privilege from both client roles` closes with `expect(after.tables[TABLE]?.grants).toEqual(before.tables[TABLE]?.grants)` (migration-117-...:652). 118's case stops at 'not empty', which would pass if the owner's grants had been replaced by an unrelated role's. 118's title 5 whole-table equality covers it in practice, so this is a consistency and intent gap rather than a hole; the replacement is the one line 117 already has."
+    },
+    {
+      "id": "RT-14",
+      "severity": "P2",
+      "title": "Vacuous-by-construction assertion: 053's \"no stray legacy row survives at head\" counts `role = 'sales_partner'` rows in a table the same suite states is empty on a freshly provisioned container.",
+      "at": "src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts:360",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "The count is 0 whether or not 053's UPDATE exists, so the assertion establishes nothing about the migration; migration-053-...:591 says so in as many words ('`users` is EMPTY on a freshly provisioned container, so the rows have to be seeded here'). The real proof of the UPDATE's exclusivity is the seeded three-row case at :407-437, which M08 confirms is real. Behavioural replacement: drop this arm, or state it as a container precondition rather than a 053 assertion."
+    },
+    {
+      "id": "RT-15",
+      "severity": "P2",
+      "title": "118's title 6 claims its `assertOnlyTablesMoved` doubles as proof that `ALTER DEFAULT PRIVILEGES` leaves existing tables alone; with no degrade-landed assertion for that statement in that case, it passes identically if the statement had no effect at all.",
+      "at": "src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts:498",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "The `presence` vacuity check in that case covers the DROP TABLE half only. Title 7 is the only case that proves the ALTER landed, via the throwaway probe table at :545-556. The claim is therefore stronger than the case; the fix is one sentence in the comment, or moving the probe into the shared `degrade` helper so every case that runs it proves it."
+    },
+    {
+      "id": "RT-16",
+      "severity": "P2",
+      "title": "D4's staleness sweep covered five `.ts` files and no docs, so a plan doc still states as current that ci.yml pins postgres:16 and that migration 122's MAINTAIN branch cannot execute in CI.",
+      "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-plan.md:130",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "This branch made the sentence false, and CLAUDE.md requires cleaning every cross-reference in the same change. The corresponding live artifact — migration-122-client-role-grant-sweep.integration.test.ts's header — WAS fixed (D4), so the live gate is consistent; only the closed plan's prose is not. It reads as a current constraint ('cannot execute on the PG16 container'), not as a dated observation, which is what separates it from the three 'NOT stale, true historical statement' rulings in D4's table."
+    },
+    {
+      "id": "RT-17",
+      "severity": "P2",
+      "title": "`renderValue`'s separator JSDoc claims the two control characters \"cannot occur in a catalogue name or definition\"; U+0001 can appear in a PostgreSQL text comment, so two different comment lists can in principle render equal.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:150",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "U+0000 genuinely cannot appear in a PostgreSQL text value, so the FIELD separator is safe; U+0001 is an ordinary text character and `columnComments` / the table `comment` carry arbitrary text. Theoretical rather than reachable in this repo — no checked-in comment contains a control character — and the equality diffs in the suites are deep-equals on structured arrays rather than on renderValue, so only `assertOnlyTablesMoved` and the vacuity check use the rendering. Recorded because it is a stated impossibility that is not impossible; fix is to narrow the claim to U+0000 or to render with a length-prefixed encoding."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 28,
+    "killed": 20,
+    "survived_confirmed_p0": 0,
+    "equivalent": 1,
+    "inconclusive": 6,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 17,
+    "p0_open": 1,
+    "p1_open": 8,
+    "p2_open": 8,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
