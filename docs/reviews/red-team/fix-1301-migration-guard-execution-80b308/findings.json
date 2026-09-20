@@ -5,102 +5,109 @@
   "branch": "fix/1301-migration-guard-execution",
   "fork_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
   "merge_base_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
-  "head_sha": "9b4d1e864dab7c376d205f9cdc6a8ff65ff653c7",
+  "head_sha": "32f4d1e2cf3e39c5cfedf72add43000f64f44878",
   "intake_sha256": "898d1d1e17cc39460b284418289931a2079c0a2aaadcb1e5817c984acbca308e",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-20T16:37:16.057530Z",
+  "round": 3,
+  "generated_at": "2026-09-20T17:03:16.553507Z",
   "inventory": [
     {
-      "id": "R2-M01",
+      "id": "R3-M01",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "readPublicCatalogue \u2014 rowDigest replaced with NULL::text for every relation",
+      "test": "withRolledBackTransaction \u2014 the isolation level reverted to the READ COMMITTED default",
       "outcome": "killed",
-      "reason": "Baseline green (64/64 across the nine live-DB files at this HEAD). Mutant failed `assertOnlyTablesMoved reports an off-target row write once the table holds a row` with \"expected '(none)' to match / rows=1$/\". RT-3's fix carries a real assertion."
+      "reason": "THE ROUND-3 MUTATION. Mutant failed `a guard transaction does not see a row another session commits mid-comparison` on a poller_heartbeats rowDigest mismatch \u2014 the exact defect D17 describes, now asserted rather than implied."
     },
     {
-      "id": "R2-M02",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "readPublicCatalogue \u2014 the pg_default_acl query WHERE clause replaced with `WHERE false`",
-      "outcome": "killed",
-      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs` with \"expected [] to include 'public:r:anon:SELECT'\". RT-4's fix reads pg_default_acl for real."
-    },
-    {
-      "id": "R2-M03",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "readPublicCatalogue \u2014 the relations query narrowed back to relkind IN ('r','p')",
-      "outcome": "killed",
-      "reason": "Mutant failed the same case with \"expected undefined to be 'v'\". RT-5's fix genuinely admits views."
-    },
-    {
-      "id": "R2-M04",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "readLeakSentinel \u2014 returns a constant instead of the queried fingerprint",
-      "outcome": "killed",
-      "reason": "Mutant failed `withRolledBackTransaction detects a callback that commits its own transaction` with \"promise resolved 'undefined' instead of rejecting\". The adversarial-P1 leak detector is not decorative."
-    },
-    {
-      "id": "R2-M05",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "assertOnlyTablesMoved \u2014 the schemaDefaultAcls 'changed' throw disabled",
-      "outcome": "killed",
-      "reason": "Mutant failed `assertOnlyTablesMoved with schemaDefaultAcls 'changed' proves the widening rather than excusing it`. The option is an assertion in the other direction, not an exemption."
-    },
-    {
-      "id": "R2-M06",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "assertTableRemoved \u2014 the already-absent-from-before half removed",
-      "outcome": "killed",
-      "reason": "Mutant failed `assertDegradeLanded accepts deliberate target-table removal without dereferencing a missing table`. Both directions of S-6's extracted function are live."
-    },
-    {
-      "id": "R2-M07",
+      "id": "R3-M02",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "schemaOnly \u2014 returns the whole table including rowDigest",
       "outcome": "killed",
-      "reason": "Mutant failed `re-applying 053 is idempotent and ignores same-named constraints outside public.users`. The helper really is narrowing the comparison it claims to narrow, and 053's case would catch a rowDigest difference if schemaOnly stopped dropping it."
+      "reason": "Mutant failed `re-applying 118 restores the table after it is dropped`. 118's drop case really is narrowing to schema, and the narrowing is what keeps a DROP TABLE's inherent row loss from reading as a regression."
     },
     {
-      "id": "R2-M08",
+      "id": "R3-M03",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 rowDigest replaced with NULL for every relation",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved reports an off-target row write once the table holds a row` on the 'unparsed' guard, which exists precisely to catch a digest that stops carrying a count. The count-agnostic rewrite did not weaken the case."
+    },
+    {
+      "id": "R3-M04",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the pg_default_acl query WHERE clause replaced with `WHERE false`",
+      "outcome": "killed",
+      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs`. RT-4 still closed."
+    },
+    {
+      "id": "R3-M05",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the relations query narrowed back to relkind IN ('r','p')",
+      "outcome": "killed",
+      "reason": "Mutant failed the same case with \"expected undefined to be 'v'\". RT-5 still closed."
+    },
+    {
+      "id": "R3-M06",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readLeakSentinel \u2014 returns a constant instead of the queried fingerprint",
+      "outcome": "killed",
+      "reason": "Mutant failed `withRolledBackTransaction detects a callback that commits its own transaction`. The adversarial-P1 detector survived the isolation change."
+    },
+    {
+      "id": "R3-M07",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "assertOnlyTablesMoved \u2014 the schemaDefaultAcls 'changed' throw disabled",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved with schemaDefaultAcls 'changed' proves the widening rather than excusing it`."
+    },
+    {
+      "id": "R3-M08",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "assertTableRemoved \u2014 the already-absent-from-before half removed",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertDegradeLanded accepts deliberate target-table removal without dereferencing a missing table`."
+    },
+    {
+      "id": "R3-M09",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "renderEntry \u2014 drops the definition, rendering the name alone",
       "outcome": "killed",
-      "reason": "Mutant failed `assertOnlyTablesMoved rejects a same-name policy definition change on an unlisted table`. RT-17's JSON.stringify rendering is injective in practice, not just in the comment."
+      "reason": "Mutant failed `assertOnlyTablesMoved rejects a same-name policy definition change on an unlisted table`."
     },
     {
-      "id": "R2-M09",
-      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
-      "test": "deriveColumnPrivileges \u2014 pushes every table privilege, including non-column ones",
-      "outcome": "killed",
-      "reason": "Mutant failed `admin_audit_log grants no privilege to anon or authenticated at head` with PostgresError 'unrecognized privilege type: \"DELETE\"'. A weak kill by mechanism \u2014 the SQL rejects the list before any assertion reads it \u2014 recorded as such. R2-M14 is the mutation that exercises the assertion."
-    },
-    {
-      "id": "R2-M11",
+      "id": "R3-M10",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "assertOnlyTablesMoved \u2014 the schemaDefaultAcls 'unchanged' throw disabled",
       "outcome": "killed",
-      "reason": "Mutant failed `assertOnlyTablesMoved rejects a widened schema default ACL`. The default expectation reports a widening rather than tolerating it."
+      "reason": "Mutant failed `assertOnlyTablesMoved rejects a widened schema default ACL`."
     },
     {
-      "id": "R2-M12",
+      "id": "R3-M11",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "readPublicCatalogue \u2014 the entries CTE narrowed back to relkind IN ('r','p')",
       "outcome": "killed",
-      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs` with \"expected [] to include 'anon:SELECT'\". A view's ACL is read, not merely its existence \u2014 which is the half RT-5 is actually about."
+      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs` with \"expected [] to include 'anon:SELECT'\"."
     },
     {
-      "id": "R2-M13",
+      "id": "R3-M12",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "readPublicCatalogue \u2014 the columns rendering always reports NOT NULL",
       "outcome": "killed",
-      "reason": "Mutant failed `head posture pins the impersonation_sessions column inventory, primary key and table comment`. RT-2's closing assertion pins nullability, and the two columns migration 057 loosened are what it catches."
+      "reason": "Mutant failed `head posture pins the impersonation_sessions column inventory, primary key and table comment`."
     },
     {
-      "id": "R2-M14",
+      "id": "R3-M13",
       "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
       "test": "deriveColumnPrivileges \u2014 silently narrows to SELECT alone",
       "outcome": "killed",
-      "reason": "SURVIVED at 4e3b756d42f4ffdcca623bfa4f83531a728af649, which is finding RT2-1. Fixed in 476145667bce3e36dda6d445550f2e84fa6be096 by a floor of four inside the helper. Re-measured at this HEAD: killed, with 'deriveColumnPrivileges(admin_audit_log.id) returned 1 privileges (SELECT), below the SQL-standard floor of 4'."
+      "reason": "Mutant failed with the floor's message: 'returned 1 privileges (SELECT), below the SQL-standard floor of 4'. RT2-1 stays closed."
+    },
+    {
+      "id": "R3-M14",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "deriveColumnPrivileges \u2014 pushes every table privilege, including non-column ones",
+      "outcome": "killed",
+      "reason": "Mutant failed with PostgresError 'unrecognized privilege type: \"DELETE\"'. A weak kill by mechanism, recorded as such; R3-M13 is the one that exercises the assertion."
     },
     {
       "id": "R2-X01",
@@ -295,6 +302,15 @@
       "duty": 3,
       "disposition": "fixed",
       "arbiter_reasoning": "Duty 3. prevalidate-plan PASSED on the file, so no citation was stale \u2014 the FALSE claim was the state description, which no citation checker can see. A resumed session bootstraps from this file first and would have re-done finished work. Fixed in 9b4d1e864dab7c376d205f9cdc6a8ff65ff653c7, which also records the two round-1 open questions and their answers, and the two things deliberately left undone."
+    },
+    {
+      "id": "RT3-1",
+      "severity": "P1",
+      "title": "rowDigest made every catalogue comparison sensitive to a concurrent committer, and the guard transactions ran at READ COMMITTED.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:withRolledBackTransaction",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Found by the pre-push hook, not by this pass: the hook runs `vitest run --changed` at DEFAULT parallelism where the gate runs each live-DB file as its own serialized row, so only the hook exercises concurrency. Two cases failed that had passed three consecutive green gates. Measured cause: the container is shared and no longer empty (job_outbox 8 rows, analytics_events 20, poller_heartbeats 1 from a live judge_sweep heartbeat), and under READ COMMITTED each statement takes a fresh snapshot, so a row committed between the two catalogue readings reads as a change the migration did not make. The advisory lock serializes the nine sibling suites, not an unrelated writer. Two assertions had also been written on a zero-rows SNAPSHOT as though it were an invariant. Fixed in 87cdfb503 by ISOLATION LEVEL REPEATABLE READ plus schemaOnly on 118's drop case and a count-agnostic harness assertion; proven on the live container (inside RR a concurrent COMMIT reads 1 then 1 while outside reads 2). The fix had NO covering test, which Direction B calls a P1 in its own right, so 32f4d1e2c adds one that commits from a separate connection mid-comparison. R3-M01 kills it. Recorded as deviation D17."
     }
   ],
   "authorizations": [
@@ -309,19 +325,19 @@
     }
   ],
   "counts": {
-    "inventory_total": 16,
-    "killed": 13,
+    "inventory_total": 17,
+    "killed": 14,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 3,
-    "findings_total": 19,
+    "findings_total": 20,
     "p0_open": 0,
     "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 19,
+    "fixed": 20,
     "rejected": 0
   },
   "status": "CLEAR"

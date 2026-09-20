@@ -1,4 +1,68 @@
-# Red team — `fix/1301-migration-guard-execution`, round 2
+# Red team — `fix/1301-migration-guard-execution`, round 3
+
+**Status: CLEAR.** 14 mutations, 14 killed. 3 rows excluded with a recorded
+reason. 20 findings, all disposed `fixed`, none open.
+
+Round 3 was opened under an owner authorization recorded in this sidecar
+(`owner-2026-09-20-round-3`), which is the condition `round-start` enforces.
+It exists because round 2 reported CLEAR and then the **pre-push hook** found
+a real defect, and fixing that defect moved the tree past the round-2 evidence
+— the exact case the third-round exception was written for.
+
+## RT3-1 — P1, Duty 1, **fixed**
+
+`rowDigest` made every catalogue comparison sensitive to a concurrent
+committer, and the guard transactions ran at READ COMMITTED.
+
+**The hook found it, not this pass.** `lefthook` runs
+`vitest run --changed origin/main` at DEFAULT parallelism; the gate runs each
+live-DB file as its own serialized row. Only the hook exercises concurrency.
+Two cases failed that had passed three consecutive green gates and a CLEAR
+round-2 pass.
+
+**Measured cause.** The container is shared and no longer empty — `job_outbox`
+8 rows, `analytics_events` 20, `poller_heartbeats` 1 from a live `judge_sweep`
+heartbeat. Under READ COMMITTED every statement takes a fresh snapshot, so a
+row another process COMMITS between the two catalogue readings reads as a
+change the migration did not make. The shared advisory lock serializes the nine
+sibling suites and nothing else. Two assertions had also been written on an
+earlier zero-rows SNAPSHOT as though it were an invariant.
+
+**Fixed** in `87cdfb503`: `ISOLATION LEVEL REPEATABLE READ` on the guard
+transactions, `schemaOnly` on 118's drop-and-restore case (its degrade is
+`DROP TABLE`, so row loss is the degrade), and a count-agnostic harness
+assertion. Proven on the live container — inside REPEATABLE READ a concurrent
+COMMIT reads 1 then 1, while outside it reads 2.
+
+**The fix had no covering test**, which Direction B calls a P1 in its own
+right. `32f4d1e2c` adds one that commits from a SEPARATE connection
+mid-comparison and asserts both halves: the row really committed, and the
+digest did not move inside the guard transaction. **R3-M01 — reverting the
+isolation level — kills it.**
+
+## Round 3 inventory
+
+All fourteen mutations of `migration-guard.ts` killed at `32f4d1e2c`:
+R3-M01 isolation level reverted · R3-M02 `schemaOnly` keeps `rowDigest` ·
+R3-M03 `rowDigest` → NULL · R3-M04 `pg_default_acl` emptied · R3-M05 and
+R3-M11 relation filter narrowed, both places · R3-M06 leak sentinel constant ·
+R3-M07 and R3-M10 both `schemaDefaultAcls` throws · R3-M08
+`assertTableRemoved` half removed · R3-M09 `renderEntry` drops the definition ·
+R3-M12 columns forced `NOT NULL` · R3-M13 column privileges narrowed ·
+R3-M14 column privileges widened.
+
+R3-M14 is a weak kill by mechanism — the mutant makes the SQL itself invalid —
+and is recorded as such; R3-M13 is the one that exercises the assertion.
+
+**Restoration verified:** tree clean, 14 journaled process groups reaped,
+dotenv closed with `.env.local` back at 322 lines, and the container carrying
+0 stray probe or leak relations, 0 stray probe rows and 0 views in `public`.
+
+---
+
+# Round 2 — retained below
+
+**Status at the time: CLEAR.**
 
 **Status: CLEAR.** 13 mutations, 13 killed. 3 rows excluded with a recorded
 reason. 19 findings, all disposed `fixed`, none open.
