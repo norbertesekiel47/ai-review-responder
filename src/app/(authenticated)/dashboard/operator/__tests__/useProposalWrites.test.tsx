@@ -37,6 +37,7 @@ function proposal(overrides: Record<string, unknown> = {}): ProposalView {
     requiresConfirmation: false,
     confirmationPhrase: null,
     readinessBlockReasons: [],
+    postingBlockSentences: [],
     consequence: null,
     affectedLocationCount: null,
     ...overrides,

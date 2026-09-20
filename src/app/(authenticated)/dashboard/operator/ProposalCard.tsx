@@ -196,6 +196,17 @@ function ProposalState({
         <ul className="op-readiness">{proposal.readinessBlockReasons.map((reason) => <li key={reason}>{READINESS_WORDING[reason]}</li>)}</ul>
       )}
 
+      {/* THE ACCOUNT'S POSTING BLOCK (#1352). Already owner-ready sentences —
+          `src/lib/auto-approval/posting-block-copy.ts` owns the words and the
+          settings page reads the same ones, so the card does NO mapping of its
+          own. It adds no disable condition: this card would state a change to
+          auto-posting the account cannot act on, and saying so is the whole
+          correction. Readiness and the confirmation phrase still gate Apply on
+          their own, unchanged. */}
+      {proposal.postingBlockSentences.length > 0 && (
+        <ul className="op-readiness">{proposal.postingBlockSentences.map((sentence) => <li key={sentence}>{sentence}</li>)}</ul>
+      )}
+
       {pending && <PendingProposalActions proposal={proposal} reasonId={reasonId}
         onApply={onApply} onDecline={onDecline} busy={busy} error={error} />}
 

@@ -2,7 +2,12 @@
 // account_id.
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
+import { postingBlockSentences as postingBlockSentencesFor } from '@/lib/auto-approval/posting-block-copy';
+import { getAutoApprovalPostingStatus } from '@/lib/auto-approval/settings';
+import type {
+  AutoApprovalPostingStatus,
+  AutoApprovalReadinessBlockReason,
+} from '@/lib/auto-approval/types';
 import type { VoiceConfig } from '@/lib/responses/voice-settings';
 import {
   CATALOG,
@@ -338,6 +343,16 @@ export interface ProposalView {
   confirmationPhrase: string | null;
   /** Readiness reasons recorded at preparation for an expansion; `[]` otherwise. */
   readinessBlockReasons: AutoApprovalReadinessBlockReason[];
+  /**
+   * The account's **Posting block** sentences, or `[]`. Non-empty only on a
+   * PENDING policy Proposal whose stored `after` state is armed.
+   *
+   * Derived at READ time from current account state, deliberately unlike
+   * `readinessBlockReasons`, which is frozen at preparation because it gates
+   * Apply. This field gates nothing, so a frozen copy could only ever be a
+   * false warning or a missing one.
+   */
+  postingBlockSentences: string[];
   /** The stored `after` consequence line of a policy proposal; `null` for voice. */
   consequence: StoredPolicyConsequence | null;
   /** Active locations affected at preparation; account defaults exclude overrides. */
@@ -367,8 +382,18 @@ function proposalColumns(db: Db) {
 
 type CardFacts = Pick<
   ProposalView,
-  'describe' | 'requiresConfirmation' | 'confirmationPhrase' | 'readinessBlockReasons' | 'consequence' | 'affectedLocationCount'
+  'describe' | 'requiresConfirmation' | 'confirmationPhrase' | 'readinessBlockReasons' | 'postingBlockSentences' | 'consequence' | 'affectedLocationCount'
 >;
+
+/**
+ * The read-time facts a card's friction needs that the stored row cannot carry:
+ * the row's own status, and the account's CURRENT **Posting block**. One
+ * account-wide status serves every row of a batch — see `mapStoredRows`.
+ */
+interface ReadContext {
+  posting: AutoApprovalPostingStatus;
+  status: ProposalStatus;
+}
 
 function withoutFriction(describe: string): CardFacts {
   return {
@@ -376,6 +401,9 @@ function withoutFriction(describe: string): CardFacts {
     requiresConfirmation: false,
     confirmationPhrase: null,
     readinessBlockReasons: [],
+    // A voice proposal claims nothing about posting, so a Posting block has
+    // nothing to correct on it.
+    postingBlockSentences: [],
     consequence: null,
     affectedLocationCount: null,
   };
@@ -388,12 +416,25 @@ function policyCardFacts(
   storedAfter: ReturnType<typeof parseStoredPolicyState>,
   expansion: boolean,
   describe: string,
+  context: ReadContext,
 ): CardFacts {
+  // THREE conditions, all of them. (1) the account is blocked; (2) the row is
+  // still PENDING, so history stays clean — an applied, rejected, stale or
+  // superseded Proposal is a record of the past and gets no correction; and
+  // (3) the stored `after` is ARMED. (3) is the precedence rule: a proposal
+  // that turns auto-posting OFF is already truthful, and a block must not turn
+  // a true sentence into a correction.
+  const corrected = context.posting.blocked
+    && context.status === PROPOSAL_STATUS.PENDING
+    && storedAfter.threshold !== null;
   return {
     describe,
     requiresConfirmation: expansion,
     confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
     readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
+    // The words come from `posting-block-copy.ts`, the one owner shared with
+    // the settings page. Nothing here re-maps a reason.
+    postingBlockSentences: corrected ? postingBlockSentencesFor(context.posting.reasons) : [],
     consequence: storedAfter.consequence ?? null,
     affectedLocationCount: storedAfter.affectedLocationCount ?? null,
   };
@@ -408,6 +449,7 @@ function cardFacts(
   operation: ProposableOperation,
   input: Record<string, unknown>,
   stored: { locationId: string | null; before: Record<string, unknown>; after: Record<string, unknown> },
+  context: ReadContext,
 ): CardFacts {
   if (operation.domain === 'voice') return withoutFriction(operation.describe(input));
 
@@ -419,7 +461,7 @@ function cardFacts(
   };
   const expansion = operation.exposure(preview, target) === 'expansion';
   return policyCardFacts(operation, preview, target, storedAfter, expansion,
-    operation.describeChange(input, preview, target));
+    operation.describeChange(input, preview, target), context);
 }
 
 function voiceRestoreDescription(
@@ -435,6 +477,7 @@ function restoreCardFacts(
   operation: ProposableOperation | null,
   restore: DerivedRestoreInput | null,
   stored: { locationId: string | null; before: Record<string, unknown>; after: Record<string, unknown> },
+  context: ReadContext,
 ): CardFacts {
   if (operation && restore?.domain === 'voice' && operation.domain === 'voice') {
     return withoutFriction(`Restore: ${voiceRestoreDescription(operation, restore)}`);
@@ -447,28 +490,38 @@ function restoreCardFacts(
       after: parsePolicyState(stored.after, 'agent_proposals.after'),
     };
     const expansion = operation.exposure(preview, target) === 'expansion';
+    // A RESTORE card reaches `policyCardFacts` by this second route, and it
+    // carries the read context for the same reason the ordinary path does: a
+    // restore that re-arms auto-posting is the same claim about posting, and a
+    // fix applied to only one branch leaves restore cards silent.
     return policyCardFacts(operation, preview, target, storedAfter, expansion,
-      describePolicyRestore(preview, target));
+      describePolicyRestore(preview, target), context);
   }
   return withoutFriction('Restore: The source receipt is no longer available.');
 }
 
-function mapStored(row: StoredRow, restore: DerivedRestoreInput | null = null): ProposalView {
+function mapStored(
+  row: StoredRow,
+  restore: DerivedRestoreInput | null,
+  posting: AutoApprovalPostingStatus,
+): ProposalView {
   const input = parseJsonbObject(row.input, 'agent_proposals.input');
   const before = parseJsonbObject(row.before, 'agent_proposals.before');
   const after = parseJsonbObject(row.after, 'agent_proposals.after');
   const operation = proposableOperation(row.operation);
   const parsed = operation?.parseInput(input);
+  const status = asProposalStatus(row.status);
+  const context: ReadContext = { posting, status };
   // The card's words come from the CATALOG at read time, never from a stored
   // string. A row whose operation left the catalog (or whose stored input no
   // longer parses under a bumped contract) falls back to its rationale with no
   // friction rather than throwing — the card is still readable and Apply is
   // what refuses it.
   let card = operation && parsed?.ok
-    ? cardFacts(operation, parsed.input, { locationId: row.location_id, before, after })
+    ? cardFacts(operation, parsed.input, { locationId: row.location_id, before, after }, context)
     : withoutFriction(row.rationale);
   if (hasRestoreInput(input)) {
-    card = restoreCardFacts(operation, restore, { locationId: row.location_id, before, after });
+    card = restoreCardFacts(operation, restore, { locationId: row.location_id, before, after }, context);
   }
   return {
     id: row.id,
@@ -478,7 +531,7 @@ function mapStored(row: StoredRow, restore: DerivedRestoreInput | null = null): 
     contractVersion: row.contract_version,
     labelKind: row.label_kind,
     locationId: row.location_id,
-    status: asProposalStatus(row.status),
+    status,
     rationale: row.rationale,
     input,
     before,
@@ -531,19 +584,35 @@ export async function resolveProposalRestoreInput(
   return source ? deriveRestoreInput({ accountId, ...proposal, source }) : null;
 }
 
+/**
+ * The ONE place every `agent_proposals` read converges. All seven readers land
+ * here, so the account-wide **Posting block** is read here too — "pending only"
+ * is then a predicate on the ROW (`policyCardFacts`), never a choice of reader,
+ * and an eighth reader cannot forget it. `listProposalsForTurns` carries no
+ * status predicate at all and is the reader the owner's pending card actually
+ * comes from.
+ */
 async function mapStoredRows(db: Db, accountId: string, rows: readonly StoredRow[]): Promise<ProposalView[]> {
+  // An empty read issues NO statement — neither the restore-source read nor the
+  // account's Posting block. Same discipline `listProposalsForTurns` applies to
+  // an empty id list.
+  if (rows.length === 0) return [];
   const ids = rows.flatMap((row) => {
     const parsed = parseRestoreInput(parseJsonbObject(row.input, 'agent_proposals.input'));
     return parsed ? [parsed.sourceProposalId] : [];
   });
   const sources = await readRestoreSources(db, accountId, ids);
+  // ONCE per batch, and SEQUENTIALLY: these two share one pooled connection, so
+  // no `Promise.all` or any other combinator.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const posting = await getAutoApprovalPostingStatus(db, accountId);
   return rows.map((row) => {
     const input = parseJsonbObject(row.input, 'agent_proposals.input');
     const sourceId = parseRestoreInput(input)?.sourceProposalId;
     const source = sourceId && sourceId !== row.id ? sources.get(sourceId) : undefined;
     const restore = source ? deriveRestoreInput({ accountId, operation: row.operation,
       contractVersion: row.contract_version, locationId: row.location_id, source }) : null;
-    return mapStored(row, restore);
+    return mapStored(row, restore, posting);
   });
 }
 

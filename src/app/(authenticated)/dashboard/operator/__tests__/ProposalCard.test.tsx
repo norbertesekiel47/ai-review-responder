@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { ProposalCard } from '../ProposalCard';
 import { RequestedCapabilityCard } from '../RequestedCapabilityCard';
@@ -56,6 +57,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
     requiresConfirmation: false,
     confirmationPhrase: null,
     readinessBlockReasons: [],
+    postingBlockSentences: [],
     consequence: null,
     affectedLocationCount: null,
     ...overrides,
@@ -200,6 +202,42 @@ describe('autonomy cards', () => {
     expect(receipt.getByText('0 drafts keep their granted veto window.')).toBeInTheDocument();
     expect(receipt.getByText(/^Counted as of/).querySelector('time')).toHaveAttribute('datetime', retainedAsOf);
     expect(screen.queryByText(/would have (?:auto-)?posted/i)).not.toBeInTheDocument();
+  });
+
+  it('the card renders one owner sentence per Posting block reason', () => {
+    // The strings arrive owner-ready. The card maps NOTHING — `POSTING_BLOCK_COPY`
+    // owns the words, so a second mapping here is exactly what would let the
+    // settings page and this card drift.
+    const { unmount } = renderCard(policy({
+      postingBlockSentences: [
+        POSTING_BLOCK_COPY.judge_disabled,
+        POSTING_BLOCK_COPY.autopilot_tier_required,
+      ],
+    }));
+    expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
+    expect(screen.getByText(POSTING_BLOCK_COPY.autopilot_tier_required)).toBeInTheDocument();
+    // One <li> per reason, and no reason code leaking to the owner.
+    expect(screen.queryByText('judge_disabled')).not.toBeInTheDocument();
+
+    // No sentences, no list: an unblocked account adds nothing to the card.
+    unmount();
+    renderCard();
+    expect(screen.queryByText(POSTING_BLOCK_COPY.judge_disabled)).not.toBeInTheDocument();
+  });
+
+  it('the card still allows Apply while a Posting block is present', async () => {
+    const user = userEvent.setup();
+    // OTHERWISE APPLICABLE on purpose: no confirmation phrase and no readiness
+    // block, so Apply's only possible remaining gate would be one this change
+    // added. Posting block information adds no new disable condition.
+    const { onApply } = renderCard({
+      postingBlockSentences: [POSTING_BLOCK_COPY.judge_disabled],
+    });
+    const apply = screen.getByRole('button', { name: APPLY });
+    expect(apply).toBeEnabled();
+    await user.click(apply);
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: PROPOSAL }));
+    expect(screen.getByRole('button', { name: NOT_NOW })).toBeEnabled();
   });
 
   it('keeps the typed phrase and error association while a pending request is busy and then refused', async () => {

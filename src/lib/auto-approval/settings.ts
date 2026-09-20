@@ -186,6 +186,29 @@ export async function getAutoApprovalSettings(
   return loadAutoApprovalSettings(db, input);
 }
 
+/**
+ * The account's **Posting block** ALONE — one primary-key row read against
+ * `accounts` and nothing else.
+ *
+ * It exists for the Owner Operator's proposal reads (#1352), which need this
+ * single account-wide fact per card render and none of the rest of the settings
+ * response. `getAutoApprovalSettings` costs the account default, every active
+ * location, the solicitation state, the offboarding state and readiness; paying
+ * for all of that on every card render would be wasteful when the answer needed
+ * is "is this account structurally eligible to auto-post?".
+ *
+ * So it DELIBERATELY reads no policies, no locations and no offboarding state —
+ * `buildPostingStatus` consumes the `accounts` row and the flags, and nothing
+ * else. A caller that needs the whole response still calls
+ * `getAutoApprovalSettings`, which shares these two helpers.
+ */
+export async function getAutoApprovalPostingStatus(
+  db: SqlExecutor,
+  accountId: string,
+): Promise<AutoApprovalPostingStatus> {
+  return buildPostingStatus(await loadSettingsAccount(db, accountId));
+}
+
 async function loadAutoApprovalSettings(
   db: SqlExecutor,
   input: GetAutoApprovalSettingsInput,

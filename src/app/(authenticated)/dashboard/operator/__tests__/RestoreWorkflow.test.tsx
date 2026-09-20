@@ -37,6 +37,7 @@ function proposal(overrides: Record<string, unknown> = {}): ProposalView {
     locationId: LOCATION, status: 'applied', rationale: '', input: { tone: 'warm' },
     before: voice, after: { ...voice, tone: 'warm' }, describe: 'Use a warm tone',
     requiresConfirmation: false, confirmationPhrase: null, readinessBlockReasons: [],
+    postingBlockSentences: [],
     consequence: null, affectedLocationCount: null, preparedVersionToken: TOKEN,
     receipt, appliedAt: receipt.appliedAt, failureReason: null, ...overrides,
   } as ProposalView;

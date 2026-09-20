@@ -523,6 +523,7 @@ describe('OperatorClient', () => {
       describe: 'Set the reply tone to "warm and brief"',
       preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
       receipt: null, appliedAt: null, failureReason: null,
+      postingBlockSentences: [],
     };
     // A SECOND proposal that NO segment references. The turn's cards are two
     // sided: one is placed by its `proposal` segment, the other has nowhere to
@@ -610,6 +611,7 @@ describe('OperatorClient', () => {
       describe: 'Set the reply tone to "warm and brief"',
       preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
       receipt: null, appliedAt: null, failureReason: null,
+      postingBlockSentences: [],
     };
     // The row the server ACTUALLY has: the settings moved after the plan was
     // prepared, so the **Version token** no longer agrees and the Proposal is
@@ -1055,6 +1057,7 @@ describe('OperatorClient', () => {
       describe: 'Set the reply tone to "warm and brief"',
       preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
       receipt: null, appliedAt: null, failureReason: 'version_mismatch',
+      postingBlockSentences: [],
     };
     const staleConversation = (): Array<[RegExp, () => { status: number; body: unknown }]> => [
       [/^GET .*\/api\/operator\/conversation/, () => ({
