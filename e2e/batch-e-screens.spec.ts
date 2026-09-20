@@ -59,7 +59,13 @@ async function setTier(accountId: string, tier: 'copilot' | 'autopilot'): Promis
 }
 
 test.describe('Batch E — screenshot evidence', () => {
-  test.skip(!isAuthHarnessConfigured, 'needs the auth harness (staging Supabase secrets)');
+  // Environment gate, not a disabled test: without E2E_SUPABASE_URL /
+  // E2E_SUPABASE_SERVICE_KEY there is no owner to sign in as. Four existing
+  // specs gate the same way (forgot-password, reset-password, operator,
+  // zernio-connect). Marked explicitly rather than written multi-line, which
+  // the audit's single-line matcher would simply miss — the point is to be
+  // reported, not to slip past.
+  test.skip(!isAuthHarnessConfigured, 'E2E_SUPABASE_URL / E2E_SUPABASE_SERVICE_KEY not set — auth-harness specs run against staging (e2e/README.md)'); // weakened-check-ok: environment precondition; the spec cannot seed an owner without the auth harness, and it is the screenshot mechanism for #1314/#1054 (deviation D16)
 
   let owner: OwnerHandle;
 
