@@ -258,20 +258,27 @@ export function AutoApprovalClient({ initialState }: Props) {
   }, []);
 
   const accountSuspended = state.data.accountDefault.suspended;
-  const postingBlocked = state.data.posting.blocked;
+  // ONE headline computation, shared with the banner. Red team round 2 RT2-2:
+  // keying suppression on `posting.blocked` was a SECOND predicate for "is the
+  // blocked banner on screen?", and the two disagreed — the banner also needs
+  // `!suspended` and an armed policy. In the gap the reason was suppressed
+  // while no banner said it, `ReadinessBlock` fell to zero items, and the page
+  // rendered the green "you can widen or narrow auto-posting whenever you
+  // like" for an account that could not. Deriving both from the same `status`
+  // makes that class of drift unrepresentable.
+  const status = useMemo(() => describePolicyStatus(state.data), [state.data]);
   const readinessCopy = useMemo(
     () =>
       state.data.readiness.blockReasons
         // The suspended status banner owns this message when the account default is suspended.
         .filter((reason) => reason !== 'policy_suspended' || !accountSuspended)
-        // Likewise the blocked banner: when a Posting block is already on screen,
-        // these two reasons restate the sentence it just showed — one flag and
-        // one moderation switch, each with a name on both sides. With
-        // AUTO_APPROVAL_ENABLED=false and an armed policy (production's default)
-        // the owner otherwise reads the same sentence twice, inches apart.
-        .filter((reason) => !(postingBlocked && READINESS_REASONS_RESTATED_BY_POSTING.has(reason)))
+        // Likewise the blocked banner, but ONLY when it is actually rendering:
+        // it restates these two almost verbatim, so with AUTO_APPROVAL_ENABLED
+        // =false and an armed policy (production's default) the owner would
+        // otherwise read the same sentence twice, inches apart.
+        .filter((reason) => !(status.tone === 'blocked' && READINESS_REASONS_RESTATED_BY_POSTING.has(reason)))
         .map((reason) => BLOCK_REASON_COPY[reason]),
-    [state.data.readiness.blockReasons, accountSuspended, postingBlocked],
+    [state.data.readiness.blockReasons, accountSuspended, status.tone],
   );
 
   async function sendPatch(request: AutoApprovalPatchRequest, key: string, confirmationLevel?: 'standard') {
@@ -423,7 +430,7 @@ export function AutoApprovalClient({ initialState }: Props) {
       saveError={saveError ?? undefined}
     >
       <PolicyStatusBanner
-        data={data}
+        status={status}
         busy={accountSaving}
         onTurnOff={turnOffAutoPosting}
       />
@@ -684,13 +691,15 @@ export function AutoApprovalClient({ initialState }: Props) {
  * over everything; otherwise the account default decides the sentence and
  * per-location overrides are named so "Off" is never a false comfort.
  */
-function describePolicyStatus(data: AutoApprovalSettingsResponse): {
+interface PolicyStatus {
   tone: 'on' | 'off' | 'suspended' | 'blocked';
   title: string;
   /** Supporting lines, each rendered on its own so a reason stays findable text. */
   detail: string[];
   canTurnOff: boolean;
-} {
+}
+
+function describePolicyStatus(data: AutoApprovalSettingsResponse): PolicyStatus {
   const account = data.accountDefault;
   const postingOverrides = data.locations.filter(
     (location) => location.override.exists && !location.effective.inherited && location.effective.threshold !== null,
@@ -724,9 +733,14 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
         'Every reply waits for your approval until that changes.',
         // Red team RT-5: the unblocked headline names the locations that differ,
         // and dropping that line here would make a block quietly hide a setting
-        // the owner still has. Skipped when the title already named them (the
-        // override-only case), so no owner reads the same names twice.
-        ...(account.threshold !== null ? differingNames(data) : []),
+        // the owner still has. Skipped ONLY when the title already named the
+        // same locations — round 2 RT2-7: keying that skip on `threshold` alone
+        // dropped a differing-but-OFF override, because the title names the
+        // ARMED ones (`overrideNames`) while the helper covers every override
+        // that differs.
+        ...(account.threshold !== null || differingExceeds(data, overrideNames)
+          ? differingNames(data)
+          : []),
       ],
       // `set_account_manual` clears only the ACCOUNT DEFAULT threshold, so on an
       // override-only account the action would change nothing and leave those
@@ -747,8 +761,15 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
     }
     return {
       tone: 'on',
-      title: `Off by default. ${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'posts' : 'post'} replies automatically with ${overrideNames.length === 1 ? 'its' : 'their'} own settings.`,
-      detail: ['Change or remove those settings on the location rows below.'],
+      // "are set to post", never "post" — the same rule as the account-default
+      // headline below. Red team round 2 RT2-5: the AP-1/AP-2 softening landed
+      // on that branch and missed this one, which is reachable whenever the
+      // account default is off and a location override is armed.
+      title: `Off by default. ${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'is' : 'are'} set to post replies automatically with ${overrideNames.length === 1 ? 'its' : 'their'} own settings.`,
+      detail: [
+        'Change or remove those settings on the location rows below.',
+        'Safety checks and service availability can still send an individual reply to you instead.',
+      ],
       canTurnOff: false,
     };
   }
@@ -786,21 +807,34 @@ function differingNames(data: AutoApprovalSettingsResponse): string[] {
   ];
 }
 
+/**
+ * True when some override DIFFERS from the account default but is not among the
+ * names the override-only title already printed — i.e. an override that is set
+ * to Off. Without this the blocked headline silently drops it (round 2 RT2-7).
+ */
+function differingExceeds(data: AutoApprovalSettingsResponse, named: string[]): boolean {
+  return data.locations.some(
+    (location) =>
+      location.override.exists
+      && !location.effective.inherited
+      && !named.includes(location.displayName),
+  );
+}
+
 function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? '';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 function PolicyStatusBanner({
-  data,
+  status,
   busy,
   onTurnOff,
 }: {
-  data: AutoApprovalSettingsResponse;
+  status: PolicyStatus;
   busy: boolean;
   onTurnOff: () => void;
 }) {
-  const status = describePolicyStatus(data);
   // 'blocked' is a truthful correction, not an alarm: the account is safe, so it
   // gets the attention variant and role="status". Only suspension is an alert.
   const variant = status.tone === 'suspended'

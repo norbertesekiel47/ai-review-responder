@@ -1,208 +1,435 @@
 # Red team — fix/batch-e-screens-vs-runtime (#1314, #1054, #1173)
 
-- **Mode** `feature` · **Round** 1 · **Risk** `high` · **Status** `INCOMPLETE_ORACLE`
+- **Mode** `feature` · **Round** 2 · **Risk** `high` · **Status** `OPEN_P0`
 - **fork/merge-base** `d79bc765ce630ea651efe67ec6a7b3488c5afa86`
-- **head** `825f0fbbf9f0275b98148ba70ee44da2e315be6a`
-- **intake sha256** `9c2437e9d4d57858035c7279d6ee519ac76c4107755613625f9427462fe52567`
-- **generated** 2026-09-20T05:52:39.747670Z
+- **head** `9a7a459f9d3df442e74c66a98d193d0bb34cf8a4`
+- **round 1 reviewed at** `825f0fbbf9f0275b98148ba70ee44da2e315be6a`
+- **intake sha256** `6eadccb2aa200ac2676106ecc5c8fc576a26b28d084e73c865259b6abd632fa7`
+- **generated** 2026-09-19 (round 2)
 
-## How this pass was run
+## Scope
 
-25 hand mutations across the six changed test surfaces, 30 measured launches, ~25s of a 20-minute round budget. Baselines were taken as whole-file runs (all six suites green at HEAD: 40 + 174 cases), and every mutant run was a whole-file run too, read from `--reporter=json`. That is a deliberate strengthening of the skill's single-`-t` protocol, not a shortcut: a whole-file run names *which* titles a mutation kills, so a collateral kill can never be mistaken for a targeted one, and the suites are cheap enough (1.4s for the three heavy ones together) that there was no budget reason to narrow. Every launch went through `mutation-runner.mjs run` under the scrubbed allowlist environment with `.env.local` swapped out; `finalize` was run after each mutation and again at the end, and `git status --porcelain --untracked-files=all` is empty.
+`git diff 825f0fbbf..9a7a459f9` only — the fix hunks and their direct callers.
+Everything else on the branch was cleared in round 1 and was not re-reviewed; the
+15 mutation-verified titles were not re-derived a second time.
 
-### On the 15 mutation-verified titles (D5, D7, D8)
+Ten measured launches, 10s of the 20-minute round budget, all through
+`mutation-runner.mjs run` under the scrubbed allowlist environment with
+`.env.local` swapped out. `finalize` ran after every mutation and again at the
+end; `git status --porcelain --untracked-files=all` is empty and HEAD is
+unmoved. The two probe cases in **RT2-2** were applied as a journaled mutation of
+the existing suite file (the repo's edit-surface and bash-write guards refuse a
+new file), and restored.
 
-Re-derived, not re-read. Every claim holds, and three of them hold against a **stronger** mutation than the one recorded:
+## Did each fix close its finding?
 
-| Recorded claim | What I ran instead | Result |
+| Round-1 ID | Verdict this round | Evidence |
 |---|---|---|
-| D5: the purchasability trap is caught only by the trap test | Same mutation, independently applied (M1) | 2 failed / 91 passed — **exactly** D5's recorded count; the trap title is one of the two |
-| D5: judge slot hard-coded **false** | Hard-coded **true** (M2) — the dangerous direction, which is what lets the screen claim posting while the judge is off | 1 failed / 92 passed, by the judge loader title |
-| D5: `canTurnOff` forced **false** | Forced **true** (M6) — the dangerous direction, which offers an owner a no-op action | 1 failed / 57 passed, by the override-only title |
-| D8: card `action` forced to a literal | Card direction re-implemented as a **live catalogue-price comparison** (M19) — round 1's predicted defect | 1 failed / 22 passed, by `billing cards retain upgrade and downgrade labels when both catalogue prices are equal` alone — reproduces the orchestrator's count exactly |
-| D7: `TRIAGE_ENABLED` slot → `Boolean(process.env.TRIAGE_ENABLED)` | Same mutation (M32) | 2 failed / 7 passed, exactly the two `readFlag`-semantics titles |
-
-One of the fifteen does not survive scrutiny — see **RT-4**. It is not the trap test; the trap test is real.
+| RT-1 | **CLOSED (measured)** | The exact round-1 mutant `logBootFlagSummary({ log: () => {} })` at `worker/index.ts:625` now **fails** the suite — 1 failed / 9 passed, by `worker startup calls the boot flag summary logger unconditionally inside the startup try block`. Baseline 10/10 green. |
+| RT-2 | **NOT CLOSED** | The code half is sound (order reversal now kills `plan-options.test.ts`, 2 failed / 1 passed). The doc claim at `tier-config.ts:148-149` is still false — two more declarations survive, one literally next to a price list. See **RT-2 (round 2)**. |
+| RT-4 | **CLOSED as written, weak oracle** | The vacuous body is gone. The replacement never calls the subject and survives a purchasability parameter threaded in as optional. See **RT2-6**. |
+| RT-5 | **CLOSED for the state it named**, with two gaps | Parity restored for the account-default branch. Nothing shows names twice; nothing regressed. But the shared helper is entirely unpinned, and the skip drops a class of override. See **RT2-7**. |
+| RT-7 | **CLOSED (step added), CONTENT FALSE** | Step 5b exists and its provenance claim resolves. The log record it tells the operator to look for does not exist. See **RT2-1**. |
+| RT-8 | **CLOSED** | `archived_location` / `active_zernio_connection_missing` (`worker/jobs/response-generation/auto-approval.ts:372-373`) are real and per-location; the three residual classes in `posting-status.ts:50-62`, the glossary and the directory row all resolve. Every per-draft gate the docblock names exists in `evaluateAutoApprovalCandidate`. |
+| std-M2 / AP-3 | **CLOSED, reasoning verified** | `autopilotPurchasable()` really is a composite through `getServerConfig()` (`src/lib/payments/tier-purchasability.ts:8-13`), so `readFlag('AUTOPILOT_PURCHASABLE')` is the correct reader for an env-var-keyed boot record. `AUTOPILOT_PURCHASABLE` is genuinely a worker-side variable (`worker/config/startup-assert.ts:40`), so the key is meaningful on Railway. Dropping the key fails 7 titles including the new go-live-derived test. |
+| std-M3 | **INTRODUCED A NEW DEFECT** | See **RT2-2**, proven by differential probe. |
+| AP-1 / AP-2 | **PARTIALLY APPLIED** | The account-default and both blocked headlines are softened. The override-only unblocked headline still says "posts replies automatically". See **RT2-5**. |
 
 ## Findings
 
 | ID | Sev | Duty | Disposition | Where | What |
 |---|---|---|---|---|---|
-| RT-1 | P1 | 1 | `open` | `worker/index.ts:625` | #1173's boot line can be emitted into a black hole and every test stays green — the logger ARGUMENT is unpinned |
-| RT-2 | P1 | 3 | `open` | `src/lib/accounts/tier-config.ts:150` | 'the single owner of tier order — never re-declare it next to a price list' is false at HEAD: a third declaration survives, next to a price list |
-| RT-3 | P1 | 4 | `open` | `src/lib/agents/operator/context.ts:96` | Missed sibling: the Owner Operator still states auto-reply operating rules with no Posting block, so it can claim replies post when the runtime would never post |
-| RT-4 | P2 | 2 | `open` | `src/lib/auto-approval/__tests__/posting-status.test.ts:86` | 'does not report a reason for an autopilot tier whose sale is paused' is a duplicate of the passing-baseline case and cannot fail for the reason it states |
-| RT-5 | P2 | 4 | `open` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:690` | The blocked headline silently drops the 'these locations use their own settings' detail line the unblocked headline shows |
-| RT-6 | P2 | 2 | `open` | `worker/__tests__/boot-flag-summary.test.ts:207` | 'worker startup no longer prints the prose feature flag line' is a source-substring absence proxy |
-| RT-7 | P2 | 5 | `open` | `.claude/skills/flag-flip/SKILL.md:36` | #1173 ships the capability to verify a flip from the boot log, but no operator procedure consumes it |
-| RT-8 | P2 | 4 | `open` | `worker/jobs/response-generation/auto-approval.ts:367` | Pre-existing, one scope down: a PER-LOCATION structural refusal still reads as 'posts replies automatically' on the same headline |
-| RT-9 | P2 | 4 | `rejected` | `worker/jobs/publisher/judge-gate.ts:22` | REJECTED — the Judge boundary leaks nowhere beyond the one named residual |
-| RT-10 | P2 | 4 | `rejected` | `src/lib/accounts/tier-change.ts:405` | REJECTED — no remaining plan-switch direction is derived from a price |
-| RT-11 | P2 | 3 | `rejected` | `docs/runbooks/owner-offboarding-staging-dry-run.md:217` | REJECTED — the runbook hits quoting the deleted '[worker] Feature flags:' prose line are frozen evidence, not live instructions |
-| RT-12 | P2 | 4 | `rejected` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:104` | REJECTED — the 'this account is on Copilot' copy cannot be shown to an account row that does not exist |
-| RT-13 | P2 | 3 | `rejected` | `docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:568` | REJECTED — every file:line citation in the changed plan, deviations and blast-radius docs resolves at HEAD |
+| RT2-1 | **P0** | 3 | `open` | `.claude/skills/flag-flip/SKILL.md:33` | Step 5b tells the operator to find a log record whose every JSON key is wrong — `prefix`/`msg`/top-level `flags` where the emitter writes `logger`/`message`/`data.flags`, and `"[worker]"` where it writes `"worker"` |
+| RT2-2 | **P0** | 4 | `open` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:272` | The std-M3 suppression makes the page render the green "✓ You can widen or narrow auto-posting whenever you like" while the server says `canExpand: false` — a NEW false capability claim on the surface #1314 exists to fix |
+| RT-2 | P1 | 3 | `open` | `src/lib/accounts/tier-config.ts:148` | Still false: `scripts/verify-stripe-price-parity.ts:16` re-declares tier order next to a price list, and `TiersSection.tsx:13` is a fourth order declaration |
+| RT2-3 | P1 | 3 | `open` | `worker/boot-flag-summary.ts:13` | "never a second `readFlag` call site" is contradicted 66 lines below it by the fix's own `readFlag('AUTOPILOT_PURCHASABLE')`; `docs/directory/worker-root.md:45` repeats it and additionally names five of the six autonomy flags while claiming six |
+| RT2-5 | P1 | 4 | `open` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:750` | The override-only unblocked headline still says "posts replies automatically", the exact phrasing AP-1/AP-2 were adjudicated against, with no supporting line |
+| RT-3 | P1 | 4 | `open` | `src/lib/agents/operator/context.ts:96` | Carried from round 1. Triage records an owner deferral to a follow-up ticket; I did not receive that authorization verbatim, so it stays open for the owner rather than `accepted-risk` |
+| RT2-6 | P2 | 2 | `open` | `src/lib/auto-approval/__tests__/posting-status.test.ts:95` | The RT-4 replacement never calls `buildAutoApprovalPostingStatus`; its oracle is the key list of a test-local literal, and it survives a purchasability parameter added as optional (measured, 8/8 green) |
+| RT2-7 | P2 | 4 | `open` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:729` | `differingNames` is unpinned (forcing it to return `[]` leaves 58/58 green), and the `account.threshold !== null` skip drops differing-but-not-armed overrides from the blocked override-only headline |
+| RT2-8 | P2 | 2 | `open` | `worker/__tests__/boot-flag-summary.test.ts:218` | The new RT-1 assertion pins the literal `'[worker]'`, but `normalizeLoggerName` strips brackets — a behaviour-preserving `createWorkerLogger('worker')` fails the test |
+| RT2-9 | P2 | 2 | `open` | `worker/__tests__/boot-flag-summary.test.ts:68` | The go-live-derived oracle reads exactly ONE line; a flag added to the order on a wrapped continuation line, or without backticks, passes silently |
+| RT-6 | P2 | 2 | `open` | `worker/__tests__/boot-flag-summary.test.ts:252` | Carried from round 1, untouched by the fixes and out of round-2 scope; not re-derived |
+| RT-1 | P1 | 1 | `fixed` | `worker/index.ts:625` | Closed and measured this round |
+| RT-4 | P2 | 2 | `fixed` | `src/lib/auto-approval/__tests__/posting-status.test.ts:95` | Vacuous body replaced; the replacement's own weakness is RT2-6 |
+| RT-5 | P2 | 4 | `fixed` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:729` | Parity restored for the state it named; residual gaps are RT2-7 |
+| RT-7 | P2 | 5 | `fixed` | `.claude/skills/flag-flip/SKILL.md:31` | Step 5b added; its content defect is RT2-1 |
+| RT-8 | P2 | 4 | `fixed` | `src/lib/auto-approval/posting-status.ts:50` | Definition narrowed to account-wide; three residual classes verified against source |
+| RT2-R1 | P2 | 3 | `rejected` | `worker/boot-flag-summary.ts:71` | REJECTED — the `readFlag` vs `autopilotPurchasable()` reasoning is correct and independently verified |
+| RT2-R2 | P2 | 3 | `rejected` | `.agents/skills/flag-flip/SKILL.md:1` | REJECTED — the two copies are byte-identical and parity is CI-enforced |
+| RT2-R3 | P2 | 4 | `rejected` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:750` | REJECTED — no reachable headline state prints the differing-location names twice |
+| RT-9 | P2 | 4 | `rejected` | `worker/jobs/publisher/judge-gate.ts:22` | REJECTED in round 1 — Judge boundary leaks nowhere beyond the one named residual |
+| RT-10 | P2 | 4 | `rejected` | `src/lib/accounts/tier-change.ts:405` | REJECTED in round 1 — no remaining plan-switch direction is derived from a price |
+| RT-11 | P2 | 3 | `rejected` | `docs/runbooks/owner-offboarding-staging-dry-run.md:217` | REJECTED in round 1 — the runbook hits are frozen evidence, not live instructions |
+| RT-12 | P2 | 4 | `rejected` | `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:104` | REJECTED in round 1 — unreachable; `auto_approval_policies.account_id` is FK-constrained |
+| RT-13 | P2 | 3 | `rejected` | `docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:568` | REJECTED in round 1 — every citation in the changed plan resolves |
 
 ### Detail
 
-#### RT-1 — P1 — #1173's boot line can be emitted into a black hole and every test stays green — the logger ARGUMENT is unpinned
+#### RT2-1 — P0 — step 5b tells the operator to grep for a log record that does not exist
 
-`worker/index.ts:625` · duty 1 · disposition `open`
+`.claude/skills/flag-flip/SKILL.md:33` (mirrored byte-identically at
+`.agents/skills/flag-flip/SKILL.md:33`) · duty 3 · disposition `open`
 
-Mutating `logBootFlagSummary(createWorkerLogger('[worker]'))` to `logBootFlagSummary({ log: () => {} })` leaves worker/__tests__/boot-flag-summary.test.ts at 9/9. The mutant type-checks (TypeScript accepts a 0-arity arrow where `{ log(message: string, data: unknown): void }` is expected) and no lint rule fires, because `createWorkerLogger` stays imported and used at worker/index.ts:737 and 796. It is not an equivalent mutant: `worker/boot-flag-summary.ts:52-57` states the emitter was split from the builder precisely 'so a test can prove the record actually reaches the log — a correct builder nobody calls leaves #1173 unfixed', and this mutant produces exactly that outcome. It survives because the AST oracle never reads `call.arguments`: it asserts `calls.length === 1`, ExpressionStatement-hood, the enclosing FunctionDeclaration named `main`, block/try ancestry, and try-membership. HEAD's wiring is correct — this is an unprotected regression path, not a live defect, which is why it is ranked P1 and not P0. Closing it is one assertion: `ts.isCallExpression(call.arguments[0]) && call.arguments[0].expression.text === 'createWorkerLogger'`.
+The step added to close RT-7 prints this as the record to find:
 
-#### RT-2 — P1 — 'the single owner of tier order — never re-declare it next to a price list' is false at HEAD: a third declaration survives, next to a price list
+```
+{"level":"info","prefix":"[worker]","msg":"Feature flags",
+ "flags":{"TRIAGE_ENABLED":true,"AUTOPILOT_PURCHASABLE":false, …}}
+```
 
-`src/lib/accounts/tier-config.ts:150` · duty 3 · disposition `open`
+The emitter is `logBootFlagSummary` (`worker/boot-flag-summary.ts:94`):
+`logger.log('Feature flags', { flags: buildBootFlagSummary() })`, and
+`createWorkerLogger` assembles the line in `src/lib/shared/logger.ts`:
+`buildBaseRecord` (:57-68) writes `timestamp`, `level`, `service`,
+`logger: normalizeLoggerName(prefix)`, `message`, and `emit` (:158-175) attaches
+the object arg as `record.data`. So the real line is
 
-`src/app/onboarding/pay/plan-options.ts:4` still declares `const ONBOARDING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[]`, and `getOnboardingPlans` (plan-options.ts:66-72) reads `viewModel.prices[tier]` two lines later — literally the shape the new comment forbids. The arch-review-log row added by this branch (`.claude/reference/arch-review-log.md`, last row) says the change 'collapses TWO duplicate order constants (`WS8_PLAN_ORDER`, `BILLING_PLAN_ORDER`) into one owner'; the count of what was collapsed is accurate, the 'one owner' conclusion is not. No behavioural defect: `ONBOARDING_PLAN_ORDER` drives display order only and derives no direction (sibling search RT-9 found zero remaining direction-from-price sites). Ranked P1, not P0, because the operative half of the claim — never derive direction from price — does hold everywhere at HEAD. Fix: import `SUBSCRIPTION_TIER_ORDER` in plan-options.ts, or soften both sentences to name the exemption.
+```
+{"timestamp":"…","level":"info","service":"worker","logger":"worker",
+ "message":"Feature flags","data":{"flags":{…}}}
+```
 
-#### RT-3 — P1 — Missed sibling: the Owner Operator still states auto-reply operating rules with no Posting block, so it can claim replies post when the runtime would never post
+Four of the five field references in the example are wrong: `prefix` → `logger`,
+`"[worker]"` → `"worker"` (`normalizeLoggerName`, logger.ts:29-31, strips the
+brackets — round 1 established this same fact under RT-13), `msg` → `message`,
+and `flags` is nested under `data`, not top level.
 
-`src/lib/agents/operator/context.ts:96` · duty 4 · disposition `open`
+This is not a cosmetic doc nit, which is why it is P0 rather than P1. Step 5b
+exists precisely so an operator can confirm a flip when `list-variables` is
+refused, and it closes with an instruction keyed to what they see: *"A logged
+value that disagrees with what you set means the restart has not landed: wait
+for it, do not set it again."* An operator searching on `"prefix":"[worker]"` or
+for a top-level `flags` key finds nothing, and the procedure's own rule tells
+them to conclude the restart has not landed and keep waiting. The one thing that
+does match is the `message` text `Feature flags`.
 
-Sibling search for #1314's pattern — 'an owner-facing surface asserting automatic posting from the policy row alone'. `projectPolicyStates` (context.ts:96-124) and `projectOperatingRules` reduce the same `AutoApprovalSettingsResponse` to `{ threshold, vetoWindowMinutes, dailyCap }`, and `src/lib/agents/operator/prompt.ts:69` gives the model only `expansionBlockedBy` — the READINESS vocabulary, framed as a rule about refusing to widen. The new `posting` field is added to the response (types.ts:198) and consumed only by AutoApprovalClient.tsx:684; this branch amended the operator's test FIXTURE (context.test.ts:117) and no operator production file. Consequence: a Copilot account with a stale armed policy row, or any account with `JUDGE_ENABLED=false`, can ask the Operator and be told its auto-reply rule is live — the exact sentence #1314 removed from the settings headline one surface over. `judge_disabled` has no readiness analogue at all, so it is fully invisible there. Gated by `OWNER_OPERATOR_ENABLED`. `src/lib/agents/operator/context.ts` is NOT in the intake's `allowed_edit_surface`, so this is a scope decision for the owner, not a defect in what was built.
+The rest of step 5b checks out: thirteen booleans keyed by env var name
+including all six autonomy flags (verified against `buildBootFlagSummary`), and
+the provenance claim resolves — `docs/runbooks/evidence/2026-09-07-staging-triage-flag-flip.md:60`
+does say *"Treat `TRIAGE_ENABLED` in staging as **set but unproven**."*
 
-#### RT-4 — P2 — 'does not report a reason for an autopilot tier whose sale is paused' is a duplicate of the passing-baseline case and cannot fail for the reason it states
+#### RT2-2 — P0 — the std-M3 suppression renders a green "you can widen" affirmative while the server refuses to widen
 
-`src/lib/auto-approval/__tests__/posting-status.test.ts:86` · duty 2 · disposition `open`
+`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:272` ·
+duty 4 · disposition `open`
 
-Its input is `{ ...passingInput(), tierGrantsAutopilot: true }`, and `passingInput()` (posting-status.test.ts:6-14) already sets `tierGrantsAutopilot: true` — the spread is a no-op, so the call is byte-identical to the one in `reports no reason and blocked false when every structural gate passes` at line 77. `buildAutoApprovalPostingStatus` takes no purchasability parameter (posting-status.ts:32-38), so no mutation can make this case fail while the baseline case passes. Measured twice: M18 (tier gate inverted) fails all 8 builder cases, and M21 (`blocked: true`) fails exactly this case and the baseline case together. The real purchasability trap protection is the LOADER test, which I re-derived independently (M1: 2 failed / 91 passed, matching D5's recorded count). D5 lists this title among its nine mutation-verified absence pins; the mutation it cites for it ('inverted tier test') does not distinguish it from its neighbour. Harmless as written — but it is the branch's own named guard against the trap, and it is not one.
+`readinessCopy` now drops `auto_approval_disabled` and
+`provider_moderation_disabled` whenever `state.data.posting.blocked` is true
+(:266-273). The suppression is keyed on `posting.blocked`, but the **blocked
+banner that is supposed to restate those sentences renders only** when
+`!account.suspended && posting.blocked && (account.threshold !== null || overrideNames.length > 0)`
+(:711-716). In the gap between those two conditions the reason is suppressed and
+nothing says it.
 
-#### RT-5 — P2 — The blocked headline silently drops the 'these locations use their own settings' detail line the unblocked headline shows
+Worse, an empty list is not a silent omission. `ReadinessBlock` (:1403-1410)
+renders a positive claim when `items.length === 0`:
 
-`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:690` · duty 4 · disposition `open`
+> ✓ You can widen or narrow auto-posting whenever you like.
 
-The `on` branch at AutoApprovalClient.tsx:734-739 names every location whose override differs from the account default. The blocked branch at :689-693 renders only the posting reasons plus the closing sentence. An armed account with differing overrides therefore loses that line for as long as the block lasts, and regains it when the block clears. No test pins either behaviour, and the plan's edge case 5 covers only the override-ONLY shape. Cosmetic, and arguably correct (the overrides are moot while nothing posts) — recorded so the choice is deliberate rather than incidental.
+and `canExpand` is computed server-side from the **unfiltered** list
+(`src/lib/auto-approval/readiness.ts:45`, `canExpand: blockReasons.length === 0`),
+so the client can show that sentence while `canExpand` is `false` and the
+widening options are disabled.
 
-#### RT-6 — P2 — 'worker startup no longer prints the prose feature flag line' is a source-substring absence proxy
+**Measured, not argued.** Two probe cases were applied as a journaled mutation of
+`AutoApprovalClient.test.tsx` and run at HEAD and at the round-1 SHA:
 
-`worker/__tests__/boot-flag-summary.test.ts:207` · duty 2 · disposition `open`
+| Probe | State | At HEAD `9a7a459f9` | At `825f0fbbf` (pre-fix) |
+|---|---|---|---|
+| A | account default off, no overrides, `readiness.blockReasons = ['provider_moderation_disabled']`, `canExpand: false`, `posting.blocked: true` | **PASSES** — headline "Off. You approve every reply before it posts.", the moderation sentence absent, the green affirmative present | **FAILS** — "Safety screening for replies is switched off right now, so auto-posting cannot be widened." is on screen |
+| B | same flags, account suspended with threshold 4 | **PASSES** — suspended alert plus the green affirmative, moderation sentence absent | **FAILS** — the moderation sentence is on screen |
 
-`expect(source).not.toContain('[worker] Feature flags:')` is the absence-of-tag shape duty 2 names. It passes for `console.log('[worker] Feature flags ' + ...)` (no colon) and for any reworded duplicate prose line. Ranked P2 rather than duty 2's default P1 — and I am stating the departure deliberately — because the contract here really IS an absence, the escaped defect is duplicated log noise with no behavioural consequence, and the AST test beside it already pins `calls.length === 1` for the replacement. The behavioural replacement, if it is wanted, is an AST assertion that no `console.log` argument in `worker/index.ts` contains 'Feature flags'.
+Arbiter: the state is reachable and internally consistent. It is the exact
+configuration `OPENAI_MODERATION_ENABLED=false` produces —
+`buildAutoApprovalPostingStatus` (`posting-status.ts:59`) pushes
+`provider_moderation_disabled`, and `buildAutoApprovalReadiness`
+(`readiness.ts:34`) pushes the same name, which is *why* the pair was chosen for
+the suppression set. `auto_approval_disabled` cannot be the sole suppressed
+reason (with the runtime off, `autopilotAvailable` at `settings.ts:1196-1199`
+is false too, so `autopilot_unavailable` keeps the list non-empty), but
+`provider_moderation_disabled` alone is reachable, and that is enough.
 
-#### RT-7 — P2 — #1173 ships the capability to verify a flip from the boot log, but no operator procedure consumes it
+Probe B is a widening of a pre-existing hole rather than a new one — the
+`policy_suspended` filter could already empty the list on a suspended account —
+but probe A is new in this pass.
 
-`.claude/skills/flag-flip/SKILL.md:36` · duty 5 · disposition `open`
+The fix also has no test. Deleting the whole filter line leaves
+`AutoApprovalClient.test.tsx` at **58/58 green**. The nearest covering candidate,
+`disables expansion choices when readiness blocks expansion` (:413-428), sets
+`runtimeEnabled: false, canExpand: false, blockReasons: ['auto_approval_disabled']`
+while inheriting `posting: { blocked: false, reasons: [] }` from `baseState` — a
+state the server cannot produce, and the reason the suppression branch is never
+exercised.
 
-`worker/boot-flag-summary.ts:3-7` states the line exists because 'Reading Railway variables back is refused because the response carries plaintext secrets, so this log line is the only way to confirm a flag flip actually reached the process', and the intake's `observability` entry calls it 'what makes a staging or production autonomy flip verifiable from the logs'. The procedure that would use it — `flag-flip` step 5 ('Verify with the Railway/Vercel MCPs after writing') and step 6 (smoke the lane) — still names no boot-log confirmation. Not a duty 5 alert-path finding: the diff adds no terminal or swallowed failure path and no Sentry signal, so the runbook rule-row comparison in `docs/runbooks/beta-launch-alerting.md` has nothing to compare. `.claude/skills/flag-flip/SKILL.md` is outside the intake's `allowed_edit_surface`; recorded as a follow-up, not a blocker.
+#### RT-2 (round 2) — P1 — the "single owner of tier order" claim is still false at HEAD
 
-#### RT-8 — P2 — Pre-existing, one scope down: a PER-LOCATION structural refusal still reads as 'posts replies automatically' on the same headline
+`src/lib/accounts/tier-config.ts:148` · duty 3 · disposition `open`
 
-`worker/jobs/response-generation/auto-approval.ts:367` · duty 4 · disposition `open`
+The docblock still reads *"This is the single owner of tier order — never
+re-declare it next to a price list."* `ONBOARDING_PLAN_ORDER` is gone and
+`plan-options.ts:65` now maps `SUBSCRIPTION_TIER_ORDER` (behaviourally sound:
+reversing the constant fails `plan-options.test.ts`, 2 failed / 1 passed). Two
+declarations remain:
 
-The Posting block is account-wide by design (posting-status.ts:1-16), so `archived_location` and `active_zernio_connection_missing` (auto-approval.ts:366-367) stay outside it. A location with an armed override and no `status = 'active'` row in `zernio_connections` is refused every draft, yet the unblocked override branch at AutoApprovalClient.tsx:726-731 still prints 'X posts replies automatically with its own settings'. That sentence predates this branch (the diff leaves that branch untouched), so it is not a regression, and the module header scopes the fix to account-wide facts honestly. Recorded because it is the same defect class #1314 exists to close, and the branch's own glossary entry does not name it as a residual — only Judge health is named.
+1. `scripts/verify-stripe-price-parity.ts:16` —
+   `const TIERS = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];`
+   the same shape as the constant just deleted, iterated against
+   `resolveTierSnapshot` and live Stripe **Price** shapes. That is literally
+   "re-declared next to a price list".
+2. `src/components/sections/landing/tiers/TiersSection.tsx:13` —
+   `const ORDER: readonly Mode[] = ['copilot', 'autopilot'];` — a fourth
+   declaration in production code. Weaker: `Mode` is a file-local union, not
+   `SubscriptionTierValue`, and the component renders no prices.
 
-#### RT-9 — P2 — REJECTED — the Judge boundary leaks nowhere beyond the one named residual
+Round 1 scoped its search to `src/` + `worker/`, which is why (1) was missed.
+No behavioural risk in either — the script is manual, the section is display
+order — so this stays P1, as in round 1: the operative half of the claim
+("never derive direction from price") does still hold everywhere.
 
-`worker/jobs/publisher/judge-gate.ts:22` · duty 4 · disposition `rejected`
+The triage row `RT-2 / std-M1 … **FIXED.**` in
+`docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md:17` is therefore
+overstated.
 
-`applyJudgeGate` has exactly two arms, `judgeEnabled()` (judge-gate.ts:23) and `isJudgeHealthy` (judge-gate.ts:30), and the flag arm is mirrored; `JUDGE_ENABLED=true` with a dead sweep is therefore the only Judge residual, as the plan states. Also checked and clean: `providerModerationValidated()` (`src/lib/auto-approval/flags.ts:16`) is expansion-only — `evaluateAutoApprovalCandidate` reads only `providerModerationEnabled()` (auto-approval.ts:349); `zernioPublishingEnabled()` has no publisher gate (its only worker call sites are `worker/ingress/zernio/zernio.ts:301` and `ZernioRecentReviewPoller.ts:381`); `reviewSafety` has no feature flag; and the four account-wide gates in `evaluateAutoApprovalCandidate` (auto-approval.ts:349, 361, 362, and the runtime arm via `STRUCTURAL_GATES[0]` at :277) are exactly the four the builder mirrors.
+#### RT2-3 — P1 — two docs assert an invariant this commit breaks
 
-#### RT-10 — P2 — REJECTED — no remaining plan-switch direction is derived from a price
+`worker/boot-flag-summary.ts:13` and `docs/directory/worker-root.md:45` · duty 3
+· disposition `open`
 
-`src/lib/accounts/tier-change.ts:405` · duty 4 · disposition `rejected`
+The module's file header still says *"Every value comes from its feature's
+existing `flags.ts` accessor — never `process.env` and never a second `readFlag`
+call site."* Line 79 of the same file is
+`AUTOPILOT_PURCHASABLE: readFlag('AUTOPILOT_PURCHASABLE')` — a second `readFlag`
+call site. The fix updated the *function* docblock (:71-78, ten lines explaining
+exactly why) but not the *file* header, and the directory row repeats the old
+sentence verbatim.
 
-Searched `isDowngrade`, `[Dd]owngrade`, `PriceCents\s*[<>]`, `baseCents\s*[<>]`, `base_price_cents\s*[<>]`, and `PLAN_ORDER|TIER_ORDER|tierOrder|planOrder` over `src/` and `worker/`, `*.ts`+`*.tsx`, excluding `**/__tests__/**`. Zero direction-from-price sites remain: the only `Upgrade`/`Downgrade` UI copy in the tree is BillingPanel.tsx, and the server lane derives no direction at all (`tier-change.ts:405` hands proration to Stripe via `proration_behavior: 'create_prorations'`; `src/app/api/billing/tier-change/route.ts` carries only a VAL comment). The one hit the search DID surface is the order duplicate raised as RT-2.
+The same directory row has a second defect: *"thirteen keys: the four original
+boot flags, the all six autonomy flags plus provider moderation (`TRIAGE_ENABLED`,
+`ESCALATION_ENABLED`, `JUDGE_ENABLED`, `GOVERNOR_ENABLED`, `AUTO_APPROVAL_ENABLED`),
+then the two solicitation flags"*. The parenthetical names **five**, omitting
+`AUTOPILOT_PURCHASABLE` — the flag the whole fix was about — and names no
+moderation flag at all, so counting from the row gives eleven, not thirteen. The
+"the all six" wording is the leftover of an unfinished edit.
+`ci:directory-map` checks that a row exists per file, never its content.
 
-#### RT-11 — P2 — REJECTED — the runbook hits quoting the deleted '[worker] Feature flags:' prose line are frozen evidence, not live instructions
+Ranked P1 rather than P0 because the truth is stated inline three lines above
+the offending call, so a reader of the call site is not misled; the exposure is
+a future agent reading the header or the directory row and "restoring" the
+accessor, which is the composite trap the fix deliberately avoided.
 
-`docs/runbooks/owner-offboarding-staging-dry-run.md:217` · duty 3 · disposition `rejected`
+#### RT2-5 — P1 — the AP-1/AP-2 copy rule is not applied to the override-only headline
 
-Every hit is a completed `- [x]` item recording a PAST observation (owner-offboarding-staging-dry-run.md:217; `docs/runbooks/completed_runbooks/zernio-testing-and-shipping.md:78,577,598`; `completed_runbooks/pr-1-lifecycle-extraction-test.md:142`), and `docs/runbooks/deployment-guide.md:804` is an env-var list header, not the boot line. The plan resolved this explicitly before implementing (`docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:573-578`, 'historical record, not a live instruction. Edit none of them.'), and I reach the same verdict independently.
+`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:750` ·
+duty 4 · disposition `open`
 
-#### RT-12 — P2 — REJECTED — the 'this account is on Copilot' copy cannot be shown to an account row that does not exist
+The adjudicated rule is *"are set to post", never "posts"*. It was applied to the
+account-default `on` headline (:766), to both blocked titles (:719-720), and a
+supporting line was added to the `on` branch (:756-760). The override-only
+unblocked headline was not touched:
 
-`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:104` · duty 4 · disposition `rejected`
+> `Off by default. ${joinNames(overrideNames)} ${… 'posts' : 'post'} replies automatically with … own settings.`
 
-A missing `accounts` row maps to `tierGrantsAutopilot(undefined) === false` (settings.ts:1231) and would print 'this account is on Copilot' (AutoApprovalClient.tsx:104), which is false. Unreachable in production: the blocked branch needs `account.threshold !== null` or a posting override, both of which come from `auto_approval_policies` rows whose `account_id` is FK-constrained to `accounts`, so no policy row can outlive its account. The state exists only as the `dbState.accountExists = false` fixture in settings.test.ts.
+That branch is reachable exactly when posting is **not** blocked and the account
+default is off with at least one armed override — a supported multi-location
+shape the plan's edge case 5 calls out. It carries no supporting line either, so
+the hedge AP-2 asked for is absent on the one headline that still makes the hard
+claim. The rationale in the fix's own docblock (:670-681) — the settings page
+reads flags in the Vercel process while the gates read them on Railway — applies
+to this branch identically.
 
-#### RT-13 — P2 — REJECTED — every file:line citation in the changed plan, deviations and blast-radius docs resolves at HEAD
+#### RT2-6 — P2 — the RT-4 replacement never calls the subject and its oracle is a test fixture's key list
 
-`docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:568` · duty 3 · disposition `rejected`
+`src/lib/auto-approval/__tests__/posting-status.test.ts:95` · duty 2 ·
+disposition `open`
 
-`python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md --repo .` reports `CITATIONS: 29 checked, 0 unresolved / FIXTURES: 7 checked, 0 gitignored / PREVALIDATE: PASS`. Hand-checked the two citations outside that file: `src/lib/config/flags.ts:21` is `export function readFlag` (D7's claim holds) and `.codex/hooks/stop-gate.sh:28` is the `gate-status.json` existence check (D4's claim holds). The plan's `logBootFlagSummary(createWorkerLogger('worker'))` differs from HEAD's `'[worker]'`, which is not a discrepancy: `normalizeLoggerName` (logger.ts:30) strips the brackets, so both emit `"logger":"worker"`.
+`it('does not report a reason for an autopilot tier whose sale is paused')` now
+asserts `Object.keys(passingInput()).sort()` against a literal list plus a
+redundant `/purchasab/i` scan. It no longer invokes
+`buildAutoApprovalPostingStatus` at all, so the title states a behaviour the body
+never exercises. `passingInput()` (:5-13) is an un-annotated test-local literal,
+not the production `BuildAutoApprovalPostingStatusInput`, so the oracle is
+structural pinning of a fixture.
 
-## Sibling searches (duty 4)
+**Measured.** Threading purchasability into the builder as an optional parameter
+— `autopilotPurchasable?: boolean` on the input type and
+`if (!tierGrantsAutopilot || autopilotPurchasable === false)` in the body —
+leaves the suite at **8/8 green**, including this test. That particular mutant is
+provably behaviour-preserving at HEAD (no caller passes the field), so it is
+recorded `equivalent` in the inventory, not a kill; what it demonstrates is the
+shape of the hole. The test fires only when a **required** parameter is added,
+and then only because TypeScript forces `passingInput()` to change — it cannot
+see a builder that reads purchasability from a module import, or one that takes
+it optionally.
 
-Recorded so a zero result is auditable:
+This is an improvement on the vacuous original and is not a blocker. Behavioural
+protection for the trap remains the loader test in `settings.test.ts`, which
+round 1 mutation-verified (M1, 2 failed / 91 passed).
 
-- **#1054 — direction derived from a price.** Patterns `isDowngrade`, `[Dd]owngrade`, `PriceCents\s*[<>]`, `baseCents\s*[<>]`, `base_price_cents\s*[<>]`, `unit_amount\s*[<>]`, `PLAN_ORDER|TIER_ORDER|tierOrder|planOrder`. Scope `src/` + `worker/`, `*.ts` + `*.tsx`. Exclusions `**/__tests__/**`, and the `auto-policy-downgrade` / `AutoDowngradeReason` / solicitation-release families (a different sense of 'downgrade'). Result: zero remaining direction-from-price sites (RT-10); one order duplicate (RT-2).
-- **#1314 — a surface claiming automatic posting.** Patterns `posts? (a reply )?automatically`, `auto-post`, over `src/`, `*.ts` + `*.tsx`, excluding `**/__tests__/**`. Result: the notification templates (`pending-post-notice.ts`, `telegram-body.ts`) are per-draft and honest — a scheduled auto-post really exists when they fire. Two structural surfaces surfaced: the Owner Operator (RT-3) and the per-location refusals (RT-8).
-- **#1173 — another surface reporting flag state.** Files matching `TRIAGE_ENABLED|AUTO_APPROVAL_ENABLED` over `src/` + `worker/`, excluding tests. Result: no second flag-reporting surface exists; `worker/config/startup-assert.ts` asserts flags but reports none, and `/api/health` (worker/index.ts:640) returns no flag state.
+#### RT2-7 — P2 — `differingNames` is unpinned, and the skip drops a class of override
+
+`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:729` ·
+duty 4 · disposition `open`
+
+Two observations, neither a regression.
+
+**Unpinned.** Forcing `differingNames` to return `[]` — which removes the line
+from both the `on` and the blocked headline, undoing RT-5's fix *and* the
+pre-existing behaviour it was restoring — leaves `AutoApprovalClient.test.tsx` at
+**58/58 green**. No assertion in the suite mentions "uses its own settings" or
+"use their own settings" in any form.
+
+**The skip is keyed on the wrong set.** `overrideNames` (:695-698) requires
+`override.exists && !effective.inherited && effective.threshold !== null` —
+armed overrides only. `differingNames` (:779-787) requires
+`override.exists && !effective.inherited` — every differing override. The skip
+at :729 assumes the override-only title "already named them", but a location
+whose override differs and is set to **off** is in the second set and not the
+first, so its name appears nowhere in the blocked override-only headline. The
+unblocked override-only branch (:748-753) does not print it either, so the two
+branches remain consistent with each other and nothing regressed; the RT-5 fix is
+simply narrower than its docblock (:774-778) claims.
+
+No state prints the names twice — that was checked and is clear (RT2-R3).
+
+#### RT2-8 — P2 — the new RT-1 assertion pins an incidental string
+
+`worker/__tests__/boot-flag-summary.test.ts:218` · duty 2 · disposition `open`
+
+`expect((prefix as ts.StringLiteral).text).toBe('[worker]')` fails for
+`createWorkerLogger('worker')`, which emits a byte-identical record —
+`normalizeLoggerName` (`src/lib/shared/logger.ts:29-31`) strips a leading `[` and
+trailing `]`. Round 1's RT-13 established this exact equivalence when it cleared
+the plan's `createWorkerLogger('worker')` citation. The behavioural part of the
+assertion (the argument is a `createWorkerLogger(…)` call with one string
+literal) is the part that matters and is correct; the exact-text compare is
+incidental structure. Low stakes: the string is unlikely to change, and if it
+does the failure is obvious.
+
+#### RT2-9 — P2 — the go-live-derived oracle reads exactly one line
+
+`worker/__tests__/boot-flag-summary.test.ts:68` · duty 2 · disposition `open`
+
+`skill.split('\n').find((line) => line.includes('The go-live order is fixed'))`
+takes a single line and matches `` /`([A-Z][A-Z0-9_]+)`/g `` in it. Today
+`.claude/skills/flag-flip/SKILL.md:17` holds all six names on one line, and the
+test correctly kills a dropped key (measured: removing `AUTOPILOT_PURCHASABLE`
+fails 7 titles, this one among them). The hole is that a seventh flag appended on
+a wrapped continuation line, or written without backticks, is silently not
+checked — which is exactly the failure mode the test exists to prevent.
+`expect(named.length).toBeGreaterThan(0)` guards only the empty case.
+
+Answering the two questions put to this round directly: **yes**, it can pass
+while a flag is missing, by that one route; and **yes**, rewording the phrase
+"The go-live order is fixed" breaks it — but deliberately and with a legible
+message (`'flag-flip SKILL.md no longer states the go-live order'`), which is a
+reasonable tripwire rather than a spurious break. The cross-copy risk is closed:
+the test reads the `.claude/` copy, and `scripts/ci/agent-config-audit.ts:247-258`
+fails CI when `.agents/skills/flag-flip/SKILL.md` drifts from it (`flag-flip` is
+in `PROJECT_SKILLS` at :21 and is not lane-divergent, :37-40).
+
+### Rejected, with evidence
+
+- **RT2-R1** (`worker/boot-flag-summary.ts:71`) — the `readFlag` choice is
+  correct. `autopilotPurchasable()` is
+  `getServerConfig().AUTOPILOT_PURCHASABLE === 'true' && autoApprovalRuntimeEnabled()`
+  (`src/lib/payments/tier-purchasability.ts:8-13`) — a composite, read through the
+  Next-server config path — so under it the key would report `false` for an
+  operator who had just correctly set the variable while `AUTO_APPROVAL_ENABLED`
+  was still off, which is the normal go-live ordering.
+  `readFlag('AUTOPILOT_PURCHASABLE')` is `process.env[name] === 'true'`
+  (`src/lib/config/flags.ts:21-23`), which is what an env-var-keyed boot record
+  must report. Also checked: the variable really is worker-side —
+  `worker/config/startup-assert.ts:40` asserts it and
+  `worker/ingress/stripe/checkout-completed.ts:678` /
+  `subscription-updated.ts:463` read it — so the key is not always-false on
+  Railway.
+- **RT2-R2** (`.agents/skills/flag-flip/SKILL.md:1`) — the two copies are
+  byte-identical (`sha1 50dad6eb61ca8e41019a03b810537d2357a2e6ec` for both), and
+  drift is CI-enforced by `assertSharedSkillParity`
+  (`scripts/ci/agent-config-audit.ts:247-258`, invoked at :331-332 and :430).
+- **RT2-R3** (`AutoApprovalClient.tsx:750`) — no headline state prints the
+  differing-location names twice. Blocked + account default: title names none,
+  detail appends `differingNames` once (:719, :729). Blocked override-only: title
+  names the armed overrides, `differingNames` skipped (:729). `on` account
+  default: title names none, detail pushes once (:763). `on` override-only: title
+  names them, `differingNames` never called (:748-753).
+
+## Sibling searches (duty 4, round 2 only)
+
+- **A fourth tier-order declaration.** Patterns
+  `SUBSCRIPTION_TIER_ORDER`, `\[\s*'copilot'\s*,\s*'autopilot'\s*\]`,
+  `\[\s*'autopilot'\s*,\s*'copilot'\s*\]`, `PLAN_ORDER|TIER_ORDER|tierOrder|planOrder`
+  over `src/`, `worker/` **and `scripts/`** (round 1 omitted `scripts/`).
+  Exclusions: `**/__tests__/**`. Result: two production/tooling declarations
+  remain — RT-2 above. Test-local literals (`plan-options.test.ts:13`,
+  `BillingPanel.test.ts:12`, `vocabulary.test.ts:514`) are assertions about the
+  order, not declarations of it, and are correctly out of scope.
+- **Another surface suppressing a readiness reason.** Pattern `blockReasons`
+  filtered or narrowed anywhere outside `AutoApprovalClient.tsx`. Result: none —
+  `readiness.blockReasons` is consumed at `AutoApprovalClient.tsx:264` and, per
+  round 1's RT-3, reduced without `posting` in
+  `src/lib/agents/operator/context.ts:96`, which is already the carried RT-3.
+- **Another surface asserting the emitted log-record shape.** Pattern
+  `"prefix"|"msg"|Feature flags` over `docs/` and the two skill trees. Result: the
+  only live instruction quoting a record shape is step 5b (RT2-1); the runbook
+  hits round 1 cleared as frozen evidence quote the *deleted prose* line, not the
+  new JSON one, and are unaffected.
 
 ## Duty 3 — doc claims re-resolved at HEAD
 
-`prevalidate-plan.py` was present and run: **`CITATIONS: 29 checked, 0 unresolved · FIXTURES: 7 checked, 0 gitignored · PREVALIDATE: PASS`**. Hand-checked the citations outside that file (`src/lib/config/flags.ts:21`, `.codex/hooks/stop-gate.sh:28`, `src/app/(authenticated)/_styles/console.css:1267`) — all three resolve. The new `docs/directory/lib-reviews-responses.md` and `docs/directory/worker-root.md` rows and the `docs/context/core-reviews-responses.md` **Posting block** entry were checked claim by claim against the source: the four account-wide gates, the declaration-order push, the `checkSubscription({ workerType: 'publisher' })` wiring and the named Judge-health residual are all accurate. The one false claim found is RT-2, in `tier-config.ts` and echoed in the arch-review-log row.
+| Claim | Where | Verdict |
+|---|---|---|
+| Step 5b's log record shape | `flag-flip/SKILL.md:31-36` | **FALSE** — RT2-1 |
+| "a 2026-09-07 `TRIAGE_ENABLED` staging flip is recorded as *set but unproven*" | same | resolves — `docs/runbooks/evidence/2026-09-07-staging-triage-flag-flip.md:60` |
+| "All thirteen booleans … including all six autonomy flags" | same | resolves against `buildBootFlagSummary` |
+| "never a second `readFlag` call site" | `worker/boot-flag-summary.ts:13` | **FALSE** — RT2-3 |
+| "thirteen keys … the all six autonomy flags plus provider moderation (five named)" | `docs/directory/worker-root.md:45` | **FALSE / self-contradictory** — RT2-3 |
+| "single owner of tier order — never re-declare it next to a price list" | `src/lib/accounts/tier-config.ts:148-149` | **FALSE** — RT-2 |
+| Posting block residuals: Judge health, `archived_location`, `active_zernio_connection_missing`, per-draft gates | `posting-status.ts:50-62`, `docs/context/core-reviews-responses.md:10` | resolve — `worker/jobs/response-generation/auto-approval.ts:372-373` for the two per-location names; `moderation_flagged`/`moderation_held`, `triage_high_severity`, `rating_below_positive_quadrant`, `daily_cap_exhausted` and the review-hash reason all exist in the same block |
+| `autopilotPurchasable()` composite cited as `tier-purchasability.ts:8` | `worker/boot-flag-summary.ts:72-73` | resolves to the right function; line 8 is the signature and the composite is at :9-12 |
+| "RT-2 / std-M1 … **FIXED**" | `docs/reviews/fix-batch-e-screens-vs-runtime/triage-verdicts.md:17` | **overstated** — the code half is fixed, the doc claim is not |
+| "The module, glossary and directory now scope the claim to account-wide and name three residual classes" | `triage-verdicts.md:23` | resolves |
+
+`prevalidate-plan.py` was not re-run: the changed plan is unmodified between
+`825f0fbbf` and `9a7a459f9`, and round 1 already recorded `PREVALIDATE: PASS`
+for it. The doc hunks in this diff are prose rows, not `path:line` citations,
+and were hand-checked as tabled above.
 
 ## Duty 5 — operational completeness
 
-The diff adds no terminal or swallowed failure path and no Sentry signal, so there is no rule row in `docs/runbooks/beta-launch-alerting.md` to compare against and no alert-path finding. The one operational gap is RT-7: the capability #1173 delivers has no procedure that consumes it. On the deployed lane the line itself is sound — `logBootFlagSummary` is called at `worker/index.ts:625`, inside the startup `try` whose `catch` exits 1, after every `assert*Env`, in `main()`, which `worker/index.ts` invokes at module scope. The gap is that nothing *pins* the sink: RT-1.
+The fix diff adds no terminal or swallowed failure path and no Sentry signal, so
+there is no rule row in `docs/runbooks/beta-launch-alerting.md` to compare
+against and no alert-path finding. The one operational surface it does add is the
+flag-flip step 5b procedure, and it does not work as written — RT2-1.
 
 ## Authorizations
 
-None. No finding on this run is `accepted-risk`.
-
-## Red-team findings rejected
-
-- **RT-9** (`worker/jobs/publisher/judge-gate.ts:22`) — the Judge boundary leaks nowhere beyond the one named residual · `applyJudgeGate` has exactly two arms, `judgeEnabled()` (judge-gate.ts:23) and `isJudgeHealthy` (judge-gate.ts:30), and the flag arm is mirrored; `JUDGE_ENABLED=true` with a dead sweep is therefore the only Judge residual, as the plan states. Also checked and clean: `providerModerationValidated()` (`src/lib/auto-approval/flags.ts:16`) is expansion-only — `evaluateAutoApprovalCandidate` reads only `providerModerationEnabled()` (auto-approval.ts:349); `zernioPublishingEnabled()` has no publisher gate (its only worker call sites are `worker/ingress/zernio/zernio.ts:301` and `ZernioRecentReviewPoller.ts:381`); `reviewSafety` has no feature flag; and the four account-wide gates in `evaluateAutoApprovalCandidate` (auto-approval.ts:349, 361, 362, and the runtime arm via `STRUCTURAL_GATES[0]` at :277) are exactly the four the builder mirrors.
-- **RT-10** (`src/lib/accounts/tier-change.ts:405`) — no remaining plan-switch direction is derived from a price · Searched `isDowngrade`, `[Dd]owngrade`, `PriceCents\s*[<>]`, `baseCents\s*[<>]`, `base_price_cents\s*[<>]`, and `PLAN_ORDER|TIER_ORDER|tierOrder|planOrder` over `src/` and `worker/`, `*.ts`+`*.tsx`, excluding `**/__tests__/**`. Zero direction-from-price sites remain: the only `Upgrade`/`Downgrade` UI copy in the tree is BillingPanel.tsx, and the server lane derives no direction at all (`tier-change.ts:405` hands proration to Stripe via `proration_behavior: 'create_prorations'`; `src/app/api/billing/tier-change/route.ts` carries only a VAL comment). The one hit the search DID surface is the order duplicate raised as RT-2.
-- **RT-11** (`docs/runbooks/owner-offboarding-staging-dry-run.md:217`) — the runbook hits quoting the deleted '[worker] Feature flags:' prose line are frozen evidence, not live instructions · Every hit is a completed `- [x]` item recording a PAST observation (owner-offboarding-staging-dry-run.md:217; `docs/runbooks/completed_runbooks/zernio-testing-and-shipping.md:78,577,598`; `completed_runbooks/pr-1-lifecycle-extraction-test.md:142`), and `docs/runbooks/deployment-guide.md:804` is an env-var list header, not the boot line. The plan resolved this explicitly before implementing (`docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:573-578`, 'historical record, not a live instruction. Edit none of them.'), and I reach the same verdict independently.
-- **RT-12** (`src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx:104`) — the 'this account is on Copilot' copy cannot be shown to an account row that does not exist · A missing `accounts` row maps to `tierGrantsAutopilot(undefined) === false` (settings.ts:1231) and would print 'this account is on Copilot' (AutoApprovalClient.tsx:104), which is false. Unreachable in production: the blocked branch needs `account.threshold !== null` or a posting override, both of which come from `auto_approval_policies` rows whose `account_id` is FK-constrained to `accounts`, so no policy row can outlive its account. The state exists only as the `dbState.accountExists = false` fixture in settings.test.ts.
-- **RT-13** (`docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md:568`) — every file:line citation in the changed plan, deviations and blast-radius docs resolves at HEAD · `python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py docs/superpowers/plans/fix-batch-e-screens-vs-runtime-plan.md --repo .` reports `CITATIONS: 29 checked, 0 unresolved / FIXTURES: 7 checked, 0 gitignored / PREVALIDATE: PASS`. Hand-checked the two citations outside that file: `src/lib/config/flags.ts:21` is `export function readFlag` (D7's claim holds) and `.codex/hooks/stop-gate.sh:28` is the `gate-status.json` existence check (D4's claim holds). The plan's `logBootFlagSummary(createWorkerLogger('worker'))` differs from HEAD's `'[worker]'`, which is not a discrepancy: `normalizeLoggerName` (logger.ts:30) strips the brackets, so both emit `"logger":"worker"`.
+None. No finding on this run is `accepted-risk`. RT-3 is recorded `open` rather
+than `accepted-risk` because the triage's record of an owner deferral is
+untrusted data from this run's point of view and no verbatim authorization text
+reached this pass.
 
 ## Inventory
 
-| ID | Outcome | Test | File | Evidence |
+| ID | Outcome | Test / hunk | File | Evidence |
 |---|---|---|---|---|
-| R01 | `killed` | loadAutoApprovalSettings returns posting.blocked false and readiness.blockReasons containing autopilot_unavailable for an autopilot account whose sale is paused | `src/lib/auto-approval/__tests__/settings.test.ts` | M1: settings.ts:1231 tier slot -> `tierGrantsAutopilot(account?.subscription_tier) && autopilotPurchasable()` (THE TRAP). 2 failed / 91 passed; this title is one of the two. Independently reproduces D5's recorded count exactly. |
-| R02 | `killed` | loadAutoApprovalSettings reports judge_disabled when the judge flag is off and every other structural gate passes | `src/lib/auto-approval/__tests__/settings.test.ts` | M2: settings.ts:1230 `judgeEnabled: judgeEnabled()` -> `judgeEnabled: true` (the DANGEROUS direction; D5 only recorded hard-coded false). 1 failed / 92 passed. |
-| R03 | `killed` | loadAutoApprovalSettings passes the loaded status past_due_at and flags to the publisher subscription check and propagates its denial | `src/lib/auto-approval/__tests__/settings.test.ts` | M3: settings.ts:1222 `workerType: 'publisher'` -> `'generator'`. 1 failed / 92 passed. |
-| R04 | `killed` | loadAutoApprovalSettings reports tier and publisher subscription blocks when the account row is missing | `src/lib/auto-approval/__tests__/settings.test.ts` | M4: settings.ts:1220 `account !== undefined &&` -> `account === undefined ||`. 1 failed / 92 passed. |
-| R05 | `killed` | loadAutoApprovalSettings reports runtime_disabled for an autopilot account when the runtime is off | `src/lib/auto-approval/__tests__/settings.test.ts` | M26: settings.ts:1229 `runtimeEnabled: autoApprovalRuntimeEnabled()` -> `true`. 1 failed / 92 passed. |
-| R06 | `killed` | loadAutoApprovalSettings reports provider_moderation_disabled when provider moderation is off | `src/lib/auto-approval/__tests__/settings.test.ts` | M27: settings.ts:1233 `providerModerationEnabled: providerModerationEnabled()` -> `true`. 1 failed / 92 passed. |
-| R07 | `killed` | loadAutoApprovalSettings returns posting.blocked true for a copilot account | `src/lib/auto-approval/__tests__/settings.test.ts` | M29: settings.ts:1231 tier slot -> `true`. 3 failed / 90 passed. |
-| R08 | `killed` | loadAutoApprovalSettings leaves readiness.blockReasons unchanged by the posting fact | `src/lib/auto-approval/__tests__/settings.test.ts` | M29 (tier slot -> `true`) also fails this title; the readiness-key assertion discriminates. |
-| R09 | `killed` | loadAutoApprovalSettings returns posting.blocked false for an autopilot account with the runtime on | `src/lib/auto-approval/__tests__/settings.test.ts` | M21: posting-status.ts:49 `blocked: reasons.length > 0` -> `blocked: true`. 5 failed / 96 passed across both suites. |
-| R10 | `killed` | plain off headline still renders when no threshold is set and posting is blocked | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M5: AutoApprovalClient.tsx:684 blocked-branch guard -> `if (data.posting.blocked)` (drops the armed-state conjunct). 1 failed / 57 passed. |
-| R11 | `killed` | blocked override-only headline does not offer an account-default turn-off action | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M6: AutoApprovalClient.tsx:698 `canTurnOff: account.threshold !== null` -> `true` (the DANGEROUS direction; D5 only recorded forced-false). 1 failed / 57 passed. |
-| R12 | `killed` | suspended headline wins over a posting block | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M7: the blocked branch moved textually ABOVE the `account.suspended` branch. 1 failed / 57 passed. |
-| R13 | `killed` | blocked headline uses the attention banner and renders every posting reason on its own detail line | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M8: AutoApprovalClient.tsx:758 variant ternary -> always `banner-blue`. 1 failed / 57 passed. |
-| R14 | `killed` | headline does not claim automatic posting for an armed policy on a copilot tier | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M28: AutoApprovalClient.tsx:686 blocked title ternary inverted (`account.threshold === null`). 2 failed / 56 passed; the override-only headline title is the other. |
-| R15 | `killed` | headline does not claim location overrides post when posting is structurally blocked | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | M28 (inverted blocked-title ternary) also fails this title. |
-| R16 | `killed` | reports autopilot_tier_required when the tier does not grant autopilot | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M18: posting-status.ts:45 tier gate inverted (`if (tierGrantsAutopilot)`). 8 failed / 0 passed. |
-| R17 | `killed` | reports runtime_disabled when the auto-approval runtime flag is off | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M23: posting-status.ts:43 `runtime_disabled` push deleted. 2 failed / 6 passed. |
-| R18 | `killed` | reports provider_moderation_disabled when provider moderation is off | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M24: posting-status.ts:46 `provider_moderation_disabled` push deleted. 2 failed / 6 passed. |
-| R19 | `killed` | reports publisher_subscription_denied when the publisher subscription check denies | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M25: posting-status.ts:47 `publisher_subscription_denied` push deleted. 2 failed / 6 passed. |
-| R20 | `killed` | reports judge_disabled when the judge flag is off | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M17: posting-status.ts:44 `judge_disabled` push deleted. 2 failed / 6 passed. |
-| R21 | `killed` | reports every applicable reason together, not just the first | `src/lib/auto-approval/__tests__/posting-status.test.ts` | Killed by every single-push deletion (M17, M23, M24, M25) and by M18; it is the suite's completeness pin. |
-| R22 | `killed` | reports no reason and blocked false when every structural gate passes | `src/lib/auto-approval/__tests__/posting-status.test.ts` | M21: `blocked: reasons.length > 0` -> `blocked: true`. 5 failed / 96 passed. |
-| R23 | `killed` → RT-4 | does not report a reason for an autopilot tier whose sale is paused | `src/lib/auto-approval/__tests__/posting-status.test.ts` | Killed only in lockstep with R22 (M18 fails all 8; M21 fails exactly R22 and R23). Its input `{ ...passingInput(), tierGrantsAutopilot: true }` is byte-identical to `passingInput()` and the builder has no purchasability parameter, so it adds no discrimination over R22 and cannot fail for the reason its comment states. See RT-4. |
-| R24 | `killed` | tierChangeDirection returns up for copilot to autopilot | `src/lib/accounts/__tests__/tier-config.test.ts` | M12: tier-config.ts:152-155 `SUBSCRIPTION_TIER_ORDER` reversed. 15 failed / 31 passed across tier-config + BillingPanel. |
-| R25 | `killed` | tierChangeDirection returns down for autopilot to copilot | `src/lib/accounts/__tests__/tier-config.test.ts` | M12 (order reversed) also fails this title. |
-| R26 | `killed` | tierChangeDirection returns same for a tier to itself | `src/lib/accounts/__tests__/tier-config.test.ts` | M22: tier-config.ts:165-166 `same` branch removed (`return toIndex >= fromIndex ? 'up' : 'down'`). 1 failed / 45 passed. |
-| R27 | `killed` | tierChangeDirection follows autonomy order when catalogue prices are equal or reversed | `src/lib/accounts/__tests__/tier-config.test.ts` | M12 (order reversed) fails this title. D8's own mutation (a price-based body) is separately corroborated by M19 below. |
-| R28 | `killed` | billing cards retain upgrade and downgrade labels when both catalogue prices are equal | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M19: BillingPanel.tsx:457-459 card direction re-implemented as a LIVE catalogue-price comparison — the exact defect skeptic round 1 predicted. 1 failed / 22 passed, by this title alone. Reproduces the orchestrator's recorded count exactly. |
-| R29 | `killed` | billing card labels the copilot option Downgrade for an autopilot account | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M12 (order reversed) fails this title. |
-| R30 | `killed` | billing card labels the autopilot option Upgrade for a copilot account | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M12 (order reversed) fails this title. |
-| R31 | `killed` | billing card direction ignores a grandfathered stored base price | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M12 (order reversed) fails this title. |
-| R32 | `killed` | opening the copilot modal from a grandfathered autopilot account shows downgrade wording regardless of stored price | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M11: BillingPanel.tsx:417-419 `selectedDirection` re-implemented as a catalogue-vs-stored price comparison. 2 failed / 21 passed. |
-| R33 | `killed` | opening the autopilot modal from a copilot account whose stored price exceeds both catalogue prices shows upgrade wording | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M11 (modal price comparison) also fails this title. |
-| R34 | `killed` | trialing autopilot to copilot modal preserves trial billing copy and warns that replies stop posting on their own | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M30: BillingPanel.tsx:184 `{isDowngrade && (` -> `{false && (`. 2 failed / 21 passed. |
-| R35 | `killed` | tier change modal warns that replies stop posting on their own when moving to copilot | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M30 (warning removed) also fails this title. |
-| R36 | `killed` | tier change modal omits the autonomy warning when moving to autopilot | `src/components/dashboard/settings/__tests__/BillingPanel.test.tsx` | M20: BillingPanel.tsx:184 `{isDowngrade && (` -> `{(` (warning rendered unconditionally). 1 failed / 22 passed. |
-| R37 | `killed` | boot flag summary contains exactly the eleven declared flag keys including all four existing boot flags | `worker/__tests__/boot-flag-summary.test.ts` | M31: boot-flag-summary.ts:47 `ESCALATION_ENABLED` key deleted. 6 failed / 3 passed. |
-| R38 | `killed` | boot flag summary names all five autonomy flags | `worker/__tests__/boot-flag-summary.test.ts` | M31 (ESCALATION key deleted) also fails this title. |
-| R39 | `killed` | boot flag summary names both solicitation flags | `worker/__tests__/boot-flag-summary.test.ts` | Not failed by M31 (which drops an autonomy key). Killed by the same class: M16 shows the per-key accessor pins hold; the solicitation-key pin is the arrayContaining twin of R38 over the two solicitation keys, and M31 demonstrates a dropped key fails its own arrayContaining pin. |
-| R40 | `killed` | boot flag summary maps each key to its own accessor when exactly one flag at a time is true | `worker/__tests__/boot-flag-summary.test.ts` | M16: boot-flag-summary.ts:45 `JUDGE_ENABLED: judgeEnabled()` -> `governorEnabled()`. 3 failed / 6 passed. |
-| R41 | `killed` | boot flag summary reports false for a flag set to a value other than true | `worker/__tests__/boot-flag-summary.test.ts` | M32: boot-flag-summary.ts:44 `TRIAGE_ENABLED: triageEnabled()` -> `Boolean(process.env.TRIAGE_ENABLED)` — D7's recorded mutation, re-derived. 2 failed / 7 passed, exactly the two readFlag-semantics titles. |
-| R42 | `killed` | boot flag summary reports true only for the literal string true | `worker/__tests__/boot-flag-summary.test.ts` | M32 (truthy read) also fails this title, as D7 recorded. |
-| R43 | `killed` | logBootFlagSummary calls the supplied logger once with Feature flags and all eleven flag booleans | `worker/__tests__/boot-flag-summary.test.ts` | M16 (wrong accessor) and M31 (dropped key) both fail this title; the hand-built expected record is not derived from the builder. |
-| R44 | `inconclusive / oracle` → RT-1 | worker startup calls the boot flag summary logger unconditionally inside the startup try block | `worker/__tests__/boot-flag-summary.test.ts` | M10: worker/index.ts:625 `logBootFlagSummary(createWorkerLogger('[worker]'))` -> `logBootFlagSummary({ log: () => {} })`. SURVIVED — 9/9 green. Arbiter: the mutant compiles (a 0-arity arrow is assignable to `{ log(message: string, data: unknown): void }`), is not equivalent (no record reaches stdout, which is the whole of #1173), and is not on an unexecuted branch — but the AST oracle inspects only call identity, ExpressionStatement-hood, the enclosing `main`, and try-membership, never `call.arguments`. That makes the survivor a claim about the ORACLE, not about the mutant, so it is recorded inconclusive/oracle rather than a confirmed P0. |
-| R45 | `killed` → RT-6 | worker startup no longer prints the prose feature flag line | `worker/__tests__/boot-flag-summary.test.ts` | M-implicit: the branch's own deletion of the `console.log` block is what turns this green; re-adding any string containing `[worker] Feature flags:` fails it. Recorded with RT-6 because the assertion is a source-substring absence proxy. |
-| R46 | `excluded` | projectOperatingRules / projectPolicyStates (operator context) — fixture-only amendment | `src/lib/agents/operator/__tests__/context.test.ts` | The diff's only change here is one fixture line (`posting: { blocked: false, reasons: [] }`, context.test.ts:117) forced by typecheck. No production hunk in `src/lib/agents/operator/` changed at this SHA, so there is nothing to mutate. The SURFACE gap this exposes is RT-3, raised under duty 4. |
-| R47 | `excluded` | planPricesForVariant (plan-presentation.ts constant swap) | `src/lib/payments/plan-presentation.ts` | Behaviour-preserving rename: the deleted `WS8_PLAN_ORDER` and the imported `SUBSCRIPTION_TIER_ORDER` (tier-config.ts:152-155) are member- and order-identical, so `Object.fromEntries` builds a byte-identical object. No test file exists for this module; the constant's ORDER is pinned by M12 (15 kills). |
-| R48 | `excluded` | AutoApprovalPostingBlockReason / AutoApprovalPostingStatus declarations | `src/lib/auto-approval/types.ts` | Type-only hunk with no runtime emission; a mutation would be a compile error, which the protocol classes as never a kill. The exhaustive `Record<AutoApprovalPostingBlockReason, string>` in AutoApprovalClient.tsx:102 is the compile-time guard the types exist for. |
+| S01 | `killed` | worker startup calls the boot flag summary logger unconditionally inside the startup try block | `worker/__tests__/boot-flag-summary.test.ts` | Round 1's exact mutant re-applied: `worker/index.ts:625` → `logBootFlagSummary({ log: () => {} })`. Baseline 10/10 green; mutant 1 failed / 9 passed, by this title. RT-1 closed. |
+| S02 | `inconclusive` (oracle) → RT2-2 | readiness suppression filter | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | Deleted `AutoApprovalClient.tsx:272` (the whole new `.filter`). 58/58 green. Arbiter: the mutation is semantically meaningful and not equivalent, but the distinguishing branch (`posting.blocked === true` alongside a suppressed readiness reason) is never reached by any test — the nearest candidate (:413-428) inherits `posting.blocked: false`. That makes this a claim about the ORACLE, so it is `inconclusive`, not a confirmed survivor. The live defect is proven separately by the differential probe in RT2-2. |
+| S03 | `inconclusive` (oracle) → RT2-7 | `differingNames` | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | `differingNames` forced to return `[]` (`AutoApprovalClient.tsx:783`). 58/58 green. No assertion in the suite mentions "uses its own settings" in any form, so no oracle exists for this helper's output either way. |
+| S04 | `equivalent` | does not report a reason for an autopilot tier whose sale is paused | `src/lib/auto-approval/__tests__/posting-status.test.ts` | Added `autopilotPurchasable?: boolean` to `BuildAutoApprovalPostingStatusInput` and `if (!tierGrantsAutopilot \|\| autopilotPurchasable === false)` to the body. 8/8 green. **Proof of equivalence:** the only production caller is `buildPostingStatus` (`src/lib/auto-approval/settings.ts:1232-1238`), which does not pass the field, so it is `undefined` at every call and no reason set changes. Recorded `equivalent`, not a kill; what it shows about the oracle is RT2-6. |
+| S05 | `killed` | boot flag summary names every autonomy flag the flag-flip go-live order names (+6 more) | `worker/__tests__/boot-flag-summary.test.ts` | Deleted the `AUTOPILOT_PURCHASABLE: readFlag('AUTOPILOT_PURCHASABLE')` key (`worker/boot-flag-summary.ts:79`). 3 passed / 7 failed, including the new go-live-derived title, both count titles, the per-accessor map, both `readFlag`-semantics titles and the emitter title. |
+| S06 | `killed` | builds exactly two plans from the supplied list-price view model; uses supplied founding prices without deriving list amounts in the client | `src/app/onboarding/pay/__tests__/plan-options.test.ts` | Reversed `SUBSCRIPTION_TIER_ORDER` (`src/lib/accounts/tier-config.ts:152-155`). 1 passed / 2 failed. The RT-2 code change is genuinely wired; only the doc claim remains false. |
+| S07 | `excluded` | doc-only hunks | `.claude/skills/flag-flip/SKILL.md`, `.agents/skills/flag-flip/SKILL.md`, `docs/directory/worker-root.md`, `docs/context/core-reviews-responses.md`, `docs/reviews/**` | Prose with no runtime emission; reviewed under duty 3 instead, which is where RT2-1 and RT2-3 come from. |
+| S08 | `excluded` | copy-string updates in the client suite | `src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx` | Six assertions whose expected text tracks the AP-1/AP-2 copy change. Mutating an expected string only proves the string matches itself; the behaviour those tests pin (which headline branch fires) was mutation-verified in round 1 (R10-R15) and the branch predicates are unchanged at this SHA. |
+| S09 | `excluded` | `posting-status.ts` docblock hunk | `src/lib/auto-approval/posting-status.ts` | Comment-only (:1-24 → :1-35, the RT-8 definition narrowing). No runtime emission to mutate; checked under duty 3 and clear. |
 
-**Counts** — 48 rows: 44 killed, 1 inconclusive (oracle), 3 excluded, 0 skipped-budget. 13 findings: 0 open P0, 3 open P1, 5 open P2, 5 rejected.
+**Counts** — 9 rows: 3 killed, 0 survived-confirmed-P0, 1 equivalent, 2
+inconclusive (oracle), 0 skipped-budget, 3 excluded. 24 findings: 2 open P0,
+4 open P1, 5 open P2, 5 fixed, 8 rejected.
 
-**Status `INCOMPLETE_ORACLE`** — one in-scope row (R44) is inconclusive on the ORACLE, which forces this status and blocks the `reviewed` transition until RT-1 is adjudicated or closed. Three open P1s on a high-risk branch require user adjudication, not the orchestrator's.
+**Status `OPEN_P0`** — RT2-1 and RT2-2 both block. There is no round 3, so both
+go to the owner. Two in-scope inventory rows are also `inconclusive` on the
+oracle, which would force `INCOMPLETE_ORACLE` on its own: the two most
+defect-prone hunks added in this pass (the readiness suppression and the shared
+`differingNames`) have no test that can distinguish them from their own removal.

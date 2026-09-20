@@ -39,3 +39,45 @@ builder test; two found the third tier-order copy.
 2. `archived_location` and `active_zernio_connection_missing` are per-location; a single-location account can be blocked while the headline reads as set up.
 3. The settings page reads flags in the Vercel process; the gates read them on Railway. Pre-existing, mitigated by copy, not eliminated.
 4. The Owner Operator surface still makes the #1314 claim (RT-3, ticketed).
+
+---
+
+# Red team round 2 — scoped to the fix hunks (`825f0fbbf..9a7a459f9`)
+
+**Round 2 found two P0s, both introduced by round 1's own fixes.** That is the
+case the scoped second round exists for, and it is the strongest argument in
+this run's record for not skipping it. Neither was in the original branch.
+
+## P0 — fixed
+
+| ID | Verdict |
+|---|---|
+| RT2-1 | **FIXED.** Step 5b's boot-log example named four fields the logger does not emit. The real record is `{"timestamp","level","service","logger","message","data":{"flags"}}`; the doc said `prefix` / `"[worker]"` / `msg` / top-level `flags`. `createWorkerLogger`'s docblock states "the prefix becomes `logger`", and `normalizeLoggerName` (`logger.ts:29`) strips the brackets, so `logger` reads `worker` even though the call passes `'[worker]'`. An operator following the step would have grepped a field that does not exist and, per the step's own wording, waited forever. **The procedure written to close RT-7 did not work.** Corrected in both parity-checked copies, with the grep target named explicitly. |
+| RT2-2 | **FIXED, and the fix removes the whole class.** The std-M3 suppression keyed on `posting.blocked`, but the blocked banner also requires `!suspended` and an armed policy. In the gap the reason was suppressed while nothing said it, `readinessCopy` fell to zero items, and `ReadinessBlock` (`:1403`) rendered the green "✓ You can widen or narrow auto-posting whenever you like" — while `canExpand` was computed server-side from the UNFILTERED list (`readiness.ts:45`). A false capability claim, newly introduced, on the exact surface #1314 exists to fix. Root cause was two predicates for one question, so the fix makes that unrepresentable: `describePolicyStatus` is now computed ONCE in the parent and both the banner and the suppression read the same `status.tone`. Two tests added and **verified against the re-applied bug** — 2 failed / 58 passed with it, 60/60 without. The second test pins the real invariant directly: the green affirmative never renders while `readiness.canExpand` is false, whatever a future filter does. |
+
+## P1 — fixed or adjudicated
+
+| ID | Verdict |
+|---|---|
+| RT-2 | **FIXED (claim), duplicate NAMED.** Round 1's "FIXED" was overstated and this record said so wrongly. A fourth copy exists at `scripts/verify-stripe-price-parity.ts:16` — literally re-declared beside a Stripe Price iteration, which is the pattern the docblock forbade. The docblock now states what is true: it owns tier order for PRODUCT code (three copies collapsed), and names the script copy as a known remaining one to fold in when that file is next touched. `TiersSection.tsx:13` is **not** a copy — its `ORDER` is over a local `Mode` animation union, a different concept sharing two element names. |
+| RT2-3 | **FIXED.** The module header still claimed "never a second `readFlag` call site" after line 79 became exactly that. Header now states the one documented exception. The directory row was worse: it claimed thirteen keys while naming five autonomy flags, omitted the moderation flag entirely, and repeated the false `readFlag` claim. Rewritten to name all thirteen, state the inclusion RULE, and explain the `AUTOPILOT_PURCHASABLE` exception. |
+| RT2-5 | **FIXED.** The AP-1/AP-2 softening never reached the override-only unblocked headline, which still said "posts replies automatically" with no supporting line. Reachable whenever the account default is off and an override is armed. Now "is/are set to post", with the same supporting line. |
+| RT-3 | **ACCEPTED RISK — owner-authorized, recorded here verbatim.** The owner was shown the finding and chose "Follow-up ticket": the Owner Operator surface is production code outside the locked edit surface, fixing it needs its own tests and review pass, and the branch fixed the surface the issue named. Filed as **#1352** carrying the red-team evidence, the readiness-cannot-substitute reasoning, and the trap warning. |
+
+## P2 — fixed
+
+| ID | Verdict |
+|---|---|
+| RT2-7 | **FIXED.** `differingNames`' skip keyed on `threshold` alone, so a differing-but-OFF override was dropped from the blocked headline: the title names the ARMED overrides while the helper covers every differing one. Added `differingExceeds` so the skip happens only when the title already printed the same names. |
+| RT2-8 | **ADDRESSED as documentation.** The `'[worker]'` literal is a CONSISTENCY pin, not a behaviour pin — `normalizeLoggerName` strips brackets, so `'worker'` emits identical output. Kept deliberately (every other call in that file is bracketed; one prefix style for an operator grepping boot output) and the test now says so, which is what the finding was really about. |
+| RT2-9 | **ADDRESSED.** The go-live oracle reads one line, so a wrapped continuation would pass silently. It now pins the count at 6 with a legible failure message, so a reword that splits the line or drops a flag fails loudly instead of going quiet. |
+| RT2-6 | **ACCEPTED as a partial oracle, knowingly.** The RT-4 replacement pins the builder's parameter list and never invokes the builder, so it fires only for a REQUIRED added param, via typecheck. That is strictly better than the byte-equivalent duplicate it replaced, and the behavioural trap protection was always the mutation-verified loader test. Recorded rather than over-built. |
+| RT-6 | Carried from round 1, out of round 2's scope. The prose-absence check is a source-substring proxy for a contract that genuinely is an absence; escaped defect is log noise. |
+
+## Residuals carried to the PR
+
+1. `JUDGE_ENABLED=true` with a dead judge sweep still reads as set-up-to-post.
+2. `archived_location` and `active_zernio_connection_missing` are per-location; a single-location account can be blocked while the headline reads as set up.
+3. The settings page reads flags in the Vercel process; the gates read them on Railway. Pre-existing, mitigated by copy, not eliminated.
+4. The Owner Operator surface still makes the #1314 claim — **#1352**, owner-authorized deferral.
+5. `scripts/verify-stripe-price-parity.ts:16` keeps its own tier-order copy.

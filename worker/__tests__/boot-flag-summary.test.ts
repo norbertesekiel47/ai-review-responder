@@ -68,7 +68,13 @@ describe('buildBootFlagSummary', () => {
     const ordering = skill.split('\n').find((line) => line.includes('The go-live order is fixed'));
     expect(ordering, 'flag-flip SKILL.md no longer states the go-live order').toBeDefined();
     const named = [...ordering!.matchAll(/`([A-Z][A-Z0-9_]+)`/g)].map((m) => m[1]!);
-    expect(named.length).toBeGreaterThan(0);
+    // Single-line read (round 2 RT2-9): a flag on a wrapped continuation would
+    // pass silently. Pin the COUNT so a reword that splits the line, or drops a
+    // flag from it, fails here with a legible message instead of going quiet.
+    expect(
+      named.length,
+      `expected the go-live line to name 6 autonomy flags, found ${named.length}: ${named.join(', ')}`,
+    ).toBe(6);
     const keys = Object.keys(buildBootFlagSummary());
     for (const flag of named) {
       expect(keys, `${flag} is in the go-live order but not in the boot summary`).toContain(flag);
@@ -215,6 +221,11 @@ describe('worker startup wiring', () => {
     expect(loggerCall.arguments).toHaveLength(1);
     const prefix = loggerCall.arguments[0]!;
     expect(ts.isStringLiteral(prefix)).toBe(true);
+    // A CONSISTENCY pin, not a behaviour pin, and deliberately so (round 2
+    // RT2-8): `normalizeLoggerName` strips the brackets, so `'worker'` would
+    // emit byte-identical output. Every other `createWorkerLogger` call in
+    // `worker/index.ts` uses the bracketed form, and an operator grepping boot
+    // output should see one prefix style, not two.
     expect((prefix as ts.StringLiteral).text).toBe('[worker]');
 
     // The call is a statement in its own right, not an operand of a condition.

@@ -200,6 +200,53 @@ describe('AutoApprovalClient', () => {
         };
       }
 
+      // Red team round 2 RT2-2. The suppression that de-duplicates the banner's
+      // sentence used to key on `posting.blocked`, but the banner ALSO needs
+      // `!suspended` and an armed policy. In the gap the reason was hidden
+      // while nothing said it, ReadinessBlock fell to zero items, and the page
+      // rendered its green affirmative for an account that could not widen.
+      it('readiness notice keeps a posting reason when the blocked banner does not render', () => {
+        render(<AutoApprovalClient initialState={{
+          ...baseState,
+          // account default OFF and no overrides, so the blocked banner does
+          // not render — but posting IS blocked and expansion IS blocked.
+          posting: { blocked: true, reasons: ['provider_moderation_disabled'] },
+          readiness: {
+            ...baseState.readiness,
+            providerModerationEnabled: false,
+            canExpand: false,
+            blockReasons: ['provider_moderation_disabled'],
+          },
+        }} />);
+
+        expect(screen.getByTestId('auto-approval-status')).toHaveTextContent(/^Off\./);
+        expect(screen.getByText(/Safety screening for replies is switched off/)).toBeInTheDocument();
+      });
+
+      // The invariant behind RT2-2, pinned directly: the green affirmative is a
+      // capability claim, and it must never appear while the server says the
+      // owner cannot widen. Any future filter over `readinessCopy` has to keep
+      // this true, whatever its condition.
+      it('never shows the widen-or-narrow affirmative while the server says expansion is blocked', () => {
+        for (const reasons of [
+          ['provider_moderation_disabled'],
+          ['auto_approval_disabled'],
+          ['auto_approval_disabled', 'provider_moderation_disabled'],
+        ] as const) {
+          const { unmount } = render(<AutoApprovalClient initialState={{
+            ...baseState,
+            posting: { blocked: true, reasons: [...reasons] as AutoApprovalSettingsResponse['posting']['reasons'] },
+            readiness: { ...baseState.readiness, canExpand: false, blockReasons: [...reasons] },
+          }} />);
+
+          expect(
+            screen.queryByText(/You can widen or narrow auto-posting whenever you like/),
+            `canExpand false with ${reasons.join(', ')}`,
+          ).not.toBeInTheDocument();
+          unmount();
+        }
+      });
+
       it('headline does not claim automatic posting for an armed policy on a copilot tier', () => {
         render(<AutoApprovalClient initialState={blocked(['autopilot_tier_required'])} />);
 
@@ -289,7 +336,7 @@ describe('AutoApprovalClient', () => {
         })} />);
 
         const banner = screen.getByTestId('auto-approval-status');
-        expect(within(banner).queryByText(/posts replies automatically with its own settings/))
+        expect(within(banner).queryByText(/is set to post replies automatically with its own settings/))
           .not.toBeInTheDocument();
         expect(within(banner).getByText(
           'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now.',
@@ -397,7 +444,7 @@ describe('AutoApprovalClient', () => {
     it('names a location that posts on its own while the account default is Off', () => {
       render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
       const banner = screen.getByTestId('auto-approval-status');
-      expect(within(banner).getByText(/Off by default. Main Cafe posts replies automatically with its own settings\./))
+      expect(within(banner).getByText(/Off by default. Main Cafe is set to post replies automatically with its own settings\./))
         .toBeInTheDocument();
     });
   });

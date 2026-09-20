@@ -10,12 +10,13 @@
 // seam (importing it boots Fastify), and invariant #12 says entry points
 // orchestrate while modules own behavior.
 //
-// Every value comes from its feature's existing `flags.ts` accessor — never
-// `process.env` and never a second `readFlag` call site. `ci:static-policy`
-// bans inline `process.env.*_ENABLED` outside `src/lib/config/`, and invariant
-// #13 keeps flags server-authoritative (no `NEXT_PUBLIC_*` companion). The
-// accessors are not memoized, so this reflects the live environment on each
-// call.
+// Every value comes from its feature's existing `flags.ts` accessor, with ONE
+// documented exception below (`AUTOPILOT_PURCHASABLE`, whose accessor is a
+// composite). Never `process.env` directly: `ci:static-policy` bans inline
+// `process.env.*_ENABLED` outside `src/lib/config/`, and invariant #13 keeps
+// flags server-authoritative (no `NEXT_PUBLIC_*` companion). Neither `readFlag`
+// nor the accessors are memoized, so this reflects the live environment on
+// each call.
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { readFlag } from '../src/lib/config/flags';
 import {
