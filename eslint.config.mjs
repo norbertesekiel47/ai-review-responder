@@ -127,6 +127,15 @@ const config = [
     },
   },
   {
+    // Scoped to the SAME glob eslint-config-next/core-web-vitals matches
+    // (`m.default[0].files`), because that is the config object which REGISTERS
+    // the `react-hooks` plugin. Without this key the object matched every linted
+    // file, so a `.cjs` file — the one extension missing from that glob — got the
+    // four rules below with no plugin registered, and `eslint .` died with
+    // "could not find plugin react-hooks" (exit 2) before linting anything.
+    // The tree had zero tracked `.cjs` files, so the first one added anywhere
+    // would have broken the whole lint run. Keep the two globs in step.
+    files: ['**/*.{js,jsx,mjs,ts,tsx,mts,cts}'],
     // Pin the React version so eslint-plugin-react skips runtime detection,
     // which calls the `context.getFilename()` API that ESLint 10 removed.
     settings: { react: { version: '19.2.6' } },
