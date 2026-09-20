@@ -5,144 +5,95 @@
   "branch": "fix/1361-locations-route-fault-status",
   "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
   "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "head_sha": "e1db9ecbcb8555d3bb115d61ac800777f2bfedfa",
+  "head_sha": "322aeaa5d6e8919767482b73733f21fc805190ff",
   "intake_sha256": null,
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-20T23:21:39Z",
+  "round": 2,
+  "generated_at": "2026-09-20T23:40:38Z",
   "inventory": [
     {
-      "id": "mutant-A/owner-route.ts:74#re-throws-non-AuthError",
-      "test": "location owner route helpers > re-throws when requireRole rejects with a non-AuthError",
-      "file": "src/lib/locations/owner-route.ts",
+      "id": "mutant-M1/resolve-owner-scope.ts:113#re-throws-non-AuthError",
+      "test": "resolveOwnerScope > re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "killed",
-      "reason": "Mutant A reverted `throw err;` to the pre-fix `return { ok:false, response: NextResponse.json({error:'Unauthorized'},{status:401,headers:LOCATION_ROUTE_NO_STORE}) }`. The runner recorded 9189c8950e79 -> d0a4a3f1e164, and d0a4a3f1e164 is the merge-base blob OID from the diff header, so the mutant is the pre-fix file byte-for-byte. Baseline green; mutant run exit 1, test failed."
+      "reason": "Mutant M1 reverted the fix exactly as the orchestrator specified: `throw err;` -> `throw new ScopeError('unauthorized', 401);`. Runner recorded e5cbabece697 -> aa3569d7b2a3. Baseline at HEAD green (exit 0, exactly one test). Mutant run exit 1, test failed."
     },
     {
-      "id": "mutant-A/owner-route.ts:74#re-throws-non-Error-value",
-      "test": "location owner route helpers > re-throws a non-Error rejection value unchanged",
-      "file": "src/lib/locations/owner-route.ts",
+      "id": "mutant-M1/resolve-owner-scope.ts:113#re-throws-non-Error-value",
+      "test": "resolveOwnerScope > re-throws a non-Error rejection value unchanged",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "killed",
-      "reason": "Same byte-exact pre-fix reversion (mutant A). Baseline green; mutant run exit 1, test failed \u2014 the helper resolved instead of rejecting, so `rejects.toBe('redis down')` failed."
+      "reason": "Same M1 reversion, second test. Baseline green; mutant run exit 1, test failed. `rejects.toBe('pool exhausted')` cannot be satisfied by a ScopeError, so the identity assertion is real."
     },
     {
-      "id": "mutant-B/owner-route.ts:60#guard-true",
-      "test": "location owner route helpers > re-throws when requireRole rejects with a non-AuthError",
-      "file": "src/lib/locations/owner-route.ts",
+      "id": "mutant-M3/resolve-owner-scope.ts:103#guard-true",
+      "test": "resolveOwnerScope > re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "killed",
-      "reason": "Mutant B forced `if (err instanceof AuthError)` to `if (true)`, so a plain Error is mapped to a response with an undefined status instead of re-thrown. Baseline green; mutant run exit 1, test failed."
+      "reason": "Mutant M3 forced `if (err instanceof AuthError)` to `if (true)` (e5cbabece697 -> 1bc18723741d), so a plain Error is wrapped as ScopeError(message, undefined) instead of re-thrown. Baseline green; mutant run exit 1, test failed."
     },
     {
-      "id": "mutant-C/owner-route.ts:60#guard-false",
-      "test": "location owner route helpers > maps AuthError to the route response status and message",
-      "file": "src/lib/locations/owner-route.ts",
+      "id": "mutant-M3/resolve-owner-scope.ts:103#guard-true-non-Error",
+      "test": "resolveOwnerScope > re-throws a non-Error rejection value unchanged",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "killed",
-      "reason": "Mutant C forced the guard to `if (false)`, so an AuthError is re-thrown instead of mapped to 403. Baseline green; mutant run exit 1, test failed. Proves the untouched AuthError branch is asserted (claimed evidence 2)."
+      "reason": "Same M3 guard-true mutant, second test. Baseline green; mutant run exit 1, test failed."
     },
     {
-      "id": "mutant-E/http-routes.ts:157#re-throws-non-AuthError",
-      "test": "requireDashboardReviewOwner > re-throws a non-AuthError rejection instead of masking it as 401",
+      "id": "mutant-M4/resolve-owner-scope.ts:103#guard-false",
+      "test": "resolveOwnerScope > requireRole throws AuthError → throws ScopeError with same message + statusCode",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
+      "outcome": "killed",
+      "reason": "Mutant M4 forced the guard to `if (false)` (e5cbabece697 -> 2e9973b3ce89), so an AuthError is re-thrown raw instead of mapped to ScopeError. Baseline green; mutant run exit 1, test failed. Proves the untouched AuthError branch is still asserted after the catch-all was removed — no assertion class was lost with the deleted 401 test."
+    },
+    {
+      "id": "mutant-M5/http-routes.ts:156#new-non-Error-test",
+      "test": "requireDashboardReviewOwner > re-throws a non-Error rejection value unchanged",
       "file": "src/lib/approval/http-routes.ts",
       "outcome": "killed",
-      "reason": "Mutant E reverted `throw err;` to the pre-fix `return NextResponse.json({error:'Unauthorized'},{status:401,headers:NO_STORE_HEADERS})`. Runner recorded bbe7a7afa4af -> 8837aad99ebe, the merge-base blob OID from the diff header. Baseline green; mutant run exit 1, test failed."
+      "reason": "The test ADDED since round 1. Mutant M5 reverted `throw err;` to the pre-fix `return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });`. Runner recorded bbe7a7afa4af -> 8837aad99ebe, which is the merge-base blob OID round 1 recorded for this file, so the mutant is the pre-fix file byte-for-byte. Baseline green; mutant run exit 1, test failed."
     },
     {
-      "id": "mutant-F/http-routes.ts:148#guard-true",
-      "test": "requireDashboardReviewOwner > re-throws a non-AuthError rejection instead of masking it as 401",
-      "file": "src/lib/approval/http-routes.ts",
-      "outcome": "killed",
-      "reason": "Mutant F forced `if (err instanceof AuthError)` to `if (true)`. Baseline green; mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-G/http-routes.ts:148#guard-false",
-      "test": "requireDashboardReviewOwner > maps auth failures and owner rows without an account to no-store responses",
-      "file": "src/lib/approval/http-routes.ts",
-      "outcome": "killed",
-      "reason": "Mutant G forced the guard to `if (false)`, so the AuthError(403) is re-thrown rather than mapped. Baseline green; mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-D/owner-route.ts:60#guard-name-check",
-      "test": "location owner route helpers > (re-throws non-AuthError; maps AuthError)",
-      "file": "src/lib/locations/owner-route.ts",
+      "id": "mutant-M6/resolve-owner-scope.ts:103#guard-name-check",
+      "test": "resolveOwnerScope > (requireRole throws AuthError …; re-throws a non-AuthError …)",
+      "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "excluded",
-      "reason": "Out of scope: the mutated line `if (err instanceof AuthError)` is byte-identical at the merge-base, so this probes unchanged code, which the skill's boundary forbids scoring. Measured anyway for hunt (b): substituting `(err as {name?:string})?.name === 'AuthError'` SURVIVED both tests (run exit 0 on each). Recorded as finding P2-1; the same property is unpinned for requireRoleOr401 at src/lib/auth/route-helpers.ts:120."
+      "reason": "Out of scope for scoring: `if (err instanceof AuthError)` is byte-identical at the merge-base in this file too, so it probes unchanged code. Measured anyway to answer whether the #1361 change worsens round-1 finding P2-1: substituting `(err as { name?: string })?.name === 'AuthError'` SURVIVED both tests (run exit 0 on each, e5cbabece697 -> f28a90874a9b). Identical result to round 1's mutants D and H on the other two gates — the property is unchanged by this diff, not worsened, because the mutated branch is the POSITIVE (AuthError) arm, which the fix did not touch."
     },
     {
-      "id": "mutant-H/http-routes.ts:148#guard-name-check",
-      "test": "requireDashboardReviewOwner > (re-throws non-AuthError; maps auth failures)",
-      "file": "src/lib/approval/http-routes.ts",
+      "id": "mutant-M7/edit-reply-request.ts:82,189#consumer-swallow",
+      "test": "whole directory: src/app/api/dashboard/past-replies (123 tests)",
+      "file": "src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts",
       "outcome": "excluded",
-      "reason": "Out of scope for the same reason as mutant D: unchanged line. Measured for hunt (b): the `name`-comparison substitution SURVIVED both tests (run exit 0 on each). Recorded as finding P2-1."
+      "reason": "Directly affected caller, but the mutated lines are unchanged since the merge-base, so this is not scored as a survivor. Measured because the fix's stated design rationale is that every consumer re-throws: replacing BOTH bare `throw err;` sites (495e542210109cb -> c019053cfa44) with `return { ok:false, response: NextResponse.json({ error:'unauthorized' }, { status:401 }) }` left all 123 past-replies tests GREEN (run exit 0). Recorded as finding P2-3."
     },
     {
-      "id": "direction-b/src/app/api/locations/__tests__/add.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/locations/__tests__/add.test.ts",
+      "id": "direction-a/three-changed-helper-suites",
+      "test": "whole suites: owner-route.test.ts, http-routes.test.ts, resolve-owner-scope.test.ts",
+      "file": "src/lib/auth/__tests__/resolve-owner-scope.test.ts",
       "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: add.test.ts:207 rejects requireRole with `new AuthError('Unauthorized', 401)`. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
+      "reason": "Whole-suite green baseline at HEAD 322aeaa5d: 51 tests, 51 passed, 0 failed. The individual cases in these files are scored in the killed rows above; this row records the baseline, not a separate candidate."
     },
     {
-      "id": "direction-b/src/app/api/locations/__tests__/archive.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/locations/__tests__/archive.test.ts",
+      "id": "direction-b/resolve-owner-scope-consumer-suites",
+      "test": "whole suites: import-offer, past-replies, settings/postal-address, resolve-owner-scope",
+      "file": "src/app/api/dashboard/import-offer/__tests__/route.test.ts",
       "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: archive.test.ts:123 rejects requireRole with `new AuthError('Unauthorized', 401)`. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
+      "reason": "Reverse-import candidates for the new production hunk. Ran green at HEAD (13 files, 171 tests, 164 passed, 0 failed, 7 skipped by their own flag guards). No consumer suite asserts the pre-fix 401, so nothing in the consumer layer pinned the defect and nothing broke when it was removed. Per-test mutation budget was not spent here because the hunk's behaviour is directly pinned by the six killed mutants; the one consumer-layer measurement that mattered is mutant-M7 above."
     },
     {
-      "id": "direction-b/src/app/api/locations/__tests__/promote-primary.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/locations/__tests__/promote-primary.test.ts",
+      "id": "direction-b/thirteen-route-suites-doc-claim",
+      "test": "whole suites: src/app/api/{locations,dashboard/reviews,dashboard/escalations}",
+      "file": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md",
       "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: promote-primary.test.ts:107 rejects requireRole with `new AuthError('Unauthorized', 401)`. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
+      "reason": "Run to re-measure round-1 finding P1-2 rather than to score a mutant. Reproduces the corrected figure EXACTLY: 13 files, 166 tests, 165 passed, 1 skipped. The label attached to the number is wrong, which is finding P2-5."
     },
     {
-      "id": "direction-b/src/app/api/locations/reactivate/__tests__/route.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/locations/reactivate/__tests__/route.test.ts",
+      "id": "duty-4/catch-all-401-sibling-sweep",
+      "test": "static sweep, no mutation",
+      "file": "src/lib/auth/route-helpers.ts",
       "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: reactivate/route.test.ts:161 rejects requireRole with `new AuthError('Unauthorized', 401)`. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/reviews/__tests__/actions.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/reviews/__tests__/actions.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: actions.test.ts:373 rejects requireRole with `new AuthError('Unauthorized', 401)`. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: no requireRole rejection case at all (rg for mockRejected/401/Unauthorized returns nothing). All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: no requireRole rejection case at all (rg for mockRejected/401/Unauthorized returns nothing). All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/generate-version.integration.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/generate-version.integration.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: live-DB integration suite; no auth-gate case. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/reviews/[reviewId]/timeline/__tests__/route.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/reviews/[reviewId]/timeline/__tests__/route.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: timeline/route.test.ts:40-43 mocks requireDashboardReviewOwner itself to RETURN a 401 NextResponse, so the gate's body never runs. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
-    },
-    {
-      "id": "direction-b/src/app/api/dashboard/escalations/__tests__/routes.test.ts",
-      "test": "whole suite (reverse-import candidate for the changed hunks)",
-      "file": "src/app/api/dashboard/escalations/__tests__/routes.test.ts",
-      "outcome": "excluded",
-      "reason": "Direction-B candidate that cannot execute the changed branch: escalations/routes.test.ts:88 mocks the gate itself to RETURN a 401 NextResponse, so the gate's body never runs. All 10 suites are green at HEAD (157 tests) and mutants A/E cannot reach them, so no mutation was spent here. The two helper suites are the only oracle for this change."
+      "reason": "Re-ran round 1's Duty-4 sweep at HEAD to confirm the third site closed the class. `rg 'instanceof AuthError' -A 8` over src/ and worker/ (excluding __tests__) returns seven sites: the three fixed gates, the reference `requireRoleOr401`, and four Zernio routes (`connect/{start,cancel}`, `disconnect`, `connect/_shared/finalize/authorize.ts`). All four Zernio sites fall through to `zernioRouteErrorResponse`/`throw err`, which reports and answers 500 — not 401. Zero remaining siblings; a sound search that found nothing."
     }
   ],
   "findings": [
@@ -150,63 +101,117 @@
       "id": "P1-1",
       "severity": "P1",
       "title": "A third catch-all-401 site was left open: resolveOwnerScope relabels any non-AuthError requireRole rejection as ScopeError('unauthorized', 401)",
-      "at": "src/lib/auth/resolve-owner-scope.ts:106",
+      "at": "src/lib/auth/resolve-owner-scope.ts:113",
       "duty": 4,
-      "disposition": "open",
-      "arbiter_reasoning": "Found by the Duty-4 sweep (rg 'instanceof AuthError' -A 6 over src/ and worker/, excluding __tests__). Structurally identical to the two sites fixed here. Every consumer maps ScopeError.statusCode straight onto the HTTP status: edit-reply-request.ts:79 and :186, import-offer/route.ts:132, past-replies/draft-status/route.ts:60-63, settings/postal-address/route.ts:91. A Postgres outage inside loadAppUser therefore still answers 401 {\"error\":\"unauthorized\"} on ~6 more owner routes and, being caught-and-returned rather than thrown, never reaches onRequestError, so Sentry stays silent. The intake's non_goals forbid touching other auth gates on this branch, so the proportionate outcome is a rejection-with-follow-up-issue or accepted-risk, not a scope widening; the arbiter decides."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED at 322aeaa5d. `src/lib/auth/resolve-owner-scope.ts:113` is now `throw err;`. Verified four ways. (1) Mutation: reverting to `throw new ScopeError('unauthorized', 401)` kills both re-throw tests, and forcing the AuthError guard true kills them too — the new behaviour is genuinely asserted, not asserted-by-absence. (2) The raw re-throw is safe for every consumer: all FIVE call sites across the four consuming files end their catch with a bare re-throw after an `instanceof ScopeError` guard — settings/postal-address/route.ts:93, dashboard/import-offer/route.ts:135, past-replies/draft-status/route.ts:65, past-replies/_shared/edit-reply-request.ts:82 and :189. None swallows, none returns 200, none reads `.statusCode` off an unguarded error. (3) The preamble could ALREADY throw a raw non-ScopeError before this change (lines 143 and 148 re-throw `Promise.allSettled` rejection reasons), so no consumer contract is newly widened. (4) No assertion class was lost with the deleted 401 test: `ScopeError` identity plus message plus statusCode are still asserted by the AuthError test (line 124) and the no_business tests (lines 159, 248), and mutant M4 proves the AuthError arm is live. `rejects.toBe(boom)` is strictly stronger than the deleted `toMatchObject` for the re-throw path. Grep for `ScopeError` construction/catch found no other site (6 files, all listed above plus the owner module and two test files)."
     },
     {
       "id": "P1-2",
       "severity": "P1",
       "title": "The deviations doc's '187 across the 12 consuming route suites' does not reproduce at HEAD",
-      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:85",
+      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:86",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "Measured at HEAD e1db9ecb: the two helper suites are 2 files / 37 tests (reproduces exactly); the three route directories api/locations + api/dashboard/reviews + api/dashboard/escalations are 13 files / 166 tests; the ten strictly-consuming suites are 157 tests; adding generate-version.integration, lib/escalations/transitions and locations/display-label reaches 171. No grouping yields 187. 37+166 = 203, which is the headline figure reported for this run, so the doc contradicts its own run by 21 tests. Also '12 consuming route suites' overcounts: escalations/__tests__/route.test.ts covers the LIST route, which uses neither changed gate. Fix is a one-line correction."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED as to the NUMBER. D4 now reads '166 across the 13 consuming route suites'. Re-measured independently at HEAD 322aeaa5d under the scrubbed environment: `vitest run src/app/api/locations src/app/api/dashboard/reviews src/app/api/dashboard/escalations` reports 13 files, 166 total tests, 165 passed, 1 skipped. Reproduces exactly. The residual defect is the LABEL, not the number — recorded separately and at lower severity as P2-5."
     },
     {
       "id": "P1-3",
       "severity": "P1",
-      "title": "The change emits a new operator-actionable 5xx signal from 12 owner routes with no row in the alerting runbook",
-      "at": "docs/runbooks/beta-launch-alerting.md:472",
+      "title": "The change emits a new operator-actionable 5xx signal from the owner routes with no row in the alerting runbook",
+      "at": "docs/runbooks/beta-launch-alerting.md:497",
+      "duty": 5,
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in the sense the finding asked for: a rule row now exists at docs/runbooks/beta-launch-alerting.md:497-539, it follows the Rule 10 precedent (a runbook REQUIREMENT with no Sentry rule installed, explicitly scoped as such at :537-539), it names the emitted identity correctly (the rejection propagates unchanged; there is no wrapper class and no constant message, so a message filter genuinely is unavailable and a route-defined filter is the right call), it names the correct three gate symbols and files, and its operator action points at the Postgres pool and `src/lib/db/admission.ts` before the auth path. Every path and symbol it cites re-resolves at HEAD: src/lib/locations/owner-route.ts, src/lib/approval/http-routes.ts, src/lib/auth/resolve-owner-scope.ts, src/instrumentation.ts:9 (`export const onRequestError = Sentry.captureRequestError`), src/lib/db/admission.ts, and the `safety-review-failed-closed` cross-reference (Rule 14, line 460) which is genuinely ABOVE it in the file. Two NEW defects in the new row are filed as P1-5 and P1-6, and the route count it claims is P1-4; the original missing-row finding itself is discharged."
+    },
+    {
+      "id": "P1-4",
+      "severity": "P1",
+      "title": "The affected-route count is 18 in three places; the measured count is 20",
+      "at": "docs/runbooks/beta-launch-alerting.md:515",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured at HEAD 322aeaa5d: `rg -l 'readOwnerForMultiLocationRoute|readLocationActionRequest|requireDashboardReviewOwner|runDashboardReviewAction|runEscalationTransitionRoute|resolveOwnerScope|resolveEditReplyScope|resolveEditReplyContext|resolveEditReplyRequest' src/app --glob '**/route.ts'` returns exactly 20 route files: 4 locations (add, archive, promote-primary, reactivate) + 6 dashboard/reviews/[reviewId] + 2 dashboard/escalations/[escalationId] + settings/postal-address + dashboard/import-offer + past-replies/draft-status + FIVE past-replies edit route files (draft, publish, draft/[responseId], [responseId]/retry, [responseId]/restore-original). The runbook's own enumeration at :515-519 lists all of them — 15 named individually plus 'the /api/dashboard/past-replies edit paths', which is 5 — so the headline '18' contradicts the list immediately under it. The same 18 appears in .claude/reference/arch-review-log.md:37 ('verified across all eighteen consuming routes' and 'the change makes eighteen owner routes newly emit') and in the deviations doc D6 ('18 owner routes newly emit'). Impact is operational, not cosmetic: Rule 12 is defined BY ITS ROUTES and by nothing else, so the route list is the filter, and an operator reconciling '18' against a 20-item enumeration has to guess which two do not belong. The re-throw behaviour itself was verified correct on all 20 — none of the 20 handlers wraps its gate call in a try block that swallows — so this is a counting error, not a behavioural one."
+    },
+    {
+      "id": "P1-5",
+      "severity": "P1",
+      "title": "The new runbook rule is numbered Rule 12, colliding with the existing Rule 12 (Operator retained-veto, Run C), and Rule 13 cross-references 'Rule 12'",
+      "at": "docs/runbooks/beta-launch-alerting.md:497",
       "duty": 5,
       "disposition": "open",
-      "arbiter_reasoning": "The diff adds a terminal failure path: a DB/Redis fault behind requireRole now escapes 12 owner routes and is captured by onRequestError (src/instrumentation.ts:9). Duty 5 emits P1 when an emitted signal has no rule row. rg '1361|locations/add|owner-route|requireDashboardReviewOwner' over docs/runbooks/beta-launch-alerting.md returns nothing: no row, no filter, no triage entry, no grouping caveat. Rule 10 (beta-launch-alerting.md:472-495) is the exact precedent for this signal shape \u2014 an ADMIN_APP_URL request-fatal error captured through the same onRequestError \u2014 and it was discharged as a runbook REQUIREMENT with no Sentry rule installed. The proportionate remedy is the same: a Rule 12 requirement naming the emitted identity, the filter, the stack-grouping caveat and the operator's first move (Supabase/Upstash health)."
+      "arbiter_reasoning": "docs/runbooks/beta-launch-alerting.md already contains `**Rule 12 — Operator retained-veto invariant failure (Run C)...**` at line 436, plus Rule 13 at 446 and Rule 14 at 456. The new row at line 497 is also titled Rule 12, so the file now has two Rule 12s with different signals, different filters and different operator actions. This is not a harmless duplicate: Rule 13's own prose at line 454 reads 'Rule 12 filters Apply POST and cannot match this button endpoint', which was unambiguous before this change and now resolves to either rule. The next free number is 15. The collision also propagates into .claude/reference/arch-review-log.md:37 and deviations D6, both of which name 'runbook Rule 12' for #1361. Remedy is a rename to Rule 15 in the runbook plus the two citing documents — mechanical, and it must happen before the runbook is used to configure anything, because an operator told to 'build Rule 12' cannot tell which one is meant."
+    },
+    {
+      "id": "P1-6",
+      "severity": "P1",
+      "title": "The new Rule 12 cannot be configured as written: no rule name, no level, no threshold value or window, no throttle, and no destination",
+      "at": "docs/runbooks/beta-launch-alerting.md:521",
+      "duty": 5,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 5 compares six facets against the emitted signal. Signal identity (:497-501), filter (:510-511, by project+environment+route path) and grouping (:511-513, default stack grouping, no single global group promised) are all present and correct. The other three are absent. (a) LEVEL: never stated. Every sibling states it — the click-path table's Level column for rules 1-11, and the four-column tables for Rule 12/Run C (:438-440), Rule 13 (:448-450) and Rule 14 (:458-460) each carry 'error'. (b) THRESHOLD/CADENCE: :521-527 argues at length for 'a frequency, not every event' and for counting across the route filter rather than per issue, but gives NO number, NO window and NO action throttle. Rule 14, the precedent it cites by name, supplies '20 events in 1 hour counted ACROSS the tag, not per issue, action throttle 60 minutes'. Rule 10, the precedent the change cites for its shape, supplies 'every event, action throttle 60 minutes per issue'. The skill's Duty 5 names exactly this facet — the _When_ column — as a finding when it is wrong or missing. (c) DESTINATION ACTION: never named. Every sibling names 'the environment's existing Discord alerts channel via integration 443670'. The new row has neither a rule NAME (`<something> → discord`) nor a table, making it the only rule in the file an operator cannot transcribe into the Sentry alert builder. Line 539 tells the operator to 'read the saved rule and destination back' without ever saying what to save. This is the half of the alert path the P1-3 remedy was supposed to close."
     },
     {
       "id": "P2-1",
       "severity": "P2",
-      "title": "No test distinguishes `err instanceof AuthError` from a `name` comparison in either gate",
-      "at": "src/lib/locations/owner-route.ts:60",
+      "title": "No test distinguishes `err instanceof AuthError` from a `name` comparison in any of the three gates",
+      "at": "src/lib/auth/resolve-owner-scope.ts:103",
       "duty": 1,
       "disposition": "open",
-      "arbiter_reasoning": "Mutants D and H survived all four AuthError/re-throw tests (run exit 0 on each of four launches). Deliberately NOT scored as a P0 survivor: the mutated line is byte-identical at the merge-base in both files, so it is unchanged code, which the skill's boundary forbids opening a front against, and the same property is unpinned for the repo's reference implementation requireRoleOr401 (route-helpers.ts:120). Recorded because the measurement is real \u2014 under a name comparison, a thrown value named 'AuthError' with no statusCode would render as a 200 via NextResponse.json \u2014 so a future pass need not re-measure it."
+      "arbiter_reasoning": "Carried from round 1 with new evidence and NOT re-opened as a new front. Round 2 measured the same substitution on the third gate: `(err as { name?: string })?.name === 'AuthError'` on resolve-owner-scope.ts:103 survived both the AuthError test and the re-throw test (mutant M6, run exit 0 on each). The #1361 change does NOT make this worse: the mutated line is byte-identical at the merge-base here as in the other two files, and the substitution only ever misroutes into the POSITIVE (AuthError) arm, which the fix did not touch. Everything the fix changed is the negative arm, and that arm is now pinned by four killed mutants. The same property remains unpinned for the repo's reference implementation `requireRoleOr401` (src/lib/auth/route-helpers.ts:120). Recorded so a future pass need not re-measure it."
     },
     {
       "id": "P2-2",
       "severity": "P2",
       "title": "The 'signs the owner out' motivation in the intake and the new test comment is unsupported by any client code",
-      "at": "src/lib/locations/__tests__/owner-route.test.ts:158",
+      "at": "src/lib/locations/__tests__/owner-route.test.ts:160",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED. The claim is withdrawn, not softened, in all three places checkable at HEAD. (1) Test comment, src/lib/locations/__tests__/owner-route.test.ts:158-163: 'No client of these routes branches on 401, so it did NOT sign the owner out; the review wave measured that and the original claim was withdrawn.' (2) Intake, docs/superpowers/plans/fix-1361-locations-route-fault-status-intake.json user_visible_behavior[2]: the sign-out bullet is replaced by 'The owner no longer reads a server fault as a permissions problem … (The review wave measured that no client of these routes branches on 401, so no auto sign-out chain existed — that earlier claim is withdrawn.)'. (3) .claude/reference/arch-review-log.md:37: the rewritten #1361 entry contains no sign-out claim at all — `rg 'sign' ` over the entry returns nothing. The fourth place, the PR body, is out of scope for this pass (the skill defers PR-body validation to after the draft PR exists)."
+    },
+    {
+      "id": "P2-3",
+      "severity": "P2",
+      "title": "Nothing pins the consumer-layer re-throw that the fix's design rationale depends on: swallowing it back into a 401 leaves 123 past-replies tests green",
+      "at": "src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:82",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Graded P2, not P1, on purpose: the mutated lines are unchanged since the merge-base, the skill forbids opening a front against unchanged code, and the changed hunk itself is fully pinned. Recorded because it is the load-bearing assumption of the NEW fix rather than an unrelated gap. The code comment at resolve-owner-scope.ts:110-111 and the arch-review-log both justify the RAW re-throw with 'every consumer already re-throws a non-ScopeError, so the fault escapes to a real 5xx'. That is TRUE at HEAD — verified by reading all five consumer catch sites — but it is not asserted anywhere. Mutant M7 replaced both bare `throw err;` sites in edit-reply-request.ts (:82 and :189) with a catch-all `{ ok:false, response: NextResponse.json({ error:'unauthorized' }, { status:401 }) }` — the #1361 defect reintroduced one layer up, on five routes — and `vitest run src/app/api/dashboard/past-replies` returned exit 0 with 123/123 passing. A future edit to a consumer can therefore silently undo the fix on the past-replies lane with no test failing. The proportionate remedy, if the arbiter wants one, is one test per consuming helper asserting `rejects.toBe(fault)` for a non-ScopeError; it is not a defect in this diff."
+    },
+    {
+      "id": "P2-4",
+      "severity": "P2",
+      "title": "D5 still carries a line citation that does not resolve at HEAD, against the standard D7 sets two sections later",
+      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:90",
       "duty": 3,
       "disposition": "open",
-      "arbiter_reasoning": "No client of the twelve changed routes branches on a 401. postLocationAction (LocationsPanel.tsx:22), handlePromote (LocationsPanel.tsx:375), postDashboardAction (ReviewActions.tsx:47) and readJsonSafe (useInlineGenerate.ts:124,180,205) all read the body defensively and fall back to a generic message. The repo's 401 branches (RequestsClient.tsx:627,699; approval-client.tsx:224; PlanPickerClient.tsx:51) belong to the solicitation, token-approval and checkout flows. There is no global fetch interceptor and src/proxy.ts does not act on an API route's status; every signOut() call is an explicit user action or a login-flow guard. The change remains correct for the reasons the arch-log gives (Sentry visibility, honest status); the stated sign-out benefit simply cannot be observed."
+      "arbiter_reasoning": "D5 cites `src/lib/auth/resolve-owner-scope.ts:106` for the pre-fix wrap. At HEAD 322aeaa5d line 106 is the comment `// #1361: anything that is not an AuthError is a server fault, not a`; the `throw err;` is at :113 and the guard at :103. D7 item 1 in the same commit series corrects exactly this class of rot in the arch-review-log and states the branch's own standard — 'the entry now cites paths only, which cannot rot' — so D5 is inconsistent with it. Graded P2 rather than P1 because the sentence is describing pre-fix history, where the citation was accurate when written, and because the three other citations in the same paragraph DO resolve at HEAD (postal-address/route.ts:93 is `throw error;`, draft-status/route.ts:65 is `throw err;`, edit-reply-request.ts:82 is `throw err;`). Nothing operational depends on it."
+    },
+    {
+      "id": "P2-5",
+      "severity": "P2",
+      "title": "'166 across the 13 consuming route suites' is the right number with the wrong label — 3 of the 13 files consume no changed gate, and 8 newly-consuming routes are outside the set",
+      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:86",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The number reproduces exactly (see P1-2), so this is the residue, not a re-opening. The 13 files are simply everything under three directories, and at least three of them cover routes that consume none of the three gates: locations/display-label/__tests__/route.test.ts (2 tests), dashboard/escalations/__tests__/route.test.ts (5 tests — the LIST route, already flagged in round 1), dashboard/reviews/__tests__/pending-route.test.ts (6 tests). In the other direction the set predates D5 and therefore excludes every suite for the 8 routes resolveOwnerScope fronts. The evidence D4 wants does exist and was produced in this pass: `vitest run src/app/api/dashboard/import-offer src/app/api/dashboard/past-replies src/app/api/settings/postal-address src/lib/auth/__tests__/resolve-owner-scope.test.ts` is 13 files / 171 tests / 0 failures, and the three changed helper suites are 51/51. A one-line correction naming the directories rather than 'consuming route suites' discharges it."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 19,
-    "killed": 7,
+    "inventory_total": 12,
+    "killed": 6,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 12,
-    "findings_total": 5,
+    "excluded": 6,
+    "findings_total": 11,
     "p0_open": 0,
     "p1_open": 3,
-    "p2_open": 2,
+    "p2_open": 4,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 4,
     "rejected": 0
   },
   "status": "OPEN_P1"

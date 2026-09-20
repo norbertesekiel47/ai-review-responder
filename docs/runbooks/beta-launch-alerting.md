@@ -494,11 +494,16 @@ Confirm rule delivery in staging before marking this requirement complete.
 This is a runbook requirement only: no Sentry rule, grouping override,
 destination integration, or delivery drill was installed or executed here.
 
-**Rule 12 — Owner-gate server fault on the scoped owner routes (#1361).** The
-emitted identity is whatever `requireRole` rejected with — a Postgres pool
-error, a Redis error, or a bug — propagated UNCHANGED. There is no wrapper
-class and no constant message, so there is nothing stable to filter on by
-message; this rule is defined by its ROUTES, not by its text.
+**Rule 15 — Owner-gate server fault on the scoped owner routes (#1361).**
+REQUIRED; NOT CONFIGURED. The emitted identity is whatever `requireRole`
+rejected with — a Postgres pool error, a Redis error, or a bug — propagated
+UNCHANGED. There is no wrapper class and no constant message, so there is
+nothing stable to filter on by message; this rule is defined by its ROUTES,
+not by its text.
+
+| Rule name | Emitted identity and filter | Level and grouping | Trigger and destination |
+|---|---|---|---|
+| `owner-gate-server-fault → discord` | Next.js `onRequestError` (`Sentry.captureRequestError`, `src/instrumentation.ts`); NO tag and NO constant message — filter on the source app's Sentry project AND `transaction` (Next's route path) matching any of the twenty routes enumerated below; scope to the deployment environment | `error`; default exception-stack grouping, no custom fingerprint or title; the event carries the rejection and Next's route context only — never a request body, owner text or review text | 10 events in 1 hour counted ACROSS the route filter, not per issue, action throttle 60 minutes; the environment's existing Discord alerts channel via integration 443670 |
 
 Three owner gates re-throw a non-`AuthError` rather than answering 401:
 `readOwnerForMultiLocationRoute` (`src/lib/locations/owner-route.ts`),
@@ -512,11 +517,22 @@ environment plus the route path; do not invent tags, and do not promise a
 single global group — default stack-based grouping splits a pool outage, a
 Redis outage and a bug into separate issues by construction.
 
-**Affected routes — 18.** `/api/locations/{add,archive,promote-primary,reactivate}`
-· the six `/api/dashboard/reviews/[reviewId]/*` · the two
-`/api/dashboard/escalations/[escalationId]/*` · `/api/settings/postal-address` ·
-`/api/dashboard/import-offer` · `/api/dashboard/past-replies/draft-status` ·
-the `/api/dashboard/past-replies` edit paths.
+**Affected routes — 20, and the list IS the filter.** Four behind
+`readOwnerForMultiLocationRoute`: `/api/locations/{add,archive,promote-primary,reactivate}`.
+Eight behind `requireDashboardReviewOwner`: the six
+`/api/dashboard/reviews/[reviewId]/{approve,edit,generate,regenerate,draft-status,timeline}`
+and, via `runEscalationTransitionRoute`, the two
+`/api/dashboard/escalations/[escalationId]/{acknowledge,resolve}`. Eight behind
+`resolveOwnerScope`: `/api/settings/postal-address`,
+`/api/dashboard/import-offer`, `/api/dashboard/past-replies/draft-status`, and
+the five edit routes that reach it through `_shared/edit-reply-request.ts` —
+`/api/dashboard/past-replies/{publish,draft}`,
+`/api/dashboard/past-replies/draft/[responseId]` and
+`/api/dashboard/past-replies/[responseId]/{retry,restore-original}`.
+
+Count the list again before configuring the rule. A route missing from the
+filter is a route whose outage this rule silently does not cover, and unlike
+the other rules in this file there is no tag or message to fall back on.
 
 **Why a frequency, not every event.** These are owner-facing mutation routes
 behind an auth gate, so the volume is low and a single event is already worth
@@ -524,7 +540,10 @@ reading. But the signal this rule exists for is an OUTAGE, and an outage
 arrives as a burst across several stacks at once. Count across the rule's route
 filter rather than per issue, for the reason spelled out under
 `safety-review-failed-closed` above: a per-issue threshold sits below the line
-on three separate stacks through a total outage and never fires.
+on three separate stacks through a total outage and never fires. The threshold
+is lower than Rule 14's 20-in-an-hour because these routes are owner-initiated
+and far lower volume: ten failures in an hour across twenty gated mutation
+routes is already an incident, not noise.
 
 **Operator action — check the infrastructure first, not the auth path.** A
 storm here means Postgres or Redis, not a permissions problem. Read the

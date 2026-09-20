@@ -83,13 +83,17 @@ decision.
 
 **Verdict:** ACCEPT — an unrelated timing flake, reproduced green in isolation.
 Both suites this change actually touches pass: 37 tests across
-`owner-route.test.ts` and `http-routes.test.ts`, plus 166 across the 13
-consuming route suites.
+`owner-route.test.ts` and `http-routes.test.ts`, plus 166 across the 13 test
+FILES under those route directories. That is a directory count, not a
+gate-consumer count: three of those files consume no changed gate, and the set
+predates D5 so it excludes the eight routes `resolveOwnerScope` fronts. The
+round-2 pass measured the correct set at 13 files / 171 tests, and the three
+changed helper suites at 51.
 
 ## D5 — surface amendment 2: the third catch-all-401 site
 
 **What the plan did not anticipate.** The review wave found a THIRD gate with the
-same defect: `resolveOwnerScope` (`src/lib/auth/resolve-owner-scope.ts:106`)
+same defect: `resolveOwnerScope` (`src/lib/auth/resolve-owner-scope.ts`)
 wrapped any non-`AuthError` as `ScopeError('unauthorized', 401)` and discarded
 the original error. Both the spec axis (Medium) and red team (P1) raised it;
 red team called the original sweep incomplete. It fronts 5 more owner routes.
@@ -98,8 +102,10 @@ red team called the original sweep incomplete. It fronts 5 more owner routes.
 carries `statusCode`, which consumers map straight to the HTTP status, so a raw
 `throw err` looked like it would break their contract. It does not: all four
 consumers already end their catch with a bare `throw error`
-(`settings/postal-address/route.ts:93`, `dashboard/import-offer/route.ts`,
-`past-replies/draft-status/route.ts:65`, `past-replies/_shared/edit-reply-request.ts:82`).
+(`settings/postal-address/route.ts`, `dashboard/import-offer/route.ts`,
+`past-replies/draft-status/route.ts`, and BOTH sites in
+`past-replies/_shared/edit-reply-request.ts` — five call sites across four files,
+re-counted by the round-2 red-team pass).
 The raw re-throw therefore needs no `ScopeError` 500 variant and no `cause`
 plumbing — it matches the other two gates exactly.
 
@@ -114,13 +120,13 @@ It completes the sweep the issue's framing ("this file") caused us to under-scop
 
 ## D6 — surface amendment 2: the runbook row
 
-**What the plan did not anticipate.** The change makes 18 owner routes newly
+**What the plan did not anticipate.** The change makes 20 owner routes newly
 emit an operator-actionable 5xx through `onRequestError`, with no entry in
 `docs/runbooks/beta-launch-alerting.md`. Red team raised it as P1 and named the
 precedent: Rule 10 (#1192) shipped its runbook row with the change that created
 the same `onRequestError` signal.
 
-**Action.** Added Rule 12, defined by ROUTE rather than by message — there is no
+**Action.** Added Rule 15, defined by ROUTE rather than by message — there is no
 wrapper class and no constant text to filter on, because the rejection propagates
 unchanged. It tells the operator to read the Postgres pool and the admission
 chokepoint before the auth path, and states explicitly that "fixing" the gate
@@ -157,3 +163,56 @@ all four places rather than softened silently.
 **Verdict:** ACCEPT — all four corrected at the source. The lesson belongs in the
 lab notes at step 8: a figure copied from a vitest run with a different file set
 is not evidence for the set you name in prose.
+
+## D8 — round-2 red team found three P1s in the runbook row itself
+
+Round 2 ran at HEAD `322aeaa5d`, scoped to the fix hunks. **0 of 6 scored
+mutants survived.** All three round-1 P1s verified genuinely fixed, and the
+duty-4 sweep at HEAD found **zero remaining catch-all-401 siblings** — the four
+other `instanceof AuthError` sites (three Zernio routes plus
+`connect/_shared/finalize/authorize.ts`) already fall through to
+`zernioRouteErrorResponse`, which reports and answers 500. The sweep is complete.
+
+All three new P1s were defects in the runbook row written for D6, not in code.
+Each is fixed, not waived.
+
+1. **Wrong route count.** The row said "Affected routes — 18". The measured
+   count is **20**: 4 behind `readOwnerForMultiLocationRoute`, 8 behind
+   `requireDashboardReviewOwner`, and **8** behind `resolveOwnerScope` — I had
+   counted the five `past-replies` edit routes that reach it through
+   `_shared/edit-reply-request.ts` as one. This mattered more than an ordinary
+   number: Rule 15 is defined by its ROUTES and nothing else, so the list IS the
+   filter, and a missing route is an outage the rule silently does not cover.
+   The row now enumerates all twenty by gate and says that plainly.
+2. **Rule number collision.** The row was numbered "Rule 12". A **Rule 12 —
+   Operator retained-veto invariant failure (Run C)** already exists earlier in
+   the same file, and Rule 13's prose ("Rule 12 filters Apply POST") was
+   unambiguous before and would have resolved to either. Renumbered to **15**,
+   the next free number after 14.
+3. **The rule could not be configured.** It argued for "a frequency, not every
+   event" and supplied no number, no rule name, no level, no window, no throttle
+   and no destination — the only rule in the file with neither a table row nor a
+   table, while its own Scope paragraph told the operator to "read the saved rule
+   and destination back". It now carries the standard four-column row:
+   `owner-gate-server-fault → discord`, `error` with default stack grouping, 10
+   events in 1 hour counted ACROSS the route filter, 60-minute action throttle,
+   integration 443670. The threshold is lower than Rule 14's 20 because these are
+   owner-initiated mutation routes with far lower volume, and the row says so.
+
+**Two P2s accepted without further widening.**
+- `edit-reply-request.ts:82` and `:189` — nothing pins the consumer-layer
+  re-throw that the `resolveOwnerScope` fix's rationale rests on. Replacing both
+  with a catch-all 401 reintroduces the #1361 defect one layer up on five routes
+  and leaves 123/123 past-replies tests green. Graded P2 by the pass because
+  both lines are byte-identical at the merge-base — pre-existing untested
+  behaviour, not something this change introduced. Covering it means a third
+  surface amendment on a branch that has already taken the two the abort
+  criteria allow. **Follow-up, not this branch.**
+- D5's `resolve-owner-scope.ts:106` citation pointed at a comment after the fix
+  landed — the exact rot D7 sets the "cite paths only" standard against, two
+  sections later in this same file. Corrected to a path.
+
+**Verdict:** ACCEPT — every P1 fixed at the source, both P2s adjudicated with a
+stated reason. The lesson for step 8: a rule defined by an enumeration has no
+fallback filter, so the enumeration is load-bearing and must be counted, not
+estimated.
