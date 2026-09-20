@@ -244,6 +244,9 @@ describe('ZernioRecentReviewPoller', () => {
       call.template.includes('UPDATE responses') &&
       call.template.includes("posting_error = 'review_deleted_at_source'"),
     )).toBe(true);
+    // Both writes share one transaction (#1360); rollback itself is proven by
+    // ZernioRecentReviewPoller.tombstone.integration.test.ts.
+    expect((mockSql as unknown as { begin: unknown }).begin).toHaveBeenCalledTimes(1);
   });
 
   it('marks recent local reviews deleted when the complete Zernio feed is empty', async () => {
