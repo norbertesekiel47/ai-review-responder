@@ -135,13 +135,30 @@ passed, 0 failed. It exercises the red-team tooling and touches none of the four
 files this branch changes.
 
 **`build` — pre-existing on `main`, local only.** `Turbopack build failed`,
-`Cannot find module '@vercel/turbopack/postcss'`. Verified empirically rather
-than argued: checked out the merge-base `650f625e7` in this worktree, ran
-`pnpm build`, exit 1 with 31 occurrences of the identical error. `pnpm install`
-reports "Already up to date". This branch changes no frontend, config, CSS or
-dependency file — `git diff --stat` against the merge-base lists only four `.ts`
-files and four docs. CI builds `main` as a required check, so the break is local
-environment drift.
+`Cannot find module '@vercel/turbopack/postcss'`. Three independent pieces of
+evidence, measured rather than argued:
+
+1. Checked out the merge-base `650f625e7` in this worktree and ran `pnpm build`:
+   exit 1, with 31 occurrences of the identical error. The break predates the
+   first commit on this branch.
+2. CI run `35542835421` (2026-09-20, branch `fix/1360-tombstone-single-transaction`,
+   cut from that same `650f625e7`) reports `build: success`. The build works on
+   the Blacksmith runners and fails only on this machine.
+3. `git diff --stat` against the merge-base lists four `.ts` files and five docs.
+   No frontend component, no `next.config`, no CSS, no `postcss.config.mjs`, no
+   `package.json`, no `pnpm-lock.yaml`.
+
+`@vercel/turbopack/postcss` is a turbopack-internal virtual module, not a
+lockfile entry, so it cannot be installed. `pnpm install`,
+`pnpm install --frozen-lockfile --force` and a check of `@tailwindcss/postcss`
+(present) all leave it unchanged. Diagnosing Next 16's turbopack/pnpm resolution
+on this Mac is its own investigation touching dependency wiring — outside this
+intake's surface and named in its non-goals — so it is NOT attempted here.
+
+**Consequence, stated plainly rather than worked around.** The local gate cannot
+reach full green on this machine, and no override was invented to make it read
+green: `ci:weakened-checks` exists precisely to catch that move. CI's `build`
+job is the authority for this row and must be confirmed on the PR before merge.
 
 **`merge-ledger` — genuinely mine.** Fixed under D5.
 
