@@ -1,0 +1,218 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1363-drip-alert-email-idempotency-65eabf",
+  "branch": "fix/1363-drip-alert-email-idempotency",
+  "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
+  "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
+  "head_sha": "1b9fe88defa385bcab743817002ee967e54fe727",
+  "intake_sha256": "1bda093cb06e974c9ee9fd35a0a0905be5575f5e84f4a10e9580db52aff5dd9b",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-20T23:55:00Z",
+  "inventory": [
+    {
+      "id": "INV-01",
+      "test": "revokeMode never leaves an existing open link untouched while inserting the new one",
+      "file": "src/lib/approval/create-link.ts:79",
+      "outcome": "killed",
+      "reason": "revokeMode === 'orphaned_only' mutated to revokeMode !== 'always'; the 'never' path then probes notification_deliveries and revokes. Test fails on both updateCalls() and the probe assertion."
+    },
+    {
+      "id": "INV-02",
+      "test": "defaults to orphaned_only when no revokeMode is given",
+      "file": "src/lib/approval/create-link.ts:54",
+      "outcome": "killed",
+      "reason": "default params.revokeMode ?? 'orphaned_only' mutated to ?? 'never'; the two call sites outside #1363 would silently stop cleaning orphans. Test fails."
+    },
+    {
+      "id": "INV-03",
+      "test": "throws on invalid_idempotent_request when no idempotency key was supplied",
+      "file": "src/lib/notifications/email/templates/internal.ts:120",
+      "outcome": "killed",
+      "reason": "the && params.idempotencyKey guard removed; a keyless 409 then fabricates a delivery of 'idempotent-replay:undefined'. Test fails."
+    },
+    {
+      "id": "INV-04",
+      "test": "treats invalid_idempotent_request as a delivered email and reports an idempotent replay",
+      "file": "src/lib/notifications/email/templates/internal.ts:120",
+      "outcome": "killed",
+      "reason": "the matched code string swapped to 'concurrent_idempotent_requests'; the replay path then throws on the code it is meant to absorb and absorbs the one it must rethrow. Test fails."
+    },
+    {
+      "id": "INV-05",
+      "test": "treats invalid_idempotent_request as a delivered email and reports an idempotent replay",
+      "file": "src/lib/notifications/email/templates/internal.ts:28",
+      "outcome": "killed",
+      "reason": "IDEMPOTENT_REPLAY_PREFIX changed to 'replay:', breaking the operator LIKE query. Test fails because it asserts the literal wire format, not the constant."
+    },
+    {
+      "id": "INV-06",
+      "test": "day_1 drip sends with an idempotency key scoped to the business and drip type",
+      "file": "worker/jobs/OnboardingDripWorker.ts:292",
+      "outcome": "killed",
+      "reason": "key identity half cross-wired from ${businessId} to ${outboxId}, which is exactly the under-fix deviation D1 reversed. Test fails."
+    },
+    {
+      "id": "INV-07",
+      "test": "day_7 drip builds its approval links with revokeMode never so the delivered link survives a retry",
+      "file": "worker/jobs/OnboardingDripWorker.ts:442",
+      "outcome": "killed",
+      "reason": "revokeMode reverted from 'never' to 'orphaned_only'. Test fails on the exact-argument assertion."
+    },
+    {
+      "id": "INV-08",
+      "test": "owner nudge sends with an idempotency key scoped to the outbox row",
+      "file": "worker/jobs/EngagementAlertWorker.ts:216",
+      "outcome": "killed",
+      "reason": "key identity half cross-wired from ${outboxId} to ${businessId}, the opposite direction to INV-06. Test fails."
+    },
+    {
+      "id": "INV-09",
+      "test": "owner nudge builds its approval links with revokeMode never so the delivered link survives a retry",
+      "file": "worker/jobs/EngagementAlertWorker.ts:187",
+      "outcome": "killed",
+      "reason": "revokeMode reverted from 'never' to 'orphaned_only'. Test fails on the exact-argument assertion."
+    },
+    {
+      "id": "INV-10",
+      "test": "a drip replay marks sent_at and records the delivery with an idempotent-replay message id",
+      "file": "worker/jobs/OnboardingDripWorker.ts:295",
+      "outcome": "killed",
+      "reason": "the replay branch rewritten to markOutboxCompleted and return, skipping steps 8-10. Test fails, confirming deviation D3's claim that these tests are load-bearing regression pins."
+    },
+    {
+      "id": "INV-11",
+      "test": "full worker/jobs/__tests__/OnboardingDripWorker.test.ts (21 cases)",
+      "file": "worker/jobs/OnboardingDripWorker.ts:287",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "SURVIVED: deleting the idempotentReplay destructuring and the whole replay log block leaves 21/21 green. Not equivalent (log output changes) and not unexecuted (the replay test sets idempotentReplay true and runs these lines), but the deleted lines carry no correctness consequence because the durable idempotent-replay: record is separately asserted and unaffected, so this is an oracle gap rather than a proven-fake test. Raised as F1."
+    },
+    {
+      "id": "INV-12",
+      "test": "full worker/jobs/__tests__/EngagementAlertWorker.test.ts (33 cases)",
+      "file": "worker/jobs/EngagementAlertWorker.ts:211",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "SURVIVED: deleting both idempotentReplay destructurings and both replay log blocks leaves 33/33 green. Same arbiter reasoning as INV-11. Raised as F1."
+    },
+    {
+      "id": "INV-13",
+      "test": "full src/lib/notifications/email/templates/__tests__/internal.test.ts (7 cases)",
+      "file": "src/lib/notifications/email/templates/internal.ts:121",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "SURVIVED: deleting the only log line that names the Send idempotency key leaves 7/7 green. Same arbiter reasoning as INV-11. Raised as F1."
+    },
+    {
+      "id": "INV-14",
+      "test": "partner engagement alert sends with an idempotency key scoped to the outbox row",
+      "file": "worker/jobs/EngagementAlertWorker.ts:313",
+      "outcome": "killed",
+      "reason": "partner alert key identity half cross-wired from ${outboxId} to ${businessId}. Test fails."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P1",
+      "title": "The replay path's only worker-side production delta is unasserted: deleting the idempotentReplay destructuring and all four replay log lines leaves 61 tests green",
+      "at": "worker/jobs/OnboardingDripWorker.ts:295",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "The mutation is neither equivalent nor on an unexecuted branch: the three replay tests set idempotentReplay true and do execute these lines, and deleting them changes observable log output. I stopped short of survived-confirmed-P0 because the deleted lines carry no correctness consequence - the durable operator record (external_message_id prefixed 'idempotent-replay:') is asserted in five tests and survives every one of these mutations - so calling it a proven-fake test would overstate the evidence. It is recorded as an oracle gap: per deviation D3 the log line is the only production change either worker makes for the replay path beyond the key, and nothing holds it in place.",
+      "reason": "Behavioural replacement: assert the log line in the three replay tests (both workers already take an injected logger) and cover internal.ts:121 with a console.log spy in its existing suite."
+    },
+    {
+      "id": "F2",
+      "severity": "P1",
+      "title": "The Send idempotency key glossary entry's survey of pre-existing keys is false: 13 sites, not seven, and three are already per-send-occurrence scoped",
+      "at": "docs/context/core-platform-runtime.md:20",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "NotificationFailoverPoller.ts:69-70 builds admin-alert:${claimId} with claimId minted fresh per attempt at line 124 (const claimId = uuidv7()), which is the same occurrence-scoped shape this branch presents as unprecedented. AccountOffboardingEmailWorker.ts:314,427 and messaging/email-adapter.ts:61 are three more uncounted sites. The same sentence is repeated in .claude/reference/arch-review-log.md (2026-09-20 row) and the deviations doc D1. The design decision is sound; the justification misstates the repo it argues from, and the glossary is the authoritative layer."
+    },
+    {
+      "id": "F3",
+      "severity": "P1",
+      "title": "'at most one extra live link per response' is not the actual bound under revokeMode never",
+      "at": "src/lib/approval/create-link.ts:27",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "createApprovalLink runs before sendInternalEmail at both sites and revokeMode 'never' never cleans up, while worker/queues.ts:39 sets attempts: 3 - so one send occurrence can mint three never-revoked links per pending response, and the day_7 drip plus every owner nudge accumulate inside the 48h TTL. Not an escalation of authority (all extra links approve the same response and none is delivered), hence P1. The same wrong bound appears in the intake invariants, deviation D2 and the arch-review-log row. Correct bound: up to `attempts` live links per response per send occurrence, all undelivered except the first, all expiring on the existing 48-hour TTL."
+    },
+    {
+      "id": "F4",
+      "severity": "P1",
+      "title": "The build evidence is labelled with 650f625e7, which is not this branch's merge-base",
+      "at": "docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-deviations.md:141",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "git merge-base HEAD origin/main is 10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9 (#1390); 650f625e7 is only the merge-base against the stale local main ref. The build conclusion survives because git diff --stat 650f625e7 10377aa9b touches only ZernioRecentReviewPoller plus three doc files - no build input - and I re-ran pnpm build at HEAD myself (exit 1, 567 Turbopack errors, 33 x Cannot find module '@vercel/turbopack/postcss', none naming a changed file). This is a provenance error, not a false conclusion."
+    },
+    {
+      "id": "F5",
+      "severity": "P1",
+      "title": "Missed sibling: AdminExceptionWorker has the identical send-then-mark shape with no idempotency key and no claim row",
+      "at": "worker/jobs/AdminExceptionWorker.ts:139",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "handleAdminException short-circuits only on exception.status !== 'open' (line 114), a status it never writes, then sends at 139-144 and marks the outbox completed at 151. A crash in that gap makes the next BullMQ attempt re-read the same still-open row and re-send the admin alert. Enumerated across all 11 production sendInternalEmail call sites; the other eight are safe by ordering, by a claim row, or by a pre-existing key. Named in neither the intake non_goals nor the deviations."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "title": "worker/ingress/resend.ts hard-bounce admin alert carries the same no-key send-then-side-effect shape",
+      "at": "worker/ingress/resend.ts:284",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "No key, no dedupe row, and the ingress handler returns 5xx on failure which Resend redelivers. Ingress rather than worker/jobs/, so arguably outside the intake's frame - recorded so the class is closed by enumeration rather than claimed closed site-by-site."
+    },
+    {
+      "id": "F7",
+      "severity": "P2",
+      "title": "The intake's observability claim overstates the shipped log lines: none of the three worker lines names the key",
+      "at": "docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-intake.json:116",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "OnboardingDripWorker.ts:299 names drip_type and business_id but no key; EngagementAlertWorker.ts:221 and :317 name businessId but no key; only internal.ts:121 names the key and it is not per-worker. Grepping the Railway logs for a key, as the bullet invites, returns only that one line - which F1 shows is unasserted."
+    },
+    {
+      "id": "F8",
+      "severity": "P2",
+      "title": "The gate's test flake passes in isolation but spends 16.1s of its 30s budget with zero contention",
+      "at": "scripts/ci/__tests__/red-team-mutation-runner.test.ts:1",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Re-measured in isolation: 250 passed, 0 failed, with 'runs an admitted baseline mutant and restoration with corroborated report evidence' taking 16123ms against a 30000ms timeout on an idle machine. The branch's claim that the gate red is a load-induced timeout is corroborated, but the margin means it will keep flaking under the parallel coverage run. Pre-existing red-team tooling; imports none of the four changed files."
+    },
+    {
+      "id": "F9",
+      "severity": "P2",
+      "title": "Harness state is stale and .feature/intake.json is absent (parked), so the reviewed transition cannot pass as-is",
+      "at": ".feature/state.json:6",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "The contract lives at .feature/intake.parked.json; red-team-status.mjs:960 errors in feature mode when .feature/intake.json is absent, before it reads this sidecar. state.json also reports phase worktree_ready, baseSha/headSha 650f625e7 (one fork point and seven commits behind HEAD) and intakeSha256 9a388cb8 (the pre-D6 intake). Contract binding verified by content instead: the parked copy and the plans copy are byte-identical, SHA-256 1bda093cb06e974c9ee9fd35a0a0905be5575f5e84f4a10e9580db52aff5dd9b, which is what intake_sha256 above records."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 14,
+    "killed": 11,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 3,
+    "skipped_budget": 0,
+    "excluded": 0,
+    "findings_total": 9,
+    "p0_open": 0,
+    "p1_open": 5,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_ORACLE"
+}

@@ -173,18 +173,11 @@ async function handleOwnerNudge(
   }> = [];
 
   for (const row of pendingRows) {
-    // 'never', not 'orphaned_only' (#1363). The nudge records its delivery with
-    // a NULL response_id and template 'owner_nudge', so the orphaned_only probe
-    // — which matches on response_id and the two link-carrying template names —
-    // can never see it and always reads "orphan". A retry therefore revoked the
-    // link the owner already had. With the Send idempotency key below
-    // suppressing the retry's duplicate email, that link is the only one the
-    // owner holds.
     const { rawToken } = await createApprovalLink(sql, {
       responseId: row.response_id,
       businessId,
       channel: 'email',
-      revokeMode: 'never',
+      revokeMode: 'orphaned_only',
     });
     pendingReviews.push({
       reviewerName: row.reviewer_name,
@@ -202,26 +195,48 @@ async function handleOwnerNudge(
 
   const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
 
-  // The Send idempotency key is scoped to the outbox row, NOT to the business
-  // (#1363). The nudge RECURS on a 3-day cooldown, so it has no natural domain
-  // identity; the outbox row IS the identity of one send occurrence. A
-  // business-scoped key would suppress a legitimate later nudge inside Resend's
-  // 24h key window. This is the opposite of the drip's choice, whose
-  // stale-claim takeover forces a domain-scoped key.
-  const { messageId, idempotentReplay } = await sendInternalEmail({
-    to: business.owner_email,
-    subject,
-    bodyHtml,
-    category: 'marketing',
-    idempotencyKey: `owner_nudge:${outboxId}`,
-  });
+  // MARK-BEFORE-SEND, and NO provider idempotency key (#1363).
+  //
+  // The nudge builds a fresh approval link per pending review, and
+  // `createApprovalLink` mints a new randomUUID token on every call, so attempt
+  // 2 renders different HTML by construction. A stable key would therefore draw
+  // Resend's 409 `invalid_idempotent_request` rather than a replay of the
+  // original response, and the delivery row would carry a synthetic message id.
+  // `worker/ingress/resend.ts` correlates bounced/delivered/complained events
+  // ONLY on the real Resend id, so a hard bounce on this nudge would match no
+  // row and never set `businesses.owner_email_bounced`.
+  //
+  // Completing the outbox row first is the same crash-safe shape
+  // `handleSatisfactionAlert` below already uses, and matches
+  // WeeklySummaryWorker / MonthlyImpactWorker: a crash between here and Resend
+  // accepting loses ONE nudge, which beats sending two and beats silently
+  // disabling bounce suppression. The next poll re-nudges after the 3-day
+  // cooldown anyway.
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 
-  if (idempotentReplay) {
-    // Resend refused a second send under this key, which proves the first
-    // attempt was accepted. The delivery row below is the nudge's own cooldown
-    // record, so it MUST still be written — without it the next poll mints a
-    // fresh nudge for an owner who already received one.
-    logger.log(`Owner nudge already delivered under its idempotency key for business ${businessId}`);
+  let messageId: string;
+  try {
+    ({ messageId } = await sendInternalEmail({
+      to: business.owner_email,
+      subject,
+      bodyHtml,
+      category: 'marketing',
+    }));
+  } catch (err) {
+    // Do NOT rethrow. The outbox row is already completed, but a throw still
+    // fails the BullMQ JOB, and BullMQ retries on its own clock — the handler
+    // would re-enter, find no delivery row (the cooldown probe's only record),
+    // mint fresh approval links and send a SECOND nudge. That is the duplicate
+    // this ordering exists to prevent, so the error stops here.
+    //
+    // This is why WeeklySummaryWorker's `sendSummaryReportEmail` swallows too.
+    // The drip does NOT need this: its dedupe record is onboarding_drip_log
+    // .sent_at, written before the send and re-checked at the top of the
+    // handler, so a retry there exits on the claim instead of re-sending.
+    logger.error(
+      `Owner nudge send failed for business ${businessId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
   }
 
   await recordNotificationDelivery(sql, {
@@ -233,7 +248,7 @@ async function handleOwnerNudge(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+  // No markOutboxCompleted here — it ran BEFORE the send, above.
   logger.log(`Owner nudge sent for business ${businessId} (${totalPending} pending reviews)`);
 }
 
@@ -301,16 +316,33 @@ async function handlePartnerAlert(
     }
   }
 
-  // Outbox-scoped key, for the same reason as the owner nudge above: partner
-  // alerts recur on a cooldown, so the outbox row is the identity of one send
-  // occurrence. The alert type is in the key only to make it greppable — the
-  // outbox id alone is already unique.
+  // Domain-scoped key (#1363): (alert_type, business_id), matching the seven
+  // pre-existing house keys and the notification_deliveries.template written
+  // below. NOT outbox-scoped — an earlier draft of this change used the outbox
+  // id on the theory that a recurring alert has no domain identity and a
+  // business-scoped key might suppress a legitimate later alert. Review proved
+  // that false: EngagementMonitorPoller's cooldowns are 7 days for engagement
+  // and low_engagement and 14 for escalation (`EngagementMonitorPoller.ts:30-35`),
+  // all far beyond Resend's 24-hour key lifetime, so no legitimate second alert
+  // can ever collide.
+  //
+  // The domain scope is also strictly stronger. A crash between the send and
+  // the delivery row below leaves no cooldown record, so once the watchdog
+  // terminalizes this outbox row the poller can mint a NEW one and alert again.
+  // Two rows carry two ids; only a business-scoped key dedupes that.
+  //
+  // This alert's body is built from the job payload's metrics, so it is
+  // byte-stable across attempts. Resend therefore replays the ORIGINAL
+  // response — real message id included — and the bounce/delivery webhook
+  // correlation in worker/ingress/resend.ts keeps working. That stability is
+  // the precondition for carrying a key at all; the owner nudge above mints
+  // fresh approval tokens per attempt and so cannot.
   const { messageId, idempotentReplay } = await sendInternalEmail({
     to: adminEmail,
     subject,
     bodyHtml,
     category: 'internal',
-    idempotencyKey: `${alertType}:${outboxId}`,
+    idempotencyKey: `${alertType}:${businessId}`,
   });
 
   if (idempotentReplay) {

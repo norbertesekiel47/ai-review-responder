@@ -94,6 +94,36 @@ function isDripTooStale(
   return capMs < asOf.getTime();
 }
 
+/**
+ * True when this drip's HTML can differ between two attempts at the same
+ * logical send — which decides how the drip defends its crash-after-send
+ * window (#1363).
+ *
+ * Only `day_7` carries approval links, and `createApprovalLink` mints a fresh
+ * `randomUUID` token on every call, so attempt 2 renders different HTML by
+ * construction. That makes a provider idempotency key actively HARMFUL rather
+ * than merely useless: Resend answers 409 `invalid_idempotent_request` instead
+ * of replaying the original response, so the delivery row would carry a
+ * synthetic message id — and `worker/ingress/resend.ts` correlates delivered /
+ * complained / bounced events ONLY on the real Resend id. A hard bounce on that
+ * drip would then match no row, leaving `businesses.owner_email_bounced` unset
+ * and the owner receiving mail at a dead address.
+ *
+ * So `day_7` marks before sending and carries no key, matching
+ * `WeeklySummaryWorker`: losing one email to a crash beats sending two, and
+ * beats silently disabling bounce suppression.
+ *
+ * `day_1` and `day_30` render from stable inputs, so Resend replays the
+ * ORIGINAL response — original message id included — and correlation survives.
+ * They keep the key and lose no email. Named residual: day_30's stats are read
+ * per attempt, so a review landing mid-retry would change its body and put it
+ * on the 409 path; that needs a crash AND a same-window stats change, and is
+ * accepted rather than defended.
+ */
+function dripBodyVariesPerAttempt(dripType: OnboardingDripPayload['drip_type']): boolean {
+  return dripType === 'day_7';
+}
+
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
   const { drip_type } = job.data;
@@ -274,22 +304,36 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 7. Send email ─────────────────────────────────────────────────
+  // Two crash-after-send defences, chosen per drip type by
+  // `dripBodyVariesPerAttempt` — see that function for WHY they differ.
+  const bodyVaries = dripBodyVariesPerAttempt(drip_type);
+
+  if (bodyVaries) {
+    // MARK-BEFORE-SEND. A crash here loses this drip: the retry re-enters,
+    // finds sent_at NOT NULL, and takes the "already claimed/sent" branch.
+    // That is the accepted trade and it matches WeeklySummaryWorker — losing
+    // one email beats sending two, and a provider key cannot help a body that
+    // is different on every attempt.
+    await sql`
+      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
+    `;
+  }
+
   // The Send idempotency key is scoped to (business_id, drip_type), NOT to the
-  // outbox row (#1363). That is deliberate and the scope is load-bearing: the
-  // stale-claim takeover at step 4 admits a SECOND outbox row on a claim still
-  // carrying sent_at IS NULL, which is exactly the crash-after-send case this
-  // key defends. Two outbox rows carry two ids, so an outbox-scoped key would
-  // not dedupe them; (business_id, drip_type) mirrors the
-  // onboarding_drip_log UNIQUE constraint that already bounds one drip per pair.
-  //
-  // It is spelled to match the notification_deliveries.template written at
-  // step 9, so one grep ties the provider key to the delivery record.
+  // outbox row. The scope is load-bearing: the stale-claim takeover at step 4
+  // admits a SECOND outbox row on a claim still carrying sent_at IS NULL, which
+  // is exactly the crash-after-send case this key defends. Two outbox rows
+  // carry two ids, so an outbox-scoped key would not dedupe them;
+  // (business_id, drip_type) mirrors the onboarding_drip_log UNIQUE constraint
+  // that already bounds one drip per pair. It is spelled to match the
+  // notification_deliveries.template written at step 9, so one grep ties the
+  // provider key to the delivery record.
   const { messageId, idempotentReplay } = await sendInternalEmail({
     to: business.owner_email,
     subject,
     bodyHtml: html,
     category: 'marketing',
-    idempotencyKey: `onboarding_drip_${drip_type}:${businessId}`,
+    ...(bodyVaries ? {} : { idempotencyKey: `onboarding_drip_${drip_type}:${businessId}` }),
   });
 
   if (idempotentReplay) {
@@ -303,9 +347,11 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────
-  await sql`
-    UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
-  `;
+  if (!bodyVaries) {
+    await sql`
+      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
+    `;
+  }
 
   // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
   // checks in other workers can see this delivery record.
@@ -428,18 +474,11 @@ async function buildDay7(
   }
   if (appUrl) {
     for (const row of pendingRows) {
-      // 'never', not 'orphaned_only' (#1363). This drip records its delivery
-      // with a NULL response_id and template 'onboarding_drip_day_7', so the
-      // orphaned_only probe — which matches on response_id and the two
-      // link-carrying template names — can never see it and always reads
-      // "orphan". A retry therefore revoked the link the owner already had.
-      // With the Send idempotency key suppressing the retry's duplicate email,
-      // that link is the only one the owner holds.
       const { rawToken } = await createApprovalLink(sql, {
         responseId: row.response_id,
         businessId: business.id,
         channel: 'email',
-        revokeMode: 'never',
+        revokeMode: 'orphaned_only',
       });
       pendingReviews.push({
         reviewerName: row.reviewer_name,

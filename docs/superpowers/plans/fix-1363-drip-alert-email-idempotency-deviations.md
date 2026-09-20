@@ -3,6 +3,13 @@
 Every entry is something the plan did not anticipate. Each carries a resolved
 verdict; the `reviewed` transition refuses on an unresolved one.
 
+> **Read D8–D13 first.** D1–D7 were written before the step-7 review wave and
+> are kept as the historical record of what was built and why. The wave
+> disproved several of their claims — D2's "the probe ALWAYS reads orphan" and
+> D1's outbox-scoping rationale in particular — and reversed the design they
+> describe. Where an entry below conflicts with D8–D13, D8–D13 is the as-built
+> truth.
+
 ---
 
 ## D1 — The chosen key scope under-fixed the defect the issue names
@@ -138,9 +145,14 @@ files this branch changes.
 `Cannot find module '@vercel/turbopack/postcss'`. Three independent pieces of
 evidence, measured rather than argued:
 
-1. Checked out the merge-base `650f625e7` in this worktree and ran `pnpm build`:
-   exit 1, with 31 occurrences of the identical error. The break predates the
-   first commit on this branch.
+1. Checked out the then-merge-base `650f625e7` in this worktree and ran
+   `pnpm build`: exit 1, with 31 occurrences of the identical error. The break
+   predates the first commit on this branch. **Label correction (red team P1):**
+   that measurement was taken BEFORE the step-7 rebase, so `650f625e7` was the
+   merge-base at the time but is not the current one, which is `10377aa9b`. Red
+   team re-measured at HEAD independently: exit 1, 567 Turbopack errors, 33 ×
+   the same missing module, none naming a changed file. The conclusion survives;
+   only the SHA label was stale.
 2. CI run `35542835421` (2026-09-20, branch `fix/1360-tombstone-single-transaction`,
    cut from that same `650f625e7`) reports `build: success`. The build works on
    the Blacksmith runners and fails only on this machine.
@@ -165,3 +177,136 @@ job is the authority for this row and must be confirmed on the PR before merge.
 **Verdict:** ACCEPT — neither the flake nor the pre-existing build break is
 caused by, or fixable within, this branch. Both are stated in the PR description
 so a reviewer is not asked to rediscover them.
+
+---
+
+## D8 — The review wave reversed the core design decision
+
+**What happened.** Three of the five axes (Codex adversarial, async/operations,
+spec & correctness) independently found that treating Resend's 409 as success
+writes a synthetic `external_message_id`, and that `worker/ingress/resend.ts`
+correlates bounce, delivered and complained events ONLY on the real Resend id. A
+hard bounce on such a send therefore matches no row: `businesses.owner_email_bounced`
+is never set and the owner keeps receiving mail at a dead address. Pre-change the
+retry's second email carried a correlatable id, so this was a REGRESSION on
+exactly the crash path the ticket targets.
+
+The precondition nobody stated up front: a provider idempotency key only replays
+the original response when the retry body is IDENTICAL. Any caller of
+`createApprovalLink` mints a fresh `randomUUID` per attempt, so the day_7 drip
+and the owner nudge were on the 409 path by construction.
+
+**Resolution.** Put to the owner with the trade-offs; owner chose mark-before-send
+for those two. day_1, day_30 and the three partner alerts render from stable
+inputs, keep the key and lose no email.
+
+**Verdict:** ACCEPT — this is the review wave doing its job. The alternative
+(carrying a durable delivery identity to Resend as a tag and reconciling it in
+the webhook) changes third-party ingress and is now a non-goal.
+
+---
+
+## D9 — T2 (`revokeMode: 'never'`) fully reverted, and its justification was wrong
+
+**What happened.** Two things landed together. First, with mark-before-send there
+is no retry on the two affected sends, so no second `createApprovalLink` call and
+no revoke — the sub-fix has no remaining purpose. Second, spec & correctness
+showed the justification was false anyway: the orphan probe keys on `response_id`,
+and a response sitting in `pending_approval` normally DOES have an
+`approval_request` delivery, so the probe does not "always read orphan". The real
+exposure was much narrower than the five places I wrote it down claimed.
+
+Async and red team separately disproved the bound I put in the docblock: links are
+minted pre-send, so `'never'` would have added one live 48h link PER ATTEMPT, not
+one per response.
+
+**Resolution.** `src/lib/approval/create-link.ts` and
+`src/lib/approval/__tests__/create-link.test.ts` are byte-identical to `main`.
+The approval surface is untouched by this branch, which also removes invariant #5
+from the risk surface entirely.
+
+**Verdict:** ACCEPT — removing code beats keeping code whose stated reason is
+false.
+
+---
+
+## D10 — The rework introduced a duplicate-send bug, caught by a pre-existing test
+
+**What happened.** Completing the outbox row before the send is only half the
+pattern. The owner nudge still rethrew on send failure, which fails the BullMQ
+job; BullMQ retries on its own clock, the handler re-enters, finds no delivery row
+(the cooldown probe's only record), mints fresh approval links and sends a SECOND
+nudge — the exact duplicate the reordering exists to prevent.
+
+The pre-existing test `throws on email send failure (BullMQ retries)` failed
+immediately and pointed straight at it.
+
+**Resolution.** The nudge swallows and logs, mirroring `WeeklySummaryWorker`'s
+`sendSummaryReportEmail`, which does not rethrow for this reason. The drip does
+NOT need the same treatment: its dedupe record is `onboarding_drip_log.sent_at`,
+written before the send and re-checked at the top of the handler, so a retry exits
+on the claim. That asymmetry is commented at both sites. The test was rewritten to
+assert the new contract.
+
+**Verdict:** ACCEPT — and worth recording that the existing suite caught a
+regression in reworked code, which is the strongest evidence in this run that the
+tests are load-bearing rather than decorative.
+
+---
+
+## D11 — Seven documentation claims of mine were false
+
+**What happened.** The wave disproved, in addition to D8 and D9: (a) the
+cooldown-based reason for outbox-scoping the nudge and partner alerts — cooldowns
+are 3/7/14 **days**, far beyond the 24h key life, so a business-scoped key can
+never collide; (b) "the seven pre-existing keys are all domain-scoped, no helper
+precedent exists" — there are 13 keyed sites, `NotificationFailoverPoller` already
+uses a per-attempt claim id, and `src/lib/account-offboarding/email-dedup.ts` is a
+named key-builder helper; (c) "the ten existing callers are unaffected" — three
+pre-existing keyed callers inherit the new 409-as-success branch; (d) "every retry
+path completes in minutes" — the 24h window is reachable; (e) the observability
+promise — an identical-body replay never reaches 409, so the operator query is a
+floor, not a total, and the logs do not name the key as claimed.
+
+**Resolution.** All corrected in the intake, the plan, the glossary and the
+architecture review log. (a) changed the CODE as well as the prose: every key is
+now domain-scoped, which is also strictly stronger because it covers the poller's
+re-mint path.
+
+**Verdict:** ACCEPT. The pattern is worth naming: the code survived adversarial
+mutation testing almost untouched, while the prose explaining it did not survive
+first contact with a reviewer. Confident explanations written alongside code are
+the least-verified artifact in a run.
+
+---
+
+## D12 — Red team P1: the replay log line had no oracle
+
+**What happened.** Deleting the `idempotentReplay` destructuring and all four log
+lines left 61 tests green. The durable half — the `idempotent-replay:` delivery
+row — is written from `messageId` regardless, so it stayed pinned; only the
+operator-facing log had nothing asserting it.
+
+**Resolution.** Added `a drip replay logs that the email was already delivered`,
+which spies on the logger sink. Verified by mutation: changing the log string
+fails that test and only that test.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D13 — Two missed siblings of the same defect, filed not fixed
+
+**What happened.** Red team enumerated other send-then-mark paths.
+`worker/jobs/AdminExceptionWorker.ts:138-150` has the identical shape, and its
+guard at `:114` tests `exception.status !== 'open'` — a status nothing in `src/`
+or `worker/` ever writes, so it can never fire on a retry. I verified both
+claims. `worker/ingress/resend.ts:284` carries the same shape on the hard-bounce
+admin alert.
+
+**Resolution.** Owner chose to file rather than fix. Both are internal
+admin-directed emails, both sit outside this edit surface, and adding them would
+be surface amendment #2 on a branch whose review wave has already run. Recorded
+as non-goals in the intake.
+
+**Verdict:** ACCEPT.

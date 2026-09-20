@@ -297,7 +297,6 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       subject: 'Your first week with RepWorth — Drip Test Biz',
       bodyHtml: '<html>day7</html>',
       category: 'marketing',
-      idempotencyKey: 'onboarding_drip_day_7:biz-drip-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -331,13 +330,13 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       responseId: 'resp-p1',
       businessId: 'biz-drip-1',
       channel: 'email',
-      revokeMode: 'never',
+      revokeMode: 'orphaned_only',
     });
     expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-p2',
       businessId: 'biz-drip-1',
       channel: 'email',
-      revokeMode: 'never',
+      revokeMode: 'orphaned_only',
     });
 
     const day7Params = (mockBuildOnboardingDay7Html.mock.calls as unknown[][])[0]![0] as Record<string, unknown>;
@@ -537,7 +536,7 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     );
   });
 
-  it('day_7 drip sends with an idempotency key scoped to the business and drip type', async () => {
+  it('day_7 drip marks sent_at before sending and passes no idempotency key', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
     sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
     sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
@@ -548,11 +547,28 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     sqlReturnQueue.push([{ total: 4 }]);           // 8. total reviews
     sqlReturnQueue.push([]);                       // 9. UPDATE sent_at
 
+    // day_7 is the ONLY drip carrying approval links, and createApprovalLink
+    // mints a fresh token per call, so its body differs on every attempt. A key
+    // would draw Resend's 409 rather than a replay of the original response,
+    // and the synthetic message id would break the hard-bounce correlation in
+    // worker/ingress/resend.ts. It marks sent_at first instead.
+    const sqlCallsBeforeSend: string[] = [];
+    mockSendInternalEmail.mockImplementation(() => {
+      for (const call of mockSql.mock.calls as unknown[][]) {
+        sqlCallsBeforeSend.push((call[0] as string[]).join(''));
+      }
+      return Promise.resolve({ messageId: 'msg-drip-1' });
+    });
+
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
-    expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'onboarding_drip_day_7:biz-drip-1' }),
-    );
+    const sendArg = (mockSendInternalEmail.mock.calls as unknown[][])[0]![0] as {
+      idempotencyKey?: string;
+    };
+    expect(sendArg.idempotencyKey).toBeUndefined();
+    expect(
+      sqlCallsBeforeSend.some((text) => /UPDATE onboarding_drip_log SET sent_at/i.test(text)),
+    ).toBe(true);
   });
 
   it('day_30 drip sends with an idempotency key scoped to the business and drip type', async () => {
@@ -602,6 +618,31 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     ]);
   });
 
+  it('a drip replay logs that the email was already delivered', async () => {
+    // Red-team round 1 (P1): the replay branch's worker-side delta — the
+    // `idempotentReplay` destructuring and its log line — could be deleted with
+    // every test still green, because the durable record (the delivery row's
+    // `idempotent-replay:` prefix) is written from `messageId` regardless. The
+    // log is the operator's live signal, so it gets its own oracle.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockSendInternalEmail.mockResolvedValueOnce({
+        messageId: 'idempotent-replay:onboarding_drip_day_1:biz-drip-1',
+        idempotentReplay: true,
+      });
+      queueDay1();
+
+      await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
+
+      const lines = logSpy.mock.calls.map((call) => String(call[0]));
+      expect(lines.some((line) => /already delivered under its idempotency key/.test(line))).toBe(
+        true,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('a drip replay marks sent_at and records the delivery with an idempotent-replay message id', async () => {
     // Resend refused the send because the key was already used. The email IS
     // delivered, so every downstream fact must still be written — otherwise the
@@ -628,7 +669,7 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
   });
 
-  it('day_7 drip builds its approval links with revokeMode never so the delivered link survives a retry', async () => {
+  it('day_7 drip keeps revokeMode orphaned_only now that it no longer relies on a provider key', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
     sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
     sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
@@ -647,7 +688,7 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
       responseId: 'resp-p1',
       businessId: 'biz-drip-1',
       channel: 'email',
-      revokeMode: 'never',
+      revokeMode: 'orphaned_only',
     });
   });
 });

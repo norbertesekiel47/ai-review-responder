@@ -4,6 +4,50 @@ Lane: SMALL · RISK = high · SURFACE = backend. Built in one session, no subage
 dispatch. Intake:
 `docs/superpowers/plans/fix-1363-drip-alert-email-idempotency-intake.json`.
 
+## REVISED after the step-7 review wave — read this before the tracers below
+
+The wave (5 axes) disproved three claims this plan was built on. The tracers
+below are kept as the historical record of what was built first; **the as-built
+design is this section.** Findings and dispositions:
+`docs/reviews/fix-1363-drip-alert-email-idempotency/` and
+`docs/reviews/red-team/fix-1363-drip-alert-email-idempotency-65eabf/`.
+
+1. **A provider key requires a byte-stable body.** Three axes independently found
+   that a 409 replay writes a synthetic `external_message_id`, and
+   `worker/ingress/resend.ts:229-246` correlates bounce/delivered/complained
+   ONLY on the real Resend id. A hard bounce on such a send matches no row, so
+   `businesses.owner_email_bounced` is never set. The day_7 drip and the owner
+   nudge mint a fresh approval token per attempt, so they were on that path by
+   construction. **They now mark before sending and carry no key.**
+2. **T2 is fully reverted.** `revokeMode: 'never'` existed only to stop a retry
+   revoking an already-delivered link. With mark-before-send there is no retry
+   and so no second mint. `src/lib/approval/create-link.ts` and its test file are
+   byte-identical to `main`. The justification T2 carried was also wrong: the
+   orphan probe keys on `response_id`, and a pending response normally DOES have
+   an `approval_request` delivery, so it does not "always read orphan".
+3. **Every key is domain-scoped.** The mixed shape is gone. The stated reason for
+   outbox-scoping the nudge and partner alerts — that a business-scoped key might
+   suppress a legitimate later alert inside the 24h window — was false:
+   `EngagementMonitorPoller.ts:30-35` sets cooldowns of 3/7/14 **days**. Domain
+   scope is also strictly stronger, because it covers the poller's re-mint after
+   a watchdog terminalizes a crashed row.
+
+As-built, per send:
+
+| Send | Body across attempts | Defence |
+|---|---|---|
+| day_1, day_30 | stable | key `onboarding_drip_<type>:<business_id>` |
+| day_7 | varies (fresh tokens) | mark `sent_at` before send, no key |
+| owner nudge | varies (fresh tokens) | complete outbox before send, no key, **no rethrow** |
+| partner ×3 | stable (payload metrics) | key `<alert_type>:<business_id>` |
+| satisfaction | — | unchanged, already marks first |
+
+One further defect the rework introduced and a pre-existing test caught: with the
+outbox row completed first, rethrowing a send failure lets BullMQ retry the JOB
+and send a second nudge. The owner nudge now swallows and logs, as
+`WeeklySummaryWorker`'s `sendSummaryReportEmail` does. The drip does not need
+this — its dedupe record is `sent_at`, re-checked at the top of the handler.
+
 ## Design record
 
 Two modules deepen; nothing new is created.

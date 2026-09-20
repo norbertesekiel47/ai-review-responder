@@ -168,11 +168,10 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    // Created approval links for each pending review with revokeMode: 'never'
-    // (#1363 — the nudge's delivery record can never satisfy the orphan probe)
+    // Created approval links for each pending review with revokeMode: 'orphaned_only'
     expect(mockCreateApprovalLink).toHaveBeenCalledTimes(2);
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, { responseId: 'resp-1', businessId: 'biz-1', channel: 'email', revokeMode: 'never' });
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, { responseId: 'resp-2', businessId: 'biz-1', channel: 'email', revokeMode: 'never' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, { responseId: 'resp-1', businessId: 'biz-1', channel: 'email', revokeMode: 'orphaned_only' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, { responseId: 'resp-2', businessId: 'biz-1', channel: 'email', revokeMode: 'orphaned_only' });
 
     // Built nudge email with correct params
     expect(mockBuildOwnerNudgeEmailHtml).toHaveBeenCalledOnce();
@@ -190,7 +189,6 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: 'You have 2 reviews waiting for your approval',
       bodyHtml: '<html>nudge</html>',
       category: 'marketing',
-      idempotencyKey: 'owner_nudge:outbox-ea-1',
     });
 
     // Recorded delivery
@@ -306,7 +304,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: "Customer Test Biz hasn't engaged in 10 days",
       bodyHtml: '<html>engagement</html>',
       category: 'internal',
-      idempotencyKey: 'partner_engagement_alert:outbox-ea-1',
+      idempotencyKey: 'partner_engagement_alert:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -364,7 +362,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: 'Customer Test Biz may be at risk',
       bodyHtml: '<html>escalation</html>',
       category: 'internal',
-      idempotencyKey: 'partner_escalation_alert:outbox-ea-1',
+      idempotencyKey: 'partner_escalation_alert:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -407,7 +405,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: 'Customer Test Biz approval rate is 25%',
       bodyHtml: '<html>low-engagement</html>',
       category: 'internal',
-      idempotencyKey: 'partner_low_engagement:outbox-ea-1',
+      idempotencyKey: 'partner_low_engagement:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -433,16 +431,21 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('throws on email send failure (BullMQ retries)', async () => {
+  it('swallows an owner-nudge send failure so BullMQ cannot retry into a duplicate', async () => {
+    // Behaviour CHANGED by #1363. The outbox row is completed BEFORE the send,
+    // so rethrowing would fail the BullMQ job, and a BullMQ retry would
+    // re-enter, see no delivery row, and send a second nudge. The error stops
+    // in the handler instead; this nudge is lost and the poller re-nudges after
+    // the 3-day cooldown.
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check
     pushPendingReviewRows(1);                 // pending reviews
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend API error'));
 
-    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).rejects.toThrow('Resend API error');
+    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).resolves.toBeUndefined();
 
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ea-1', undefined);
   });
 
   // ── Partner satisfaction alert ──────────────────────────────────────
@@ -627,19 +630,37 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     notified_count: 4,
   };
 
-  it('owner nudge sends with an idempotency key scoped to the outbox row', async () => {
+  it('owner nudge completes the outbox row before sending and passes no idempotency key', async () => {
+    // The nudge mints a fresh approval token per attempt, so its body differs
+    // every time. A key would therefore draw Resend's 409 instead of a replay
+    // of the original response, and the synthetic message id it returns would
+    // break the hard-bounce webhook correlation in worker/ingress/resend.ts.
+    // Mark-before-send is used instead. Pin BOTH facts: a key appearing here
+    // later would mean that reasoning was reversed without this test noticing.
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // cooldown probe — no recent nudge
     pushPendingReviewRows(2);
 
+    const callOrder: string[] = [];
+    mockMarkOutboxCompleted.mockImplementation(() => {
+      callOrder.push('mark');
+      return Promise.resolve();
+    });
+    mockSendInternalEmail.mockImplementation(() => {
+      callOrder.push('send');
+      return Promise.resolve({ messageId: 'msg-ea-1' });
+    });
+
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'owner_nudge:outbox-ea-1' }),
-    );
+    expect(callOrder).toEqual(['mark', 'send']);
+    const sendArg = (mockSendInternalEmail.mock.calls as unknown[][])[0]![0] as {
+      idempotencyKey?: string;
+    };
+    expect(sendArg.idempotencyKey).toBeUndefined();
   });
 
-  it('owner nudge builds its approval links with revokeMode never so the delivered link survives a retry', async () => {
+  it('owner nudge keeps revokeMode orphaned_only now that it no longer relies on a provider key', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([]);
     pushPendingReviewRows(1);
@@ -650,34 +671,11 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
       responseId: 'resp-1',
       businessId: 'biz-1',
       channel: 'email',
-      revokeMode: 'never',
+      revokeMode: 'orphaned_only',
     });
   });
 
-  it('an owner nudge replay records the delivery with an idempotent-replay message id', async () => {
-    mockSendInternalEmail.mockResolvedValueOnce({
-      messageId: 'idempotent-replay:owner_nudge:outbox-ea-1',
-      idempotentReplay: true,
-    });
-    sqlReturnQueue.push([mockBusinessRow()]);
-    sqlReturnQueue.push([]);
-    pushPendingReviewRows(1);
-
-    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
-
-    // The email IS delivered, so the cooldown record must still be written —
-    // without it the next poll would mint a fresh nudge.
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(
-      mockSql,
-      expect.objectContaining({
-        template: 'owner_nudge',
-        externalMessageId: 'idempotent-replay:owner_nudge:outbox-ea-1',
-      }),
-    );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ea-1', undefined);
-  });
-
-  it('partner engagement alert sends with an idempotency key scoped to the outbox row', async () => {
+  it('partner engagement alert sends with an idempotency key scoped to the business', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);
 
     await handleEngagementAlert(
@@ -685,11 +683,11 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     );
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'partner_engagement_alert:outbox-ea-1' }),
+      expect.objectContaining({ idempotencyKey: 'partner_engagement_alert:biz-1' }),
     );
   });
 
-  it('partner escalation alert sends with an idempotency key scoped to the outbox row', async () => {
+  it('partner escalation alert sends with an idempotency key scoped to the business', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);
 
     await handleEngagementAlert(
@@ -697,11 +695,11 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     );
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'partner_escalation_alert:outbox-ea-1' }),
+      expect.objectContaining({ idempotencyKey: 'partner_escalation_alert:biz-1' }),
     );
   });
 
-  it('partner low engagement alert sends with an idempotency key scoped to the outbox row', async () => {
+  it('partner low engagement alert sends with an idempotency key scoped to the business', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);
 
     await handleEngagementAlert(
@@ -709,7 +707,7 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     );
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'partner_low_engagement:outbox-ea-1' }),
+      expect.objectContaining({ idempotencyKey: 'partner_low_engagement:biz-1' }),
     );
   });
 
