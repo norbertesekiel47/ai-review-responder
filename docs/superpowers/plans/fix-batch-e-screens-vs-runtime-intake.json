@@ -108,7 +108,9 @@
     "docs/superpowers/plans/fix-batch-e-screens-vs-runtime-deviations.md",
     ".claude/reference/arch-review-log.md",
     "docs/agents/change-ledger.md",
-    "docs/reviews/fix-batch-e-screens-vs-runtime/blast-radius.md"
+    "docs/reviews/fix-batch-e-screens-vs-runtime/blast-radius.md",
+    "e2e/batch-e-screens.spec.ts",
+    "docs/reviews/fix-batch-e-screens-vs-runtime/evidence"
   ],
   "tests_to_add": [
     "reports autopilot_tier_required when the tier does not grant autopilot",
