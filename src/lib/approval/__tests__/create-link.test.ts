@@ -146,3 +146,98 @@ describe('createApprovalLink — channel-aware', () => {
     expect(updateCalls()[0]!.text).toMatch(/channel\s*=/i);
   });
 });
+
+// ── revokeMode 'never' (#1363) ─────────────────────────────────────────────
+// The day_7 drip and the owner nudge deliver a link and then record a delivery
+// whose template is neither 'approval_request' nor 'pending_post_notice', and
+// whose response_id is NULL. The orphaned_only probe therefore NEVER matches
+// them, so a retry revoked the very link the owner had already received. Once a
+// Send idempotency key suppresses the retry's duplicate email, that revoked link
+// is the ONLY one the owner holds — so these two sites must not revoke at all.
+
+describe("createApprovalLink — revokeMode 'never'", () => {
+  it('revokeMode never leaves an existing open link untouched while inserting the new one', async () => {
+    harness.sqlReturnQueue.push([]); // pg_advisory_xact_lock
+
+    await createApprovalLink(mockSql, {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      channel: 'email',
+      revokeMode: 'never',
+    });
+
+    expect(updateCalls()).toHaveLength(0); // the delivered link survives
+    expect(insertCalls()).toHaveLength(1); // the retry still gets its own fresh link
+
+    // It does not even PROBE notification_deliveries: the answer cannot change
+    // the outcome, so paying for the round trip would be waste, and a future
+    // reader must not mistake a probe for a revoke condition.
+    const deliveryProbe = harness.sqlCalls.find((call) =>
+      /FROM notification_deliveries/i.test(call.text),
+    );
+    expect(deliveryProbe).toBeUndefined();
+  });
+
+  it('revokeMode never still stores only the SHA-256 hash and never the raw token', async () => {
+    harness.sqlReturnQueue.push([]); // pg_advisory_xact_lock
+
+    const { rawToken, tokenHash } = await createApprovalLink(mockSql, {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      channel: 'email',
+      revokeMode: 'never',
+    });
+
+    // Invariant #5: raw tokens exist only in memory and in the sent email.
+    expect(tokenHash).toHaveLength(64);
+    expect(tokenHash).not.toBe(rawToken);
+    for (const call of harness.sqlCalls) {
+      expect(call.values).not.toContain(rawToken);
+      expect(call.text).not.toContain(rawToken);
+    }
+    expect(insertCalls()[0]!.values).toContain(tokenHash);
+  });
+
+  it('revokeMode orphaned_only and always keep their existing revoke behaviour unchanged', async () => {
+    // Widening the union must not disturb the two modes that already shipped.
+    harness.sqlReturnQueue.push([]); // pg_advisory_xact_lock
+    harness.sqlReturnQueue.push([]); // existingDelivery SELECT — no prior delivery
+    await createApprovalLink(mockSql, {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      channel: 'email',
+      revokeMode: 'orphaned_only',
+    });
+    expect(updateCalls()).toHaveLength(1);
+
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
+    harness.sqlReturnQueue.push([]); // pg_advisory_xact_lock
+    await createApprovalLink(mockSql, {
+      responseId: 'resp-2',
+      businessId: 'biz-1',
+      channel: 'email',
+      revokeMode: 'always',
+    });
+    expect(updateCalls()).toHaveLength(1);
+  });
+
+  it('defaults to orphaned_only when no revokeMode is given', async () => {
+    // 'never' must never become the default: the two call sites outside #1363
+    // pass no revokeMode and depend on the orphan cleanup.
+    harness.sqlReturnQueue.push([]); // pg_advisory_xact_lock
+    harness.sqlReturnQueue.push([]); // existingDelivery SELECT — probe still runs
+
+    await createApprovalLink(mockSql, {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      channel: 'email',
+    });
+
+    const deliveryProbe = harness.sqlCalls.find((call) =>
+      /FROM notification_deliveries/i.test(call.text),
+    );
+    expect(deliveryProbe).toBeDefined();
+    expect(updateCalls()).toHaveLength(1);
+  });
+});

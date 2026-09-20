@@ -15,8 +15,21 @@ import type { ChannelId } from '@/lib/notifications/channels/types';
  *     the veto notice is not an orphan, so the veto's re-notify must not
  *     revoke it (an owner clicking the still-live notice CTA would otherwise
  *     hit a 410, violating veto.ts's already_cancelled invariant).
- *   'always': revoke all same-channel open links unconditionally (used by
- *     owner-nudge emails which want a fresh email link each time).
+ *   'always': revoke all same-channel open links unconditionally.
+ *   'never' (#1363): revoke nothing; just add the new link. For a sender whose
+ *     delivery record CANNOT satisfy the 'orphaned_only' probe — the day_7 drip
+ *     and the owner nudge record a per-business delivery with a NULL response_id
+ *     and a template that is neither link-carrying name — so 'orphaned_only'
+ *     always reads "orphan" for them and revokes the link the owner already
+ *     received. That was survivable only while a crashed retry re-sent a
+ *     replacement email; once a Send idempotency key suppresses that duplicate,
+ *     the revoked link is the ONLY one the owner holds. Bounded by the 48-hour
+ *     TTL below: at most one extra live link per response, expiring unaided.
+ *     Regenerate still revokes every outstanding link and does not come here.
+ *
+ * NOTE the stale claim this comment used to carry: owner-nudge emails do NOT
+ * pass 'always' and never have — `EngagementAlertWorker` has always passed
+ * 'orphaned_only', which is the bug above. 'always' has no caller today.
  *
  * Returns the raw token + hash + approval_links row ID. Caller must use the
  * rawToken immediately in a URL and never persist it. approvalLinkId is safe
@@ -29,8 +42,9 @@ export async function createApprovalLink(
     businessId: string;
     channel: ChannelId;
     /** 'orphaned_only' (default): only revoke if no same-channel delivery exists.
-     *  'always': revoke all same-channel open links regardless. */
-    revokeMode?: 'orphaned_only' | 'always';
+     *  'always': revoke all same-channel open links regardless.
+     *  'never': revoke nothing — see the revoke-behavior block above. */
+    revokeMode?: 'orphaned_only' | 'always' | 'never';
   },
 ): Promise<{ rawToken: string; tokenHash: string; approvalLinkId: string }> {
   const { responseId, businessId, channel } = params;
@@ -57,6 +71,10 @@ export async function createApprovalLink(
       SELECT pg_advisory_xact_lock(hashtext(${responseId + ':' + channel}))
     `;
 
+    // 'never' falls through BOTH tests to shouldRevoke = false and skips the
+    // delivery probe entirely — the probe's answer cannot change the outcome.
+    // Keep both tests spelled as explicit equalities: rewriting the second as
+    // `revokeMode !== 'always'` would silently make 'never' revoke.
     let shouldRevoke = revokeMode === 'always';
     if (!shouldRevoke && revokeMode === 'orphaned_only') {
       const [existingDelivery] = await tx<{ id: string }[]>`
