@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "Touches worker/background/pollers/OutboxPoller.ts — the dispatch path every async workflow in RepWorth depends on",
+    "Changes a terminal state transition on job_outbox, governed by invariant #2 (transactional outbox)",
+    "A false-positive terminalization would mark genuinely in-flight work 'failed'"
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "The Watchdog terminalizes a stale 'dispatching' Outbox job that has exhausted its attempts on every topic, not only agent_turn, so a crash between the claim and runOutboxDispatchFailure can no longer strand a row in a state no arm and no claim can select.",
+  "non_goals": [
+    "Widening checkFailedOutboxJobs' 7-topic allowlist in worker/background/pollers/health-alert/checks.ts — owner decision, tracked as a separate issue",
+    "Changing the 2-minute dispatching staleness window or OUTBOX_WATCHDOG_STALE_MS",
+    "Making reconcileTurnForFailedOutbox topic-agnostic — it stays Operator-specific, gated by the array_agg(...) FILTER at OutboxPoller.ts:152",
+    "Any migration or schema change",
+    "Changing claimPendingBatch, markDispatched, or the dispatch path",
+    "Backfilling existing orphans — production and staging were both queried at 2026-09-20 and hold zero matching rows"
+  ],
+  "user_visible_behavior": [
+    "A 'dispatching' job_outbox row at attempts >= max_attempts whose dispatched_at is NULL or older than 2 minutes becomes status='failed' with completed_at set, on any topic, within one watchdog cycle.",
+    "The '[OutboxPoller] Watchdog recovered stale entries' log line's `failed` count now includes such rows on non-agent_turn topics.",
+    "The outbox_stale_dispatching HealthAlertPoller finding, which such a row otherwise raises forever with the misleading title 'OutboxPoller watchdog may be down', now clears on the next cycle."
+  ],
+  "invariants": [
+    "Invariant #2: the in-flight status set ('pending','dispatching','dispatched') owned by src/lib/shared/job-outbox-status.ts is not referenced or re-spelled by this change; ci:outbox-status stays green.",
+    "reconcileTurnForFailedOutbox is called only for terminalized rows whose topic is QUEUE_NAMES.AGENT_TURN.",
+    "A row claimed less than 2 minutes ago is never terminalized, whatever its attempts.",
+    "The #736 last_error preservation (COALESCE(NULLIF(last_error, ''), ...)) holds for both the dispatched and the dispatching branch.",
+    "Arm 2 (terminalize) and arm 3 (re-pend) stay mutually exclusive by the attempts predicate, so no row is both terminalized and re-pended in one transaction."
+  ],
+  "edge_cases": [
+    "dispatched_at IS NULL is treated as stale, matching arm 3's existing predicate at OutboxPoller.ts:172.",
+    "A row at attempts >= max_attempts with dispatched_at inside 2 minutes is left untouched — this is the guard against terminalizing a row the current cycle is still dispatching.",
+    "An agent_turn row keeps its existing route through reconcileTurnForFailedOutbox, including the 'deferred' outcome that rolls the row back to 'dispatched' and subtracts from terminatedCount.",
+    "A terminalized dispatching row with NULL or empty last_error receives 'Stale dispatching entry exceeded max_attempts'; one carrying a bounded error class keeps it.",
+    "A dispatching row on a topic the queue registry does not know is still terminalized — the watchdog is deliberately topic-blind, matching the existing PROBE_TOPIC fixture."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/background/pollers/OutboxPoller.ts:166-176 — arm 3's topic-agnostic dispatching predicate is the exact shape the new disjunct copies",
+    "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts — the live-DB seam, PROBE_TOPIC fixture, seedRow/rowState helpers and interval-based ageing",
+    "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts — the agent_turn terminalizer's live-DB coverage that must stay green"
+  ],
+  "test_seams": [
+    "runOutboxWatchdogRecovery(db, watchdogStaleSecs, logger) — worker/background/pollers/OutboxPoller.ts"
+  ],
+  "allowed_edit_surface": [
+    "worker/background/pollers/OutboxPoller.ts",
+    "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+    "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+    "docs/context/core-platform-runtime.md"
+  ],
+  "tests_to_add": [
+    "terminalizes a stale dispatching row at max_attempts on a non-agent_turn topic",
+    "terminalizes a stale dispatching row whose dispatched_at is NULL",
+    "writes the dispatching reclaim text when a terminalized dispatching row recorded no error",
+    "keeps a per-job last_error when terminalizing a stale dispatching row",
+    "re-pends a stale dispatching row that still has attempts left",
+    "leaves a freshly claimed dispatching row at max_attempts alone"
+  ],
+  "verification_commands": [
+    "pnpm ci:outbox-status",
+    "pnpm ci:live-db-suites"
+  ],
+  "estimated_prod_lines": 6,
+  "estimated_test_lines": 150,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single commit. The predicate returns to topic-scoped and no schema or data migration is involved, so the revert is complete. Rows the new arm already terminalized stay 'failed'; they were permanently unrecoverable before the change, so leaving them terminal is the desired end state and needs no compensating write.",
+  "observability": [
+    "Structured log '[OutboxPoller] Watchdog recovered stale entries' — the `failed` field counts the new terminalizations.",
+    "HealthAlertPoller finding outbox_stale_dispatching (threshold HEALTH_ALERT_STALE_DISPATCHING_S, default 600s) clears instead of firing permanently.",
+    "Named gap: checkFailedOutboxJobs pages only for 7 allowlisted topics, so a terminalized row on any other topic is correct in job_outbox but does not page. Tracked by the follow-up issue this run files."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

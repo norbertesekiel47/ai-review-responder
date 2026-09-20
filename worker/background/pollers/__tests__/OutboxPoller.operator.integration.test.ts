@@ -171,7 +171,11 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
 
     await runOutboxWatchdogRecovery(db, 900, logger);
     expect(await readPair(live.turnId, live.outboxId)).toMatchObject({ turn_status: 'running', outbox_status: 'dispatched', attempts: 5, outbox_completed: null });
-    expect(await readPair(otherTopic.turnId, otherTopic.outboxId)).toMatchObject({ turn_status: 'accepted', outbox_status: 'dispatching', attempts: 5, outbox_completed: null });
+    // #1378 made the terminal arm topic-blind, so this row IS terminalized.
+    // What stays topic-scoped is the RECONCILIATION: the array_agg(...) FILTER
+    // keeps reconcileTurnForFailedOutbox off a non-agent_turn row, so the turn
+    // must still read 'accepted' with no failure_reason.
+    expect(await readPair(otherTopic.turnId, otherTopic.outboxId)).toMatchObject({ turn_status: 'accepted', failure_reason: null, outbox_status: 'failed', attempts: 5 });
     const recovered = await readPair(missingTimestamp.turnId, missingTimestamp.outboxId);
     expect(recovered).toMatchObject({ turn_status: 'failed', outbox_status: 'failed', failure_reason: 'dispatch_exhausted', attempts: 5 });
     expect(recovered.turn_completed).not.toBeNull();

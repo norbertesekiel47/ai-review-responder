@@ -128,9 +128,13 @@ export async function runOutboxWatchdogRecovery(
     // recording anything. This writes nothing new itself, so the
     // bounded-class-only PII contract (worker/jobs/csv-ingest/failed-hook.ts)
     // is honored by construction.
-    // A failed reconciliation can roll the final dispatch attempt back to
-    // dispatching. Recover that Operator pair after the existing claim fence;
-    // otherwise no pending claim or dispatched watchdog can own it again.
+    // The `dispatching` disjunct is TOPIC-BLIND and must stay that way (#1378):
+    // an exhausted row there matches no other arm and no claim, so scoping it
+    // to one topic strands every other topic permanently. Re-scoping it turns
+    // the non-agent_turn case in OutboxPoller.watchdog.integration.test.ts red.
+    // Termination is topic-blind; RECONCILIATION is not — the array_agg FILTER
+    // below is what keeps reconcileTurnForFailedOutbox Operator-only.
+    // Why, in full: docs/context/core-platform-runtime.md, term **Watchdog**.
     const [terminated] = await tx<{ count: string; operator_ids: string[] | null }[]>`
       WITH terminated AS (
         UPDATE job_outbox
@@ -143,7 +147,7 @@ export async function runOutboxWatchdogRecovery(
           AND (
             (status = 'dispatched'
               AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs}))
-            OR (topic = ${QUEUE_NAMES.AGENT_TURN} AND status = 'dispatching'
+            OR (status = 'dispatching'
               AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes'))
           )
         RETURNING id, topic
