@@ -499,7 +499,15 @@ describeWithDb(
         // so it must leave every existing table alone. This assertion is that
         // check as much as it is the off-target-DDL check: if the statement
         // perturbed a live table's ACL, it would be reported here as a mover.
-        assertOnlyTablesMoved(before, degraded, [TABLE]);
+        //
+        // `schemaDefaultAcls: 'changed'` is an ASSERTION, not an exemption:
+        // the degrade performs `ALTER DEFAULT PRIVILEGES … GRANT ALL`, so
+        // `pg_default_acl` must have moved, and the call FAILS if it did not.
+        // Before the catalogue read `pg_default_acl` at all, this suite
+        // performed the one statement it could not detect, and appending that
+        // same statement to a migration survived 4 of 4 red-team runs
+        // (#1301 RT-4).
+        assertOnlyTablesMoved(before, degraded, [TABLE], { schemaDefaultAcls: 'changed' });
 
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
@@ -509,8 +517,19 @@ describeWithDb(
         // to migration 119 passed its whole suite once, and the grant really
         // landed (#1171). Every table outside `[poller_heartbeats]` must come
         // out byte-identical — RLS flags, policies, columns, indexes,
-        // constraints, comments and both table and column ACLs.
-        assertOnlyTablesMoved(before, after, [TABLE]);
+        // constraints, comments, both table and column ACLs, and the row
+        // digest.
+        //
+        // `'changed'` again, and the reason is a MEASURED boundary rather than
+        // a convenience. Re-applying 118 does NOT put `pg_default_acl` back:
+        // measured through the whole cycle on PostgreSQL 17, all eight
+        // privileges for both `anon` and `authenticated` survive the re-apply.
+        // 118's REVOKE reaches what its own TABLE inherited, which the
+        // "revokes every client privilege inherited from permissive default
+        // ACLs" case proves directly; the SCHEMA default is migration 122's
+        // subject, not 118's. Asserting `'unchanged'` here would be asserting
+        // something false, and asserting nothing is how RT-4 got in.
+        assertOnlyTablesMoved(before, after, [TABLE], { schemaDefaultAcls: 'changed' });
       });
     });
 

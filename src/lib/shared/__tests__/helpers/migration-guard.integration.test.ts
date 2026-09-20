@@ -34,6 +34,7 @@ import {
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
 import {
+  assertOnlyTablesMoved,
   readPublicCatalogue,
   withRolledBackTransaction,
   type CatalogueEntry,
@@ -321,6 +322,159 @@ describeWithDb(
         }
       }
       expect(new Set(flagged.grants.map(granteeOf))).toEqual(new Set([owner]));
+    });
+
+    it('assertOnlyTablesMoved reports an off-target row write once the table holds a row', async () => {
+      // #1301 RT-3, proven live rather than on a fixture. The proving mutation
+      // the red team ran — `UPDATE accounts SET display_name = …` appended to
+      // migration 051 — survived 5 of 5 runs because the catalogue was pure
+      // schema. `rowDigest` closes that, and this case proves it end to end.
+      //
+      // STATED LIMIT, and the reason this case seeds first: the local test
+      // container holds ZERO rows in EVERY public table, measured. An `UPDATE`
+      // or `DELETE` against an empty table changes nothing that any oracle can
+      // read, because there is nothing to change. The emptiness is the limit,
+      // not the catalogue. An off-target INSERT is caught without seeding —
+      // appending one to 051 fails three of its five cases — and so is an
+      // UPDATE or DELETE against a table a case seeded itself, which is what
+      // this case establishes.
+      await withRolledBackTransaction(sql(), async (tx) => {
+        // `poller_heartbeats` is the seed target because it carries no foreign
+        // key: seeding `accounts` would need a `users` row, and
+        // `users.fk_users_account` is DEFERRABLE INITIALLY DEFERRED, whose
+        // pending trigger events a never-committing transaction never settles.
+        const pollerName = `rt-3-off-target-probe-${randomUUID()}`;
+        await tx`INSERT INTO poller_heartbeats (poller_name) VALUES (${pollerName})`;
+
+        const before = await readPublicCatalogue(tx);
+        // Nothing moved yet: the same reading compares equal to itself, so a
+        // failure below cannot be an artefact of the seeding.
+        expect(() => assertOnlyTablesMoved(before, before, [])).not.toThrow();
+
+        await tx`
+          UPDATE poller_heartbeats
+             SET last_cycle_at = last_cycle_at + interval '1 hour'
+           WHERE poller_name = ${pollerName}
+        `;
+        const afterUpdate = await readPublicCatalogue(tx);
+
+        // The row COUNT is identical on both sides, so a count alone would
+        // pass here. The digest is what fails. That is the reason the fix is a
+        // digest and not a count.
+        expect(before.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=1$/);
+        expect(afterUpdate.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=1$/);
+        expect(afterUpdate.tables.poller_heartbeats?.rowDigest).not.toBe(
+          before.tables.poller_heartbeats?.rowDigest,
+        );
+
+        expect(() => assertOnlyTablesMoved(before, afterUpdate, [])).toThrow(
+          /poller_heartbeats \(rowDigest\)/,
+        );
+        // Naming the table in the allowed list is what a suite does for the
+        // table its own migration owns, and that still passes.
+        expect(() =>
+          assertOnlyTablesMoved(before, afterUpdate, ['poller_heartbeats']),
+        ).not.toThrow();
+
+        await tx`DELETE FROM poller_heartbeats WHERE poller_name = ${pollerName}`;
+        const afterDelete = await readPublicCatalogue(tx);
+        expect(afterDelete.tables.poller_heartbeats?.rowDigest).toMatch(/ rows=0$/);
+        expect(() => assertOnlyTablesMoved(before, afterDelete, [])).toThrow(
+          /poller_heartbeats \(rowDigest\)/,
+        );
+      });
+    });
+
+    it('withRolledBackTransaction detects a callback that commits its own transaction', async () => {
+      // #1301, the adversarial P1. `withRolledBackTransaction` rolls back by
+      // throwing a sentinel AFTER the callback returns. A migration carrying
+      // its own `BEGIN … COMMIT` ends the wrapper's transaction early, so
+      // everything before that COMMIT is already durable when the sentinel
+      // fires. Migration 119 carries its own BEGIN/COMMIT today, so this is
+      // one migration away from being reached for real.
+      //
+      // The probe genuinely COMMITS, which is the only way to prove the
+      // detector. It is safe to do here and nowhere else: this file holds the
+      // shared advisory lock for its whole run, so no sibling suite is live;
+      // the table name belongs to no migration; and the cleanup runs in a
+      // `finally` with a defensive drop before the probe as well.
+      const probeTable = 'migration_guard_commit_leak_probe';
+      await sql().unsafe(`DROP TABLE IF EXISTS ${probeTable};`); // live-db-ddl-ignore: defensive pre-clean of this case's own probe table, which belongs to no migration
+
+      try {
+        await expect(
+          withRolledBackTransaction(sql(), async (tx) => {
+            await tx.unsafe(`COMMIT; CREATE TABLE ${probeTable} (id integer);`); // live-db-ddl-ignore: the leak being detected; cleaned up in the finally below
+          }),
+        ).rejects.toThrow(/did not leave the database untouched/);
+
+        // And the leak really happened — otherwise the detector would be
+        // reporting a condition that cannot occur, which is the vacuous pass
+        // this whole branch exists to remove.
+        const [leaked] = await sql()<{ present: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM pg_class cls
+              JOIN pg_namespace nsp ON nsp.oid = cls.relnamespace
+             WHERE nsp.nspname = 'public' AND cls.relname = ${probeTable}
+          ) AS present
+        `;
+        expect(leaked?.present).toBe(true);
+      } finally {
+        await sql().unsafe(`DROP TABLE IF EXISTS ${probeTable};`); // live-db-ddl-ignore: mandatory cleanup of this case's own probe table
+      }
+
+      // The container is back where it started, verified rather than assumed.
+      const [remaining] = await sql()<{ present: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_class cls
+            JOIN pg_namespace nsp ON nsp.oid = cls.relnamespace
+           WHERE nsp.nspname = 'public' AND cls.relname = ${probeTable}
+        ) AS present
+      `;
+      expect(remaining?.present).toBe(false);
+    });
+
+    it('readPublicCatalogue sees a view and the schema default ACLs', async () => {
+      // #1301 RT-5 and RT-4 at the reader, below the assertions. A view over a
+      // deny-all table with `GRANT SELECT TO anon` is the access path migration
+      // 049 exists to close, and the catalogue read `relkind in ('r','p')`
+      // only, so it saw nothing. `pg_default_acl` was never read at all.
+      await withRolledBackTransaction(sql(), async (tx) => {
+        const before = await readPublicCatalogue(tx);
+        expect(before.tables.analytics_events_rt5_probe).toBeUndefined();
+
+        // Each pragma sits on the line its own DDL verb is on, which is what
+        // `live-db-suites-audit` matches. The probe view carries a name no
+        // other suite uses, `CREATE VIEW` takes only ACCESS SHARE on
+        // `analytics_events`, `ALTER DEFAULT PRIVILEGES` locks no relation at
+        // all, this file holds the shared advisory lock throughout, and the
+        // transaction always rolls back — so none of the three can be the
+        // ACCESS EXCLUSIVE deadlock the audit exists to prevent.
+        const probeView =
+          'CREATE VIEW analytics_events_rt5_probe AS SELECT * FROM analytics_events;';
+        const probeGrant = 'GRANT SELECT ON analytics_events_rt5_probe TO anon;';
+        const probeDefaultAcl =
+          'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon;';
+        await tx.unsafe(probeView); // live-db-ddl-ignore: new relation, name used by no other suite, ACCESS SHARE only on analytics_events, rolled back under the shared lock
+        await tx.unsafe(probeGrant); // live-db-ddl-ignore: grants on the probe view this case just created, never on a shared relation
+        await tx.unsafe(probeDefaultAcl); // live-db-ddl-ignore: schema-level default ACL, locks no relation, rolled back under the shared lock
+        const after = await readPublicCatalogue(tx);
+
+        const probe = after.tables.analytics_events_rt5_probe;
+        expect(probe?.kind).toBe('v');
+        // A view stores no rows of its own, so it is not digested.
+        expect(probe?.rowDigest).toBe('(none)');
+        // The leak itself: `anon` can SELECT through the view while the
+        // underlying table grants it nothing.
+        expect(probe?.grants.map((grant) => grant.name)).toContain('anon:SELECT');
+        expect(
+          after.tables.analytics_events?.grants.filter((grant) => granteeOf(grant) === 'anon'),
+        ).toEqual([]);
+
+        // And the schema default ACL, which no per-table property can carry.
+        expect(before.schemaDefaultAcls).toEqual([]);
+        expect(after.schemaDefaultAcls.map((acl) => acl.name)).toContain('public:r:anon:SELECT');
+      });
     });
   },
 );

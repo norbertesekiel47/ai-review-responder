@@ -36,6 +36,7 @@ function entry(name: string, definition: string): CatalogueEntry {
 function catalogued(table: string, overrides: Partial<CataloguedTable> = {}): CataloguedTable {
   return {
     table,
+    kind: 'r',
     rowSecurity: false,
     forceRowSecurity: false,
     policies: [],
@@ -47,12 +48,28 @@ function catalogued(table: string, overrides: Partial<CataloguedTable> = {}): Ca
     constraints: [],
     comment: null,
     grants: [],
+    rowDigest: 'empty rows=0',
     ...overrides,
   };
 }
 
 function catalogue(...tables: readonly CataloguedTable[]): PublicCatalogue {
-  return { tables: Object.fromEntries(tables.map((table) => [table.table, table])) };
+  return {
+    tables: Object.fromEntries(tables.map((table) => [table.table, table])),
+    schemaDefaultAcls: [],
+  };
+}
+
+/** A catalogue whose schema default ACLs are non-empty — the shape an
+ * `ALTER DEFAULT PRIVILEGES … GRANT ALL` leaves behind. */
+function catalogueWithDefaultAcls(
+  defaultAcls: readonly CatalogueEntry[],
+  ...tables: readonly CataloguedTable[]
+): PublicCatalogue {
+  return {
+    tables: Object.fromEntries(tables.map((table) => [table.table, table])),
+    schemaDefaultAcls: defaultAcls,
+  };
 }
 
 const INDEX_A = entry('idx_reviews_account', 'INDEX DEFINITION A');
@@ -320,6 +337,92 @@ describe('migration-guard', () => {
       }),
     );
     expect(() => assertOnlyTablesMoved(before, publicGranted, ['reviews'])).toThrow(/accounts/);
+  });
+
+  it('assertOnlyTablesMoved rejects a new view granting select to a client role', () => {
+    // #1301 RT-5. The catalogue used to read `relkind in ('r','p')` only, so a
+    // migration could add a view over a deny-all table, GRANT SELECT on it to
+    // `anon`, and move nothing the guard compared. Confirmed in psql against
+    // the live container before the fix: the table privilege read false, the
+    // view privilege read true, and the catalogue held zero rows for the view.
+    const before = catalogue(
+      catalogued('reviews'),
+      catalogued('analytics_events', { grants: [] }),
+    );
+    const leaked = catalogue(
+      catalogued('reviews'),
+      catalogued('analytics_events', { grants: [] }),
+      catalogued('analytics_events_leak', {
+        kind: 'v',
+        rowDigest: '(none)',
+        grants: [entry('anon:SELECT', 'postgres')],
+      }),
+    );
+
+    expect(() => assertOnlyTablesMoved(before, leaked, ['reviews'])).toThrow(
+      /analytics_events_leak \(appeared\)/,
+    );
+  });
+
+  it('assertOnlyTablesMoved rejects a relation replaced by a view of the same name', () => {
+    // The `kind` property exists so the swap is a CHANGE, not a coincidence of
+    // names: a table dropped and re-created as a view keeps its key.
+    const before = catalogue(catalogued('reviews'), catalogued('accounts'));
+    const swapped = catalogue(
+      catalogued('reviews'),
+      catalogued('accounts', { kind: 'v', rowDigest: '(none)' }),
+    );
+
+    expect(() => assertOnlyTablesMoved(before, swapped, ['reviews'])).toThrow(/accounts \(kind/);
+  });
+
+  it('assertOnlyTablesMoved rejects an off-target row update', () => {
+    // #1301 RT-3. `UPDATE accounts SET display_name = …` appended to migration
+    // 051 survived 5 of 5 red-team runs: the catalogue was pure schema, and no
+    // schema property moves when rows change. A count alone would not have
+    // caught this one either — the row count is identical on both sides.
+    const before = catalogue(
+      catalogued('reviews'),
+      catalogued('accounts', { rowDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa rows=3' }),
+    );
+    const mutated = catalogue(
+      catalogued('reviews'),
+      catalogued('accounts', { rowDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb rows=3' }),
+    );
+
+    expect(() => assertOnlyTablesMoved(before, mutated, ['reviews'])).toThrow(
+      /accounts \(rowDigest\)/,
+    );
+  });
+
+  it('assertOnlyTablesMoved rejects a widened schema default ACL', () => {
+    // #1301 RT-4. `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
+    // TABLES TO anon, authenticated` survived 4 of 4 runs. It is schema-level,
+    // so no per-table comparison can see it, and migration 118's own degrade
+    // performs that exact statement.
+    const widened = entry('public:r:anon:SELECT', 'postgres');
+    const before = catalogue(catalogued('reviews'));
+    const after = catalogueWithDefaultAcls([widened], catalogued('reviews'));
+
+    expect(() => assertOnlyTablesMoved(before, after, ['reviews'])).toThrow(/pg_default_acl/);
+  });
+
+  it("assertOnlyTablesMoved with schemaDefaultAcls 'changed' proves the widening rather than excusing it", () => {
+    const widened = entry('public:r:anon:SELECT', 'postgres');
+    const before = catalogue(catalogued('reviews'));
+    const after = catalogueWithDefaultAcls([widened], catalogued('reviews'));
+
+    // The declared widening landed: accepted.
+    expect(() =>
+      assertOnlyTablesMoved(before, after, ['reviews'], { schemaDefaultAcls: 'changed' }),
+    ).not.toThrow();
+
+    // The declared widening did NOT land: rejected. This is the half that
+    // stops the option being an escape hatch — a case that claims to prove a
+    // default-ACL change cannot pass against a degrade that did nothing.
+    expect(() =>
+      assertOnlyTablesMoved(before, before, ['reviews'], { schemaDefaultAcls: 'changed' }),
+    ).toThrow(/did not land/);
   });
 
   it('readMigrationSql throws when the migration file is missing', () => {

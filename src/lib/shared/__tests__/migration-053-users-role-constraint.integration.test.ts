@@ -134,6 +134,7 @@ import {
   assertOnlyTablesMoved,
   readMigrationSql,
   readPublicCatalogue,
+  schemaOnly,
   withRolledBackTransaction,
   type PublicCatalogue,
 } from '@/lib/shared/__tests__/helpers/migration-guard';
@@ -491,7 +492,18 @@ describeWithDb(
         expect(constraintDefinition(afterFirst, 'accounts', CONSTRAINT)).toBe(
           DECOY_ON_ACCOUNTS_DEF,
         );
-        expect(afterFirst.tables[TABLE]).toEqual(before.tables[TABLE]);
+        // SCHEMA only, and the reason is local to this case: `before` was read
+        // BEFORE `seedRoleFixtures`, and the apply then converts those rows,
+        // so the two sides legitimately differ in `rowDigest` (#1301 RT-3 added
+        // it). The rows are not left unguarded — `rowsAfterFirst` below deep
+        // compares every column of every seeded row, which is stronger than a
+        // digest. See `schemaOnly`'s JSDoc for when this is legitimate.
+        const afterFirstUsers = afterFirst.tables[TABLE];
+        const beforeUsers = before.tables[TABLE];
+        if (!afterFirstUsers || !beforeUsers) {
+          throw new Error(`readPublicCatalogue did not return ${TABLE}`);
+        }
+        expect(schemaOnly(afterFirstUsers)).toEqual(schemaOnly(beforeUsers));
 
         // SECOND apply — the already-present branch of the `DO` guard, which a
         // single apply after a drop never exercises. It is the branch that

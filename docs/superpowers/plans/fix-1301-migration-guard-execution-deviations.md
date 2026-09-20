@@ -598,3 +598,80 @@ it. The root re-verifies `pnpm typecheck` independently of its report.
 agent's self-report. No contract changed; no surface amendment.
 
 **Verdict:** ACCEPT
+
+---
+
+## D14 — migration 118 does not restore the schema default ACLs, and its suite implied it did
+
+**When:** review round 1, fixing RT-4. Teaching `assertOnlyTablesMoved` to
+compare `pg_default_acl` turned an invisible into a failure, and the failure
+was not the one expected.
+
+**What the new check found.** 118's off-target case runs a degrade that
+performs `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO
+anon, authenticated`, then re-applies 118 and asserts nothing outside
+`poller_heartbeats` moved. With `pg_default_acl` now read, the assertion after
+the re-apply failed.
+
+**Measured through the whole cycle on PostgreSQL 17.11**, outside the suite:
+
+| Point | `pg_default_acl` for `public` |
+|---|---|
+| before | empty |
+| after the degrade | 8 privileges each for `anon` and `authenticated` |
+| after re-applying 118 | **the same 16 entries — unchanged** |
+
+**What it means.** 118's `REVOKE` reaches what its own TABLE inherited from the
+permissive defaults, which the case "re-applying 118 revokes every client
+privilege inherited from permissive default ACLs" proves directly. The
+SCHEMA-level default is a different object, and it is migration 122's subject —
+122 removes client-role privileges from the table-owning role's schema-level
+default table privileges. 118 never claimed the schema default in its SQL; the
+SUITE implied it by asserting "nothing else moved" with a guard that could not
+see the one thing that had.
+
+**What changed.** Both `assertOnlyTablesMoved` calls in that case now declare
+`{ schemaDefaultAcls: 'changed' }`, with the measurement recorded inline. The
+option is not an exemption: `'changed'` THROWS when the default ACLs did NOT
+move, so a case claiming a widening must still prove one.
+
+**Not a migration change.** No SQL under `supabase/` is touched, so both
+Supabase projects stay in lockstep and no apply is owed. The finding is about
+what the suite ASSERTED, not about what 118 does.
+
+**Verdict:** ACCEPT
+
+---
+
+## D15 — the rollback licence is detected, not predicted; the text check was rejected
+
+**When:** review round 1, fixing the adversarial P1.
+
+**The hole.** `withRolledBackTransaction` rolls back by throwing a sentinel
+AFTER the callback returns. A migration carrying its own `BEGIN … COMMIT` ends
+the wrapper's transaction early, so everything before that `COMMIT` is already
+durable when the sentinel fires. Migration 119 carries its own `BEGIN`/`COMMIT`
+today, so the condition is one migration away, not hypothetical.
+
+**Why option 1 was rejected.** Triage offered refusing a migration whose text
+contains a transaction-control statement. It cannot be written without a SQL
+lexer: `DO $$ BEGIN … END $$` is ordinary PL/pgSQL and migration **053 uses
+it**, so any `\bBEGIN\b` check refuses a migration this branch guards. A
+hand-rolled SQL lexer is the approach that lost five red-team passes on #1171
+and that this whole module exists to replace. Shipping one as the fix for a
+review finding would have been the branch contradicting itself.
+
+**What shipped.** Option 2. `readLeakSentinel` fingerprints, OUTSIDE any
+transaction, the relation set with each relation's kind, ACL and row-security
+flags plus every `pg_default_acl` entry. `withRolledBackTransaction` reads it
+before and after and throws when it moves. Proven by a case that genuinely
+commits — it is the only way to prove a leak detector — under the shared
+advisory lock, with a defensive pre-clean and a `finally` cleanup, and it
+asserts the container is back where it started.
+
+**Stated bound.** The sentinel does not fingerprint columns, indexes, policies
+or rows: a full catalogue read on every call would roughly triple the family's
+runtime. A leak large enough to matter moves the relation set or the default
+ACLs — the two things 118's own degrade performs.
+
+**Verdict:** ACCEPT
