@@ -221,3 +221,6 @@ docs/research/*
 
 # Infisical CLI workspace link (`infisical init`) — per-machine, not shared.
 .infisical.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

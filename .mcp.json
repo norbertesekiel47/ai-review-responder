@@ -6,6 +6,12 @@
     "stripe": {
       "type": "http",
       "url": "https://mcp.stripe.com/"
+    },
+    "graft": {
+      "command": "graft",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }
