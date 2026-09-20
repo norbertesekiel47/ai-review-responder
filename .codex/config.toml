@@ -1,8 +1,8 @@
 sandbox_mode = "workspace-write"
-
 web_search = "live"
 model_verbosity = "high"
 model_reasoning_summary = "detailed"
+
 [features]
 hooks = true
 
@@ -15,7 +15,7 @@ startup_timeout_sec = 15
 tool_timeout_sec = 60
 
 [mcp_servers.sentry]
-url = "https://mcp.sentry.dev/mcp"
+url = "https://mcp.sentry.dev/mcp/repworth-nv/javascript-nextjs"
 required = false
 startup_timeout_sec = 15
 tool_timeout_sec = 60
@@ -28,3 +28,9 @@ tool_timeout_sec = 60
 
 [sandbox_workspace_write]
 network_access = true
+
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+CLAUDE_CODE_SUBAGENT_MODEL = "sonnet"
