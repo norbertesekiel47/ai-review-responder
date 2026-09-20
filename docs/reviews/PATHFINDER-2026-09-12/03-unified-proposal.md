@@ -148,8 +148,8 @@ and opens **its own** `sql.begin` at `:206`.
 
 ```
 $ rg -n 'patchAutoApprovalSettingsInTransaction' .
-docs/roadmap/2026-09-11-owner-operator/README.md:397
-docs/roadmap/2026-09-11-owner-operator/README.md:532
+docs/roadmap/2026-09-11-owner-operator.md:397
+docs/roadmap/2026-09-11-owner-operator.md:532
 docs/superpowers/plans/feat-owner-operator-run-a-intake.json:16
 docs/superpowers/plans/feat-owner-operator-run-a-plan.md:19
 ```

@@ -54,7 +54,7 @@ is a candidate under CEO-03: instruction → proposed plan → labeled historica
 demonstration → authorized existing workflow → verified result and subsequent
 eligible work. **Selected 2026-09-11 as a software v1** under a named
 60-hour exception (30 committed, 30 conditional on the staging checkpoint):
-[spec](../../2026-09-11-owner-operator/README.md). Every action still needs
+[spec](../../2026-09-11-owner-operator.md). Every action still needs
 scoped authority and a governed domain operation; no public API/MCP layer
 comes first.
 

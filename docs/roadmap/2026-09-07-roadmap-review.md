@@ -9,6 +9,16 @@ The [index](README.md) links all updated documents. Source checks were
 targeted, using repository revision `4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5`; this is
 not a full implementation or launch-readiness audit.
 
+> **Scope note (added 2026-09-20).** This record covers the September 7
+> revision only. The September 11 operator revision — the 60-hour named
+> exception and the fourth unlock condition (a CEO-selected bounded
+> hypothesis experiment) — **has not had the two-round challenge** the forward
+> roadmap requires at a major strategy checkpoint. The operator spec did
+> receive a ten-finding design review, an ideation pass and three Codex plan
+> rounds ([spec §15](2026-09-11-owner-operator.md#15-review-log)); those
+> reviewed the build, not the decision to spend the hours. The two rounds
+> remain owed. Nothing below is edited.
+
 ## Claude review method
 
 Both rounds used the installed Claude CLI and existing Claude subscription.

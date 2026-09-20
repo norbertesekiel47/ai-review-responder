@@ -1,6 +1,9 @@
-# Forward roadmap (created 2026-08-26; revised 2026-09-11)
+# Forward roadmap (created 2026-08-26; revised 2026-09-20)
 
 The owner approved the September 7 focus and the September 11 operator revision.
+The September 20 revision folds the former `owner-operator/vision.md` into
+[the last section](#owner-operator-stages-beyond-version-1) and corrects
+operator status statements; it changes no priority or gate above.
 The next month focuses on proving one useful workflow for one customer type.
 The Phase 1–8 labels below stay stable for existing references. They identify
 areas of work, not a mandatory order or a pre-launch feature checklist.
@@ -86,9 +89,11 @@ scope selection. Work on cash and beta learning can run in parallel. Keep
 engineering to one active improvement; UI fixes enter that scope when they
 block setup, trust, or completion of the chosen workflow.
 
-**One improvement is selected (2026-09-11) and not started:** the
-[owner-operator v1](2026-09-11-owner-operator/README.md), under its named
-60-hour exception. For any other candidate, hold the 20 default hours in
+**One improvement was selected (2026-09-11) and is built:** the
+[owner-operator v1](2026-09-11-owner-operator.md), under its named
+60-hour exception. Its status line owns build, environment and pilot state;
+the owner pilot, not the build, is the customer proof. For any other
+candidate, hold the 20 default hours in
 reserve until a paid decision or a named account's stated barrier to paying
 identifies the work, an observed blocking quality failure prevents delivery
 of an existing beta promise, or the CEO selects a bounded hypothesis
@@ -113,9 +118,13 @@ a commitment to use the hours or an estimate that a connector fits. A failed
 discovery ends that candidate rather than expanding the month's workload.
 A planning, memory and tool-execution platform does not fit this cap.
 **Named exception (approved 2026-09-11):** the
-[owner-operator v1](2026-09-11-owner-operator/README.md) carries its own
+[owner-operator v1](2026-09-11-owner-operator.md) carries its own
 60-hour ceiling, 30 committed and 30 conditional on its checkpoint. The
-20-hour default stays for every other improvement.
+20-hour default stays for every other improvement. **Hours actually used
+are not recorded (noted 2026-09-20).** The spec's own estimate was 70–85
+hours and the post-checkpoint items were also built, so this page does not
+claim the ceiling held. The CEO records the figure when known; no number is
+inferred here.
 
 At selection, write down the affected accounts, baseline problem, expected
 change, acceptance criteria, owner, and review date. Review weekly and at
@@ -157,8 +166,8 @@ three strongest objections per round and what changed.
 
 ### Bounded owner-operator experiment
 
-**Selected 2026-09-11, not started; the build lives in
-[owner-operator/README.md](2026-09-11-owner-operator/README.md).** Test
+**Selected 2026-09-11; built, with status owned by the
+[Owner Operator spec](2026-09-11-owner-operator.md).** Test
 whether a suitable owner will delegate one recurring reputation job through
 ordinary language and continue using it with less coordination and
 correction. The customer profile and
@@ -178,14 +187,17 @@ The complete hypothesis has five steps:
    changes later comparable work; unresolved items stay visible and receive
    an agreed next action or a recorded reason they cannot proceed.
 
-**Selected form (2026-09-11): a software v1.** The spec is
-[owner-operator/README.md](2026-09-11-owner-operator/README.md). One model
+**Selected form (2026-09-11): a software v1.** The spec is the
+[Owner Operator spec](2026-09-11-owner-operator.md). One model
 call per turn produces typed proposal cards; the owner applies each card;
 the existing engine does the work. The model calls no tools and writes no
-settings. The v1 catalog covers tone, business facts, auto-reply scope,
-veto window and daily cap through the existing domain operations. Steps 1–3
-are the staging checkpoint at 30 hours; steps 4–5 are the owner pilot with
-a real account from the COO roster.
+settings. The spec's §4 owns the operation catalog; this page does not copy
+it. Steps 1–3 are the staging checkpoint at 30 hours; steps 4–5 are the
+owner pilot with a real account from the COO roster. Step 3 is delivered as
+the spec's consequence line (§3.5): a server-computed count over the
+account's last 30 days of live-ingested reviews, stated as "eligible". It
+shows expected handling from real history; it is not a worked example of an
+exception, and no fabricated review is used.
 
 First-party conversation uses the owner's scoped identity and narrow domain
 operations; it does not depend on a public API/MCP platform. Events and
@@ -208,8 +220,12 @@ Onboarding satisfaction alone does not justify autonomous recovery, more
 countries, or a general agent platform.
 
 Every selected feature gets its own specification under
-`docs/superpowers/specs/` before code. The sketches below preserve useful
-future scope; selecting a small slice does not commit the whole phase.
+`docs/superpowers/specs/` before code. **Named exception:** the Owner
+Operator spec lives in this folder as
+[2026-09-11-owner-operator.md](2026-09-11-owner-operator.md), because it
+was written with the roadmap decision and its run records cite that path.
+The sketches below preserve useful future scope; selecting a small slice
+does not commit the whole phase.
 
 ## Reference appendix: future feature areas
 
@@ -617,3 +633,93 @@ Later:        select from P1–P8 using evidence, dependencies, cash, and capaci
 Cash/market, beta learning, and launch preparation can run in parallel.
 Engineering stays sequential within the selected scope. The August fixed
 order is superseded by the September 7 revision.
+
+---
+
+## Owner Operator: stages beyond version 1
+
+_Written 2026-09-11 as `owner-operator/vision.md`; folded into this page
+and reconciled with it 2026-09-20. Aspiration, not a plan, and no stage is
+scheduled. The v1 spec is [2026-09-11-owner-operator.md](2026-09-11-owner-operator.md)._
+
+**The vision in one line.** RepWorth becomes the reputation department a
+small business cannot afford to hire. The owner talks to it like a trusted
+manager. It does the work, shows the results, and earns more autonomy over
+time.
+
+**The gate every stage shares.** A stage's own signal below is necessary,
+not sufficient. Each stage is also selected the way this page selects any
+work: the stage before it shows useful delegation within the quality, cost
+and support limits, with a recorded paid decision; and cash and founder
+capacity are available at the 60- or 90-day checkpoint. Interest, usage or
+onboarding satisfaction alone opens no stage.
+
+### Stage 1 (v1): set up, adjust, and check on review replies by talking
+
+The owner explains the job and the rules. RepWorth proposes cards. The owner
+applies them. The existing engine runs. Unsupported requests are named and
+recorded. Scope and status: the spec.
+
+### Stage 2: the operator runs the whole job
+
+- The model reads live state through tools and works in bounded steps.
+- It covers three jobs: reply to reviews and ask customers for reviews (both exist in the engine; asks never depend on a customer's sentiment, per the Phase 2 compliance rails), and follow up privately with customers who complained (the recovery lifecycle is future Phase 2 work, not an existing job).
+- It comes to the owner instead of waiting: a short morning message with what was done, what needs one decision, and what is still open.
+- Corrections carry forward. "Never mention pricing" changes every later draft. Facts and rules become confirmed, sourced and versioned (Phase 4's memory for the selected job), not a general memory store, and a correction never expands permissions.
+
+Gate: the v1 owner pilot shows continued use and fewer repeated corrections;
+**and** an eval shows a tool-looping turn beats the one-call turn enough to
+pay for its cost, latency and failure surface, with a loop spec that answers
+[agentic architecture](2026-08-26-agentic-architecture.md) §6.4.
+Architecture: a bounded loop and the tool-call seam (same page, §6.4–§6.5).
+
+### Stage 3: the operator in the owner's pocket
+
+- Telegram and WhatsApp already terminate on the worker. The owner approves, corrects, and asks from their phone.
+- Requires: conversation delivery, sender-to-scope resolution, channel-appropriate confirmation. Sharing the turn handler is not enough.
+
+Gate: owners ask for it, and the in-app operator has proven approval and receipt behavior.
+
+### Stage 4: the operator understands the business, not only its reviews
+
+- Connects to booking, point of sale, and the customer list. A complaint links to a customer, a visit, and an outcome.
+- Spots repetition: "Scheduling complaints doubled on Tuesdays this month. Want me to flag it to your manager and follow up with the three customers?"
+- Proposes fixes outside reputation.
+
+Gate: a connector justified by observed owner burden and real access (the Phase 1 and Phase 3 selection tests above).
+
+### Stage 5: RepWorth among other agents
+
+- An MCP surface lets the owner's other tools and agents ask RepWorth questions, under scoped permissions and its own identity model. It starts as the read-only pilot in agentic architecture §4. Handing RepWorth work is a write surface: it needs its own access, cost and approval design, gives an MCP caller no extra autonomy, and does not expose sends or publishing before the internal lanes have production history.
+- Agency mode: one operator manages many client businesses. Each business keeps its own account scope, rules and approvals; agency access is a separate grant per account, never a merged scope.
+- New platforms and markets arrive as adapters to the same job, but none is a drop-in: each needs the Phase 6 access and policy check, and each market needs evidence for the full workflow ([verticals](2026-08-26-verticals.md): market capability evidence). Today `ReviewSource` and the publisher are still Google/Zernio-shaped.
+
+Gate: for MCP, the §4 pilot conditions (a named user or integration with a
+repeated task, a test client, acceptance criteria, capacity); for agency
+mode, agency demand with paid continuation.
+
+### The sky: earned autonomy
+
+- Autopilot today is bounded: rating band, daily cap, veto window, Judge review of every auto-post, Governor per account. That structure is the ladder, not the limit.
+- **Decided 2026-09-20: autonomy may widen automatically, but only inside a ceiling the owner set explicitly.** The owner's ceiling is the permission; RepWorth moving up to it on a good track record is not RepWorth granting itself more. It never passes the ceiling, it tells the owner when it moves, the Governor can still suspend, and the owner can pull it back in one sentence. This needs its own safety design under Phase 5 and representative reliability evidence first; accumulated logs alone do not establish it. Until then every widening is an explicit owner action, as in v1.
+- A bet to test, not an established moat: with each owner's permission, what works for one salon could inform the next. Cross-business learning is a separate permission, privacy and evidence question (Phases 3–4), and no data yet supports the claim.
+- Pricing could follow outcomes: recovered customers, reviews earned, hours returned. Design of record §8.5 reserves this and parks it; it stays an optional later experiment until a billable event, its attribution, costs and customer agreement are established. No revenue claim without defensible causality (Phase 7).
+
+### What never moves, at any stage
+
+- No public action without a recorded approval method: owner, or a server-owned policy. Never a conversation.
+- Moderation stays an absolute veto. Judge availability stays a posting precondition; its verdict reviews every auto-post after publication.
+- Every read and write stays scoped to the account it belongs to. Agency mode and cross-business learning add separately granted access; they never merge scopes.
+- The model proposes and interprets. The server authorizes and executes. The owner holds the ceiling.
+
+### Why the ceiling is high
+
+The claim to test: incumbents sell a dashboard with AI features inside it,
+and this path sells a colleague. The competitor evidence
+(`docs/plans/2026-09-11-reputation-competitor-landscape.md`) shows the
+incumbents already automate replies and offer self-serve setup, so the
+difference must be proven on the complete delegated job, not asserted. The
+dashboard becomes the receipt, not the product. The engine, the approval
+gates, and the watchdogs already built are what make the colleague safe to
+trust. v1 is the first rung, and it is the rung that tests whether owners
+want to climb.

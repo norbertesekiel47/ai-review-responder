@@ -38,7 +38,7 @@
     "src/lib/agents/operator/apply.ts: lock, revalidate, execute and Receipt seams with per-kind behavior",
     "src/lib/agents/operator/reads.ts: hydrateProposalReferences",
     "src/app/(authenticated)/dashboard/operator/: existing custom hooks",
-    "docs/roadmap/2026-09-11-owner-operator/README.md sections 5.2, 6.4 and 6.6"
+    "docs/roadmap/2026-09-11-owner-operator.md sections 5.2, 6.4 and 6.6"
   ],
   "test_seams": ["Existing operator route suites", "Existing Proposal mapper, Restore and reads suites", "Existing Apply concurrency matrix and Runs C/D/E red-team-named regression suites", "Existing operator UI suites and end-to-end journeys", "Fallow audit raw complexity and duplication output"],
   "allowed_edit_surface": [
@@ -49,7 +49,7 @@
     ".fallowrc.jsonc",
     ".claude/reference/arch-review-log.md",
     "docs/directory/**",
-    "docs/roadmap/2026-09-11-owner-operator/README.md",
+    "docs/roadmap/2026-09-11-owner-operator.md",
     ".agents/skills/red-team/scripts/mutation-runner.mjs",
     ".agents/skills/feature/scripts/red-team-status.mjs",
     "scripts/ci/__tests__/red-team-mutation-runner.test.ts",

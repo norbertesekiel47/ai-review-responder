@@ -1,9 +1,14 @@
 # Agentic architecture, owner operator & MCP strategy (roadmap view)
 
-Updated **2026-09-11**; filename remains stable. This page maps the August
+Updated **2026-09-20**; filename remains stable. This page maps the August
 research memo onto existing architectural seams and states the dependencies
 for future agentic work. P1–P8 are stable topic identifiers, not a fixed
 chronological build sequence. The forward roadmap owns current priorities.
+
+The 2026-09-20 revision folds the former `owner-operator/architecture.md`
+into §6, so framework posture has one owner. Owner Operator build and
+environment status is owned by the [spec](2026-09-11-owner-operator.md)
+status line; this page does not restate it.
 
 The September 7 targeted source inspection at `4aa132b` supports extending the
 existing worker/outbox system; no framework rewrite is justified. It does not prove
@@ -29,8 +34,11 @@ and `.claude/CLAUDE.md` invariants. This file is the strategy view.
    bounded operating plan using supported operations. Once authorized, work
    continues through webhook ingest, pollers and schedulers without another
    chat message. The discovery experiment is independently selectable and
-   does not wait for public API/MCP demand. This is a direction; no
-   conversational runtime exists today.
+   does not wait for public API/MCP demand. The first bounded form is built:
+   Owner Operator v1 makes one model call per turn and produces stored
+   proposals the owner applies (status: the
+   [spec](2026-09-11-owner-operator.md)). No tool loop or general
+   conversational runtime exists.
 3. **One durable workflow system; personas are attribution, not processes.**
    Reply/Guardian/Insights are trigger-shaped graphs over one pipeline, with
    persona attribution on run-spine steps — not free-running agents passing
@@ -54,10 +62,13 @@ and `.claude/CLAUDE.md` invariants. This file is the strategy view.
 6. **Model independence.** All completions route through `runLlmTask`
    (pinned per-task models, provider fallback, circuit breaker). No customer
    record, policy, prompt, or workflow definition couples to one vendor's
-   agent framework. **We do not adopt a vendor Agents SDK** — the custom
-   workflow system already provides durable jobs and human approval. The
-   current LLM seam is single-shot; `src/lib/llm/types.ts` deliberately excludes
-   tool calls and multi-turn loops. Add bounded planning only for a measured
+   agent framework. **No vendor Agents SDK by default, and none in v1** — the
+   custom workflow system already provides durable jobs and human approval.
+   A framework becomes a candidate only when a loop is specified, and is then
+   compared against a custom bounded runner under §6.3–§6.4. The current LLM
+   seam is single-shot; `src/lib/llm/types.ts` deliberately excludes tool
+   calls and multi-turn loops, and carries a per-task structured-output
+   contract to both providers. Add bounded planning only for a measured
    unmet task. Defensibility would need permissioned context, reliable
    delegated work and retention evidence, not an architecture label.
 
@@ -73,7 +84,7 @@ The memo's diagram, box by box:
 | Policy Engine + Permissions | `auto_policy` gates, trust dial, veto window, `evaluateAsk`, server-owned policies; Refusal ledger writer/read model | P5: justified per-action matrix, Judge-on-withhold, Governor per-gate |
 | Reputation Graph | Run records, outcomes, contacts/visits, review attribution and competitor snapshots | P7: queries only when data answers useful questions; current records do not establish complete sales attribution |
 | Deterministic tools (`reviews.list`, `responses.publish`, …) | Worker jobs + `ReviewPublisher`/`ReviewSource` seams + solicitation verbs (`approveBatch`, `haltBatch`, …); these names are conceptual, not a public tool inventory | Public authentication, API contracts, quotas and audit actors still require implementation (§4) |
-| Owner-facing operator | Existing owner UI and domain operations; the proposed conversational journey is not established as built | Bounded internal experiment under §3; external machine access is a separate §4 decision |
+| Owner-facing operator | Owner Operator v1: conversation → stored proposal cards → owner Apply → receipts, over the existing domain operations ([spec](2026-09-11-owner-operator.md) owns status). Customer value is not yet established | A loop only under §6.4; external machine access is a separate §4 decision |
 | Internal product ↔ MCP/API split | Internal only today | §4 below |
 
 Retain these seams. The system already supports bounded event-driven
@@ -90,11 +101,11 @@ and existing records. Cash/funding preparation proceeds alongside learning.
 
 Owner-facing work and later dependencies:
 
-**Owner-operator v1:** specified in
-[owner-operator/README.md](2026-09-11-owner-operator/README.md) with its
-[architecture page](2026-09-11-owner-operator/architecture.md) as the
-detailed owner of catalog kinds, framework posture and seam extension. The
-rules below are the summary. Add only the planning/context capability that
+**Owner-operator v1:** specified in the
+[Owner Operator spec](2026-09-11-owner-operator.md), which owns the
+operation catalog (its §4) and build status. §6 below owns the durable
+commitments, framework posture and seam extension. The rules here are the
+summary. Add only the planning/context capability that
 job requires. A model proposes a typed plan; scoped services
 validate supported actions and required decisions. Store confirmed
 instructions and pending decisions durably, with a version. Recheck authority
@@ -122,7 +133,12 @@ tool inventory is required.
 3. **P4 policy → P5 finer autonomy:** expand only the action class whose
    delegation has value and reliable failure handling. Confidence calibration
    requires representative, quality-checked verdict/edit evidence and testing;
-   accumulating logs alone does not establish calibrated confidence.
+   accumulating logs alone does not establish calibrated confidence. Owner
+   decision 2026-09-20: a later stage may widen autonomy automatically, but
+   only inside a ceiling the owner set explicitly. That ceiling is the
+   permission, so this is not an inferred preference enlarging permissions;
+   it still needs its own P5 safety design and that evidence first
+   ([forward roadmap](2026-08-26-forward-roadmap.md#owner-operator-stages-beyond-version-1)).
 4. **P7 reporting/query expansion:** wait for sufficient usable operational
    data. The current fixed seven-minute-per-reply estimate is not measured
    net owner savings. Inquiries, bookings and revenue need separate records;
@@ -203,7 +219,8 @@ checks and access records, not solicitation eligibility or reply moderation.
 
 ## 5. What we will NOT build (standing refusals)
 
-- A vendor agent-framework migration (principle 6).
+- A vendor agent-framework migration for its own sake, or any framework
+  adopted without the §6.3–§6.4 comparison (principle 6).
 - LLMs with direct DB or external-API access (principle 1).
 - Multi-agent choreography for its own sake (principle 3).
 - A conversational action without a governed domain operation and applicable
@@ -211,3 +228,115 @@ checks and access records, not solicitation eligibility or reply moderation.
   internal experiment.
 - Any agent capability that skips the access, policy, moderation, or audit
   requirements applicable to that action, including future MCP tools (§4).
+
+## 6. Owner Operator: durable commitments and framework posture
+
+_Written 2026-09-11 as `owner-operator/architecture.md`; folded into this
+page 2026-09-20. Companion to the [v1 spec](2026-09-11-owner-operator.md)._
+
+### 6.1 The durable commitment
+
+RepWorth owns business state, authorization, execution policy, and evidence
+of outcomes. Everything else is replaceable tooling. Concretely:
+
+- **Business state** lives in Postgres: settings, facts, proposals, receipts, conversations.
+- **Authorization** is checked at every protected boundary and revalidated inside the transaction that applies a change (spec §7).
+- **Execution policy** is the existing engine: outbox, worker jobs, approval gates, moderation veto, Judge, Governor, cost guard.
+- **Evidence** is the receipt and the run spine, never the assistant's prose.
+
+The model proposes and interprets. The server authorizes and executes. The
+owner holds the ceiling.
+
+### 6.2 The operation catalog
+
+`src/lib/agents/operator/catalog.ts` is the one place operations are
+defined, and spec §4 owns the inventory; this page does not copy it. The
+durable rule is the split, not the list: the model may call operations that
+read, propose, prepare or capture; it may never call the owner commands
+(Apply, Decline) that consume independently established owner approval and
+execute a stored proposal. Kinds are separated by TypeScript type and
+validated at runtime.
+
+The catalog has versioned contracts, not a frozen shape. Each operation
+declares a `contract_version`; a stored proposal carries it and is rejected
+as `contract_changed` after a deploy that bumps it. Settings freshness is a
+separate token (spec §6.2). The catalog and lifecycle may change in later
+phases for their own reasons; nothing here promises otherwise.
+The same domain operations serve settings forms, v1 proposal cards,
+conversational tools later, and an external MCP surface if one is
+justified (§4). Each consumer gets its own actor model and permission check.
+
+### 6.3 Framework posture
+
+"No framework for v1" is a decision, not a claim that frameworks cannot
+fit. v1 needs one model call that produces a proposal, then an
+owner-authorized operation. It does not need an agent loop.
+
+| Option | What is true | Position for RepWorth |
+|---|---|---|
+| Custom bounded runner | Smallest surface. Everything integrates with existing fallback, cost guard, outbox. | v1 has no loop at all. First candidate when a loop is needed. |
+| OpenAI Agents SDK | Runs inside the app. Supports non-OpenAI models through adapters. Tracing is configurable. | Legitimate candidate when a loop is needed. Compare integration cost against the custom runner then. Fallback, accounting, and approvals still need deliberate integration. |
+| LangGraph | Graph execution and checkpointing. Checkpoints can live in Postgres. Different purpose from the outbox (delivers work) and the run spine (records attribution). | Defer. Consider if durable branching, interruptions, and multi-step recovery become substantial. Decide explicitly which system owns execution progress. |
+| Claude Managed Agents | Anthropic hosts orchestration and a per-session container. Custom tools can execute in the app and return results. | Defer. Changes the Railway execution boundary and adds a vendor-managed session lifecycle. Larger decision than v1 needs. |
+| Vercel eve | Durable sessions and workflow runtime. Can self-host. | Defer. A substantial runtime; not required by v1. |
+
+Whatever is chosen, principle 6 holds: no customer record, policy, prompt or
+workflow definition couples to one vendor's framework. Repo precedent, the
+August 2026 research
+(`docs/plans/2026-08-09-multi-agent-architecture-research.md`): promote a
+workflow to a tool-looping agent only when its steps cannot be predicted and
+an eval shows it beats the simpler workflow enough to pay for cost, latency,
+and failure surface.
+
+### 6.4 What a later loop would need
+
+A reliable runtime is more than its loop. Before any loop ships, the spec
+for it must answer:
+
+- Persisted progress and tool-result recovery after a crash.
+- Idempotent operations and accurate receipts per step.
+- Step, time, and spend limits that survive job retries.
+- Accounting for failed and fallback model attempts.
+- A durable waiting state while approval is pending.
+- A policy for overlapping owner messages and cancellation.
+
+Those are the requirements a framework comparison measures against. RepWorth
+owns the business rules; it need not hand-write every orchestration
+mechanism.
+
+### 6.5 The LLM seam
+
+`runLlmTask` accepts system plus user and returns one completion. Since
+Run C (#1278) a task may register an output schema, which reaches OpenAI
+(`response_format`) and Anthropic (`output_config.format`) and is validated
+again locally. Tool calls, streaming, and multi-turn loops are deliberately
+absent. v1 added one task, `owner_operator`, on that path.
+
+A future tool-call contract must round-trip: tool-call IDs, results, stop
+reasons, usage, and provider-specific continuation blocks. Provider fallback
+mid-conversation is untested and the two providers' conversation formats are
+not interchangeable by default. That extension is real work. Add it when a
+demonstrated workflow requires it.
+
+### 6.6 History versus context
+
+Store an append-only event history for audit and recovery. Build the model
+context from it deliberately and bounded, preserving any provider-required
+data. Prompt caching depends on a stable serialized prefix, not on
+append-only rows. Long conversations must not grow cost and latency without
+limit.
+
+### 6.7 What a loop changes, and what it does not
+
+A loop by itself requires no change to: the catalog, proposals and receipts,
+the lifecycle, authorization at every boundary, the outbox and worker, cost
+guard, provider fallback, the run spine, the Operator screen and its polling
+contract. (Each may still change for its own reasons under §6.2's versioned
+contracts.)
+
+A loop does change: the turn handler (one call becomes a bounded loop), the
+seam (tool-call contract), context construction (events plus bounded context
+per step), plus the runtime requirements in §6.4. The loop changes how the
+model reasons between calls; it does not change who is allowed to write. The
+size of that work is estimated when the loop is specified against §6.4, not
+here.

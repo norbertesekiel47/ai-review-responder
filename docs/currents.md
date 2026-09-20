@@ -115,7 +115,7 @@ Architecture records this feature once, 2→3; the separate docs merge does not 
 D docs #1292 merged as `30896acbcb2ee127131504e531f230fcfc7e4409`, closing the
 sequencing dependency. Its shortened observation remains unchanged; the pilot
 owner/window remains BLOCKED-human and production Operator enablement remains
-a separate human decision. The [spec §15](roadmap/2026-09-11-owner-operator/README.md#15-review-log)
+a separate human decision. The [spec §15](roadmap/2026-09-11-owner-operator.md#15-review-log)
 owns the feature merge and the remaining documentation/deployment status.
 
 ## Quick summary — Owner Operator Run D: recoverable turns and checkpoint closure (2026-09-14, #1291)
@@ -180,7 +180,7 @@ Run A landed on `main` as squash `d8e3f334f`. Migration 120 is on BOTH Supabase 
 
 ## Quick summary — Owner Operator Run A: the turn pipeline, flag off everywhere (2026-09-11)
 
-The **Owner Operator** — the conversational surface an owner will use to configure RepWorth by talking — exists end to end as a *pipeline*, behind `OWNER_OPERATOR_ENABLED` (server-only, default off, unset in every environment). Spec of record: [`docs/roadmap/2026-09-11-owner-operator/README.md`](roadmap/2026-09-11-owner-operator/README.md); glossary: [`docs/context/owner-operator.md`](context/owner-operator.md).
+The **Owner Operator** — the conversational surface an owner will use to configure RepWorth by talking — exists end to end as a *pipeline*, behind `OWNER_OPERATOR_ENABLED` (server-only, default off, unset in every environment). Spec of record: [`docs/roadmap/2026-09-11-owner-operator.md`](roadmap/2026-09-11-owner-operator.md); glossary: [`docs/context/owner-operator.md`](context/owner-operator.md).
 
 **What Run A built.** Migration 120's four tables (`agent_conversations`, `agent_turns`, `agent_proposals`, `agent_unsupported_requests`) with deny-all RLS and a hard-delete offboarding disposition. The `agent_turn` outbox topic, queue and typed enqueue helper. A POST route that creates an **Operator turn** and its outbox row in one transaction, plus two account-scoped owner reads. `AgentTurnWorker`, which claims the turn on a 180-second lease, waits for its predecessor with `moveToDelayed` (a wait, not a retry), re-authorizes actor, subscription posture and location from the database, builds a **Context snapshot**, makes one cost-guarded `owner_operator` LLM call, and writes reply segments, **Proposals** and **Requested capabilities** in one **Fenced completion**. The operation catalog registers three reads, four voice proposables and one capture. `src/lib/responses/voice-settings.ts` is now the single transactional writer for a location's voice fields, shared by the settings route and the Operator, with `highlight_facts` in the column map.
 

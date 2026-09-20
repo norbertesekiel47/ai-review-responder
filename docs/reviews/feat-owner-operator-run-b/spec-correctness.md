@@ -4,7 +4,7 @@
 - **Head reviewed:** `dba7af671f8dcba589dc482e0a3ba86d8324fb07`
 - **Read method:** every file read through `git show dba7af671:<path>` / `git diff 6edacd0b0..dba7af671`. No working-tree file was opened (a red-team pass is mutating source concurrently); `git status --porcelain` showed only the untracked `docs/reviews/feat-owner-operator-run-b/blast-radius.md`.
 - **Measured production diff:** the brief's 3,261 lines outside tests/docs reproduces when `e2e/helpers/operator-seed.ts` is counted as production (3,026 added + 56 deleted = 3,082 excluding `e2e/`, +181 for the seed helper = 3,263). Test bucket ≈ 3,358 (as recorded in the deviations' reclassify WARN); docs ≈ 8,700.
-- **Contract read:** `docs/superpowers/plans/feat-owner-operator-run-b-intake.json` (at head), spec `docs/roadmap/2026-09-11-owner-operator/README.md` §1, §3.1–§3.5, §5.1, §6.1–§6.5, §7, §8, §14, glossary `docs/context/owner-operator.md`, deviations file (all root Verdicts read as ACCEPT and treated as the contract's current reading), blast radius, `docs/reviews/finding-checklists/spec-correctness.md`, and the browser evidence index plus `proposal-card-1440.png` and `receipt-390.png`.
+- **Contract read:** `docs/superpowers/plans/feat-owner-operator-run-b-intake.json` (at head), spec `docs/roadmap/2026-09-11-owner-operator.md` §1, §3.1–§3.5, §5.1, §6.1–§6.5, §7, §8, §14, glossary `docs/context/owner-operator.md`, deviations file (all root Verdicts read as ACCEPT and treated as the contract's current reading), blast radius, `docs/reviews/finding-checklists/spec-correctness.md`, and the browser evidence index plus `proposal-card-1440.png` and `receipt-390.png`.
 
 ## Findings
 

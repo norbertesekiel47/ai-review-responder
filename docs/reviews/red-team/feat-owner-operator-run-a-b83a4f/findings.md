@@ -82,7 +82,7 @@ in `findings.json` as authorization `auth-round-3-docs-2026-09-12` over findings
 when the sidecar already carries an authorization whose text names the third round. P2-2 and P2-3
 keep disposition **`open`** and carry **no** `authorization` field: they are being FIXED, not
 accepted as risk, and the two dispositions are exclusive. Round 3 is scoped to the two doc hunks
-the wording defects live in — `docs/roadmap/2026-09-11-owner-operator/README.md` line 638 and the
+the wording defects live in — `docs/roadmap/2026-09-11-owner-operator.md` line 638 and the
 `agent_turn` bullet in `docs/runbooks/beta-launch-alerting.md` §1 — after the orchestrator's fix
 commit.
 
@@ -143,10 +143,10 @@ adjudicated false positives (a bare `voice/route.ts:23` shorthand resolved as a 
 | `P1-2` | P1 | 5 | `worker/background/pollers/health-alert/checks.ts:105-124` | **fixed** | M3 (`AGENT_TURN` removed from the closed allowlist, `checks.ts:124`) → `expected [ 'publish_response', …(6) ] to include 'agent_turn'`; emission path re-resolved through `emit.ts:10-18` |
 | `P1-3` | P1 | 5 | `worker/job-failure-sink.ts:64-80` | **fixed** | static: all six facets re-resolved against `job-failure-sink.ts:64-80` + `worker/index.ts:567-575`; none contradicts the emitter |
 | `P1-4` | P1 | 5 | `worker/background/pollers/OutboxPoller.ts:93-165` | **fixed** | static: `OutboxPoller.ts:160-166` confirmed log-only, intake promises a row state not an alert, terminal half now alerts via P1-2 — neither half orphaned |
-| `P1-5` | P1 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **fixed** | static: `rg "logger\.(log|warn|error)\("` over `AgentTurnWorker.ts` — all seven per-path levels match the rewritten line |
+| `P1-5` | P1 | 3 | `docs/roadmap/2026-09-11-owner-operator.md:638` | **fixed** | static: `rg "logger\.(log|warn|error)\("` over `AgentTurnWorker.ts` — all seven per-path levels match the rewritten line |
 | `P1-6` | P1 | 3 | `.claude/reference/lab-notes/postgres.md:17` | **fixed** | static: `parseReplySegments` resolves to `context.ts:297`, `reads.ts:97`, `reads.ts:213` exactly as the corrected line says |
 | `P2-1` | P2 | 4 | `worker/jobs/agent-turn/failed-hook.ts:26-28` | **fixed** | M5 (`boundedErrorClass(err)` → constant, `failed-hook.ts:36`) → `expected [ …(2) ] to include 'agent_turn_exhausted:ProviderTimeout'` |
-| `P2-2` | P2 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **fixed** (round 3) | seven members partitioned 6 worker / 1 failed-hook, `account_offboarding` named, lease-lost excluded from the count; watchdog line verified verbatim at `OutboxPoller.ts:162-168` |
+| `P2-2` | P2 | 3 | `docs/roadmap/2026-09-11-owner-operator.md:638` | **fixed** (round 3) | seven members partitioned 6 worker / 1 failed-hook, `account_offboarding` named, lease-lost excluded from the count; watchdog line verified verbatim at `OutboxPoller.ts:162-168` |
 | `P2-3` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:330-339` | **fixed** (round 3) | ownership split now stated: sink fires on every terminal event (`job-failure-sink.ts:64-66`), hook ends the turn `exhausted` only when its CAS owns the row (`failed-hook.ts:53-71`) |
 | `P2-4` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:337-338` | **open** | NEW (round 3) — the triage step names a `turn_id` the event does not carry; `extra` has `job_id`/`outbox_id`/`attempts_made` only |
 
@@ -192,7 +192,7 @@ FIXED by 3a377f656. QUEUE_NAMES.AGENT_TURN joined checkFailedOutboxByTopic's clo
 
 ROUND-1 EVIDENCE (retained): A missing alert-path half: the branch adds an owner-impacting outbox topic and no emitting signal watches it. The allowlist binds exactly PUBLISH_RESPONSE, SEND_NOTIFICATION, GENERATE_RESPONSE, BUILD_SOLICITATION_BATCH, GENERATE_SOLICITATION_ASKS and SOLICITATION_VETO_NOTICE; QUEUE_NAMES.AGENT_TURN (src/lib/shared/queue-names.ts:68) is absent. A failed agent_turn row therefore raises no subsystem:health_alert finding, so rule 1 of docs/runbooks/beta-launch-alerting.md can never fire for this lane. Fix: add QUEUE_NAMES.AGENT_TURN to the allowlist, or state in the runbook why a failed turn is not owner-impacting.
 
-**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. The code comment directly above the allowlist names this exact defect class as a prior incident — "This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row." The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator/README.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and "rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md" returns zero matches.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. The code comment directly above the allowlist names this exact defect class as a prior incident — "This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row." The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and "rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md" returns zero matches.
 
 ### P1-3 — P1 (duty 5) — The job-failure-sink Sentry signal for queue agent_turn has no rule row in beta-launch-alerting.md
 
@@ -218,7 +218,7 @@ ROUND-1 EVIDENCE (retained): The intake's observability section states: "job_out
 
 ### P1-5 — P1 (duty 3) — A changed doc claim is false: the agent_turn lane does not emit logger.warn uniformly across the six terminal paths
 
-- **At:** `docs/roadmap/2026-09-11-owner-operator/README.md:638`
+- **At:** `docs/roadmap/2026-09-11-owner-operator.md:638`
 - **Disposition:** `fixed`
 
 FIXED by 3a377f656. Every claim in the rewritten README:638 bullet re-resolved against head with rg "logger\.(log|warn|error)\(" over worker/jobs/agent-turn/AgentTurnWorker.ts: predecessor_stalled warn (:122), unauthorized reauthorization arm warn (:171), unauthorized vanished-voice arm warn (:229), model_output_invalid warn (:204), budget_exceeded warn (:292), operator_disabled logger.log/info (:324), lease-lost warn (:370). The false uniformity claim is gone and the per-path levels are now correct. Two residual imprecisions in the same line are recorded separately as P2-2 rather than reopening this finding.
@@ -251,7 +251,7 @@ ROUND-1 EVIDENCE (retained): Missed sibling case. Pattern searched: "function bo
 
 ### P2-2 — P2 (duty 3) — The rewritten go-live alerting bullet miscounts its own terminal paths and misnames the watchdog log line
 
-- **At:** `docs/roadmap/2026-09-11-owner-operator/README.md:638`
+- **At:** `docs/roadmap/2026-09-11-owner-operator.md:638`
 - **Disposition:** `open`
 
 Two imprecisions inside the fix hunk, neither of them an operationally false claim. (1) The line opens "The six terminal paths in AgentTurnWorker resolve the turn" and then enumerates seven items, the last of which — "a lease lost before completion" — the same sentence says "resolves NOTHING"; and it never names account_offboarding, which IS one of the six domain terminal reasons (src/lib/agents/operator/schema.ts:55) and is written by the very reauthorization arm the line does name (AgentTurnWorker.ts:166-171), so the same logger.warn covers it. The runbook's parallel sentence counts correctly ("the six domain terminal reasons (operator_disabled through budget_exceeded)" = exactly the six non-exhausted members in declaration order). (2) The line calls the watchdog re-pend "a topic-aggregated log line in runOutboxWatchdogRecovery"; at head that call emits logger.log('Watchdog recovered stale entries', { recovered, failed, stale_dispatching }) (worker/background/pollers/OutboxPoller.ts:160-166), which carries NO topic field at all — the counts are aggregated ACROSS topics, not by topic. The same phrase appears in docs/runbooks/beta-launch-alerting.md:338-340. Suggested replacement: "the six domain terminal reasons (operator_disabled through budget_exceeded) resolve the turn; a lease lost before completion resolves nothing", and "an untyped aggregate count in runOutboxWatchdogRecovery's log line".
@@ -384,7 +384,7 @@ protocol rule as `INV-268`; verified under duties 3 and 5 instead):
 
 | id | outcome | file |
 |---|---|---|
-| `INV-274` | `excluded` | `docs/roadmap/2026-09-11-owner-operator/README.md:638` |
+| `INV-274` | `excluded` | `docs/roadmap/2026-09-11-owner-operator.md:638` |
 | `INV-275` | `excluded` | `docs/runbooks/beta-launch-alerting.md:325-348` |
 
 Round 1's 25 carried-forward `killed` rows were NOT re-executed. Their validity rests on a property,
@@ -398,7 +398,7 @@ Rendered from `findings.json`'s `authorizations` array, which is the authoritati
 
 **`auth-round-3-docs-2026-09-12`** — 2026-09-12 — findings `P2-2`, `P2-3`
 
-> Owner (Norbert) selected "Fix now, third round" via AskUserQuestion on 2026-09-12 after round 2 closed with P2-2 and P2-3 open (wording defects in the two doc hunks the round-1 fix commit 3a377f656 introduced). A third round is authorized, scoped to those two doc hunks — docs/roadmap/2026-09-11-owner-operator/README.md line 638 and the agent_turn bullet in docs/runbooks/beta-launch-alerting.md §1 — after the orchestrator's fix commit.
+> Owner (Norbert) selected "Fix now, third round" via AskUserQuestion on 2026-09-12 after round 2 closed with P2-2 and P2-3 open (wording defects in the two doc hunks the round-1 fix commit 3a377f656 introduced). A third round is authorized, scoped to those two doc hunks — docs/roadmap/2026-09-11-owner-operator.md line 638 and the agent_turn bullet in docs/runbooks/beta-launch-alerting.md §1 — after the orchestrator's fix commit.
 
 This authorization granted a third ROUND and has now been CONSUMED — `round-start` validated it
 against the committed round-2 sidecar and opened round 3, which verified both findings `fixed`. It

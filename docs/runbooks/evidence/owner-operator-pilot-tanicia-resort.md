@@ -5,7 +5,7 @@
 observation window starts when the owner's first eligible review arrives
 after setup. This file is the founder-facing reference for the pilot; the
 private COO customer record keeps contact permission, commercial promises,
-and the decision-maker's details. Spec: `docs/roadmap/2026-09-11-owner-operator/README.md`
+and the decision-maker's details. Spec: `docs/roadmap/2026-09-11-owner-operator.md`
 §12.1 item 9 and §12.3. Template: `docs/runbooks/owner-operator-pilot-observation-template.md`.
 
 ## Production flip record (flag-flip skill step 7)

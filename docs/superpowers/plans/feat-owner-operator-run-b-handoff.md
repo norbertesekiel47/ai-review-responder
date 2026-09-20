@@ -4,7 +4,7 @@ Everything a resumed session needs is on disk. Read in this order; never re-read
 
 | What | Path |
 |---|---|
-| Spec of record (map, ticket-seeded) | `docs/roadmap/2026-09-11-owner-operator/README.md` (§3.1–§3.3, §5.1, §6.1–§6.5, §7, §8, §12.1, §14, §15) |
+| Spec of record (map, ticket-seeded) | `docs/roadmap/2026-09-11-owner-operator.md` (§3.1–§3.3, §5.1, §6.1–§6.5, §7, §8, §12.1, §14, §15) |
 | Locked intake (drift detector; 1 surface amendment recorded) | `docs/superpowers/plans/feat-owner-operator-run-b-intake.json` (= `.feature/intake.json`) |
 | Plan (T0–T8) | `docs/superpowers/plans/feat-owner-operator-run-b-plan.md` |
 | Plan-review artifacts (Codex rounds) | `~/.claude/grill-codex/run-b-2026-09-12/` (outside the repo; `runs/claudex-*/result.json`) |
