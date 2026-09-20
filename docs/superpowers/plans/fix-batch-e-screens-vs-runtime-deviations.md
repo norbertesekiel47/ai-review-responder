@@ -106,7 +106,17 @@ were deliberately backed out mid-tracer (the loader's five inputs, and the
 headline branch) after being written ahead of their tests, and re-driven one
 input / one behavior at a time.
 
-**Verdict:** PENDING
+**Verdict:** ACCEPT. The nine titles are genuinely absence or composition pins:
+a test referencing `data.posting` cannot even be written before the type exists,
+so it would ERROR rather than FAIL, which the TDD rule explicitly forbids as a
+RED. Mutation is the correct substitute, and the mutation list is the right set
+— it includes the trap. **Independently re-verified by the orchestrator**, not
+taken on trust: `tierGrantsAutopilot(tier) && autopilotPurchasable()` was
+re-applied and caught by the trap test by name (2 failed / 91 passed), and
+`judgeEnabled: autoApprovalRuntimeEnabled()` was caught by the judge loader test
+by name. Tree restored to 93/93 after each. Durable lesson for step 8: an
+absence pin on a NEW response field can never start RED; plan it as a mutation
+obligation from the outset rather than discovering it mid-tracer.
 
 ---
 
@@ -122,7 +132,12 @@ blocks) and carries a comment saying the judge flag is not a readiness input.
 The plan named the fixture amendment in `context.test.ts` as "surface amendment
 1 of 1" and did not anticipate this one; it is test-only and adds no surface.
 
-**Verdict:** PENDING
+**Verdict:** ACCEPT. Test-only, no surface change, and the helper is the suite's
+single "every structural flag on" setup — setting the judge flag anywhere else
+would leak across tests. Verified that it does not neuter the new coverage: the
+judge loader test sets `JUDGE_ENABLED` false explicitly after the helper runs,
+and the orchestrator's independent judge-slot mutation was caught by that test,
+which proves it still discriminates.
 
 ---
 
@@ -150,7 +165,12 @@ so the builder was rewound to the simplest form that passed the three key-list
 titles (every key assigned one accessor) until that title was observed failing,
 then re-implemented.
 
-**Verdict:** PENDING
+**Verdict:** ACCEPT. The two titles pin `readFlag`'s `=== 'true'` semantics,
+which lives in `src/lib/config/flags.ts` — outside T3's lease, and correctly so;
+widening the lease to force a RED would have been the worse choice. Mutating the
+TRIAGE slot inside its own module to `Boolean(process.env.TRIAGE_ENABLED)` is
+the right local substitute, and exactly those two titles failed. Escalating
+instead of quietly editing another tracer's file was the correct instinct.
 
 ---
 
@@ -192,4 +212,68 @@ was queried with `getByText('Downgrade plan')`, but `SettingsModal` exposes its
 re-confirmed RED against the price-based body with the corrected query before
 the fix was restored.
 
-**Verdict:** PENDING
+**Verdict:** ACCEPT. All four are honest absence or already-satisfied pins, and
+the reasoning for the two card-label titles is the important one: today's
+catalogue order happens to agree with autonomy order, which is precisely why the
+plan gate demanded the equal-and-reversed price tests. **Independently
+re-verified by the orchestrator** with a stronger mutation than the one recorded
+here — the card's direction was re-implemented as a live catalogue-price
+comparison, the exact implementation skeptic round 1 predicted would pass
+everything. It was caught by `billing cards retain upgrade and downgrade labels
+when both catalogue prices are equal`, and by that title alone (1 failed / 22
+passed). Without round 1, #1054 would have shipped looking fixed.
+
+Both mid-tracer back-outs were the right call, and the second is the better one:
+writing the warning ungated, re-gating it so the trialing title could fail for
+the right reason, then removing the gate again, is TDD used to interrogate a
+decision rather than to satisfy a checklist. The `aria-label` query correction
+was made while RED and re-confirmed RED before the fix landed, so it did not
+weaken the assertion.
+
+---
+
+## D9 — The gate the command names does not write the fingerprint the Stop hook requires
+
+`/feature` steps 5 and 7.5 both say to run `scripts/verify-gate.sh --review`.
+That script runs every row and writes `.feature/gate-status.json`, but it does
+NOT write `.feature/codex-gate-fingerprint.json`. The Stop hook requires a
+matching fingerprint from `gate-fingerprint.mjs check`, so a branch can be
+34/34 green and still be refused:
+
+```
+gate fingerprint failed: missing .feature/codex-gate-fingerprint.json;
+  run verified-gate.sh
+```
+
+The wrapper `.agents/skills/feature/scripts/verified-gate.sh` is the one that
+produces evidence: it delegates to `scripts/verify-gate.sh`, then runs
+`gate-fingerprint.mjs write` followed by `check`. It deliberately does NOT
+fingerprint `--baseline`, `--fast` or `--status`, because none of those is
+evidence. `gate-summary.sh`'s own failure banner names the wrapper correctly;
+the command text does not.
+
+Cost here: one full gate re-run (~2 min) that a correct first invocation would
+have avoided.
+
+**Verdict:** ACCEPT — use the wrapper for any gate meant as evidence. Durable
+lesson for step 8: the `/feature` command text should name
+`.agents/skills/feature/scripts/verified-gate.sh --review` at steps 5 and 7.5,
+as `gate-summary.sh` already does.
+
+---
+
+## D10 — `gate-status.json` records `mode: "full"` for a review-mode run
+
+`bash scripts/verify-gate.sh --review` writes `"mode":"full"` into
+`.feature/gate-status.json`. The run really was review mode: the review-only
+`diff-coverage` row is present and PASS, and `verify-gate.sh --status` reported
+`mode review` while it was still running. So the label is wrong, not the run.
+
+Consequence is reporting only — a reader of `gate-status.json` cannot tell a
+review gate from a full one, and `--status` after the fact repeats the wrong
+label. No check is skipped.
+
+**Verdict:** ACCEPT — no impact on this branch's evidence; `diff-coverage`'s
+presence is the reliable signal that review mode ran. Durable lesson for step 8:
+this is the same discrepancy a prior session raised during Batch A; it is worth
+a ticket rather than a third rediscovery.

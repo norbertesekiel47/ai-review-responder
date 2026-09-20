@@ -1,0 +1,231 @@
+# Blast radius — importers of changed files (`fix/batch-e-screens-vs-runtime`)
+
+Resolved-specifier import search (TypeScript AST); verify semantic impact per caller.
+
+## `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx` — 2 importer(s)
+- src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx
+- src/app/(authenticated)/settings/auto-approval/page.tsx
+
+## `src/components/dashboard/settings/BillingPanel.tsx` — 2 importer(s)
+- src/app/(authenticated)/settings/billing/BillingClient.tsx
+- src/components/dashboard/settings/__tests__/BillingPanel.test.tsx
+
+## `src/lib/accounts/tier-config.ts` — 104 importer(s)
+- scripts/verify-stripe-price-parity.ts
+- scripts/ws8-staging-smoke.ts
+- src/app/(public)/pricing/PricingContent.tsx
+- src/app/api/account/settings/route.ts
+- src/app/api/billing/__tests__/checkout-params.test.ts
+- src/app/api/billing/__tests__/checkout.test.ts
+- src/app/api/billing/checkout/__tests__/route.test.ts
+- src/app/api/billing/checkout/route.ts
+- src/app/api/billing/tier-change/route.ts
+- src/app/api/locations/add/route.ts
+- src/app/api/onboarding/__tests__/select-plan.test.ts
+- src/app/api/onboarding/select-plan/route.ts
+- src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts
+- src/app/onboarding/business/BusinessWizardClient.tsx
+- src/app/onboarding/pay/PlanPickerClient.tsx
+- src/app/onboarding/pay/page.tsx
+- src/app/onboarding/pay/plan-options.ts
+- src/components/dashboard/settings/BillingPanel.tsx
+- src/hooks/useAccountData.ts
+- src/lib/__fixtures__/account-location.ts
+- src/lib/accounts/__tests__/quota.grandfathering.test.ts
+- src/lib/accounts/__tests__/quota.test.ts
+- src/lib/accounts/__tests__/tier-change.test.ts
+- src/lib/accounts/__tests__/tier-config.test.ts
+- src/lib/accounts/__tests__/tier-snapshot.test.ts
+- src/lib/accounts/quota.ts
+- src/lib/accounts/repo.ts
+- src/lib/accounts/tier-change.ts
+- src/lib/accounts/tier-snapshot.ts
+- src/lib/admin/__tests__/margin-service.test.ts
+- src/lib/admin/business-detail-service.ts
+- src/lib/admin/business-detail-types.ts
+- src/lib/admin/business-detail/mappers.ts
+- src/lib/admin/cost-report-service.ts
+- src/lib/admin/csv-import.ts
+- src/lib/admin/margin-service.ts
+- src/lib/agents/operator/__tests__/context.test.ts
+- src/lib/agents/operator/__tests__/snapshot.integration.test.ts
+- src/lib/agents/operator/apply.ts
+- src/lib/agents/operator/authorize.ts
+- src/lib/agents/operator/context.ts
+- src/lib/agents/operator/model-call.ts
+- src/lib/agents/operator/restore.ts
+- src/lib/auto-approval/__tests__/settings.test.ts
+- src/lib/auto-approval/settings.ts
+- src/lib/auto-approval/solicitation-settings.ts
+- src/lib/costs/__tests__/tier-cost-limits.test.ts
+- src/lib/costs/cost-guard.ts
+- src/lib/costs/tier-cost-limits.ts
+- src/lib/costs/tracker.ts
+- src/lib/cross-area-flows/__tests__/cross-area-flows.test.ts
+- src/lib/db/account-guard.ts
+- src/lib/locations/__tests__/multi-location-mode.test.ts
+- src/lib/locations/add-location-tx.ts
+- src/lib/locations/archive-location-tx.ts
+- src/lib/locations/multi-location-mode.ts
+- src/lib/locations/settings-view.ts
+- src/lib/moderation/safety-review.ts
+- src/lib/onboarding/create-business.ts
+- src/lib/past-replies/load-replies.ts
+- src/lib/payments/__tests__/create-checkout-session.test.ts
+- src/lib/payments/__tests__/plan-activation.test.ts
+- src/lib/payments/create-checkout-session.ts
+- src/lib/payments/overage-item.ts
+- src/lib/payments/plan-activation.ts
+- src/lib/payments/plan-presentation.ts
+- src/lib/payments/price-tier-map.ts
+- src/lib/payments/tier-purchasability.ts
+- src/lib/responses/__tests__/edit-existing.test.ts
+- src/lib/responses/edit-existing.ts
+- src/lib/responses/judge.ts
+- src/lib/responses/review-summary.ts
+- src/lib/responses/types.ts
+- src/lib/reviews/import-consent.ts
+- src/lib/reviews/triage.ts
+- src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts
+- src/lib/shared/schemas.ts
+- src/lib/shared/worker-types.ts
+- src/lib/solicitation/__tests__/auto-approval.test.ts
+- src/lib/solicitation/ask-generation.ts
+- src/lib/solicitation/auto-approval.ts
+- worker/background/pollers/__tests__/StripeLocationsReconcilePoller.test.ts
+- worker/background/pollers/billing-reconciliation/expected-invoice.ts
+- worker/background/pollers/billing-reconciliation/reconcile-account.ts
+- worker/config/__tests__/startup-assertion.test.ts
+- worker/ingress/__tests__/helpers/stripe-webhook-harness.ts
+- worker/ingress/stripe/checkout-completed.ts
+- worker/ingress/stripe/shared.ts
+- worker/ingress/stripe/subscription-updated.ts
+- worker/jobs/MonthlyImpactWorker.ts
+- worker/jobs/ResponseGeneratorWorker.ts
+- worker/jobs/WeeklySummaryWorker.ts
+- worker/jobs/billing/UpdateStripeOverageWorker.ts
+- worker/jobs/billing/overage-sync.ts
+- worker/jobs/judge/context.ts
+- worker/jobs/publisher/auto-policy-publish.ts
+- worker/jobs/response-generation/__tests__/auto-approval.test.ts
+- worker/jobs/response-generation/__tests__/load-context.test.ts
+- worker/jobs/response-generation/auto-approval.ts
+- worker/jobs/response-generation/load-context.ts
+- worker/jobs/response-generation/persist.ts
+- worker/jobs/summary-report-helpers.ts
+- worker/jobs/zernio/ZernioBackfillWorker.ts
+- worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts
+
+## `src/lib/auto-approval/posting-status.ts` — 2 importer(s)
+- src/lib/auto-approval/__tests__/posting-status.test.ts
+- src/lib/auto-approval/settings.ts
+
+## `src/lib/auto-approval/settings.ts` — 15 importer(s)
+- scripts/ws8-staging-smoke.ts
+- src/app/(authenticated)/settings/auto-approval/page.tsx
+- src/app/api/settings/auto-approval/route.ts
+- src/lib/agents/operator/__tests__/apply.test.ts
+- src/lib/agents/operator/__tests__/policy-apply.integration.test.ts
+- src/lib/agents/operator/__tests__/restore.integration.test.ts
+- src/lib/agents/operator/apply.ts
+- src/lib/agents/operator/context.ts
+- src/lib/agents/operator/reads.ts
+- src/lib/agents/operator/restore.ts
+- src/lib/auto-approval/__tests__/settings.integration.test.ts
+- src/lib/auto-approval/__tests__/settings.test.ts
+- src/lib/auto-approval/__tests__/suspension.integration.test.ts
+- src/lib/auto-approval/solicitation-settings.ts
+- worker/jobs/agent-turn/AgentTurnWorker.ts
+
+## `src/lib/auto-approval/types.ts` — 68 importer(s)
+- src/app/(authenticated)/dashboard/operator/wording.ts
+- src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx
+- src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx
+- src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts
+- src/app/api/dashboard/past-replies/[responseId]/retry/route.ts
+- src/app/api/dashboard/past-replies/publish/route.ts
+- src/app/api/settings/auto-approval/route.ts
+- src/components/approval/approval-client.tsx
+- src/components/dashboard/reviews/AutoApprovedBadge.tsx
+- src/components/dashboard/reviews/PastReplyCard.tsx
+- src/components/dashboard/reviews/ReviewFeedCard.tsx
+- src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx
+- src/lib/admin/business-detail-types.ts
+- src/lib/admin/business-detail/mappers.ts
+- src/lib/admin/business-detail/queries.ts
+- src/lib/agents/operator/__tests__/context.test.ts
+- src/lib/agents/operator/__tests__/operation-inputs.test.ts
+- src/lib/agents/operator/__tests__/policy-apply.integration.test.ts
+- src/lib/agents/operator/__tests__/policy-state.integration.test.ts
+- src/lib/agents/operator/__tests__/reads.integration.test.ts
+- src/lib/agents/operator/__tests__/restore.integration.test.ts
+- src/lib/agents/operator/__tests__/snapshot.integration.test.ts
+- src/lib/agents/operator/apply.ts
+- src/lib/agents/operator/catalog.ts
+- src/lib/agents/operator/consequence.ts
+- src/lib/agents/operator/context.ts
+- src/lib/agents/operator/operation-inputs.ts
+- src/lib/agents/operator/policy-state.ts
+- src/lib/agents/operator/proposals.ts
+- src/lib/agents/operator/schema.ts
+- src/lib/agents/read.ts
+- src/lib/approval/audit.ts
+- src/lib/approval/callback-mode.ts
+- src/lib/approval/session-mode.ts
+- src/lib/approval/token-mode.ts
+- src/lib/approval/veto.ts
+- src/lib/auto-approval/__tests__/policy.test.ts
+- src/lib/auto-approval/__tests__/settings.integration.test.ts
+- src/lib/auto-approval/__tests__/settings.test.ts
+- src/lib/auto-approval/__tests__/threshold-labels.test.ts
+- src/lib/auto-approval/policy.ts
+- src/lib/auto-approval/posting-status.ts
+- src/lib/auto-approval/readiness.ts
+- src/lib/auto-approval/settings-guards.ts
+- src/lib/auto-approval/settings.ts
+- src/lib/auto-approval/solicitation-settings.ts
+- src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts
+- src/lib/dashboard/active-mappers.ts
+- src/lib/dashboard/pending-approvals.ts
+- src/lib/dashboard/types.ts
+- src/lib/past-replies/__tests__/replies-view.test.ts
+- src/lib/past-replies/__tests__/reviews-list.test.ts
+- src/lib/past-replies/replies-view.ts
+- src/lib/solicitation/release.ts
+- worker/jobs/auto-post-notice/context.ts
+- worker/jobs/pending-post-notice/context.ts
+- worker/jobs/publisher/ResponsePublisherWorker.ts
+- worker/jobs/publisher/__tests__/mark-posted.test.ts
+- worker/jobs/publisher/__tests__/veto-window-gate.test.ts
+- worker/jobs/publisher/auto-policy-downgrade.ts
+- worker/jobs/publisher/auto-policy-publish.ts
+- worker/jobs/publisher/mark-posted.ts
+- worker/jobs/publisher/veto-window-gate.ts
+- worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts
+- worker/jobs/response-generation/__tests__/auto-approval.test.ts
+- worker/jobs/response-generation/auto-approval.ts
+- worker/jobs/response-generation/persist.ts
+- worker/jobs/solicitation-veto-notice/context.ts
+
+## `src/lib/payments/plan-presentation.ts` — 14 importer(s)
+- src/app/(authenticated)/settings/billing/__tests__/BillingClient.test.tsx
+- src/app/(public)/pricing/PricingContent.tsx
+- src/app/(public)/pricing/__tests__/PricingContent.test.tsx
+- src/app/(public)/pricing/__tests__/pricing-view-model.test.ts
+- src/app/(public)/pricing/page.tsx
+- src/app/api/account/settings/route.ts
+- src/app/onboarding/pay/PlanPickerClient.tsx
+- src/app/onboarding/pay/__tests__/PlanPickerClient.test.tsx
+- src/app/onboarding/pay/__tests__/plan-options.test.ts
+- src/app/onboarding/pay/page.tsx
+- src/app/onboarding/pay/plan-options.ts
+- src/components/dashboard/settings/__tests__/BillingPanel.test.ts
+- src/components/dashboard/settings/__tests__/BillingPanel.test.tsx
+- src/hooks/useAccountData.ts
+
+## `worker/boot-flag-summary.ts` — 2 importer(s)
+- worker/__tests__/boot-flag-summary.test.ts
+- worker/index.ts
+
+## `worker/index.ts` — 0 importer(s)
+_none found (entry point, or dynamic/config-driven usage — check registration sites)_
