@@ -23,6 +23,7 @@ import type {
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
   AutoApprovalPolicyApiState,
+  AutoApprovalPostingBlockReason,
   AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
@@ -85,6 +86,26 @@ const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, ReadinessCopy>
   impersonation_not_allowed: {
     message: 'You are viewing this account as an admin, so auto-posting cannot be changed from here.',
   },
+};
+
+/**
+ * Owner-language Posting block reasons — why NO reply posts automatically
+ * right now, whatever the policy says. Deliberately separate from
+ * `BLOCK_REASON_COPY` above: that one explains why the owner cannot WIDEN
+ * auto-approval, this one explains why nothing posts at all. The exhaustive
+ * `Record` is the guard — a new reason without a sentence is a compile error.
+ *
+ * `autopilot_tier_required` names Copilot literally, and that is correct:
+ * `tierGrantsAutopilot` is true only for Autopilot, so Copilot is the only tier
+ * that can produce this reason. It is a display name, not a tier comparison —
+ * no code here branches on a tier value.
+ */
+const POSTING_BLOCK_COPY: Record<AutoApprovalPostingBlockReason, string> = {
+  runtime_disabled: 'Auto-posting is not switched on for RepWorth yet.',
+  judge_disabled: 'Our reply review step is switched off right now, and nothing posts without it.',
+  autopilot_tier_required: 'Auto-posting is part of the Autopilot plan, and this account is on Copilot.',
+  provider_moderation_disabled: 'Safety screening for replies is switched off right now, so nothing posts on its own.',
+  publisher_subscription_denied: 'Your billing needs attention before any reply can post.',
 };
 
 /**
@@ -632,7 +653,7 @@ export function AutoApprovalClient({ initialState }: Props) {
  * per-location overrides are named so "Off" is never a false comfort.
  */
 function describePolicyStatus(data: AutoApprovalSettingsResponse): {
-  tone: 'on' | 'off' | 'suspended';
+  tone: 'on' | 'off' | 'suspended' | 'blocked';
   title: string;
   /** Supporting lines, each rendered on its own so a reason stays findable text. */
   detail: string[];
@@ -653,6 +674,28 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
         account.suspendedReason,
       ].filter((line): line is string => Boolean(line)),
       canTurnOff: false,
+    };
+  }
+
+  // #1314 — a Posting block outranks every claim that replies post, but NOT the
+  // plain "Off" branch below: that one is already true, and a structural block
+  // must not turn a truthful sentence into a correction. So this fires only
+  // where the page would otherwise claim posting.
+  if (data.posting.blocked && (account.threshold !== null || overrideNames.length > 0)) {
+    return {
+      tone: 'blocked',
+      title: account.threshold !== null
+        ? `Set to ${autoApprovalThresholdLabel(account.threshold)}, but no reply posts automatically right now.`
+        : `${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'is' : 'are'} set to post replies automatically, but no reply posts automatically right now.`,
+      detail: [
+        ...data.posting.reasons.map((reason) => POSTING_BLOCK_COPY[reason]),
+        'Every reply waits for your approval until that changes.',
+      ],
+      // `set_account_manual` clears only the ACCOUNT DEFAULT threshold, so on an
+      // override-only account the action would change nothing and leave those
+      // locations armed to resume the moment the block clears — exactly why the
+      // override-only branch below offers no turn-off either.
+      canTurnOff: account.threshold !== null,
     };
   }
 
@@ -708,8 +751,14 @@ function PolicyStatusBanner({
   onTurnOff: () => void;
 }) {
   const status = describePolicyStatus(data);
-  const variant = status.tone === 'suspended' ? 'banner-red' : 'banner-blue';
-  const icon = status.tone === 'suspended' ? 'alert' : status.tone === 'on' ? 'sparkle' : 'shield';
+  // 'blocked' is a truthful correction, not an alarm: the account is safe, so it
+  // gets the attention variant and role="status". Only suspension is an alert.
+  const variant = status.tone === 'suspended'
+    ? 'banner-red'
+    : status.tone === 'blocked' ? 'banner-attn' : 'banner-blue';
+  const icon = status.tone === 'suspended' || status.tone === 'blocked'
+    ? 'alert'
+    : status.tone === 'on' ? 'sparkle' : 'shield';
   return (
     <div
       className={`banner ${variant}`}

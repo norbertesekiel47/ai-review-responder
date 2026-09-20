@@ -68,3 +68,58 @@ forged and no phase moved.
 completed. Durable lesson for step 8: a read-only reviewer session inside an
 armed worktree trips the stop gate; brief it to ignore the demand, as round 2's
 brief now does.
+
+---
+
+## D5 — Nine of T1's 31 titles are absence pins that cannot start RED
+
+T1's TDD contract says every test must first fail because the behavior is
+missing. Nine titles assert an **absence** or a **composition of already-tested
+behavior**, so a correct implementation satisfies them the moment the slice they
+belong to lands — there is no state of the code in which they fail for the right
+reason without first writing a defect on purpose:
+
+- builder: `reports every applicable reason together, not just the first`,
+  `reports no reason and blocked false when every structural gate passes`,
+  `does not report a reason for an autopilot tier whose sale is paused`
+- loader: `…returns posting.blocked false for an autopilot account with the
+  runtime on`, `…leaves readiness.blockReasons unchanged by the posting fact`,
+  `…returns posting.blocked false and readiness.blockReasons containing
+  autopilot_unavailable…` (the trap test), `…reports tier and publisher
+  subscription blocks when the account row is missing`
+- headline: `headline still claims automatic posting for an autopilot tier whose
+  sale is paused`, `suspended headline wins over a posting block`, `headline
+  remains on when posting is unblocked but readiness blocks expansion…`
+
+Each was instead verified by **mutation**: the guarded wiring was broken, the
+suite re-run, and exactly the expected titles observed failing, then reverted.
+The mutations run, all caught: builder — first-reason-only, always-blocked,
+inverted tier test. Loader — `tierGrantsAutopilot(tier) && autopilotPurchasable()`
+(the trap, caught only by the trap test), `workerType: 'generator'`, missing
+account row treated as allowed, judge slot hard-coded false, judge slot wired to
+`autoApprovalRuntimeEnabled()`. Headline — branch keyed on
+`!readiness.canExpand`, blocked branch moved above suspension, `canTurnOff`
+forced false.
+
+Every other title was driven RED first in the ordinary way. Two production edits
+were deliberately backed out mid-tracer (the loader's five inputs, and the
+headline branch) after being written ahead of their tests, and re-driven one
+input / one behavior at a time.
+
+**Verdict:** PENDING
+
+---
+
+## D6 — `enableReadiness()` in the settings suite now also sets `JUDGE_ENABLED`
+
+`judgeEnabled()` is a Posting-block input, not a readiness one, but
+`src/lib/auto-approval/__tests__/settings.test.ts`'s shared `enableReadiness()`
+helper is the suite's single "every structural flag on" setup and every
+`beforeEach` calls it. Setting `JUDGE_ENABLED=true` anywhere else would leak
+across tests, because the helper is also what resets the other four flags. The
+helper keeps its name (renaming it would touch four unrelated `describe`
+blocks) and carries a comment saying the judge flag is not a readiness input.
+The plan named the fixture amendment in `context.test.ts` as "surface amendment
+1 of 1" and did not anticipate this one; it is test-only and adds no surface.
+
+**Verdict:** PENDING

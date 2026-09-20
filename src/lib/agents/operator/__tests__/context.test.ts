@@ -114,6 +114,7 @@ function settings(locations: AutoApprovalLocationSettings[]): AutoApprovalSettin
       canExpand: false,
       blockReasons: ['autopilot_unavailable'],
     },
+    posting: { blocked: false, reasons: [] },
     solicitation: { available: false, enabled: false, dailySendCap: null, vetoWindowMinutes: null },
   };
 }
