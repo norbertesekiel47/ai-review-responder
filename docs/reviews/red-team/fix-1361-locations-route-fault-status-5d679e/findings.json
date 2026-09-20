@@ -130,8 +130,8 @@
       "title": "The affected-route count is 18 in three places; the measured count is 20",
       "at": "docs/runbooks/beta-launch-alerting.md:515",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "Measured at HEAD 322aeaa5d: `rg -l 'readOwnerForMultiLocationRoute|readLocationActionRequest|requireDashboardReviewOwner|runDashboardReviewAction|runEscalationTransitionRoute|resolveOwnerScope|resolveEditReplyScope|resolveEditReplyContext|resolveEditReplyRequest' src/app --glob '**/route.ts'` returns exactly 20 route files: 4 locations (add, archive, promote-primary, reactivate) + 6 dashboard/reviews/[reviewId] + 2 dashboard/escalations/[escalationId] + settings/postal-address + dashboard/import-offer + past-replies/draft-status + FIVE past-replies edit route files (draft, publish, draft/[responseId], [responseId]/retry, [responseId]/restore-original). The runbook's own enumeration at :515-519 lists all of them — 15 named individually plus 'the /api/dashboard/past-replies edit paths', which is 5 — so the headline '18' contradicts the list immediately under it. The same 18 appears in .claude/reference/arch-review-log.md:37 ('verified across all eighteen consuming routes' and 'the change makes eighteen owner routes newly emit') and in the deviations doc D6 ('18 owner routes newly emit'). Impact is operational, not cosmetic: Rule 12 is defined BY ITS ROUTES and by nothing else, so the route list is the filter, and an operator reconciling '18' against a 20-item enumeration has to guess which two do not belong. The re-throw behaviour itself was verified correct on all 20 — none of the 20 handlers wraps its gate call in a try block that swallows — so this is a counting error, not a behavioural one."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in 0197bd4bc. Route count 18 -> 20, enumerated by gate in docs/runbooks/beta-launch-alerting.md: 4 behind readOwnerForMultiLocationRoute, 8 behind requireDashboardReviewOwner, 8 behind resolveOwnerScope (including the five past-replies edit routes reached through _shared/edit-reply-request.ts, which the original count collapsed into one). Corrected in .claude/reference/arch-review-log.md and deviations D6 in the same commit. The row now states that the enumeration IS the filter."
     },
     {
       "id": "P1-5",
@@ -139,8 +139,8 @@
       "title": "The new runbook rule is numbered Rule 12, colliding with the existing Rule 12 (Operator retained-veto, Run C), and Rule 13 cross-references 'Rule 12'",
       "at": "docs/runbooks/beta-launch-alerting.md:497",
       "duty": 5,
-      "disposition": "open",
-      "arbiter_reasoning": "docs/runbooks/beta-launch-alerting.md already contains `**Rule 12 — Operator retained-veto invariant failure (Run C)...**` at line 436, plus Rule 13 at 446 and Rule 14 at 456. The new row at line 497 is also titled Rule 12, so the file now has two Rule 12s with different signals, different filters and different operator actions. This is not a harmless duplicate: Rule 13's own prose at line 454 reads 'Rule 12 filters Apply POST and cannot match this button endpoint', which was unambiguous before this change and now resolves to either rule. The next free number is 15. The collision also propagates into .claude/reference/arch-review-log.md:37 and deviations D6, both of which name 'runbook Rule 12' for #1361. Remedy is a rename to Rule 15 in the runbook plus the two citing documents — mechanical, and it must happen before the runbook is used to configure anything, because an operator told to 'build Rule 12' cannot tell which one is meant."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in 0197bd4bc. Renumbered Rule 12 -> Rule 15, the next free number after 14. A grep for the rule heading now returns no duplicate, so Rule 13 prose (\"Rule 12 filters Apply POST\") is unambiguous again."
     },
     {
       "id": "P1-6",
@@ -148,8 +148,8 @@
       "title": "The new Rule 12 cannot be configured as written: no rule name, no level, no threshold value or window, no throttle, and no destination",
       "at": "docs/runbooks/beta-launch-alerting.md:521",
       "duty": 5,
-      "disposition": "open",
-      "arbiter_reasoning": "Duty 5 compares six facets against the emitted signal. Signal identity (:497-501), filter (:510-511, by project+environment+route path) and grouping (:511-513, default stack grouping, no single global group promised) are all present and correct. The other three are absent. (a) LEVEL: never stated. Every sibling states it — the click-path table's Level column for rules 1-11, and the four-column tables for Rule 12/Run C (:438-440), Rule 13 (:448-450) and Rule 14 (:458-460) each carry 'error'. (b) THRESHOLD/CADENCE: :521-527 argues at length for 'a frequency, not every event' and for counting across the route filter rather than per issue, but gives NO number, NO window and NO action throttle. Rule 14, the precedent it cites by name, supplies '20 events in 1 hour counted ACROSS the tag, not per issue, action throttle 60 minutes'. Rule 10, the precedent the change cites for its shape, supplies 'every event, action throttle 60 minutes per issue'. The skill's Duty 5 names exactly this facet — the _When_ column — as a finding when it is wrong or missing. (c) DESTINATION ACTION: never named. Every sibling names 'the environment's existing Discord alerts channel via integration 443670'. The new row has neither a rule NAME (`<something> → discord`) nor a table, making it the only rule in the file an operator cannot transcribe into the Sentry alert builder. Line 539 tells the operator to 'read the saved rule and destination back' without ever saying what to save. This is the half of the alert path the P1-3 remedy was supposed to close."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in 0197bd4bc. Added the four-column row the file standard uses: name owner-gate-server-fault -> discord; filter = Sentry project plus transaction route path over the twenty enumerated routes, no tag and no constant message; level error with default stack grouping; trigger 10 events in 1 hour counted ACROSS the route filter, 60-minute action throttle, integration 443670. The threshold rationale against Rule 14 is stated inline."
     },
     {
       "id": "P2-1",
@@ -157,8 +157,9 @@
       "title": "No test distinguishes `err instanceof AuthError` from a `name` comparison in any of the three gates",
       "at": "src/lib/auth/resolve-owner-scope.ts:103",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Carried from round 1 with new evidence and NOT re-opened as a new front. Round 2 measured the same substitution on the third gate: `(err as { name?: string })?.name === 'AuthError'` on resolve-owner-scope.ts:103 survived both the AuthError test and the re-throw test (mutant M6, run exit 0 on each). The #1361 change does NOT make this worse: the mutated line is byte-identical at the merge-base here as in the other two files, and the substitution only ever misroutes into the POSITIVE (AuthError) arm, which the fix did not touch. Everything the fix changed is the negative arm, and that arm is now pinned by four killed mutants. The same property remains unpinned for the repo's reference implementation `requireRoleOr401` (src/lib/auth/route-helpers.ts:120). Recorded so a future pass need not re-measure it."
+      "disposition": "accepted-risk",
+      "arbiter_reasoning": "ACCEPTED-RISK with a stated reason. Unchanged line, byte-identical at the merge-base, and identical in shape to requireRoleOr401. Round 2 confirmed this change does not worsen it. Follow-up, not this branch.",
+      "authorization": "owner-1361-p2-accepted-risk"
     },
     {
       "id": "P2-2",
@@ -175,8 +176,9 @@
       "title": "Nothing pins the consumer-layer re-throw that the fix's design rationale depends on: swallowing it back into a 401 leaves 123 past-replies tests green",
       "at": "src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:82",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Graded P2, not P1, on purpose: the mutated lines are unchanged since the merge-base, the skill forbids opening a front against unchanged code, and the changed hunk itself is fully pinned. Recorded because it is the load-bearing assumption of the NEW fix rather than an unrelated gap. The code comment at resolve-owner-scope.ts:110-111 and the arch-review-log both justify the RAW re-throw with 'every consumer already re-throws a non-ScopeError, so the fault escapes to a real 5xx'. That is TRUE at HEAD — verified by reading all five consumer catch sites — but it is not asserted anywhere. Mutant M7 replaced both bare `throw err;` sites in edit-reply-request.ts (:82 and :189) with a catch-all `{ ok:false, response: NextResponse.json({ error:'unauthorized' }, { status:401 }) }` — the #1361 defect reintroduced one layer up, on five routes — and `vitest run src/app/api/dashboard/past-replies` returned exit 0 with 123/123 passing. A future edit to a consumer can therefore silently undo the fix on the past-replies lane with no test failing. The proportionate remedy, if the arbiter wants one, is one test per consuming helper asserting `rejects.toBe(fault)` for a non-ScopeError; it is not a defect in this diff."
+      "disposition": "accepted-risk",
+      "arbiter_reasoning": "ACCEPTED-RISK with a stated reason, recorded in deviations D8. Both edit-reply-request.ts sites are byte-identical at the merge-base, so this is pre-existing untested behaviour that this change did not introduce. Covering it needs a THIRD surface amendment on a branch that has already taken the two the abort criteria allow. Follow-up issue.",
+      "authorization": "owner-1361-p2-accepted-risk"
     },
     {
       "id": "P2-4",
@@ -184,8 +186,8 @@
       "title": "D5 still carries a line citation that does not resolve at HEAD, against the standard D7 sets two sections later",
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:90",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "D5 cites `src/lib/auth/resolve-owner-scope.ts:106` for the pre-fix wrap. At HEAD 322aeaa5d line 106 is the comment `// #1361: anything that is not an AuthError is a server fault, not a`; the `throw err;` is at :113 and the guard at :103. D7 item 1 in the same commit series corrects exactly this class of rot in the arch-review-log and states the branch's own standard — 'the entry now cites paths only, which cannot rot' — so D5 is inconsistent with it. Graded P2 rather than P1 because the sentence is describing pre-fix history, where the citation was accurate when written, and because the three other citations in the same paragraph DO resolve at HEAD (postal-address/route.ts:93 is `throw error;`, draft-status/route.ts:65 is `throw err;`, edit-reply-request.ts:82 is `throw err;`). Nothing operational depends on it."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in 0197bd4bc. D5 now cites src/lib/auth/resolve-owner-scope.ts with no line number, per the cite-paths-only standard D7 sets two sections later in the same file."
     },
     {
       "id": "P2-5",
@@ -193,11 +195,21 @@
       "title": "'166 across the 13 consuming route suites' is the right number with the wrong label — 3 of the 13 files consume no changed gate, and 8 newly-consuming routes are outside the set",
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:86",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "The number reproduces exactly (see P1-2), so this is the residue, not a re-opening. The 13 files are simply everything under three directories, and at least three of them cover routes that consume none of the three gates: locations/display-label/__tests__/route.test.ts (2 tests), dashboard/escalations/__tests__/route.test.ts (5 tests — the LIST route, already flagged in round 1), dashboard/reviews/__tests__/pending-route.test.ts (6 tests). In the other direction the set predates D5 and therefore excludes every suite for the 8 routes resolveOwnerScope fronts. The evidence D4 wants does exist and was produced in this pass: `vitest run src/app/api/dashboard/import-offer src/app/api/dashboard/past-replies src/app/api/settings/postal-address src/lib/auth/__tests__/resolve-owner-scope.test.ts` is 13 files / 171 tests / 0 failures, and the three changed helper suites are 51/51. A one-line correction naming the directories rather than 'consuming route suites' discharges it."
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED in 0197bd4bc. D4 relabelled: 166 across 13 test FILES under those route directories, named explicitly as a directory count, with the round-2 corrected set (13 files / 171 tests) and the three changed helper suites (51) recorded alongside."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-1361-p2-accepted-risk",
+      "date": "2026-09-20",
+      "finding_ids": [
+        "P2-1",
+        "P2-3"
+      ],
+      "text": "Owner authorized accepting both P2 findings as risk on 2026-09-20, asked directly with each finding, its failure scenario and the cost of fixing it in front of them. P2-1 (no test distinguishes `err instanceof AuthError` from a `name` comparison; a look-alike with no statusCode would render 200): the line is byte-identical at merge-base 10377aa9b and identical in shape in all four gates including requireRoleOr401, and round 2 measured that this change does not worsen it — pinning the guard is a codebase-wide change, not a #1361 change. P2-3 (nothing pins the consumer-layer re-throw at edit-reply-request.ts:82 and :189, so reintroducing a catch-all 401 one layer up on five past-replies routes leaves 123/123 tests green): both lines are byte-identical at merge-base, so the gap is pre-existing and not introduced here, and the resolveOwnerScope fix these lines protect is itself independently pinned by 6 of 6 killed mutants in round 2. Both were declined for this branch because closing either needs a THIRD surface amendment, past the two the abort criteria allow. Both are to be filed as follow-up issues at step 8."
+    }
+  ],
   "counts": {
     "inventory_total": 12,
     "killed": 6,
@@ -208,11 +220,11 @@
     "excluded": 6,
     "findings_total": 11,
     "p0_open": 0,
-    "p1_open": 3,
-    "p2_open": 4,
-    "accepted_risk": 0,
-    "fixed": 4,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 2,
+    "fixed": 9,
     "rejected": 0
   },
-  "status": "OPEN_P1"
+  "status": "CLEAR"
 }
