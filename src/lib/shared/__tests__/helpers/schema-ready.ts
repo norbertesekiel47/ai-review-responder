@@ -174,6 +174,77 @@ async function findMismatchedColumnTypes(
  * The migration → objects mapping, owned in ONE place so a suite declares the
  * migration it depends on rather than re-deriving which objects prove it.
  */
+/**
+ * 048 creates the admin impersonation ledger. The partial
+ * one-active-session-per-actor unique is the migration's LAST object, so its
+ * presence implies the whole file ran; the other three indexes are named
+ * because the guard suite asserts each one's definition and a container missing
+ * one would otherwise fail on the definition rather than on being behind head.
+ *
+ * NOT listed: the two columns 057 later makes nullable
+ * (`account_id`, `impersonated_user_id`). A `columns` entry is a PRESENCE
+ * check, so it is satisfied identically before and after 057 — see
+ * MIGRATION_057 below for where that nullability is actually proven.
+ */
+export const MIGRATION_048_IMPERSONATION_SESSIONS: SchemaRequirement = {
+  migration: '048_impersonation_sessions',
+  tables: ['impersonation_sessions'],
+  indexes: [
+    'idx_impersonation_actor_started',
+    'idx_impersonation_impersonated_started',
+    'idx_impersonation_account_started',
+    'idx_impersonation_active_actor',
+  ],
+};
+
+/**
+ * 049 (enable RLS on `analytics_events`) gets NO requirement of its own: it
+ * creates no relation, column, index or constraint, so there is nothing a
+ * `SchemaRequirement` could name — migration 097's situation exactly, and
+ * 119's. Its guard suite degrades the flag and executes the file instead.
+ */
+
+/* `MIGRATION_051_FLAGGED_RESPONSES` was added here by #1301 T2 and had ZERO
+ * consumers: the 051 suite proves the container is at head through its own
+ * oracle A/B assertions and never calls `assertSchemaReady`. An exported
+ * constant nobody imports is a claim without a caller, so it is deleted rather
+ * than kept "for later" (#1301 F-E). Re-add it when a suite actually needs it;
+ * the definition is one `git log -S` away. */
+
+/**
+ * 053 adds the first CHECK on `users.role` (owner/admin) and nothing else — no
+ * relation, column or index — so the constraint is the only presence proof
+ * available, exactly like 090's.
+ */
+export const MIGRATION_053_USERS_ROLE_CONSTRAINT: SchemaRequirement = {
+  migration: '053_users_role_constraint',
+  constraints: [{ table: 'users', name: 'users_role_check' }],
+};
+
+/**
+ * 057 only DROPs NOT NULL on four already-existing columns, and a
+ * `SchemaRequirement` structurally cannot carry nullability — `columns` is a
+ * presence check, satisfied identically by a container that is one migration
+ * behind. So this requirement proves what 056 and 048 already guarantee and no
+ * more; that is the honest bound, the same one MIGRATION_108 records.
+ *
+ * The distinguishing fact is `attnotnull`, which the guard suite reads off the
+ * catalogue (`notNullColumns` in `migration-guard.ts`) after reinstating NOT
+ * NULL and executing the checked-in file. Listing the columns here is still
+ * worth it: a container missing them fails with the actionable
+ * `pnpm test:db:setup` message instead of an undefined-column error mid-degrade.
+ */
+export const MIGRATION_057_OFFBOARDING_TOMBSTONE_NULLABILITY: SchemaRequirement = {
+  migration: '057_account_offboarding_tombstone_nullability',
+  columns: [
+    'account_offboardings.zernio_account_ids',
+    'account_offboardings.zernio_profile_ids',
+    'approval_audit_log.response_id',
+    'impersonation_sessions.account_id',
+    'impersonation_sessions.impersonated_user_id',
+  ],
+};
+
 export const MIGRATION_071_RUN_SPINE: SchemaRequirement = {
   migration: '071_agent_run_spine',
   tables: ['agent_runs', 'agent_run_steps', 'agent_outcomes'],
@@ -508,6 +579,52 @@ export const MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE: SchemaRequirement = 
     'idx_jo_solicitation_veto_notice_inflight',
     'notification_deliveries_solicitation_veto_notice_claim',
   ],
+};
+
+/**
+ * 117 creates `admin_audit_log`, the admin control-plane actor trail (#468).
+ * Both indexes are named because they are the migration's last objects, and the
+ * actor FK because `actor_user_id` deliberately carries NO `ON DELETE` action —
+ * a container whose FK is missing accepts a delete that would cascade a
+ * security trail away. The two columns are named because a container with the
+ * table but without `actor_user_id` fails on an INSERT with an
+ * undefined-column error rather than the actionable `pnpm test:db:setup`
+ * message.
+ *
+ * THIS IS THE THIRD DEFINITION OF THIS FACT IN THE TREE, and the other two are
+ * not yet consumers. `scripts/ci/__tests__/mint-admin.integration.test.ts` and
+ * `…/revoke-admin.integration.test.ts` each declare a local, byte-identical
+ * `MIGRATION_117_ADMIN_AUDIT_LOG` naming the table, the two columns and ONE
+ * index. Both files sit outside #1301's `allowed_edit_surface`, so pointing
+ * them here would need a third surface amendment; #1301 F-E recorded the drift
+ * rather than taking one silently.
+ *
+ * What this definition does about it: it is now a strict SUPERSET of the local
+ * pair — the same table, the same two columns, plus the second index and the
+ * FK — so a container that satisfies this satisfies both copies. When either
+ * script test is next touched, delete its local copy and import this one.
+ */
+export const MIGRATION_117_ADMIN_AUDIT_LOG: SchemaRequirement = {
+  migration: '117_admin_audit_log',
+  tables: ['admin_audit_log'],
+  columns: ['admin_audit_log.actor_user_id', 'admin_audit_log.event_type'],
+  indexes: ['idx_admin_audit_actor_created', 'idx_admin_audit_event_created'],
+  constraints: [{ table: 'admin_audit_log', name: 'admin_audit_log_actor_user_id_fkey' }],
+};
+
+/**
+ * 118 creates `poller_heartbeats`, the durable background-loop liveness table
+ * (#949). It deliberately adds NO index beyond the primary key — every read is
+ * `WHERE poller_name = $1` — so the table plus its two columns are the whole
+ * presence proof. `last_cycle_at` is named explicitly: a container provisioned
+ * from a draft that stopped at the CREATE TABLE would fail inside
+ * `recordPollerCycle` rather than with the actionable `pnpm test:db:setup`
+ * message (098's D-A11 lesson).
+ */
+export const MIGRATION_118_POLLER_HEARTBEATS: SchemaRequirement = {
+  migration: '118_poller_heartbeats',
+  tables: ['poller_heartbeats'],
+  columns: ['poller_heartbeats.poller_name', 'poller_heartbeats.last_cycle_at'],
 };
 
 /**

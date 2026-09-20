@@ -8,7 +8,7 @@ How to run `pnpm test:e2e` locally the same way CI's `e2e` job does
 ```bash
 docker run -d --name repworth-e2e-db \
   -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=test \
-  -p 5433:5432 postgres:16
+  -p 5433:5432 postgres:17
 
 # wait until ready (postgres restarts once during initdb — poll from the host)
 until PGPASSWORD=test psql -h localhost -p 5433 -U test -d test -c 'SELECT 1' >/dev/null 2>&1; do sleep 1; done

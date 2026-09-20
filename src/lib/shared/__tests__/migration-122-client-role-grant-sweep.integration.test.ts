@@ -11,11 +11,15 @@
 // original grants and default ACL — verified — before any `it` runs. Every `it`
 // only asserts over the snapshots captured here.
 //
-// Stated limit: the MAINTAIN branch cannot execute on the PG16 container
-// (`.github/workflows/ci.yml` pins `postgres:16`). REVOKED_RIGHTS is derived
-// from `acldefault`, which keeps every other assertion meaningful there; the
-// mandatory PG17 post-apply query in `.claude/reference/migrations-log.md`
-// entry 122 is the only proof of that branch.
+// Version coverage: CI and e2e run postgres:17 (#1307 RT-4), so the
+// MAINTAIN branch executes here. REVOKED_RIGHTS is derived from
+// `acldefault` rather than spelled out — by design, so the move needed
+// no suite change. Measured: acldefault('r', <owner>) yields eight
+// privileges including MAINTAIN on PG17, seven without it on PG16; this
+// suite passes 8 of 8 on 17. The mandatory PG17 post-apply query in
+// `.claude/reference/migrations-log.md` entry 122 remains the proof for
+// the two live Supabase projects, not this container — a different
+// target, not superseded.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

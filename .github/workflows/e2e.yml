@@ -68,7 +68,7 @@ jobs:
     # dir, 2s health probes — rationale there).
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test

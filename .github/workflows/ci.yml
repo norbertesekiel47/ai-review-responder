@@ -279,7 +279,7 @@ jobs:
     # 10s was ~8s of pure wait per job. 30 retries keeps the same ~60s window.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test

@@ -1,0 +1,344 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1301-migration-guard-execution-80b308",
+  "branch": "fix/1301-migration-guard-execution",
+  "fork_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
+  "merge_base_sha": "07738319cd5d7a78661ed1e3af07430bd84a8521",
+  "head_sha": "32f4d1e2cf3e39c5cfedf72add43000f64f44878",
+  "intake_sha256": "898d1d1e17cc39460b284418289931a2079c0a2aaadcb1e5817c984acbca308e",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-20T17:03:16.553507Z",
+  "inventory": [
+    {
+      "id": "R3-M01",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "withRolledBackTransaction \u2014 the isolation level reverted to the READ COMMITTED default",
+      "outcome": "killed",
+      "reason": "THE ROUND-3 MUTATION. Mutant failed `a guard transaction does not see a row another session commits mid-comparison` on a poller_heartbeats rowDigest mismatch \u2014 the exact defect D17 describes, now asserted rather than implied."
+    },
+    {
+      "id": "R3-M02",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "schemaOnly \u2014 returns the whole table including rowDigest",
+      "outcome": "killed",
+      "reason": "Mutant failed `re-applying 118 restores the table after it is dropped`. 118's drop case really is narrowing to schema, and the narrowing is what keeps a DROP TABLE's inherent row loss from reading as a regression."
+    },
+    {
+      "id": "R3-M03",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 rowDigest replaced with NULL for every relation",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved reports an off-target row write once the table holds a row` on the 'unparsed' guard, which exists precisely to catch a digest that stops carrying a count. The count-agnostic rewrite did not weaken the case."
+    },
+    {
+      "id": "R3-M04",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the pg_default_acl query WHERE clause replaced with `WHERE false`",
+      "outcome": "killed",
+      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs`. RT-4 still closed."
+    },
+    {
+      "id": "R3-M05",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the relations query narrowed back to relkind IN ('r','p')",
+      "outcome": "killed",
+      "reason": "Mutant failed the same case with \"expected undefined to be 'v'\". RT-5 still closed."
+    },
+    {
+      "id": "R3-M06",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readLeakSentinel \u2014 returns a constant instead of the queried fingerprint",
+      "outcome": "killed",
+      "reason": "Mutant failed `withRolledBackTransaction detects a callback that commits its own transaction`. The adversarial-P1 detector survived the isolation change."
+    },
+    {
+      "id": "R3-M07",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "assertOnlyTablesMoved \u2014 the schemaDefaultAcls 'changed' throw disabled",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved with schemaDefaultAcls 'changed' proves the widening rather than excusing it`."
+    },
+    {
+      "id": "R3-M08",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "assertTableRemoved \u2014 the already-absent-from-before half removed",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertDegradeLanded accepts deliberate target-table removal without dereferencing a missing table`."
+    },
+    {
+      "id": "R3-M09",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "renderEntry \u2014 drops the definition, rendering the name alone",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved rejects a same-name policy definition change on an unlisted table`."
+    },
+    {
+      "id": "R3-M10",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "assertOnlyTablesMoved \u2014 the schemaDefaultAcls 'unchanged' throw disabled",
+      "outcome": "killed",
+      "reason": "Mutant failed `assertOnlyTablesMoved rejects a widened schema default ACL`."
+    },
+    {
+      "id": "R3-M11",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the entries CTE narrowed back to relkind IN ('r','p')",
+      "outcome": "killed",
+      "reason": "Mutant failed `readPublicCatalogue sees a view and the schema default ACLs` with \"expected [] to include 'anon:SELECT'\"."
+    },
+    {
+      "id": "R3-M12",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "readPublicCatalogue \u2014 the columns rendering always reports NOT NULL",
+      "outcome": "killed",
+      "reason": "Mutant failed `head posture pins the impersonation_sessions column inventory, primary key and table comment`."
+    },
+    {
+      "id": "R3-M13",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "deriveColumnPrivileges \u2014 silently narrows to SELECT alone",
+      "outcome": "killed",
+      "reason": "Mutant failed with the floor's message: 'returned 1 privileges (SELECT), below the SQL-standard floor of 4'. RT2-1 stays closed."
+    },
+    {
+      "id": "R3-M14",
+      "file": "src/lib/shared/__tests__/helpers/migration-guard.ts",
+      "test": "deriveColumnPrivileges \u2014 pushes every table privilege, including non-column ones",
+      "outcome": "killed",
+      "reason": "Mutant failed with PostgresError 'unrecognized privilege type: \"DELETE\"'. A weak kill by mechanism, recorded as such; R3-M13 is the one that exercises the assertion."
+    },
+    {
+      "id": "R2-X01",
+      "file": "supabase/migrations/*.sql",
+      "test": "oracle-A literal pins added by this fix pass (048 column inventory, notNullColumns, primary key; 048/051/117 table comments)",
+      "outcome": "excluded",
+      "reason": "Their covering production surface is the migration file, and `supabase/migrations/` is out of scope by this skill's own rule: the database is provisioned before the run, so mutating a migration changes nothing under test. Verified live instead, outside the mutation protocol, by flipping one pinned literal in each of 048 and 117 and watching the case fail; both restored."
+    },
+    {
+      "id": "R2-X02",
+      "file": "src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts",
+      "test": "053's behavioural 23514 probe added for RT-14",
+      "outcome": "excluded",
+      "reason": "Same exclusion: its subject is the live `users_role_check` constraint, established by a migration the runner may not mutate. Its non-vacuity is structural \u2014 an INSERT that the container must refuse cannot pass on an empty table the way a count can."
+    },
+    {
+      "id": "R2-X03",
+      "file": "scripts/ci/live-db-suites-audit.ts",
+      "test": "the two corrected degrade descriptions (RT-6/S-8, RT-10/S-9)",
+      "outcome": "excluded",
+      "reason": "Comment-only hunks with no behaviour to mutate. Verified by Duty 3 instead: both now match the degrade each suite actually performs."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P0",
+      "title": "\"What no longer has a guard anywhere: Nothing\" is false \u2014 at least four assertions from the five deleted suites have neither a successor case nor a retired-class entry, and the head commit message repeats the claim.",
+      "at": "docs/reviews/fix-1301-migration-guard-execution/weakened-checks-reasons.md:132",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured, not inferred. M17 and M18 are confirmed survivors of mutations that the deleted suites' own assertions would have caught: migration-048-impersonation-sessions.test.ts asserted `expires_at TIMESTAMPTZ NOT NULL`, `ticket_id TEXT NOT NULL` and `reason TEXT NOT NULL`, and migration-051-structure.test.ts's `does not drop or mutate data` case banned `UPDATE`/`DELETE`/`DROP TABLE` in the file. None of the four appears in the new suites (048 pins four index definitions, three FK definitions and the `id` default and no column inventory; 051's row case covers only flagged_responses rows), none || ROUND 2: weakened-checks-reasons.md now carries the measured list instead of \"Nothing\"; 048's column inventory, notNullColumns set and primary key are pinned (R2-M13 kills); arch-review-log amended. bcaa8dac7."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "Lost coverage: no suite anywhere asserts impersonation_sessions column nullability, so loosening `expires_at NOT NULL` in migration 048 passes every gate.",
+      "at": "src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts:98",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "M17 survived 5/5, and it survives in the re-provisioned world too because no oracle-A literal pins the inventory. 048 is the odd sibling: migration-051-...:190-215 pins a full 14-column inventory and migration-117-...:492-515 pins a full ten-column inventory. The property is the time-box on an admin view-as session. Cheapest fix: add the impersonation_sessions column inventory to 048's head-posture case, matching its two siblings. || ROUND 2: Closed by the 048 oracle-A inventory case. R2-M13 kills a mutation that hides nullability. bcaa8dac7."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "Lost coverage: off-target DML. `assertOnlyTablesMoved` compares the catalogue only, so an unrelated `UPDATE`/`DELETE` appended to any of the seven migrations passes every suite.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:548",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "M18 survived 5/5 with `UPDATE accounts SET display_name = ...` appended to 051. The deleted 051 and 053 suites carried crude text bans for exactly this class. Only 051 and 053 make any row assertion, and each covers only its own table's rows. Either restore a static no-DML ban for the six migrations that declare no DML (053 is the one exception, and it is the only DML in the set), or add a row-count/whole-row check over the parent tables each suite already seeds. || ROUND 2: rowDigest per relation. R2-M01 kills. The remaining bound is the container, not the guard: every public table holds zero rows, so an UPDATE or DELETE there changes nothing to detect; an INSERT is caught without seeding, and a seeded table's UPDATE and DELETE are both caught. adcb3c2e2."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P1",
+      "title": "Off-target blind spot: `readPublicCatalogue` never reads `pg_default_acl`, so appending `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;` to any of the seven migrations passes every suite.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:245",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "M19 survived 4/4. This is the statement migration 118's own degrade uses (migration-118-...:226-228) precisely because it makes every subsequently created table inherit client grants \u2014 so the change knows the statement is potent and still does not guard against a migration carrying it. The effect outlives the migration: every table created afterwards is open to anon and authenticated. `assertOnlyTablesMoved` can read it cheaply; migration-118-...:233-242 already has `readDefaultTableAcl`. || ROUND 2: pg_default_acl is a catalogue property and assertOnlyTablesMoved compares it. R2-M02, R2-M05 and R2-M11 all kill. adcb3c2e2."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P1",
+      "title": "Off-target blind spot: `readPublicCatalogue` filters `relkind IN ('r','p')`, so a migration that appends a view over a deny-all table plus a client-role GRANT re-opens the RLS boundary with every suite green.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:254",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "M20 survived 4/4, and the bypass is measured rather than argued: inside a rolled-back transaction on test_1301, with `CREATE VIEW public.analytics_events_leak AS SELECT * FROM analytics_events` plus `GRANT SELECT ... TO anon`, has_table_privilege('anon','public.analytics_events','SELECT') is false while `SET ROLE anon; SELECT count(*) FROM public.analytics_events_leak` returns 10 rows \u2014 a view defaults to security_invoker=false and runs as its owner, who bypasses RLS while FORCE is off. Supabase PostgREST exposes views, so this is the same exposure path migration 049 exists to close. Views, se || ROUND 2: relkind 'v' and 'm' with their ACLs, plus `kind` as a compared property. R2-M03 and R2-M12 kill. adcb3c2e2."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P1",
+      "title": "A production-file comment describes migration 118's degrade as \"deny-all RLS off and the client-role privileges the migration revokes granted back\" \u2014 it is neither, and the description hides the one degrade in the set that touches a schema-level object.",
+      "at": "scripts/ci/live-db-suites-audit.ts:148",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "118's actual degrade (migration-118-poller-heartbeats.integration.test.ts:225-230) is `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;` followed by `DROP TABLE poller_heartbeats;`. It never disables RLS and never grants on the table. 118's own header calls the ALTER DEFAULT PRIVILEGES step the riskiest in #1301 and devotes a section to proving it rolls back; the registry comment that a future reader consults first says nothing about it and asserts two things that are false. || ROUND 2: The audit comment now describes 118's degrade as it is: ALTER DEFAULT PRIVILEGES GRANT ALL plus DROP TABLE, never disabling RLS. 4e3b756d4."
+    },
+    {
+      "id": "RT-7",
+      "severity": "P1",
+      "title": "A self-satisfying assertion with a false stated rationale, newly introduced in two suites: `expect(columnPrivileges).toHaveLength(4)` cannot fail if PostgreSQL adds a fifth column privilege.",
+      "at": "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:470",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "`columnPrivileges` is a hardcoded literal declared on the line above, so the assertion only restates its own input. The comment directly above claims 'the length assertion means a PostgreSQL that ever adds a fifth fails loudly rather than under-covering' \u2014 it would do nothing of the kind. The same pair appears at migration-118-poller-heartbeats.integration.test.ts:406-407, and neither existed at the merge-base (117's ARM A/B/C block is new in this change). Behavioural replacement: assert against a derived source, e.g. that `aclexplode(acldefault('c', <owner>))` is empty AND that the four names || ROUND 2: The column-privilege set is derived from has_column_privilege. R2-M09 and R2-M14 kill. Its own regression, RT2-1, is recorded below and fixed. 682d1cf34 and 476145667."
+    },
+    {
+      "id": "RT-8",
+      "severity": "P1",
+      "title": "Three mutually inconsistent promised-title counts: the intake carries 60, the plan's \u00a76 says 58, and the plan's own per-tracer breakdown sums to 59.",
+      "at": "docs/superpowers/plans/fix-1301-migration-guard-execution-plan.md:915",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured: `.feature/intake.json` `tests_to_add` has 60 entries; all 60 are present verbatim, exactly once each, across 1204 test files. \u00a76 reads '58 promised titles. T1 two, T2 sixteen, T3 four, T4 five, T5 five, T6 nine, T7 four, T8 fourteen' \u2014 that breakdown adds to 59. The coverage check is the artifact a later reader trusts to know the surface was fully covered; it cannot be right about any of the three numbers. || ROUND 2: Plan \u00a76 states 60, measured per owning file by searching each title's exact text. 4e3b756d4."
+    },
+    {
+      "id": "RT-9",
+      "severity": "P1",
+      "title": "D8's \"fourteen further suites\" is inconsistent with its own twelve-item list and understates the real remainder, and the same figure is repeated in the durable arch-review-log.",
+      "at": "docs/superpowers/plans/fix-1301-migration-guard-execution-deviations.md:265",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The entry names ten `migration-NNN` suites plus the `.test.ts` halves of 055 and 056 \u2014 twelve, against a stated 'at least fourteen'. Measured remainder: twenty pure text-guard `.test.ts` suites still read a migration file and text-match it (034, 035, 038, 039, 040, 043, 044, 045, 046, 047, 050, 052, 054, 055, 056, 058, 060, 061, 069, 089). The survey missed 034, 035, 038, 039, 060, 061, 069 and 089, and 035 is `migration-035-rls-policies` \u2014 the same deny-all RLS class D8 singles out 040 and 045 for. `.claude/reference/arch-review-log.md` repeats 'fourteen further suites' into the layer CLAUDE. || ROUND 2: D8 states 22 on a written definition, and names migration-035-rls-policies among the eight it had missed. 4e3b756d4 and bcaa8dac7."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "title": "Production-file comment says migration 057's degrade covers \"the four columns\" and then lists five.",
+      "at": "scripts/ci/live-db-suites-audit.ts:142",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The enumeration that follows is account_offboardings.zernio_account_ids, zernio_profile_ids, approval_audit_log.response_id, impersonation_sessions.account_id and impersonated_user_id \u2014 five. The 057 suite says five throughout (its title is `the five tombstone columns are nullable at head`), and five is what the degrade at migration-057-...:150-161 reinstates. || ROUND 2: The audit comment says five and lists five. 4e3b756d4."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "title": "A weakened migration fails with a message telling the operator to re-provision the container: the BEHIND_HEAD remediation string is attached to oracle-A literal comparisons inside the oracle-B executing case.",
+      "at": "src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts:241",
+      "duty": 5,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured: M01 (the pinned `WHERE (ended_at IS NULL)` predicate deleted from the migration) failed with 'impersonation_sessions posture is not at migration head \u2014 run pnpm test:db:setup'. The container was at head; the migration was not. Re-provisioning is the wrong remedy and, worse, would make the failure reproduce for a different reason. The same string is reused at :271 and :276. It belongs on the head-posture case only; inside `withDegradedAndReapplied` the actionable message is 'the checked-in migration no longer produces this object \u2014 read the migration diff'. || ROUND 2: A separate WEAKENED_MIGRATION message for a mismatch after the re-apply; BEHIND_HEAD is left to the head-posture cases. 682d1cf34."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "title": "Missed sibling case: 118 pins its table and column comments as oracle-A literals with an explicit rationale; 048, 051 and 117 pin no comment, so deleting a COMMENT ON statement is invisible.",
+      "at": "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:371",
+      "duty": 4,
+      "disposition": "fixed",
+      "arbiter_reasoning": "M21 survived 13/13 with 117's `COMMENT ON TABLE admin_audit_log` deleted. 118's header states the reasoning that applies verbatim to the siblings: 'a comment and a column default are circular in exactly the way an index predicate is, so all three are pinned rather than compared' (migration-118-...:40-43). A table comment is documentation rather than a security control, hence P2, but 117's comment is the in-database record of the deny-all posture and the single-writer rule. || ROUND 2: 048, 051 and 117 pin their table comments as oracle-A literals, the missed sibling of 118. Proven live by flipping one character of 117's pinned comment. 682d1cf34."
+    },
+    {
+      "id": "RT-13",
+      "severity": "P2",
+      "title": "118's challenged-REVOKE case lacks the before/after grants equality that 117's equivalent case carries; `expect(afterGrantNames).not.toEqual([])` is an absence-of-structure proxy for \"the owner's grants survive\".",
+      "at": "src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts:574",
+      "duty": 4,
+      "disposition": "fixed",
+      "arbiter_reasoning": "117's `re-applying 117 revokes every PostgreSQL 17 table privilege from both client roles` closes with `expect(after.tables[TABLE]?.grants).toEqual(before.tables[TABLE]?.grants)` (migration-117-...:652). 118's case stops at 'not empty', which would pass if the owner's grants had been replaced by an unrelated role's. 118's title 5 whole-table equality covers it in practice, so this is a consistency and intent gap rather than a hole; the replacement is the one line 117 already has. || ROUND 2: 118 compares the whole grant list against `before`, grantor and GRANT OPTION included, which subsumes the not.toEqual([]) proxy. 682d1cf34."
+    },
+    {
+      "id": "RT-14",
+      "severity": "P2",
+      "title": "Vacuous-by-construction assertion: 053's \"no stray legacy row survives at head\" counts `role = 'sales_partner'` rows in a table the same suite states is empty on a freshly provisioned container.",
+      "at": "src/lib/shared/__tests__/migration-053-users-role-constraint.integration.test.ts:360",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The count is 0 whether or not 053's UPDATE exists, so the assertion establishes nothing about the migration; migration-053-...:591 says so in as many words ('`users` is EMPTY on a freshly provisioned container, so the rows have to be seeded here'). The real proof of the UPDATE's exclusivity is the seeded three-row case at :407-437, which M08 confirms is real. Behavioural replacement: drop this arm, or state it as a container precondition rather than a 053 assertion. || ROUND 2: The count stays as a tripwire and the proof is behavioural: at head the allowlist must raise 23514 naming users_role_check. 682d1cf34."
+    },
+    {
+      "id": "RT-15",
+      "severity": "P2",
+      "title": "118's title 6 claims its `assertOnlyTablesMoved` doubles as proof that `ALTER DEFAULT PRIVILEGES` leaves existing tables alone; with no degrade-landed assertion for that statement in that case, it passes identically if the statement had no effect at all.",
+      "at": "src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts:498",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The `presence` vacuity check in that case covers the DROP TABLE half only. Title 7 is the only case that proves the ALTER landed, via the throwaway probe table at :545-556. The claim is therefore stronger than the case; the fix is one sentence in the comment, or moving the probe into the shared `degrade` helper so every case that runs it proves it. || ROUND 2: Both off-target calls in that case now declare their schemaDefaultAcls expectation explicitly, and 'changed' throws when nothing changed (R2-M05 kills). The claim the title made is now stated and enforced rather than implied. adcb3c2e2."
+    },
+    {
+      "id": "RT-16",
+      "severity": "P2",
+      "title": "D4's staleness sweep covered five `.ts` files and no docs, so a plan doc still states as current that ci.yml pins postgres:16 and that migration 122's MAINTAIN branch cannot execute in CI.",
+      "at": "docs/superpowers/plans/fix-1176-client-role-grant-sweep-plan.md:130",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "This branch made the sentence false, and CLAUDE.md requires cleaning every cross-reference in the same change. The corresponding live artifact \u2014 migration-122-client-role-grant-sweep.integration.test.ts's header \u2014 WAS fixed (D4), so the live gate is consistent; only the closed plan's prose is not. It reads as a current constraint ('cannot execute on the PG16 container'), not as a dated observation, which is what separates it from the three 'NOT stale, true historical statement' rulings in D4's table. || ROUND 2: fix-1176-client-role-grant-sweep-plan.md carries the correction, struck through rather than deleted so the plan stays the record of what was true when 122 shipped. 4e3b756d4."
+    },
+    {
+      "id": "RT-17",
+      "severity": "P2",
+      "title": "`renderValue`'s separator JSDoc claims the two control characters \"cannot occur in a catalogue name or definition\"; U+0001 can appear in a PostgreSQL text comment, so two different comment lists can in principle render equal.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:150",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "U+0000 genuinely cannot appear in a PostgreSQL text value, so the FIELD separator is safe; U+0001 is an ordinary text character and `columnComments` / the table `comment` carry arbitrary text. Theoretical rather than reachable in this repo \u2014 no checked-in comment contains a control character \u2014 and the equality diffs in the suites are deep-equals on structured arrays rather than on renderValue, so only `assertOnlyTablesMoved` and the vacuity check use the rendering. Recorded because it is a stated impossibility that is not impossible; fix is to narrow the claim to U+0000 or to render with a len || ROUND 2: renderEntry is JSON.stringify of the pair, injective for any string content, so there is no separator claim left to keep true. R2-M08 kills. 682d1cf34."
+    },
+    {
+      "id": "RT2-1",
+      "severity": "P1",
+      "title": "Deriving the column-privilege set closed RT-7's growth blind spot and opened a shrink blind spot: narrowing deriveColumnPrivileges to SELECT alone left every caller passing.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:deriveColumnPrivileges",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured, not inferred: mutation R2-M14 SURVIVED at 4e3b756d42f4ffdcca623bfa4f83531a728af649. The mutation is semantically meaningful \u2014 every caller asserts only that the client roles hold none of whatever the function returns, so a probe returning one privilege checks one privilege, and a migration granting INSERT (actor_user_id) to anon would pass. It is not equivalent and not on an unexecuted branch. The call sites' own guard, `length > 0`, was satisfied by the mutant. Fixed in 476145667bce3e36dda6d445550f2e84fa6be096 by COLUMN_PRIVILEGE_FLOOR = 4 inside the helper, so both call sites inherit it; their local assertion is now toContain('SELECT'). Re-measured at this HEAD: killed. || ROUND 2: this is a defect the fix pass introduced while fixing RT-7, caught by the pass that exists to disprove 'done'. Recorded as deviation D16."
+    },
+    {
+      "id": "RT2-2",
+      "severity": "P1",
+      "title": "The handoff document described the run as stopped at round 1 with all seven fix workstreams pending, after all seven had landed and the gate was green.",
+      "at": "docs/superpowers/plans/fix-1301-migration-guard-execution-handoff.md",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Duty 3. prevalidate-plan PASSED on the file, so no citation was stale \u2014 the FALSE claim was the state description, which no citation checker can see. A resumed session bootstraps from this file first and would have re-done finished work. Fixed in 9b4d1e864dab7c376d205f9cdc6a8ff65ff653c7, which also records the two round-1 open questions and their answers, and the two things deliberately left undone."
+    },
+    {
+      "id": "RT3-1",
+      "severity": "P1",
+      "title": "rowDigest made every catalogue comparison sensitive to a concurrent committer, and the guard transactions ran at READ COMMITTED.",
+      "at": "src/lib/shared/__tests__/helpers/migration-guard.ts:withRolledBackTransaction",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Found by the pre-push hook, not by this pass: the hook runs `vitest run --changed` at DEFAULT parallelism where the gate runs each live-DB file as its own serialized row, so only the hook exercises concurrency. Two cases failed that had passed three consecutive green gates. Measured cause: the container is shared and no longer empty (job_outbox 8 rows, analytics_events 20, poller_heartbeats 1 from a live judge_sweep heartbeat), and under READ COMMITTED each statement takes a fresh snapshot, so a row committed between the two catalogue readings reads as a change the migration did not make. The advisory lock serializes the nine sibling suites, not an unrelated writer. Two assertions had also been written on a zero-rows SNAPSHOT as though it were an invariant. Fixed in 87cdfb503 by ISOLATION LEVEL REPEATABLE READ plus schemaOnly on 118's drop case and a count-agnostic harness assertion; proven on the live container (inside RR a concurrent COMMIT reads 1 then 1 while outside reads 2). The fix had NO covering test, which Direction B calls a P1 in its own right, so 32f4d1e2c adds one that commits from a separate connection mid-comparison. R3-M01 kills it. Recorded as deviation D17."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "owner-2026-09-20-round-3",
+      "date": "2026-09-20",
+      "finding_ids": [
+        "RT3-1",
+        "RT2-1"
+      ],
+      "text": "Owner authorized a THIRD ROUND on 2026-09-20, in answer to: \"The pre-push hook caught a real defect after the red team was already CLEAR (D17: guard transactions needed REPEATABLE READ, plus two assertions that assumed an empty table). Fixing it moved HEAD past the sidecar, so red-team-status now fails 'evidence is stale' and the reviewed phase is void. Red-team rounds are capped at 2 and both are spent. How do you want to proceed?\" \u2014 Owner selected: \"Authorize round 3 (Recommended) \u2014 I record your authorization verbatim in the sidecar, open round 3 scoped to the D17 fix hunks, re-measure the affected mutations plus a concurrency-specific one, re-run the gate, re-transition to reviewed, then push and open the draft PR. Costs roughly 10 minutes. This is the path the skill designed for exactly this case \u2014 a round-2 finding whose fix touches the tree.\" Scope granted: the D17 fix hunks and their direct callers. No new fronts against unchanged code."
+    }
+  ],
+  "counts": {
+    "inventory_total": 17,
+    "killed": 14,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 20,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 20,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}
