@@ -89,6 +89,7 @@
     "src/lib/agents/operator/__tests__/context.test.ts",
     "src/app/onboarding/pay/plan-options.ts",
     ".claude/skills/flag-flip/SKILL.md",
+    ".agents/skills/flag-flip/SKILL.md",
     "src/lib/accounts/tier-config.ts",
     "src/lib/accounts/__tests__/tier-config.test.ts",
     "src/lib/payments/plan-presentation.ts",

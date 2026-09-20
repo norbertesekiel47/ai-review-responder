@@ -33,7 +33,7 @@ before every flip. No exceptions, including flips you've done before.**
    {"level":"info","prefix":"[worker]","msg":"Feature flags",
     "flags":{"TRIAGE_ENABLED":true,"AUTOPILOT_PURCHASABLE":false, …}}
    ```
-   All twelve booleans are there, keyed by env var name — the same string you set on Railway — including all six autonomy flags. A logged value that disagrees with what you set means the restart has not landed: wait for it, do not set it again. Owned by `worker/boot-flag-summary.ts`.
+   All thirteen booleans are there, keyed by env var name — the same string you set on Railway — including all six autonomy flags. A logged value that disagrees with what you set means the restart has not landed: wait for it, do not set it again. Owned by `worker/boot-flag-summary.ts`.
 6. **Smoke the affected lane** after the flip (staging runbooks under `docs/runbooks/` — e.g. `channels-staging-smoke-test.md`, the agentic E2E runbooks for autonomy flags). **For `JUDGE_ENABLED` on, wait out the warm-up BEFORE smoking**, or the smoke measures the warm-up instead of the lane: wait one `JUDGE_POLL_INTERVAL_MS`, then confirm the heartbeat landed —
    ```sql
    SELECT poller_name, EXTRACT(EPOCH FROM (NOW() - last_cycle_at))::int AS age_seconds
