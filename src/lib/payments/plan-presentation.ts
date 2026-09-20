@@ -1,14 +1,9 @@
 import {
-  SubscriptionTier,
+  SUBSCRIPTION_TIER_ORDER,
   resolveTierSnapshot,
   type PriceVariant,
   type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
-
-const WS8_PLAN_ORDER = [
-  SubscriptionTier.COPILOT,
-  SubscriptionTier.AUTOPILOT,
-] as const satisfies readonly SubscriptionTierValue[];
 
 export interface PlanPriceView {
   basePriceCents: number;
@@ -29,7 +24,7 @@ export interface PlanPresentationViewModel {
 
 function planPricesForVariant(variant: PriceVariant): PlanPricesView {
   return Object.fromEntries(
-    WS8_PLAN_ORDER.map((tier) => {
+    SUBSCRIPTION_TIER_ORDER.map((tier) => {
       const snapshot = resolveTierSnapshot(tier, variant);
       const listSnapshot = resolveTierSnapshot(tier, 'list');
       return [

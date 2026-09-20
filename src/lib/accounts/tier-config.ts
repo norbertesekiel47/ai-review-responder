@@ -141,3 +141,27 @@ export function lookupTierConfig(tier: string): TierConfig | undefined {
   if (!isSubscriptionTier(tier)) return undefined;
   return TIER_CONFIG[tier];
 }
+
+// ── Tier order and change direction ─────────────────────────────────────────
+
+/**
+ * Ascending AUTONOMY, not price. Copilot is owner-approves-everything;
+ * Autopilot grants bounded autonomy. This is the single owner of tier order —
+ * never re-declare it next to a price list.
+ */
+export const SUBSCRIPTION_TIER_ORDER = [
+  SubscriptionTier.COPILOT,
+  SubscriptionTier.AUTOPILOT,
+] as const satisfies readonly SubscriptionTierValue[];
+
+export type TierChangeDirection = 'up' | 'down' | 'same';
+
+export function tierChangeDirection(
+  from: SubscriptionTierValue,
+  to: SubscriptionTierValue,
+): TierChangeDirection {
+  const fromIndex = SUBSCRIPTION_TIER_ORDER.indexOf(from);
+  const toIndex = SUBSCRIPTION_TIER_ORDER.indexOf(to);
+  if (toIndex === fromIndex) return 'same';
+  return toIndex > fromIndex ? 'up' : 'down';
+}
