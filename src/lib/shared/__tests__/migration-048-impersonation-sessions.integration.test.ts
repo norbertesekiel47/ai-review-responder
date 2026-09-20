@@ -79,7 +79,6 @@ import {
 import {
   assertDegradeLanded,
   assertOnlyTablesMoved,
-  nonEmptyNames,
   readMigrationSql,
   readPublicCatalogue,
   withRolledBackTransaction,
@@ -89,7 +88,7 @@ import { auditLiveDbFile } from '../../../../scripts/ci/live-db-suites-audit';
 
 const TABLE = 'impersonation_sessions';
 const MIGRATION_FILE = '048_impersonation_sessions.sql';
-const SUITE_PATH =
+const SUITE_FILE =
   'src/lib/shared/__tests__/migration-048-impersonation-sessions.integration.test.ts';
 const BEHIND_HEAD =
   'impersonation_sessions posture is not at migration head — run pnpm test:db:setup';
@@ -111,7 +110,20 @@ const GUARDED_INDEX_DEFINITIONS: Readonly<Record<string, string>> = {
   idx_impersonation_active_actor:
     'CREATE UNIQUE INDEX idx_impersonation_active_actor ON public.impersonation_sessions USING btree (actor_user_id) WHERE (ended_at IS NULL)',
 };
-const GUARDED_INDEXES = Object.keys(GUARDED_INDEX_DEFINITIONS);
+/**
+ * The same four names as a literal tuple, so the selector list is non-empty BY
+ * TYPE. It was `Object.keys(GUARDED_INDEX_DEFINITIONS)`, whose type is
+ * `string[]`, which forced a runtime `nonEmptyNames` narrowing six lines below
+ * the literal it was derived from — a runtime check for something the compiler
+ * could see (#1301 S-7). `satisfies` keeps the two in step: drop a name here
+ * and the definitions map no longer covers it.
+ */
+const GUARDED_INDEXES = [
+  'idx_impersonation_actor_started',
+  'idx_impersonation_impersonated_started',
+  'idx_impersonation_account_started',
+  'idx_impersonation_active_actor',
+] as const satisfies readonly (keyof typeof GUARDED_INDEX_DEFINITIONS)[];
 
 const GUARDED_FOREIGN_KEYS: Readonly<Record<string, string>> = {
   impersonation_sessions_account_id_fkey: 'FOREIGN KEY (account_id) REFERENCES accounts(id)',
@@ -196,7 +208,7 @@ function sql(): postgresType.Sql {
  * verbatim, then hands `before`/`after` to the caller. Always inside a rolled
  * back transaction — nothing here outlives the case.
  */
-async function withDegradedAndReapplied(
+async function degradeAndApply(
   assertion: (before: PublicCatalogue, after: PublicCatalogue) => void,
 ): Promise<void> {
   await withRolledBackTransaction(sql(), async (tx) => {
@@ -207,10 +219,11 @@ async function withDegradedAndReapplied(
     assertDegradeLanded(before, degraded, {
       table: TABLE,
       property: 'indexes',
-      // `GUARDED_INDEXES` is `Object.keys(...)`, so its type is `string[]`; the
-      // selector demands a non-empty tuple, and `nonEmptyNames` re-establishes
-      // that by a checked narrowing rather than a cast.
-      absent: nonEmptyNames(GUARDED_INDEXES),
+      // A literal tuple, so it satisfies the selector's non-empty type
+      // directly — no runtime narrowing. `nonEmptyNames` still exists for the
+      // 117 suite, whose list is a live `acldefault` read and is therefore
+      // genuinely only knowable at run time.
+      absent: GUARDED_INDEXES,
     });
     // `rowSecurity` is a BOOLEAN property with no named objects, so it has its
     // own selector-free variant — the value flip IS the proof.
@@ -237,8 +250,8 @@ describe('migration 048 registry', () => {
     // path, or rename the lock call away, and this reports a `runtime-ddl` or
     // `unlocked-ddl` finding — a strictly stronger check than a membership
     // read, because it also catches a lock-lifecycle regression.
-    const ownSourceText = readFileSync(join(process.cwd(), SUITE_PATH), 'utf8');
-    expect(auditLiveDbFile(SUITE_PATH, ownSourceText)).toEqual([]);
+    const ownSourceText = readFileSync(join(process.cwd(), SUITE_FILE), 'utf8');
+    expect(auditLiveDbFile(SUITE_FILE, ownSourceText)).toEqual([]);
   });
 });
 
@@ -276,7 +289,7 @@ describeWithDb(
     });
 
     it('re-applying 048 restores the guarded indexes after they are dropped', async () => {
-      await withDegradedAndReapplied((before, after) => {
+      await degradeAndApply((before, after) => {
         const table = after.tables[TABLE];
         if (!table) {
           throw new Error(`readPublicCatalogue did not return ${TABLE} after reapply`);
@@ -301,7 +314,7 @@ describeWithDb(
     });
 
     it('re-applying 048 moves no other table in public', async () => {
-      await withDegradedAndReapplied((before, after) => {
+      await degradeAndApply((before, after) => {
         assertOnlyTablesMoved(before, after, [TABLE]);
       });
     });

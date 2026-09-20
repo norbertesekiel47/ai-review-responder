@@ -149,9 +149,13 @@ type NamedObjects = readonly [string, ...string[]];
 /**
  * What the degrade is expected to have done to ONE table.
  *
- * `{ property: 'presence' }` is the only form that tolerates an absent table on
- * the `after` side. Every other form requires the table on BOTH sides, so an
- * unexpectedly missing table stays a loud failure rather than a silent pass.
+ * Every form requires the table on BOTH sides, so an unexpectedly missing table
+ * stays a loud failure rather than a silent pass. A degrade that REMOVES the
+ * table has its own function, `assertTableRemoved` — it used to be a
+ * `{ property: 'presence' }` variant here, but `'presence'` is not a
+ * `keyof CataloguedTable`: it was a table smuggled into the property slot,
+ * which bought a fifteen-line branch inside this function for one caller and
+ * made every other reader check whether `property` meant a property (#1301 S-6).
  *
  * A BOOLEAN property (`rowSecurity`, `forceRowSecurity`) is its OWN variant
  * with no selector list at all: the value comparison is the entire proof, so
@@ -172,7 +176,6 @@ type NamedObjects = readonly [string, ...string[]];
  *      credit for restoring.
  */
 export type DegradeTarget =
-  | { table: string; property: 'presence' }
   | { table: string; property: 'rowSecurity' | 'forceRowSecurity' }
   | { table: string; property: CatalogueListProperty; absent: NamedObjects }
   | { table: string; property: CatalogueListProperty; present: NamedObjects };
@@ -185,6 +188,13 @@ export type DegradeTarget =
  * It is a CHECKED narrowing, not a cast: a selector list that computes to
  * empty fails here, at the call site that built it, instead of reaching
  * `assertDegradeLanded` and quietly weakening its contract.
+ *
+ * THE SEAM EXISTS FOR ONE CALLER, and naming it is the point: migration 117's
+ * `clientGrantNames(await deriveTablePrivileges(...))` is built from a live
+ * `acldefault` read, so its length is genuinely unknowable until the query
+ * returns. A list a reader can COUNT in the source belongs in an `as const`
+ * tuple instead — migration 048's four index names were `Object.keys` over a
+ * literal six lines above and now are (#1301 S-7).
  */
 export function nonEmptyNames(names: readonly string[]): NamedObjects {
   const [first, ...rest] = names;
@@ -576,22 +586,6 @@ export function assertDegradeLanded(
   const beforeTable = before.tables[target.table];
   const afterTable = after.tables[target.table];
 
-  if (target.property === 'presence') {
-    if (!beforeTable) {
-      throw new Error(
-        `degrade target ${target.table} (property presence) was already absent from the ` +
-          'before catalogue — the removal proves nothing',
-      );
-    }
-    if (afterTable) {
-      throw new Error(
-        `degrade target ${target.table} (property presence) is still present in the ` +
-          'after catalogue — the removal did not land',
-      );
-    }
-    return;
-  }
-
   const label = `${target.table}.${target.property}`;
 
   // The selector list, or null for the boolean variant which has none. Read
@@ -615,7 +609,7 @@ export function assertDegradeLanded(
   if (!afterTable) {
     throw new Error(
       `degrade target ${label} is absent from the after catalogue — use ` +
-        "{ property: 'presence' } for a deliberate table removal",
+        'assertTableRemoved(before, after, table) for a deliberate table removal',
     );
   }
 
@@ -704,6 +698,34 @@ export function schemaOnly(table: CataloguedTable): Omit<CataloguedTable, 'rowDi
 }
 
 /**
+ * The degrade REMOVED the table. Both halves are checked, for the same reason
+ * `assertDegradeLanded` checks both directions: a table already absent from
+ * `before` makes the removal prove nothing, and a table still present in
+ * `after` means the removal did not land.
+ *
+ * Its own function rather than a `DegradeTarget` variant, because a removal is
+ * not a property of a table — it is the table (#1301 S-6).
+ */
+export function assertTableRemoved(
+  before: PublicCatalogue,
+  after: PublicCatalogue,
+  table: string,
+): void {
+  if (!before.tables[table]) {
+    throw new Error(
+      `assertTableRemoved(${table}): it was already absent from the before catalogue — the ` +
+        'removal proves nothing',
+    );
+  }
+  if (after.tables[table]) {
+    throw new Error(
+      `assertTableRemoved(${table}): it is still present in the after catalogue — the ` +
+        'removal did not land',
+    );
+  }
+}
+
+/**
  * The off-target guard. A migration may harden the one table it names while
  * doing arbitrary damage elsewhere — appending `GRANT ALL ON admin_audit_log TO
  * anon;` to migration 119 passed its whole suite once, and the grant really
@@ -772,6 +794,60 @@ export function assertOnlyTablesMoved(
     `migration moved relations outside [${[...allowed].sort().join(', ')}]: ` +
       offenders.join('; '),
   );
+}
+
+/**
+ * The two browser-reachable Supabase roles. Every "grants none of them"
+ * assertion in this family enumerates them.
+ */
+export const CLIENT_ROLES = ['anon', 'authenticated'] as const;
+
+/**
+ * Every table privilege THIS PostgreSQL major defines, derived from
+ * `acldefault('r', <owner>)` rather than spelled out.
+ *
+ * Deriving rather than spelling is what lets a `REVOKE ALL` assertion tell
+ * itself apart from `REVOKE SELECT`: the expected set grows with the server.
+ * PostgreSQL 16 defines seven; 17 adds MAINTAIN for eight, which is the major
+ * both Supabase projects and the CI lane now run.
+ *
+ * It throws on a short list rather than returning one. An empty or truncated
+ * list makes every "grants none of them" assertion pass vacuously, which is the
+ * failure mode this suite family keeps rediscovering — so the floor is checked
+ * here, once, instead of at each call site.
+ *
+ * It lived in BOTH the 117 and the 118 suite, byte-for-byte including this
+ * guard, which put two owners on one anti-vacuity check in the family whose
+ * failure mode IS the vacuous pass (#1301 S-2).
+ */
+export async function deriveTablePrivileges(tx: TransactionSql, table: string): Promise<string[]> {
+  const rows = await tx<{ privilege_type: string }[]>`
+    SELECT DISTINCT acl.privilege_type
+      FROM aclexplode(acldefault('r', (
+             SELECT cls.relowner FROM pg_class cls WHERE cls.oid = to_regclass(${`public.${table}`})
+           ))) AS acl
+     ORDER BY 1
+  `;
+  const privileges = rows.map((row) => row.privilege_type);
+  if (privileges.length < PRIVILEGE_FLOOR) {
+    throw new Error(
+      `deriveTablePrivileges(${table}) returned ${privileges.length} privileges, below the ` +
+        `PostgreSQL 16 floor of ${PRIVILEGE_FLOOR} — every "grants none of them" assertion ` +
+        'built on this list would be vacuous. A short list means the table name did not ' +
+        'resolve, not that the server defines fewer privileges.',
+    );
+  }
+  return privileges;
+}
+
+/** The PostgreSQL 16 floor: SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
+ * REFERENCES, TRIGGER. 17 adds MAINTAIN, so a lane on 17 derives eight. */
+const PRIVILEGE_FLOOR = 7;
+
+/** `"<client role>:<privilege>"` for every pair — the `grants` entry names a
+ * client role would hold if a migration granted it these privileges. */
+export function clientGrantNames(privileges: readonly string[]): string[] {
+  return CLIENT_ROLES.flatMap((role) => privileges.map((privilege) => `${role}:${privilege}`));
 }
 
 /** Rollback marker. Module-private, so no caller can throw it by accident. */

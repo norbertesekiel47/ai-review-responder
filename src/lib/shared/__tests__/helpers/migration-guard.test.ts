@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assertDegradeLanded,
+  assertTableRemoved,
   assertOnlyTablesMoved,
   readMigrationSql,
   type CatalogueEntry,
@@ -203,9 +204,9 @@ describe('migration-guard', () => {
     const before = catalogue(catalogued('reviews'), catalogued('users'));
     const after = catalogue(catalogued('users'));
 
-    expect(() =>
-      assertDegradeLanded(before, after, { table: 'reviews', property: 'presence' }),
-    ).not.toThrow();
+    // `assertTableRemoved` rather than a `property: 'presence'` variant: a
+    // removal is not a property of a table, it is the table (#1301 S-6).
+    expect(() => assertTableRemoved(before, after, 'reviews')).not.toThrow();
 
     // Every OTHER form needs the table on both sides, so an unexpectedly
     // missing table stays a loud failure instead of a silent pass.
@@ -217,10 +218,12 @@ describe('migration-guard', () => {
       }),
     ).toThrow(/reviews/);
 
-    // And presence is not satisfied by a table that never went away.
-    expect(() =>
-      assertDegradeLanded(before, after, { table: 'users', property: 'presence' }),
-    ).toThrow(/users/);
+    // And a removal is not satisfied by a table that never went away.
+    expect(() => assertTableRemoved(before, after, 'users')).toThrow(/users/);
+
+    // Nor by one that was already gone before the degrade: that direction is
+    // the vacuous half, and it is checked too.
+    expect(() => assertTableRemoved(after, after, 'reviews')).toThrow(/already absent/);
   });
 
   it('assertDegradeLanded cannot be called with an empty object list', () => {

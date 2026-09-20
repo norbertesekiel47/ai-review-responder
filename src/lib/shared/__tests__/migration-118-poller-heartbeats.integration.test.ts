@@ -61,13 +61,11 @@
 // `aclexplode`) is OID-resolved at read time, so a new OID changes no rendering.
 //
 // Because the table is GONE after the degrade, the vacuity check must use the
-// table-removal form — `assertDegradeLanded(before, degraded, { table,
-// property: 'presence' })`. Any property-named form would dereference a table
-// that is not there, and the harness raises that explicitly ("use
-// { property: 'presence' } for a deliberate table removal"). Dropping the
-// vacuity check instead would be the worst of the three options: this is the
-// one suite whose degrade is TOTAL, so a silently skipped degrade would be
-// least visible here.
+// table-removal form — `assertTableRemoved(before, degraded, TABLE)`. Any
+// property-named form would dereference a table that is not there, and the
+// harness raises that explicitly. Dropping the vacuity check instead would be
+// the worst of the three options: this is the one suite whose degrade is
+// TOTAL, so a silently skipped degrade would be least visible here.
 //
 // ── why the REVOKE has to be CHALLENGED ─────────────────────────────────────
 //
@@ -129,7 +127,10 @@ import {
   MIGRATION_118_POLLER_HEARTBEATS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
-  assertDegradeLanded,
+  assertTableRemoved,
+  clientGrantNames,
+  CLIENT_ROLES,
+  deriveTablePrivileges,
   assertOnlyTablesMoved,
   readMigrationSql,
   readPublicCatalogue,
@@ -142,9 +143,6 @@ const MIGRATION_FILE = '118_poller_heartbeats.sql';
 const SUITE_FILE = 'src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts';
 const BEHIND_HEAD =
   'poller_heartbeats posture is not at migration head — run pnpm test:db:setup';
-
-/** The two Supabase client roles. Neither has any business reaching this table. */
-const CLIENT_ROLES = ['anon', 'authenticated'] as const;
 
 /**
  * A throwaway table created under the degraded (permissive) default ACL, purely
@@ -177,44 +175,6 @@ let featureDatabaseLock: LiveDbLock | undefined;
 function sql(): postgresType.Sql {
   if (!db) throw new Error('migration 118 integration database was not initialized');
   return db;
-}
-
-/**
- * Every table privilege THIS PostgreSQL major defines, DERIVED from
- * `acldefault('r', <owner>)` — the built-in owner ACL for a relation — and
- * never spelled out.
- *
- * Spelling it would break on one major or the other: PostgreSQL 16 defines
- * seven table privileges and 17 defines eight (17 adds `MAINTAIN`). A hardcoded
- * list either misses `MAINTAIN` on 17 — where both Supabase projects and this
- * container now run — or raises `unrecognized privilege type` on 16. Migration
- * 122's own version guard exists for the same reason.
- */
-async function deriveTablePrivileges(
-  tx: postgresType.TransactionSql,
-  table: string,
-): Promise<string[]> {
-  const rows = await tx<{ privilege_type: string }[]>`
-    SELECT DISTINCT acl.privilege_type
-      FROM aclexplode(acldefault('r', (
-             SELECT cls.relowner FROM pg_class cls WHERE cls.oid = to_regclass(${`public.${table}`})
-           ))) AS acl
-     ORDER BY 1
-  `;
-  const privileges = rows.map((row) => row.privilege_type);
-  // Fails LOUD rather than open. An empty list makes every "grants none of
-  // them" assertion below pass vacuously, which is the exact failure mode this
-  // family of suites keeps rediscovering. Seven is the PostgreSQL 16 floor.
-  expect(
-    privileges.length,
-    'the derived table-privilege list is empty or short — every privilege assertion would be vacuous',
-  ).toBeGreaterThanOrEqual(7);
-  return privileges;
-}
-
-/** `"<grantee>:<privilege>"` — the grant-entry name shape `readPublicCatalogue` renders. */
-function clientGrantNames(privileges: readonly string[]): string[] {
-  return CLIENT_ROLES.flatMap((role) => privileges.map((privilege) => `${role}:${privilege}`));
 }
 
 /**
@@ -472,7 +432,7 @@ describeWithDb(
         // table that is not there — and dropping the vacuity check instead
         // would be worse here than anywhere else in #1301, because this is the
         // one suite whose degrade is TOTAL.
-        assertDegradeLanded(before, degraded, { table: TABLE, property: 'presence' });
+        assertTableRemoved(before, degraded, TABLE);
 
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
@@ -493,7 +453,7 @@ describeWithDb(
         const before = await readPublicCatalogue(tx);
         await degrade(tx);
         const degraded = await readPublicCatalogue(tx);
-        assertDegradeLanded(before, degraded, { table: TABLE, property: 'presence' });
+        assertTableRemoved(before, degraded, TABLE);
 
         // `ALTER DEFAULT PRIVILEGES` affects only tables created AFTERWARDS,
         // so it must leave every existing table alone. This assertion is that
@@ -578,7 +538,7 @@ describeWithDb(
         // catalogue differs from `before` in exactly one table.
         await tx.unsafe('DROP TABLE poller_heartbeats;');
         const degraded = await readPublicCatalogue(tx);
-        assertDegradeLanded(before, degraded, { table: TABLE, property: 'presence' });
+        assertTableRemoved(before, degraded, TABLE);
 
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
@@ -607,7 +567,7 @@ describeWithDb(
         const before = await readPublicCatalogue(tx);
         await degrade(tx);
         const degraded = await readPublicCatalogue(tx);
-        assertDegradeLanded(before, degraded, { table: TABLE, property: 'presence' });
+        assertTableRemoved(before, degraded, TABLE);
 
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);

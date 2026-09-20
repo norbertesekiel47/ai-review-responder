@@ -144,6 +144,9 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   assertDegradeLanded,
+  clientGrantNames,
+  CLIENT_ROLES,
+  deriveTablePrivileges,
   assertOnlyTablesMoved,
   nonEmptyNames,
   readMigrationSql,
@@ -165,9 +168,6 @@ const ACTOR_FK = 'admin_audit_log_actor_user_id_fkey';
 const FOREIGN_KEY_VIOLATION = '23503';
 const BEHIND_HEAD = 'admin_audit_log posture is not at migration head — run pnpm test:db:setup';
 
-/** The two Supabase client roles. An audit trail has no client reader at all. */
-const CLIENT_ROLES = ['anon', 'authenticated'] as const;
-
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
@@ -182,40 +182,6 @@ function sql(): postgresType.Sql {
 function admin(): string {
   if (!adminUserId) throw new Error('migration 117 integration admin was not seeded');
   return adminUserId;
-}
-
-/**
- * Every table privilege THIS PostgreSQL major defines, DERIVED from
- * `acldefault('r', <owner>)` — the built-in owner ACL for a relation — and
- * never spelled out. 16 defines seven, 17 defines eight (`MAINTAIN`), so a
- * hardcoded list either misses one on 17 or raises `unrecognized privilege
- * type` on 16.
- */
-async function deriveTablePrivileges(
-  tx: postgresType.TransactionSql,
-  table: string,
-): Promise<string[]> {
-  const rows = await tx<{ privilege_type: string }[]>`
-    SELECT DISTINCT acl.privilege_type
-      FROM aclexplode(acldefault('r', (
-             SELECT cls.relowner FROM pg_class cls WHERE cls.oid = to_regclass(${`public.${table}`})
-           ))) AS acl
-     ORDER BY 1
-  `;
-  const privileges = rows.map((row) => row.privilege_type);
-  // Fails LOUD rather than open: an empty list makes every "grants none of
-  // them" assertion below pass vacuously, which is the failure mode this family
-  // of suites keeps rediscovering. Seven is the PostgreSQL 16 floor.
-  expect(
-    privileges.length,
-    'the derived table-privilege list is empty or short — every privilege assertion would be vacuous',
-  ).toBeGreaterThanOrEqual(7);
-  return privileges;
-}
-
-/** `"<grantee>:<privilege>"` — the grant-entry name shape `readPublicCatalogue` renders. */
-function clientGrantNames(privileges: readonly string[]): string[] {
-  return CLIENT_ROLES.flatMap((role) => privileges.map((privilege) => `${role}:${privilege}`));
 }
 
 /**
@@ -595,7 +561,31 @@ describeWithDb(
     it('re-applying 117 moves no other table in public', async () => {
       await withRolledBackTransaction(sql(), async (tx) => {
         const before = await readPublicCatalogue(tx);
+        const privileges = await deriveTablePrivileges(tx, TABLE);
         await degrade(tx);
+        const degraded = await readPublicCatalogue(tx);
+
+        // The degrade must LAND before the re-apply gets credit for undoing it.
+        // Four of the seven "moves no other table" cases ran this cycle
+        // without proving it, while three proved it — one plan, three shapes
+        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
+        // from an oversight, so every one of the seven now proves it, with the
+        // same targets its sibling case uses.
+        assertDegradeLanded(before, degraded, {
+          table: TABLE,
+          property: 'grants',
+          present: nonEmptyNames(clientGrantNames(privileges)),
+        });
+        assertDegradeLanded(before, degraded, {
+          table: TABLE,
+          property: 'indexes',
+          absent: [ACTOR_INDEX, EVENT_INDEX],
+        });
+        assertDegradeLanded(before, degraded, {
+          table: TABLE,
+          property: 'rowSecurity',
+        });
+
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
 

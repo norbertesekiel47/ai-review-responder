@@ -346,6 +346,30 @@ describeWithDb(
         const before = await readPublicCatalogue(tx);
         await assertNoNullsBeforeDegrade(tx);
         await tx.unsafe(DEGRADE);
+        const degraded = await readPublicCatalogue(tx);
+
+        // The degrade must LAND before the re-apply gets credit for undoing it.
+        // Four of the seven "moves no other table" cases ran this cycle
+        // without proving it, while three proved it — one plan, three shapes
+        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
+        // from an oversight, so every one of the seven now proves it, with the
+        // same targets its sibling case uses.
+        assertDegradeLanded(before, degraded, {
+          table: 'account_offboardings',
+          property: 'notNullColumns',
+          present: ['zernio_account_ids', 'zernio_profile_ids'],
+        });
+        assertDegradeLanded(before, degraded, {
+          table: 'approval_audit_log',
+          property: 'notNullColumns',
+          present: ['response_id'],
+        });
+        assertDegradeLanded(before, degraded, {
+          table: 'impersonation_sessions',
+          property: 'notNullColumns',
+          present: ['account_id', 'impersonated_user_id'],
+        });
+
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
 

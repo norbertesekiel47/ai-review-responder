@@ -197,6 +197,19 @@ describeWithDb(
       await withRolledBackTransaction(sql(), async (tx) => {
         const before = await readPublicCatalogue(tx);
         await tx.unsafe('ALTER TABLE analytics_events DISABLE ROW LEVEL SECURITY;');
+        const degraded = await readPublicCatalogue(tx);
+
+        // The degrade must LAND before the re-apply gets credit for undoing it.
+        // Four of the seven "moves no other table" cases ran this cycle
+        // without proving it, while three proved it — one plan, three shapes
+        // (#1301 S-1/F-F/RT-15). A reader could not tell a deliberate omission
+        // from an oversight, so every one of the seven now proves it, with the
+        // same targets its sibling case uses.
+        assertDegradeLanded(before, degraded, {
+          table: TABLE,
+          property: 'rowSecurity',
+        });
+
         await tx.unsafe(readMigrationSql(MIGRATION_FILE));
         const after = await readPublicCatalogue(tx);
 
