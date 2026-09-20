@@ -7463,7 +7463,7 @@ Docs only — no production file, no test. It has **no blocking edge on any code
 **Lease:** every docs file listed below. **Blocking edges:** none (docs); the two `docs/directory/lib-owner-operator.md` rows describe files T1 creates, so commit T6 after T1 if `ci:directory-map` is run in between.
 
 **Files:**
-- Modify: `docs/roadmap/2026-09-11-owner-operator/README.md:80` (§3.1 — the route AND the visual system), `:631` (§14 dashboard-reuse default), `:639` (one new §14 entry), `:663` (a §15 entry)
+- Modify: `docs/roadmap/2026-09-11-owner-operator.md:80` (§3.1 — the route AND the visual system), `:631` (§14 dashboard-reuse default), `:639` (one new §14 entry), `:663` (a §15 entry)
 - Modify: `docs/runbooks/beta-launch-alerting.md:412` (rule 11 → BUILT), `:350` (the §1 checkbox's Response block), `:438` (a new "Rule 11 — …" prose note)
 - Modify: `docs/context/owner-operator.md:29` (two new terms)
 - Modify: `CONTEXT-MAP.md:25` (the two terms join the row)
@@ -7479,7 +7479,7 @@ Docs only — no production file, no test. It has **no blocking edge on any code
 
 - [ ] **Step 1: Correct spec §3.1 and add the §14 entries**
 
-In `docs/roadmap/2026-09-11-owner-operator/README.md`, replace line 80:
+In `docs/roadmap/2026-09-11-owner-operator.md`, replace line 80:
 
 ```
 Route: `src/app/(authenticated)/dashboard/operator/page.tsx`, URL
@@ -7509,7 +7509,7 @@ Append one entry at the end of §14 (after line 639, before `## 15. Review log`)
 
 - [ ] **Step 2: Add the §15 build-log entry**
 
-Append at the end of `docs/roadmap/2026-09-11-owner-operator/README.md` (after line 663):
+Append at the end of `docs/roadmap/2026-09-11-owner-operator.md` (after line 663):
 
 ```
 - 2026-09-12, **Run B built** (`feat/owner-operator-run-b`): the **Version token**
@@ -7716,7 +7716,7 @@ Expected: each prints the line the prose describes. **A citation that has moved 
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-owner-operator-run-b
-git add docs/roadmap/2026-09-11-owner-operator/README.md \
+git add docs/roadmap/2026-09-11-owner-operator.md \
         docs/runbooks/beta-launch-alerting.md \
         docs/context/owner-operator.md \
         CONTEXT-MAP.md \
@@ -8214,7 +8214,7 @@ GROUP BY 1;
   - `AGENT_TURN_PREDECESSOR_STALL_SECONDS` (today 1200, `:19`) must stay **above one outbox watchdog window** (900 000 ms default) so a predecessor that merely needs re-dispatching is rescued before this turn gives up on it.
   - `AGENT_TURN_PREDECESSOR_WAIT_MS` (today 10 000, `:22`) is the only one with no floor; lower it only if p50 is well under 10 s.
   - **If the measurement does not justify a change, change nothing and record that.** A constant moved without a number behind it is the hunch §14 forbids.
-- [ ] **6. Write the §12.1 checkpoint report** into `docs/roadmap/2026-09-11-owner-operator/README.md` as a table, one row per item 1–10:
+- [ ] **6. Write the §12.1 checkpoint report** into `docs/roadmap/2026-09-11-owner-operator.md` as a table, one row per item 1–10:
 
 | # | Item | Result | Evidence |
 |---|---|---|---|

@@ -39,7 +39,7 @@ build sequence. Current selection/dependencies live in
 
 | Capability/hypothesis | Implementation evidence | Verified live availability | Customer validation |
 |---|---|---|---|
-| Owner instruction → operating plan → ongoing conversational delegation | Specified, not built ([spec](2026-09-11-owner-operator/README.md)); `src/lib/llm/types.ts` is single-shot and excludes tool calls/multi-turn loops (source checked Sep 11). No operator implementation exists | Not established | Not established; the spec's owner pilot is the test |
+| Owner instruction → operating plan → ongoing conversational delegation | Specified, not built ([spec](2026-09-11-owner-operator.md)); `src/lib/llm/types.ts` is single-shot and excludes tool calls/multi-turn loops (source checked Sep 11). No operator implementation exists | Not established | Not established; the spec's owner pilot is the test |
 | Confirmed operating memory | Brand fields and owner-edit voice examples are existing foundations; structured facts/rules and correction-to-later-task behavior remain future P4 scope when selected | New memory behavior not established | Requires fewer factual/repeated corrections on comparable tasks |
 | Follow-through and outcomes for the selected job | Existing run/domain records support activity evidence; a complete recovery lifecycle and operator follow-up are future scope, not consequences of having a run spine | Proposed workflow not established | Requires correctly completed work, unresolved-case tracking and less intervention; no causal revenue inference |
 | Complete operation in another market | Existing language/channel capabilities do not establish every country's workflow; use the verticals capability matrix | Must be verified per selected market and operation | Transferability unproven |
@@ -225,7 +225,7 @@ feature is valid. Funding and beta learning proceed in parallel.
    needs machine identity, scoped authorization and demand evidence. (P8 / later)
 
 The owner-operator v1 is selected and specified in
-[owner-operator/README.md](2026-09-11-owner-operator/README.md); it is not a
+[owner-operator/README.md](2026-09-11-owner-operator.md); it is not a
 P8/API dependency. Rows above stay "not established" until the checkpoint
 evidence lands.
 

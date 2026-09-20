@@ -236,7 +236,7 @@ passwords in notes. Do not promise every review will be answered or that QR
 scans create sales.
 
 If the [operator experiment](../../2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
-runs its owner pilot ([spec §12.3](../../2026-09-11-owner-operator/README.md)),
+runs its owner pilot ([spec §12.3](../../2026-09-11-owner-operator.md)),
 extend the same customer record with the owner's instructions, accepted
 plan/rule version, missing decisions, and next eligible task. Observe whether the next task completes without founder
 rescue, whether a correction improves subsequent comparable work, and what

@@ -74,7 +74,7 @@
     "src/lib/agents/operator/__tests__/turns.test.ts",
     "src/app/(authenticated)/dashboard/operator/wording.ts",
     "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
-    "docs/roadmap/2026-09-11-owner-operator/README.md",
+    "docs/roadmap/2026-09-11-owner-operator.md",
     "docs/context/owner-operator.md",
     "docs/directory/worker-jobs-a.md",
     "docs/directory/worker-background.md",

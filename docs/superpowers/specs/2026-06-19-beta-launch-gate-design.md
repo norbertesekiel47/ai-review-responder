@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-19 · **Branch:** `harden/beta-launch-gate`
 **Source plan:** locked via grill-with-docs-codex (4 rounds, APPROVED) — see `~/.claude/grill-codex/20260618-203737/PLAN.md`
-**Audit it derives from:** `docs/future-plans/2026-06-18-1000-business-readiness-audit.md`
+**Audit it derives from:** `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` (removed 2026-09-20; in git history at `415106887`)
 
 ## Goal
 Implement the small, correct set of hardening the locked plan gates a **10–50 business paid beta** on (RepWorth auto-drafts replies and, after **owner approval**, posts to customers' public Google profiles). Defer all 1000-scale throughput/capacity work to growth triggers. **Do not break existing functionality.**
@@ -32,7 +32,7 @@ Framing settled in the grill: the content-safety control is **human-in-the-loop 
 7. **Runbook** `docs/runbooks/beta-launch-alerting.md` — Sentry alert routing (Slack/PagerDuty) for P0/P1; Sentry Cron Monitor slug for the probe; external `/ready` synthetic check (both runtimes); the A4 acceptance drills; confirm `ADMIN_NOTIFICATION_EMAIL` routes to a monitored inbox; confirm `AUTO_APPROVAL_ENABLED=false` for beta.
 8. **Env docs** — add `GLOBAL_DAILY_COST_LIMIT_CENTS` + `DAILY_COST_LIMIT_CENTS_*` to `.claude/reference/env-vars.md`; note new `HEALTH_ALERT_*` + `EMAIL_SEND_TIMEOUT_MS` vars.
 9. **Launch checklist** — add the "subscription-invoices-only" beta operating constraint + the alerting gate items to `docs/launch-checklist.md`.
-10. **Doc consolidation (E):** fold the audit's unique deltas into `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` (Upstash KEYS→SCAN, cost-ceiling sizing, DB/Supabase capacity, ArchivalPoller drain-loop, circuit breakers, scale-alerting); correct the audit's stale/overstated items (double-send, billing) and slim `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` to a verdict pointing at the backlog.
+10. **Doc consolidation (E):** fold the audit's unique deltas into `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md` (Upstash KEYS→SCAN, cost-ceiling sizing, DB/Supabase capacity, ArchivalPoller drain-loop, circuit breakers, scale-alerting); correct the audit's stale/overstated items (double-send, billing) and slim `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` (removed 2026-09-20; in git history at `415106887`) to a verdict pointing at the backlog.
 11. **ADR** `docs/adr/000N-beta-launch-posture.md` — owner-approval-only beta on single-replica worker; auto-approval + scale hardening gated separately.
 
 ## Out of scope (deferred to backlog triggers)

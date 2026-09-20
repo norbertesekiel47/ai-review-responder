@@ -14,7 +14,7 @@ operational prerequisites for selling Autopilot.
 
 This specification reconciles, without repricing:
 
-- `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §3.3
+- `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §3.3
   and decision log #2;
 - the WS8 row in
   `docs/superpowers/plans/2026-07-01-agentic-platform-phase1-run-spine.md`;

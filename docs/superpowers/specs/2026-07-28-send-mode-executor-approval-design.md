@@ -21,7 +21,7 @@ shadow/no-charge, `SOLICITATION_SEND_ENABLED` + a separate auto-approval flag.
 
 References: ADR 0011 (`docs/adr/0011-watch-mode-executor-shape.md`); watch-mode
 executor spec (`docs/superpowers/specs/2026-07-23-run-engine-executor-shape.md`);
-May reference design (`docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md`
+May reference design (`docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` (removed 2026-09-20; in git history at `415106887`)
 §3.1/§3.2/§6.2–6.6); compliance constraints (#531,
 `docs/research/2026-07-23-solicitation-policy-constraints.md`).
 
@@ -542,7 +542,7 @@ in-window batches with releasable asks), not a cursor scan. The CAS plus the
 partial unique index are the real defenses.
 
 **Cost accepted, stated plainly:** one new poller on the P2 single-replica list
-in `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`. Exactly
+in `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`. Exactly
 one for this whole map.
 
 **Send worker shape** (production.md: never hold a lock across a slow remote

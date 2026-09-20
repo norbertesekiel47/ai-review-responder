@@ -96,7 +96,7 @@ applying it and reverting" claim in the deviations entry was independently
 re-derived above rather than taken on trust.
 
 One claim does NOT resolve — **R11 (P1)**: the new go-live entry at
-`docs/roadmap/2026-09-11-owner-operator/README.md:638` says all six enumerated
+`docs/roadmap/2026-09-11-owner-operator.md:638` says all six enumerated
 terminal paths "resolve the turn and emit a `logger.warn` line".
 `AgentTurnWorker.ts:46` emits `logger.log` (info), and `AgentTurnWorker.ts:265`
 returns without resolving the turn at all. The entry's *conclusion* — no Sentry
@@ -140,7 +140,7 @@ about.
 | R8 | P2 | `src/lib/agents/operator/__tests__/render.test.ts:307` | **rejected** |
 | R9 | P2 | `worker/jobs/agent-turn/AgentTurnWorker.ts:213` | open (deferred to go-live) |
 | R10 | P2 | `src/lib/agents/operator/schema.ts:31` | **fixed** |
-| **R11** | **P1** | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **open** |
+| **R11** | **P1** | `docs/roadmap/2026-09-11-owner-operator.md:638` | **open** |
 | R12 | P2 | `src/lib/agents/operator/__tests__/reads.integration.test.ts:494` | open |
 | R13 | P2 | `worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:126` | open |
 

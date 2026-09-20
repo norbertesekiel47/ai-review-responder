@@ -1,7 +1,8 @@
 # RepWorth product roadmap
 
-Last revised: **2026-09-11**, following the owner's approval of the
-conversational operator recommendations. Filenames keep their original dates so
+Last revised: **2026-09-20** (operator pages consolidated into this folder
+and reconciled; see Decision history). The September 11 revision followed
+the owner's approval of the conversational operator recommendations. Filenames keep their original dates so
 existing references remain usable.
 
 RepWorth should handle reputation work for business owners and show what it
@@ -19,8 +20,9 @@ ordinary language. The problem to observe is the effort owners still spend
 configuring, coordinating, correcting, and checking work whose individual
 steps are already automated.
 
-The immediate commitment is a bounded software v1, specified in
-[owner-operator/](2026-09-11-owner-operator/README.md): one model call per
+The immediate commitment is a bounded software v1, specified and now built
+(status: the spec's first line) in the
+[Owner Operator spec](2026-09-11-owner-operator.md): one model call per
 turn, typed proposal cards, explicit Apply, existing domain operations, a
 60-hour named exception with a 30-hour checkpoint. The
 [forward roadmap](2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
@@ -51,7 +53,8 @@ assignments; its numeric targets are proposed, not achieved results.
 | [Investor theses](2026-08-29-investor-theses-overlay.md) | Ideas to test with buyers and investors; pricing and funding decisions |
 | [Launch explainer](2026-08-29-launch-explainer-script.md) | A short demonstration first, with a longer film concept for later |
 | [Operating costs](2026-08-30-operating-cost-baseline.md) | Dated service-cost inventory and the missing inputs for a cash plan |
-| [Owner operator](2026-09-11-owner-operator/README.md) | The v1 spec (conversation → proposal cards → Apply → receipts), its [architecture](2026-09-11-owner-operator/architecture.md) and framework posture, and the [vision](2026-09-11-owner-operator/vision.md) beyond v1 |
+| [Agentic design of record](2026-07-01-agentic-reputation-platform-design.md) | The accepted engineering design for the agentic platform: locked decisions, §8 as-built status, §9 Solicitation roadmap. Moved here from `docs/future-plans/` on 2026-09-20 |
+| [Owner operator](2026-09-11-owner-operator.md) | The v1 spec (conversation → proposal cards → Apply → receipts) and its build status. Its architecture and framework posture are [agentic architecture §6](2026-08-26-agentic-architecture.md#6-owner-operator-durable-commitments-and-framework-posture); the stages beyond v1 close the [forward roadmap](2026-08-26-forward-roadmap.md#owner-operator-stages-beyond-version-1) |
 | [Competitor evidence](../plans/2026-09-11-reputation-competitor-landscape.md) | Desk review of NiceJob, TrueReview and GatherUp (checked Sep 11): documented AI replies, automation and international coverage |
 | [Roadmap review](2026-09-07-roadmap-review.md) | Two Claude review rounds, changes made, and documentation checks |
 
@@ -101,16 +104,22 @@ assignments; its numeric targets are proposed, not achieved results.
   [decision log](2026-09-08-founder-90-day-plan/ceo-cto/decision-log.md) records
   private finance inputs supplied, with obligations/final deadline still
   pending; this page does not re-audit those figures.
-- The owner-operator v1 is selected with acceptance criteria written; still
-  open are its 30-hour checkpoint result, the named pilot owner, and the
-  customer evidence needed to continue, change direction, or stop it.
+- The owner-operator v1 is built and its pilot owner is named (the spec
+  owns that status). Still open: the pilot's observation window and
+  eligible review activity, the hours actually used, and the customer
+  evidence needed to continue, change direction, or stop it.
 - Actual investor feedback on RepWorth and any financing timeline.
 - Current launch gates, legal review, and deployed feature availability.
 
 ## Relationship to engineering documents
 
-This folder owns product priorities. The
-[agentic design of record](../future-plans/2026-07-01-agentic-reputation-platform-design.md),
+This folder owns product priorities. It also houses two engineering
+documents by named exception, because the roadmap pages cite them
+throughout: the
+[agentic design of record](2026-07-01-agentic-reputation-platform-design.md)
+and the [Owner Operator spec](2026-09-11-owner-operator.md). They keep their
+authority over implementation; living here does not make them priorities.
+The design of record,
 [feature specs](../superpowers/specs/), [plans](../superpowers/plans/), and
 [runbooks](../runbooks/) own implementation requirements and operating
 procedures. A roadmap entry does not override a safety invariant, authorize
@@ -131,6 +140,25 @@ external API/MCP access, and adds tests for business memory and
 international transferability. Cash gates, existing beta promises and the
 20-hour default cap for other improvements remain in force. The September 7
 review predates this revision and did not evaluate it.
+
+The September 20 retirement of `docs/future-plans/` (which predated this
+folder) moved the design of record here, moved the worker-scaling backlog
+and the July codebase audit to `docs/audits/`, turned four open follow-ups
+into issues #1354–#1357, and removed six finished or superseded files (in
+git history at `415106887`).
+
+The September 20 consolidation removes the `2026-09-11-owner-operator/`
+subfolder. The spec is now `2026-09-11-owner-operator.md`; its architecture
+page is agentic architecture §6; its vision page closes the forward
+roadmap. One exception keeps the old path: applied migration
+`120_owner_operator.sql` cites it in a stored table comment and is not
+edited. Owner decisions recorded that day: no vendor agent framework by
+default (a candidate only when a loop is specified); review asks never
+depend on sentiment; cross-business learning is a bet, not a moat; later
+stages use the forward roadmap's paid, cash and capacity tests; autonomy
+may later widen automatically only inside an owner-set ceiling; operator
+hours used are unrecorded; the September 11 revision has not had its
+two-round challenge.
 
 Update the relevant document when evidence or a decision changes, record the
 date, and fix references in the same change. Keep deployment claims tied to

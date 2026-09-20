@@ -8,7 +8,7 @@
 
 **Tech Stack:** Postgres.js + `job_outbox` + BullMQ (Railway worker) · Next.js 16 App Router route + client component · Vitest + fast-check.
 
-**Ticket:** #632 · **Map:** #617 · **Specs:** `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` D14/D16, `docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` §6.3–6.4 · **Intake:** `.feature/intake.json`
+**Ticket:** #632 · **Map:** #617 · **Specs:** `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` D14/D16, `docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` (removed 2026-09-20; in git history at `415106887`) §6.3–6.4 · **Intake:** `.feature/intake.json`
 
 ---
 

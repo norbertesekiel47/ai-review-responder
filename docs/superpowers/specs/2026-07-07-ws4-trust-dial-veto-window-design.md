@@ -4,7 +4,7 @@
 design inputs from the WS3→WS4 handoff resolved below with evidence; four product calls
 confirmed by Norbert — rating-band hard floor + restricted UI, veto window 15/30 default 15,
 daily cap default 10 range 1–50, edit-publish spine gap closed here).
-**Parent:** `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` (§3.3
+**Parent:** `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` (§3.3
 trust dial, §5.1 guardrails, §4 launch-track item 3) and the Phase 1 decomposition table in
 `docs/superpowers/plans/2026-07-01-agentic-platform-phase1-run-spine.md` (WS4 row).
 **Depends on:** WS1 (shipped — run spine, outcome kinds in migration 071's CHECK).

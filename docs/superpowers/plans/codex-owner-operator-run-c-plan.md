@@ -3,7 +3,7 @@
 **Base:** `6b2eb580940480c6a9b304f3e69c0d7a3bb04f29`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c`
 **Intake:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/docs/superpowers/plans/codex-owner-operator-run-c-intake.json`
-**Spec:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/docs/roadmap/2026-09-11-owner-operator/README.md`
+**Spec:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/docs/roadmap/2026-09-11-owner-operator.md`
 
 ## 0. Checks of the brief against the spec and intake
 

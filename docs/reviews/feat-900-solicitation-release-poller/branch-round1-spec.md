@@ -88,7 +88,7 @@ Every changed path maps to an entry. Enumerated:
 | `scripts/ci/tenant-scope-allowlist.ts` | exact (AMENDMENT 2) |
 | `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` | exact (AMENDMENT 3) |
 | `.claude/reference/lab-notes.md` | exact (AMENDMENT 4) |
-| `.claude/reference/env-vars.md` · `CONTEXT.md` · `docs/directory.md` · `docs/future-plans/…backlog.md` · `docs/superpowers/plans/**` · `docs/reviews/**` | exact |
+| `.claude/reference/env-vars.md` · `CONTEXT.md` · `docs/directory.md` · `docs/audits/…backlog.md` · `docs/superpowers/plans/**` · `docs/reviews/**` | exact |
 
 `src/lib/solicitation/send-caps.ts` is on the surface and was **not** touched — permission,
 not obligation; correct, since its two counters and two resolvers were already right.

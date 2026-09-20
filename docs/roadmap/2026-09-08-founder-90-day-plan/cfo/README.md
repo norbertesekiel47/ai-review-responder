@@ -135,7 +135,7 @@ Prepare a cost map by September 14; first observed account-level comparison by S
 
 Measure model calls/fallbacks/retries, ingestion/posting, messages, shared infrastructure, payment fees, refunds, onboarding, ongoing support and founder delivery time. Distinguish cash cost from the imputed value of unpaid founder time. Record the hourly assumption and actual minutes; unpaid work is not economically free, but an imputed cost is not a bank outflow.
 
-For the owner-operator v1 ([spec](../../2026-09-11-owner-operator/README.md)),
+For the owner-operator v1 ([spec](../../2026-09-11-owner-operator.md)),
 include the `owner_operator` planning calls within those model/tool costs,
 and record founder minutes per delegated job as imputed labor. Report cost per correctly completed delegated job alongside
 eligible/completed counts and account-level costs. Failed or abandoned

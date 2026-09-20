@@ -26,7 +26,7 @@ Step 8 remaining: push branch → land on `staging` (auto-deploys full stack) �
 - Intake contract (drift detector): `docs/superpowers/plans/feat-competitor-snapshots-538-intake.json` (armed copy at `.feature/intake.json`)
 - Plan (execute task-by-task): `docs/superpowers/plans/2026-07-23-competitor-snapshots.md`
 - Glossary: `CONTEXT.md` — section "Competitor Delta (locked 2026-07-23 — ticket #532)"; Task 1 adds the **Competitor pack** term
-- Locked semantics source: `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §9 competitor-delta probe (lines ~467–481)
+- Locked semantics source: `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §9 competitor-delta probe (lines ~467–481)
 - Research basis (NOTE: only on unmerged branch `research/serpapi-competitor-fields`, not main): `docs/research/2026-07-23-serpapi-competitor-fields.md`
 - Deviations log (create on first deviation): `docs/superpowers/plans/feat-competitor-snapshots-538-deviations.md`
 

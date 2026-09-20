@@ -843,7 +843,7 @@ inferring "config-coverage was green, so the row must be present."
 
 ## Task 8 — the P2 backlog list is numbered continuously across all four priority bands, so the new entry is 17
 
-**What:** `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`
+**What:** `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md`
 numbers its items 1–16 straight through P1 (1–4), P2 (5–6), P3 (7–9) and the P4
 table (10–16). "Add a P2 entry" therefore has no free slot: item 7 is already
 `OutboxPoller` under P3. Renumbering 7–16 would rewrite the P3/P4 headings and

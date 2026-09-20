@@ -8,7 +8,7 @@
 
 **Tech Stack:** Postgres (Supabase, migration 071), Postgres.js transactional writes, Vitest with the repo's mocked-`sql.begin` test pattern, UUIDv7 app-side IDs.
 
-**Design of record:** `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md`
+**Design of record:** `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md`
 
 ---
 

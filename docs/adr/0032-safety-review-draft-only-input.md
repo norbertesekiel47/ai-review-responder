@@ -7,7 +7,7 @@ own reply and nothing else.
 
 Terms: `docs/context/core-reviews-responses.md` → **Safety review**,
 **Moderation hold**, **Approval method**. Design of record:
-`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §8.
+`docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §8.
 Evidence: `docs/runbooks/evidence/2026-09-17-provider-moderation-corpus.md`
 (finding **G4-F1**).
 

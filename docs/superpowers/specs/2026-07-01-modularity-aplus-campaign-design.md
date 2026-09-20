@@ -3,7 +3,7 @@
 **Date:** 2026-07-01 · **Status:** Spec approved section-by-section in brainstorm; awaiting written-spec sign-off
 **Inputs:** [`docs/audits/2026-07-01-modularity-five-questions-reaudit.md`](../../audits/2026-07-01-modularity-five-questions-reaudit.md) (the findings),
 [`docs/audits/2026-06-26-modularity-five-questions-remediation.md`](../../audits/2026-06-26-modularity-five-questions-remediation.md) (the process precedent),
-[`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md`](../../future-plans/2026-07-01-agentic-reputation-platform-design.md) (design-of-record bounding the LLM seam)
+[`docs/roadmap/2026-07-01-agentic-reputation-platform-design.md`](../../roadmap/2026-07-01-agentic-reputation-platform-design.md) (design-of-record bounding the LLM seam)
 
 ---
 

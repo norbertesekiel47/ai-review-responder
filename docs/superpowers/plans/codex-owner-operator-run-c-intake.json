@@ -147,7 +147,7 @@
     "src/lib/responses/__tests__/model-pinning.test.ts",
     "e2e/operator.spec.ts",
     "e2e/helpers/operator-seed.ts",
-    "docs/roadmap/2026-09-11-owner-operator/README.md",
+    "docs/roadmap/2026-09-11-owner-operator.md",
     "docs/context/owner-operator.md",
     "CONTEXT-MAP.md",
     "docs/directory/lib-owner-operator.md",

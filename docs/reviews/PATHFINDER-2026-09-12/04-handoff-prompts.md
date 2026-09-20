@@ -88,8 +88,8 @@ name. LATENT.
 
 ```
 $ rg -n 'patchAutoApprovalSettingsInTransaction' .
-docs/roadmap/2026-09-11-owner-operator/README.md:397
-docs/roadmap/2026-09-11-owner-operator/README.md:532
+docs/roadmap/2026-09-11-owner-operator.md:397
+docs/roadmap/2026-09-11-owner-operator.md:532
 docs/superpowers/plans/feat-owner-operator-run-a-intake.json:16
 docs/superpowers/plans/feat-owner-operator-run-a-plan.md:19
 ```
@@ -555,7 +555,7 @@ gh issue create -t "fix(auth): /api/operator routes get the owner-API AAL2 gate"
 gh issue create -t "refactor(auth): one owner for the impersonation-cookie check" \
   -b "Pathfinder 2026-09-12 H1-B. Two byte-identical private copies; Run B adds two more unless this lands first."
 gh issue create -t "refactor(auto-approval): a transaction-aware policy writer for Apply" \
-  -b "Pathfinder 2026-09-12 H1-C. Run B is blocked. Spec prescribes the shape at docs/roadmap/2026-09-11-owner-operator/README.md:532."
+  -b "Pathfinder 2026-09-12 H1-C. Run B is blocked. Spec prescribes the shape at docs/roadmap/2026-09-11-owner-operator.md:532."
 gh issue create -t "docs(operator): Run B's summary panel reuses the granular reads, not the dashboard payload" \
   -b "Pathfinder 2026-09-12 H1-D. Field-by-field measurement in 03-unified-proposal.md U1-G."
 gh issue create -t "feat(ci): the arch counter becomes a derivation, not a judgement" \

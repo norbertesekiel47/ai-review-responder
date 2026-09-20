@@ -119,7 +119,7 @@ completed, in one transaction.
 
 The spec's fuller sentence is correct and is what the log compressed away:
 *"None of the six domain terminals calls Sentry, and that is ONE go-live
-decision"* (`docs/roadmap/2026-09-11-owner-operator/README.md:638`). The claim
+decision"* (`docs/roadmap/2026-09-11-owner-operator.md:638`). The claim
 is about the **alerting channel**, not about persistence. Under that reading it
 is TRUE: five `warn` lines and one `log` line, and nothing pages a human.
 
