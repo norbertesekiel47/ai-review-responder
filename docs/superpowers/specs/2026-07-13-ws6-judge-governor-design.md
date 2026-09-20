@@ -1,7 +1,7 @@
 # WS6 — Judge + governor (the autonomy watchdog) — Design
 
 **Date:** 2026-07-13 · **Parents:** design doc §5.1 items 2–3
-(`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md`) · **WS row:**
+(`docs/roadmap/2026-07-01-agentic-reputation-platform-design.md`) · **WS row:**
 `docs/superpowers/plans/2026-07-01-agentic-platform-phase1-run-spine.md` (WS6) ·
 **Depends:** WS1 (run spine, shipped) + WS4 (trust dial + suspension seam, shipped).
 **Handoff of record:** `/tmp/repworth-handoff-2026-07-13-ws6-judge-governor.md`.

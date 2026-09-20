@@ -4,7 +4,7 @@
 > Outcome of the 2026-07-23 grilling session. Implementation ticket **#541**
 > builds exactly this contract; the restraint policy module (#533/#542) and the
 > run-engine batch builder (#534/#543) consume its rows. Design of record:
-> `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §9
+> `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §9
 > (decision 3: owner CSV upload with explicit consent attestation, doubling as
 > the visits-ledger tracer). Policy constraints cited from
 > `docs/research/2026-07-23-solicitation-policy-constraints.md` (#531).

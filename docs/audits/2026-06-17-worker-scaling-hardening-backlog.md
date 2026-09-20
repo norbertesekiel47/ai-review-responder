@@ -135,7 +135,7 @@ These were fixed inline on branch `fix/pre-beta-worker-hardening` in the same pa
 ## Folded in from the 2026-06-18 1000-business audit (2026-06-19)
 
 This is now the **single action list** for deferred scale work — the 1000-business
-audit was slimmed to a verdict (`docs/future-plans/2026-06-18-1000-business-readiness-audit.md`)
+audit was slimmed to a verdict (`docs/future-plans/2026-06-18-1000-business-readiness-audit.md` (removed 2026-09-20; in git history at `415106887`))
 pointing here. Items below were caught by that broader audit and are NOT yet
 represented above. The beta-launch gate (ADR 0005, branch `harden/beta-launch-gate`)
 shipped the small subset that gates a paid beta; everything here stays deferred to

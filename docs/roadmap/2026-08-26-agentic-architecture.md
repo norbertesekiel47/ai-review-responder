@@ -16,7 +16,7 @@ runtime behavior, scalability, customer value or a moat. No deployed flags,
 credentials, providers or browser journeys were checked in this refresh.
 
 Engineering source of truth remains the design of record
-(`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §3, §8)
+(`docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §3, §8)
 and `.claude/CLAUDE.md` invariants. This file is the strategy view.
 
 ## 1. Architecture principles and boundaries

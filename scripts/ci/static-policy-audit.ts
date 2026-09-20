@@ -1022,7 +1022,7 @@ const RAILWAY_REPLICA_DETAIL =
   'Railway replica config must not be declared — the worker is single-replica by ' +
   'invariant (four boot guards + the in-process LLM circuit breaker depend on it). ' +
   'Clear the P2 "multi-replica latent races" items in ' +
-  'docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md first.';
+  'docs/audits/2026-06-17-worker-scaling-hardening-backlog.md first.';
 
 /**
  * Drop a TOML `#` comment, honouring quoted strings so a `#` inside a value

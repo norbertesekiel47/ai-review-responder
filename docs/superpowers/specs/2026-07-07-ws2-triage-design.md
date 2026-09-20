@@ -2,7 +2,7 @@
 
 **Status:** Accepted (brainstormed 2026-07-07 against the design of record; open decisions
 from the WS1→WS2 handoff resolved below with evidence).
-**Parent:** `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` (§2.2 Guardian,
+**Parent:** `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` (§2.2 Guardian,
 §3.1 triage step, §5.2 fail-safe) and the Phase 1 decomposition table in
 `docs/superpowers/plans/2026-07-01-agentic-platform-phase1-run-spine.md` (WS2 row).
 **Depends on:** WS1 (shipped — run spine, migration 071). **Blocks:** WS3 (Guardian).

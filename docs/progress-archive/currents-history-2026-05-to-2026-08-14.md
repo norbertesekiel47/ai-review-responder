@@ -1598,7 +1598,7 @@ to launch-day items. What is true now:
   there), plus 4 runbooks + 2 evidence records; `.scratch/` is gitignored.
 
 The new shape:
-- `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §8 — as-built overlay + go-live gate table
+- `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §8 — as-built overlay + go-live gate table
 - `docs/runbooks/agentic-staging-copilot-autopilot-e2e.md`, `agentic-staging-phase-d-purchasability.md`, `owner-uat-agentic-staging.md`, `zernio-automated-posting-limits.md`
 - `docs/runbooks/evidence/2026-07-21-…` + `2026-07-22-…` (the proof)
 - `worker/ingress/stripe/checkout-completed.ts` — trial contract accepts `paid` | `no_payment_required` (#518)
@@ -1931,7 +1931,7 @@ This is the action half of a bigger **"is this ready for 1000 businesses?"** aud
 - `docs/runbooks/beta-launch-alerting.md` — the human checklist for wiring the alarms (Sentry → Discord, the cron monitor, the outside `/ready` check) and the test drills to prove each alarm fires.
 - `docs/adr/0005-beta-launch-posture.md` — why we launch the small beta this way (owner-approval-only; scale work deferred).
 - Tiny edits (no new files): `src/lib/db/redis-cache.ts` (cache timeout), `worker/jobs/RankingTrackingWorker.ts` (ranking timeout), `worker/jobs/response-generation/generate-draft.ts` (the cost-cap alarm).
-- `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` — the "fix when you grow" to-do list (absorbed the 1000-business audit's findings); `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` is now a short verdict pointing at it.
+- `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md` — the "fix when you grow" to-do list (absorbed the 1000-business audit's findings); `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` (removed 2026-09-20; in git history at `415106887`) is now a short verdict pointing at it.
 
 ### One thing to remember
 

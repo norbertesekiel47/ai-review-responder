@@ -1,7 +1,7 @@
 # WS7 — Eval-in-CI: path-filtered `pnpm eval:llm` gate
 
 **Date:** 2026-07-07
-**Parent:** `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §5.1 item 1;
+**Parent:** `docs/roadmap/2026-07-01-agentic-reputation-platform-design.md` §5.1 item 1;
 decomposition row WS7 in `docs/superpowers/plans/2026-07-01-agentic-platform-phase1-run-spine.md`.
 
 ## Scope

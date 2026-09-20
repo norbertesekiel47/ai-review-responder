@@ -2,7 +2,7 @@
 
 **Status:** Accepted (brainstorm session 2026-07-12, Norbert + Claude).
 **Parents:** design of record
-[2026-07-01-agentic-reputation-platform-design.md](../../future-plans/2026-07-01-agentic-reputation-platform-design.md)
+[2026-07-01-agentic-reputation-platform-design.md](../../roadmap/2026-07-01-agentic-reputation-platform-design.md)
 (§3.1 personas at the presentation layer, §2.2 Insights = repackaged weekly-report machinery)
 and the Phase 1 decomposition row in
 [2026-07-01-agentic-platform-phase1-run-spine.md](../plans/2026-07-01-agentic-platform-phase1-run-spine.md)

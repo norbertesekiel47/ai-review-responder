@@ -104,7 +104,7 @@ Findings were remediated across two risk-split PRs. **PR A is merged; PR B is op
 | QUALITY-OBS + PARITY-1 + PARITY-2 | ✅ Consolidated all 4 inline status transitions into the single applier — auto-resolves PARITY-1 (column clears) and PARITY-2 (id COALESCE). |
 | OVERAGE-F1 | ✅ Account-scoped `pg_advisory_xact_lock` around the overage sync, with the live count recomputed **inside** the lock; `concurrency:1` boot-assert kept. (Full horizontal scale-out remains a tracked backlog item.) |
 | RECONCILE-F5 | ✅ AbortController loop-control + bounded per-request Stripe read timeouts (Stripe SDK v22 has no request `AbortSignal`); read-before-tx invariant documented. |
-| RECONCILE-F1 | ✅ `locations_paid_mirror` drift-observability check (no auto-correct). Column retirement deferred → `docs/future-plans/2026-06-23-retire-locations-paid-mirror.md`. |
+| RECONCILE-F1 | ✅ `locations_paid_mirror` drift-observability check (no auto-correct). Column retirement deferred → `docs/future-plans/2026-06-23-retire-locations-paid-mirror.md` (removed 2026-09-20; now issue #1354). |
 | RECONCILE-F3 | ✅ Documented `StripeCheckoutReconcileWorker` as the `pending_payment` backstop. |
 | RECONCILE-F6 | ✅ Duplicate-subscription scan scoped to the account's own subscription lineage. |
 | CONFIG-1 | ✅ Verified Sentry routing; revenue-affecting drift now emits at `level:'error'` (benign observability types stay `warning`). |
@@ -115,7 +115,7 @@ Findings were remediated across two risk-split PRs. **PR A is merged; PR B is op
 **Additional PR-B hardening — from three post-build review rounds, beyond the original register:**
 - **Adversarial (Codex):** scoped `invoice.payment_failed` (SQL `WHERE`) and `invoice.paid` recovery/convert (app-layer loop guard over the customer's accounts) to the invoice's subscription lineage, so one Stripe customer mapped to multiple accounts can't transition the wrong account; escalated `status_mismatch` reconcile drift to `error`.
 - **Codex review:** transient Postgres errors in the overage lock tx now retry (not terminal); overage quantity recomputed inside the lock.
-- **Thermo-nuclear quality:** `invoice.paid` trial-convert reduced to a single lineage-matched account (was a fan-out loop). Applier-contract simplification deferred → `docs/future-plans/2026-06-24-simplify-stripe-status-applier-contract.md`.
+- **Thermo-nuclear quality:** `invoice.paid` trial-convert reduced to a single lineage-matched account (was a fan-out loop). Applier-contract simplification deferred → `docs/future-plans/2026-06-24-simplify-stripe-status-applier-contract.md` (removed 2026-09-20; now issue #1355).
 - **Post-review fix:** `customer.subscription.deleted` resolves the account to cancel by matching subscription (`acctRows.find(...)`) instead of the arbitrary first customer row — closing the same multi-account exposure on the cancel path. The SELECT stays customer-scoped on purpose, to distinguish out-of-order delivery (throw → Stripe retry) from a genuine mismatch / offboarding-snapshot delete (skip).
 
 **Not addressed (low-risk P3, out of remediation scope):** PORTAL-1 (`configurations.list` 100-limit), SELECTPLAN-2 (select-plan inline DB logic). **No fix needed:** RECONCILE-F2 (refuted by Phase B).
@@ -124,7 +124,7 @@ Findings were remediated across two risk-split PRs. **PR A is merged; PR B is op
 
 ## 3. Findings register
 
-> Severity is impact-based. Items marked *tracked* already exist in `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` or ADR 0005.
+> Severity is impact-based. Items marked *tracked* already exist in `docs/audits/2026-06-17-worker-scaling-hardening-backlog.md` or ADR 0005.
 
 ### P2 — robustness / observability / modularization
 

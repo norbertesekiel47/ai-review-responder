@@ -15,7 +15,7 @@
 // issue #915 exists to close.
 //
 // One new entry on the P2 single-replica list in
-// docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md. Exactly one
+// docs/audits/2026-06-17-worker-scaling-hardening-backlog.md. Exactly one
 // for the whole send-mode map, and it carries amendment B3's condition: if the
 // releaser is ever parallelized, the single-choke-point cap resolution must be
 // revisited.

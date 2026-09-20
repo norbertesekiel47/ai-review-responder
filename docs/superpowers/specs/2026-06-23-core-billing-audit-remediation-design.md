@@ -193,7 +193,7 @@ Trial/applier test suites (the best-tested surface) are the safety net.
   `drift_type:'locations_paid_mirror'`. No auto-correction (it doesn't bill).
 - **Tracked follow-up (not this sweep):** retire the column entirely and rederive the
   dashboard badge from the live count ("one owner per fact"). Capture in
-  `docs/future-plans/`.
+  `docs/future-plans/` (folder retired 2026-09-20; now issue #1354).
 - **Acceptance:** test asserts a seeded `locations_paid` mismatch emits the drift signal;
   matching state stays quiet.
 
