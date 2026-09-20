@@ -351,7 +351,7 @@ describeWithDb('Operator policy Apply (live DB)', { enabled: Boolean(databaseUrl
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'false'); resetServerConfigForTests();
     expect(await apply(expansion, 'all locations')).toMatchObject({ kind: 'blocked' });
     expect(await readProposalForAccount(db, { accountId: tenant.accountId, proposalId: expansion.id }))
-      .toMatchObject({ status: 'rejected', readinessBlockReasons: ['auto_approval_disabled', 'autopilot_unavailable'] });
+      .toMatchObject({ status: 'rejected', readinessBlockReasons: ['auto_approval_disabled'] });
     expect((await footprint()).audits).toBe(0);
     expect((await apply(contraction)).kind).toBe('applied');
   });

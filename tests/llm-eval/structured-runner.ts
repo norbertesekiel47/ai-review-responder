@@ -173,6 +173,7 @@ const OPERATOR_SNAPSHOT: Snapshot = {
     location: { threshold: null, vetoWindowMinutes: 15, dailyCap: 10 },
     locationOverrideExists: false,
   },
+  posting: { blocked: false, reasons: [], sentences: [], correctionOwed: false },
   facts: { tone: 'professional and friendly', productsServices: null, avoidFacts: [], highlightFacts: [] },
   allowedOperations: modelVisibleOperations({ blockReasons: [] }),
   locations: [{ id: OPERATOR_LOCATION_ID, name: 'Juniper Street Salon' }],

@@ -7,8 +7,13 @@ import type { Snapshot } from './context';
 import { STATUS_METRICS } from './schema';
 import { OPERATOR_REFUSAL_REASONS } from './refusals';
 
-/** Bump whenever OWNER_OPERATOR_SYSTEM_PROMPT changes. Recorded on api_costs. */
-export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-14.2';
+/**
+ * Bump whenever OWNER_OPERATOR_SYSTEM_PROMPT changes. Recorded on api_costs.
+ * 2026-09-20.1 (#1352): the Posting block rules. `operatorSystemPromptHash()`
+ * hashes the prompt contents, so the hash moves on its own — this constant is
+ * the human-readable LABEL beside it, and leaving it stale mislabels good data.
+ */
+export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-20.1';
 
 // T8 (2026-09-13): the first live turn on staging failed `model_output_invalid`
 // on BOTH pinned providers. Version 2026-09-11.2 said "matching the declared
@@ -67,6 +72,17 @@ const OWNER_OPERATOR_SYSTEM_PROMPT = [
   '- "Account default", "account-wide" and "all locations" select the account default: scope.locationId is null for an account_or_location operation. These phrases do not name another individual location and never require a scope_check. The account default affects inheriting locations; it does not overwrite location overrides.',
   '- If the current request names a different individual location, emit only a scope_check segment for that location and no proposals. This is a scope mismatch, not an unsupported capability: keep unsupported empty. Never emit scope_check merely because another location appears in the snapshot.',
   '- If an operation lists expansionBlockedBy reasons, a change that clearly widens auto-posting (more star ratings, a shorter veto window, a higher or removed daily cap) is blocked for this account: say so and do not propose it. A change that narrows auto-posting is always allowed.',
+  // #1352: the Posting block is an account-wide condition that makes the
+  // Auto-approval lane decline every draft. `correctionOwed` is the server's
+  // single decision about whether the model may mention it at all; the
+  // sentences are owner copy that rides the snapshot, so none of them is
+  // spelled here — this constant is hashed and an owner copy edit must not
+  // move that hash.
+  '- When snapshot.posting.correctionOwed is true, the account is under a Posting block: say the account is not set up to post replies automatically right now, and state each string in snapshot.posting.sentences verbatim. Invent no reason, and name no reason the snapshot did not list.',
+  '- When snapshot.posting.correctionOwed is false, say nothing about a Posting block, even when snapshot.posting.blocked is true. The server has already decided what the owner is owed; never re-derive it.',
+  '- Say "set to post", never "posts". A configured rule is a setting, not a guarantee: safety checks and service availability still apply to every reply.',
+  '- A Posting block never withholds a proposal. Propose the requested operation regardless, including a contraction. Whether any Posting block wording accompanies it is decided by snapshot.posting.correctionOwed above, not by this rule.',
+  '- When the account default is suspended, state the suspension first. Then, and only when snapshot.posting.correctionOwed is true, state each Posting block sentence once. Suspension does not replace the Posting block and the Posting block does not replace suspension.',
   '- "Turn automatic replies off", "disable auto-posting" and "turn off auto-reply" request set_auto_reply_scope with input {"threshold": null}. Turning a configured automatic policy off is a supported contraction even when expansionBlockedBy includes auto_approval_disabled or another readiness block. Configuration changes do not require pending drafts, reviews or a connected Google profile.',
   '- For an unambiguous supported configuration change, return its proposal and proposal_ref. Do not classify it as unsupported or replace the card with a confirmation question. Keep unrelated veto-window and daily-cap settings unchanged by proposing only the requested operation.',
   '- Never include a confirmation and never ask the owner to type one. The card collects it.',

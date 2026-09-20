@@ -68,9 +68,10 @@ while every promised test passed.
 
 **The replacement decision.** Pending-only remains the right BEHAVIOR, and it is
 now expressed as a predicate on the row (`status === PROPOSAL_STATUS.PENDING`)
-inside `mapStoredRows`, the single point all four readers converge on. Behavior
+inside `mapStoredRows`, the single point all SEVEN readers converge on (plan
+review round 2 counted three beyond the four this entry first named). Behavior
 unchanged from the intent; mechanism moved from "choose a reader" to "test the
-row". A fifth reader cannot forget it.
+row". An eighth reader cannot forget it.
 
 **Net surface effect.** None. `mapStoredRows` is in `proposals.ts`, already in
 the surface. `reads.ts` needs no change after all and stays in the surface
