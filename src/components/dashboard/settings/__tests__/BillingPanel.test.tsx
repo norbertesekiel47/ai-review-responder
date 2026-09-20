@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
 import {
+  AUTONOMY_LOSS_COPY,
   AUTOPILOT_UNAVAILABLE_COPY,
   BillingPanel,
   TIER_CAPABILITY,
@@ -182,7 +183,7 @@ describe('TierChangeModal autonomy warning', () => {
       />,
     );
 
-    expect(screen.getByText(/Replies will stop posting on their own/i)).toBeInTheDocument();
+    expect(screen.getByText(AUTONOMY_LOSS_COPY)).toBeInTheDocument();
     expect(
       screen.getByText(/Every reply waits for your approval from the moment the plan changes/i),
     ).toBeInTheDocument();
@@ -204,7 +205,7 @@ describe('TierChangeModal autonomy warning', () => {
       />,
     );
 
-    expect(screen.queryByText(/Replies will stop posting on their own/i)).toBeNull();
+    expect(screen.queryByText(AUTONOMY_LOSS_COPY)).toBeNull();
   });
 });
 
@@ -265,7 +266,7 @@ describe('BillingPanel tier-change modal direction', () => {
     fireEvent.click(screen.getByRole('button', { name: /to Copilot/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/current trial continues/i)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Replies will stop posting on their own/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(AUTONOMY_LOSS_COPY)).toBeInTheDocument();
   });
 });
 
