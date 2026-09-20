@@ -1,17 +1,28 @@
 // ── Posting block: is this account structurally eligible to auto-post? ──────
 //
-// A **Posting block** is a structural, account-wide condition that makes the
-// Auto-approval lane decline every draft, independent of the policy row. It
-// mirrors the account-wide structural refusals on the path a draft takes to
-// Google and nothing else: the four account-wide gates in
+// A **Posting block** is a structural, ACCOUNT-WIDE condition that makes the
+// Auto-approval lane decline every draft **for the whole account**, independent
+// of the policy row. It mirrors the account-wide structural refusals on the
+// path a draft takes to Google and nothing else: the four account-wide gates in
 // `evaluateAutoApprovalCandidate` (`worker/jobs/response-generation/auto-approval.ts`)
 // plus the publisher's Judge flag gate (`worker/jobs/publisher/judge-gate.ts`),
 // which refuses AFTER approval and is therefore not in that function.
 //
-// It reports CONFIGURED ELIGIBILITY — flags, tier, subscription — not live
-// fleet health: no Posting block means the account is eligible to auto-post,
-// not that the next draft posts. Judge HEALTH is deliberately excluded (three
-// fleet-wide queries per render, and the publisher owns that decision).
+// It reports ACCOUNT-WIDE CONFIGURED ELIGIBILITY — flags, tier, subscription —
+// so "no Posting block" means the account is eligible to auto-post, NOT that
+// the next draft posts. Three classes of runtime refusal are deliberately out,
+// and each is a named residual rather than an oversight:
+//
+//   1. Judge HEALTH (`isJudgeHealthy`) — three fleet-wide queries per render
+//      for a transient answer the publisher owns. `JUDGE_ENABLED=true` with a
+//      dead judge sweep still reads as posting.
+//   2. PER-LOCATION structural gates — `archived_location` and
+//      `active_zernio_connection_missing` (`evaluateAutoApprovalCandidate`).
+//      Both are structural and persistent, but they are scoped to one
+//      location, and this fact is account-wide. On a single-location account
+//      they block every draft while the headline still claims posting.
+//   3. PER-DRAFT gates — moderation, triage, rating, daily cap, review hash.
+//      Never in scope: the settings page has no draft.
 //
 // NOT readiness (`readiness.ts`), which answers a different question: may the
 // owner WIDEN auto-approval? Readiness' `autopilot_unavailable` folds in

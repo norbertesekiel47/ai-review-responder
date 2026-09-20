@@ -89,11 +89,27 @@ const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, ReadinessCopy>
 };
 
 /**
- * Owner-language Posting block reasons — why NO reply posts automatically
- * right now, whatever the policy says. Deliberately separate from
+ * Readiness reasons whose sentence the blocked banner has already said. One
+ * flag and one moderation switch each carry a name on both sides of the
+ * readiness/posting split, so when a Posting block renders, its copy restates
+ * these two almost verbatim. Suppress them THERE, not here: the readiness
+ * notice still owns them whenever no Posting block is on screen, which is the
+ * case an owner can act on (`autopilot_unavailable` is deliberately absent —
+ * an Autopilot account with a paused sale posts, so its notice is never a
+ * restatement of a block).
+ */
+const READINESS_REASONS_RESTATED_BY_POSTING: ReadonlySet<AutoApprovalReadinessBlockReason> = new Set([
+  'auto_approval_disabled',
+  'provider_moderation_disabled',
+]);
+
+/**
+ * Owner-language Posting block reasons — why this account is not set up to post
+ * automatically, whatever the policy says. Deliberately separate from
  * `BLOCK_REASON_COPY` above: that one explains why the owner cannot WIDEN
- * auto-approval, this one explains why nothing posts at all. The exhaustive
- * `Record` is the guard — a new reason without a sentence is a compile error.
+ * auto-approval, this one explains why the lane is not configured to act. The
+ * exhaustive `Record` is the guard — a new reason without a sentence is a
+ * compile error.
  *
  * `autopilot_tier_required` names Copilot literally, and that is correct:
  * `tierGrantsAutopilot` is true only for Autopilot, so Copilot is the only tier
@@ -242,13 +258,20 @@ export function AutoApprovalClient({ initialState }: Props) {
   }, []);
 
   const accountSuspended = state.data.accountDefault.suspended;
+  const postingBlocked = state.data.posting.blocked;
   const readinessCopy = useMemo(
     () =>
       state.data.readiness.blockReasons
         // The suspended status banner owns this message when the account default is suspended.
         .filter((reason) => reason !== 'policy_suspended' || !accountSuspended)
+        // Likewise the blocked banner: when a Posting block is already on screen,
+        // these two reasons restate the sentence it just showed — one flag and
+        // one moderation switch, each with a name on both sides. With
+        // AUTO_APPROVAL_ENABLED=false and an armed policy (production's default)
+        // the owner otherwise reads the same sentence twice, inches apart.
+        .filter((reason) => !(postingBlocked && READINESS_REASONS_RESTATED_BY_POSTING.has(reason)))
         .map((reason) => BLOCK_REASON_COPY[reason]),
-    [state.data.readiness.blockReasons, accountSuspended],
+    [state.data.readiness.blockReasons, accountSuspended, postingBlocked],
   );
 
   async function sendPatch(request: AutoApprovalPatchRequest, key: string, confirmationLevel?: 'standard') {
@@ -647,8 +670,17 @@ export function AutoApprovalClient({ initialState }: Props) {
 }
 
 /**
- * The page's headline: what is true right now, in one sentence, with the one
- * action an owner most often wants (turn it off) a tap away. Suspended wins
+ * The page's headline: what this account is SET UP to do, in one sentence, with
+ * the one action an owner most often wants (turn it off) a tap away.
+ *
+ * "set to post", never "posts" (adversarial review AP-1/AP-2). This page runs
+ * in the Vercel process and reads `AUTO_APPROVAL_ENABLED`, `JUDGE_ENABLED` and
+ * `OPENAI_MODERATION_ENABLED` from ITS env, while the gates that actually
+ * refuse a draft read them on Railway; the flag-flip skill exists partly
+ * because those two can disagree until both are set and Vercel redeploys.
+ * Judge health and the per-location gates are out of scope here by design too.
+ * So this sentence can honestly report CONFIGURATION and cannot honestly
+ * promise an outcome — in either direction. Suspended wins
  * over everything; otherwise the account default decides the sentence and
  * per-location overrides are named so "Off" is never a false comfort.
  */
@@ -685,11 +717,16 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
     return {
       tone: 'blocked',
       title: account.threshold !== null
-        ? `Set to ${autoApprovalThresholdLabel(account.threshold)}, but no reply posts automatically right now.`
-        : `${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'is' : 'are'} set to post replies automatically, but no reply posts automatically right now.`,
+        ? `Set to ${autoApprovalThresholdLabel(account.threshold)}, but this account is not set up to post automatically right now.`
+        : `${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'is' : 'are'} set to post replies automatically, but this account is not set up to post automatically right now.`,
       detail: [
         ...data.posting.reasons.map((reason) => POSTING_BLOCK_COPY[reason]),
         'Every reply waits for your approval until that changes.',
+        // Red team RT-5: the unblocked headline names the locations that differ,
+        // and dropping that line here would make a block quietly hide a setting
+        // the owner still has. Skipped when the title already named them (the
+        // override-only case), so no owner reads the same names twice.
+        ...(account.threshold !== null ? differingNames(data) : []),
       ],
       // `set_account_manual` clears only the ACCOUNT DEFAULT threshold, so on an
       // override-only account the action would change nothing and leave those
@@ -719,21 +756,34 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
   const minutes = account.vetoWindowMinutes;
   const detailLines = [
     `Those ${minutes} minutes are your veto window, the time you have to stop a reply before it posts.`,
+    // The weaker verb above needs to earn its keep: say WHY a set-up reply may
+    // still not post, rather than leaving "set to" as a hedge the owner cannot
+    // act on (adversarial review AP-2).
+    'Safety checks and service availability can still send an individual reply to you instead.',
   ];
-  const differing = data.locations.filter(
-    (location) => location.override.exists && !location.effective.inherited,
-  );
-  if (differing.length > 0) {
-    detailLines.push(
-      `${joinNames(differing.map((location) => location.displayName))} ${differing.length === 1 ? 'uses its' : 'use their'} own settings.`,
-    );
-  }
+  detailLines.push(...differingNames(data));
   return {
     tone: 'on',
-    title: `${autoApprovalThresholdLabel(account.threshold)} reviews post a reply automatically ${minutes} minutes after you're notified, up to ${account.effectiveDailyCap} a day.`,
+    title: `${autoApprovalThresholdLabel(account.threshold)} reviews are set to post a reply automatically ${minutes} minutes after you're notified, up to ${account.effectiveDailyCap} a day.`,
     detail: detailLines,
     canTurnOff: true,
   };
+}
+
+/**
+ * "X uses its own settings" — zero lines when nothing differs. Shared by the
+ * `on` and `blocked` headlines so a Posting block cannot quietly hide a
+ * per-location setting the owner still has (red team RT-5). The block is
+ * temporary; the overrides are not, and they resume when it clears.
+ */
+function differingNames(data: AutoApprovalSettingsResponse): string[] {
+  const differing = data.locations.filter(
+    (location) => location.override.exists && !location.effective.inherited,
+  );
+  if (differing.length === 0) return [];
+  return [
+    `${joinNames(differing.map((location) => location.displayName))} ${differing.length === 1 ? 'uses its' : 'use their'} own settings.`,
+  ];
 }
 
 function joinNames(names: string[]): string {

@@ -164,7 +164,7 @@ describe('AutoApprovalClient', () => {
 
       const banner = screen.getByTestId('auto-approval-status');
       expect(within(banner).getByText(
-        "4–5★ reviews post a reply automatically 30 minutes after you're notified, up to 12 a day.",
+        "4–5★ reviews are set to post a reply automatically 30 minutes after you're notified, up to 12 a day.",
       )).toBeInTheDocument();
       expect(within(banner).getByText(/Those 30 minutes are your veto window, the time you have to stop a reply before it posts\./))
         .toBeInTheDocument();
@@ -206,7 +206,7 @@ describe('AutoApprovalClient', () => {
         const banner = screen.getByTestId('auto-approval-status');
         expect(within(banner).queryByText(/post a reply automatically/)).not.toBeInTheDocument();
         expect(within(banner).getByText(
-          'Set to 5★ only, but no reply posts automatically right now.',
+          'Set to 5★ only, but this account is not set up to post automatically right now.',
         )).toBeInTheDocument();
       });
 
@@ -248,7 +248,7 @@ describe('AutoApprovalClient', () => {
 
         const banner = screen.getByTestId('auto-approval-status');
         expect(within(banner).getByText(/post a reply automatically/)).toBeInTheDocument();
-        expect(within(banner).queryByText(/no reply posts automatically right now/))
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
           .not.toBeInTheDocument();
       });
 
@@ -277,7 +277,7 @@ describe('AutoApprovalClient', () => {
         const banner = screen.getByTestId('auto-approval-status');
         expect(within(banner).getByText('Auto-approval is suspended for this account.'))
           .toBeInTheDocument();
-        expect(within(banner).queryByText(/no reply posts automatically right now/))
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
           .not.toBeInTheDocument();
         expect(banner).toHaveAttribute('role', 'alert');
       });
@@ -292,7 +292,7 @@ describe('AutoApprovalClient', () => {
         expect(within(banner).queryByText(/posts replies automatically with its own settings/))
           .not.toBeInTheDocument();
         expect(within(banner).getByText(
-          'Main Cafe is set to post replies automatically, but no reply posts automatically right now.',
+          'Main Cafe is set to post replies automatically, but this account is not set up to post automatically right now.',
         )).toBeInTheDocument();
       });
 
@@ -306,7 +306,7 @@ describe('AutoApprovalClient', () => {
         const banner = screen.getByTestId('auto-approval-status');
         expect(within(banner).getByText('Off. You approve every reply before it posts.'))
           .toBeInTheDocument();
-        expect(within(banner).queryByText(/no reply posts automatically right now/))
+        expect(within(banner).queryByText(/not set up to post automatically right now/))
           .not.toBeInTheDocument();
       });
 

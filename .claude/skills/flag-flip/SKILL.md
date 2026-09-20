@@ -28,6 +28,12 @@ before every flip. No exceptions, including flips you've done before.**
    - Flipping `TRIAGE_ENABLED` **off** weakens the auto-approval triage veto for newly ingested reviews — re-check `AUTO_APPROVAL_ENABLED` posture first.
 4. **Exact values only**: worker startup accepts literal `true`/`false` and rejects anything else. No `NEXT_PUBLIC_*` companions, ever (CI-enforced).
 5. **Set it everywhere it's read**: Railway worker env AND (if a Next.js server route reads it) the matching Vercel env, in the SAME environment (staging = Railway staging service + Vercel staging custom env). Verify with the Railway/Vercel MCPs after writing, and remember Vercel needs a redeploy to pick up env changes.
+5b. **Read the flag back from the worker boot log** (#1173). `list-variables` returns plaintext secrets and is routinely refused, so this is the second, always-available confirmation — and its absence is why a 2026-09-07 `TRIAGE_ENABLED` staging flip is recorded as *set but unproven*. After the worker restarts, find the one structured record and read the flag out of `flags`:
+   ```
+   {"level":"info","prefix":"[worker]","msg":"Feature flags",
+    "flags":{"TRIAGE_ENABLED":true,"AUTOPILOT_PURCHASABLE":false, …}}
+   ```
+   All twelve booleans are there, keyed by env var name — the same string you set on Railway — including all six autonomy flags. A logged value that disagrees with what you set means the restart has not landed: wait for it, do not set it again. Owned by `worker/boot-flag-summary.ts`.
 6. **Smoke the affected lane** after the flip (staging runbooks under `docs/runbooks/` — e.g. `channels-staging-smoke-test.md`, the agentic E2E runbooks for autonomy flags). **For `JUDGE_ENABLED` on, wait out the warm-up BEFORE smoking**, or the smoke measures the warm-up instead of the lane: wait one `JUDGE_POLL_INTERVAL_MS`, then confirm the heartbeat landed —
    ```sql
    SELECT poller_name, EXTRACT(EPOCH FROM (NOW() - last_cycle_at))::int AS age_seconds

@@ -79,12 +79,29 @@ describe('buildAutoApprovalPostingStatus', () => {
   // The trap this module exists to avoid: AUTOPILOT_PURCHASABLE=false gives an
   // Autopilot account the readiness reason `autopilot_unavailable` while the
   // runtime keeps posting, because the runtime never reads purchasability.
-  // The builder's only tier input is the grant itself, so a paused sale is
-  // invisible here — and must stay that way.
+  //
+  // This test pins the builder's SHAPE, which is the only protection available
+  // at this layer: there is no purchasability parameter to pass. All three
+  // review axes flagged the previous body — `{...passingInput(),
+  // tierGrantsAutopilot: true}` where `passingInput()` already sets it true —
+  // as byte-equivalent to the passing-baseline case above, unable to fail for
+  // the reason its comment named. Asserting the parameter list instead makes it
+  // fail for a real defect: a future edit that threads purchasability in here.
+  //
+  // The behavioural trap protection lives one layer up, in
+  // `settings.test.ts`'s `…for an autopilot account whose sale is paused`,
+  // which is mutation-verified and is the only test that catches a loader
+  // forwarding `tierGrantsAutopilot(tier) && autopilotPurchasable()`.
   it('does not report a reason for an autopilot tier whose sale is paused', () => {
-    const status = buildAutoApprovalPostingStatus({ ...passingInput(), tierGrantsAutopilot: true });
+    const inputKeys = Object.keys(passingInput()).sort();
 
-    expect(status.reasons).not.toContain('autopilot_tier_required');
-    expect(status.blocked).toBe(false);
+    expect(inputKeys).toEqual([
+      'judgeEnabled',
+      'providerModerationEnabled',
+      'publisherSubscriptionAllowed',
+      'runtimeEnabled',
+      'tierGrantsAutopilot',
+    ]);
+    expect(inputKeys.some((key) => /purchasab/i.test(key))).toBe(false);
   });
 });

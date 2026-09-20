@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildBootFlagSummary, logBootFlagSummary } from '../boot-flag-summary';
 
-/** The eleven env var names the boot summary is contracted to report, in order. */
+/** The thirteen env var names the boot summary is contracted to report, in order. */
 const DECLARED_FLAG_KEYS = [
   'CHANNELS_TELEGRAM_ENABLED',
   'CHANNELS_WHATSAPP_ENABLED',
@@ -17,6 +17,8 @@ const DECLARED_FLAG_KEYS = [
   'JUDGE_ENABLED',
   'GOVERNOR_ENABLED',
   'AUTO_APPROVAL_ENABLED',
+  'AUTOPILOT_PURCHASABLE',
+  'OPENAI_MODERATION_ENABLED',
   'SOLICITATION_SEND_ENABLED',
   'SOLICITATION_AUTO_APPROVAL_ENABLED',
 ] as const;
@@ -32,20 +34,45 @@ describe('buildBootFlagSummary', () => {
     clearAllFlags();
   });
 
-  it('boot flag summary contains exactly the eleven declared flag keys including all four existing boot flags', () => {
+  it('boot flag summary contains exactly the thirteen declared flag keys including all four existing boot flags', () => {
     expect(Object.keys(buildBootFlagSummary()).sort()).toEqual([...DECLARED_FLAG_KEYS].sort());
   });
 
-  it('boot flag summary names all five autonomy flags', () => {
+  // SIX, not five. `.claude/rules/agentic-platform.md` and
+  // `.claude/skills/flag-flip/SKILL.md` own the term "autonomy flags" and both
+  // include AUTOPILOT_PURCHASABLE — the LAST step of the fixed go-live order.
+  // Issue #1173 listed five and this suite first asserted five, so the flip
+  // most in need of an audit trail went unlogged with the suite green.
+  const AUTONOMY_FLAG_KEYS = [
+    'TRIAGE_ENABLED',
+    'ESCALATION_ENABLED',
+    'JUDGE_ENABLED',
+    'GOVERNOR_ENABLED',
+    'AUTO_APPROVAL_ENABLED',
+    'AUTOPILOT_PURCHASABLE',
+  ] as const;
+
+  it('boot flag summary names all six autonomy flags', () => {
     expect(Object.keys(buildBootFlagSummary())).toEqual(
-      expect.arrayContaining([
-        'TRIAGE_ENABLED',
-        'ESCALATION_ENABLED',
-        'JUDGE_ENABLED',
-        'GOVERNOR_ENABLED',
-        'AUTO_APPROVAL_ENABLED',
-      ]),
+      expect.arrayContaining([...AUTONOMY_FLAG_KEYS]),
     );
+  });
+
+  it('boot flag summary names every autonomy flag the flag-flip go-live order names', () => {
+    // Derived from the rule that owns the term, not transcribed from the
+    // module — so a flag added to the go-live order and forgotten here fails.
+    const skill = readFileSync(
+      resolve(__dirname, '../../.claude/skills/flag-flip/SKILL.md'),
+      'utf8',
+    );
+    const ordering = skill.split('\n').find((line) => line.includes('The go-live order is fixed'));
+    expect(ordering, 'flag-flip SKILL.md no longer states the go-live order').toBeDefined();
+    const named = [...ordering!.matchAll(/`([A-Z][A-Z0-9_]+)`/g)].map((m) => m[1]!);
+    expect(named.length).toBeGreaterThan(0);
+    const keys = Object.keys(buildBootFlagSummary());
+    for (const flag of named) {
+      expect(keys, `${flag} is in the go-live order but not in the boot summary`).toContain(flag);
+    }
   });
 
   it('boot flag summary names both solicitation flags', () => {
@@ -98,7 +125,7 @@ describe('logBootFlagSummary', () => {
     clearAllFlags();
   });
 
-  it('logBootFlagSummary calls the supplied logger once with Feature flags and all eleven flag booleans', () => {
+  it('logBootFlagSummary calls the supplied logger once with Feature flags and all thirteen flag booleans', () => {
     vi.stubEnv('CHANNELS_WHATSAPP_ENABLED', 'true');
     vi.stubEnv('TRIAGE_ENABLED', 'true');
     vi.stubEnv('JUDGE_ENABLED', 'true');
@@ -120,6 +147,8 @@ describe('logBootFlagSummary', () => {
         JUDGE_ENABLED: true,
         GOVERNOR_ENABLED: false,
         AUTO_APPROVAL_ENABLED: false,
+        AUTOPILOT_PURCHASABLE: false,
+        OPENAI_MODERATION_ENABLED: false,
         SOLICITATION_SEND_ENABLED: false,
         SOLICITATION_AUTO_APPROVAL_ENABLED: false,
       },
@@ -171,6 +200,22 @@ describe('worker startup wiring', () => {
 
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
+
+    // The ARGUMENT, not just the call (red team RT-1). Every other assertion in
+    // this test is about WHERE the call sits, so all of them pass for
+    // `logBootFlagSummary({ log: () => {} })` — a boot line emitted into a black
+    // hole, which is precisely the outcome the builder/emitter split in
+    // `boot-flag-summary.ts` exists to prevent. Pin the real logger.
+    expect(call.arguments).toHaveLength(1);
+    const loggerArg = call.arguments[0]!;
+    expect(ts.isCallExpression(loggerArg)).toBe(true);
+    const loggerCall = loggerArg as ts.CallExpression;
+    expect(ts.isIdentifier(loggerCall.expression)).toBe(true);
+    expect((loggerCall.expression as ts.Identifier).text).toBe('createWorkerLogger');
+    expect(loggerCall.arguments).toHaveLength(1);
+    const prefix = loggerCall.arguments[0]!;
+    expect(ts.isStringLiteral(prefix)).toBe(true);
+    expect((prefix as ts.StringLiteral).text).toBe('[worker]');
 
     // The call is a statement in its own right, not an operand of a condition.
     expect(ts.isExpressionStatement(call.parent)).toBe(true);

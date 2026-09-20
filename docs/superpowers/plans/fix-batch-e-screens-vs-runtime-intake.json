@@ -87,6 +87,8 @@
     "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
     "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx",
     "src/lib/agents/operator/__tests__/context.test.ts",
+    "src/app/onboarding/pay/plan-options.ts",
+    ".claude/skills/flag-flip/SKILL.md",
     "src/lib/accounts/tier-config.ts",
     "src/lib/accounts/__tests__/tier-config.test.ts",
     "src/lib/payments/plan-presentation.ts",
@@ -134,7 +136,7 @@
     "billing card direction ignores a grandfathered stored base price",
     "tier change modal warns that replies stop posting on their own when moving to copilot",
     "tier change modal omits the autonomy warning when moving to autopilot",
-    "boot flag summary names all five autonomy flags",
+    "boot flag summary names all six autonomy flags",
     "boot flag summary names both solicitation flags",
     "boot flag summary reports false for a flag set to a value other than true",
     "boot flag summary reports true only for the literal string true",
@@ -156,11 +158,12 @@
     "opening the copilot modal from a grandfathered autopilot account shows downgrade wording regardless of stored price",
     "opening the autopilot modal from a copilot account whose stored price exceeds both catalogue prices shows upgrade wording",
     "trialing autopilot to copilot modal preserves trial billing copy and warns that replies stop posting on their own",
-    "boot flag summary contains exactly the eleven declared flag keys including all four existing boot flags",
+    "boot flag summary contains exactly the thirteen declared flag keys including all four existing boot flags",
     "boot flag summary maps each key to its own accessor when exactly one flag at a time is true",
-    "logBootFlagSummary calls the supplied logger once with Feature flags and all eleven flag booleans",
+    "logBootFlagSummary calls the supplied logger once with Feature flags and all thirteen flag booleans",
     "worker startup calls the boot flag summary logger unconditionally inside the startup try block",
-    "worker startup no longer prints the prose feature flag line"
+    "worker startup no longer prints the prose feature flag line",
+    "boot flag summary names every autonomy flag the flag-flip go-live order names"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/auto-approval/__tests__/posting-status.test.ts",
