@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // #590. `package.json`, `.github/workflows/*`, and `lefthook.yml` each spell the
@@ -234,5 +234,354 @@ describe('live-DB lane is gated in CI', () => {
     };
     expect(pkg.scripts.test).toBe('vitest run');
     expect(pkg.scripts['test:coverage']).toBe('vitest run --coverage');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doc-reading test suites are wired into the docs-only lane (#1199).
+//
+// ci.yml's `test` job skips entirely on a docs-only PR. Its premise was "no
+// unit test reads docs/** or *.md at run time" — true when that condition
+// landed, false the day design-doc-token-pin.test.ts started reading three
+// DESIGN.md files. #1199's fix named that suite plus reference-shape.test.ts
+// and claude-md-shape.test.ts (which already read docs) and moved all three
+// into ci.yml's `lint` job (which never skips) and a `doc-shape` row in
+// scripts/verify-gate.sh's docs-only mode.
+//
+// A hardcoded list of three suites would repeat the exact failure this ticket
+// is about: a claim about "every doc-reading test" going stale the next time
+// one is added. So this DERIVES the candidate set and forces each member to be
+// either wired into BOTH docs-only lanes or excused with a reason, the same
+// two-column idiom as UNGATED_BY_DESIGN / CI_ONLY_BY_DESIGN above.
+//
+// The first cut of that derivation hardcoded the DIRECTORY instead — it read
+// `src/__tests__` non-recursively — which is the same staleness one level up,
+// and it was already live: `src/lib/legal/__tests__/content.test.ts` reads
+// docs/legal/*.md and `scripts/ci/__tests__/rls-audit.test.ts` reads
+// docs/security/rls-inventory.md, so a PR editing only docs/legal/terms.md
+// classified docs_only and shipped a legal-content divergence green. The scan
+// now walks every `*.test.ts(x)` under src/ AND scripts/ — the two roots whose
+// suites run in the `test` job and nowhere else.
+//
+// It also hand-rolled a JS lexer (`stringLiterals`) to find doc paths inside
+// string literals only. That lexer did not know about JS REGEX literals, so a
+// quote-bearing regex — `/title:\s*['"]/`, the shape already live in
+// page-metadata.test.ts — mis-paired the quotes and swallowed the rest of the
+// line, hiding any doc path sharing it. A guard that under-approximates goes
+// silently green, which is the exact failure #1199 exists to remove. The lexer
+// is gone: a false positive costs one excuse entry with a reason, a false
+// negative costs the whole lane, so this OVER-approximates on purpose.
+
+/**
+ * The test roots ci.yml's docs-only `test` skip silences. Every
+ * `*.test.ts(x)` under these runs in the `test` job and nowhere else, so a
+ * docs-only PR runs none of them unless it is wired into the `lint` job and
+ * verify-gate.sh's `doc-shape` row.
+ */
+const TEST_ROOTS = ['src', 'scripts'] as const;
+
+/**
+ * This file. It is the scanner, and its own vocabulary — the doc-path tokens
+ * it matches on, the suite names in its excuse table — makes it a permanent
+ * self-candidate. It reads package.json, .github/workflows/*, lefthook.yml,
+ * scripts/verify-gate.sh and test SOURCE files; none of those is a doc under
+ * ci.yml's `docs_only` classifier (`^(docs/|\.claude/)` or `*.md`), so a
+ * docs-only PR cannot change anything it reads.
+ */
+const SCANNER = 'src/__tests__/ci-audit-wiring.test.ts';
+
+/** Every `*.test.ts` / `*.test.tsx` under TEST_ROOTS. Repo-relative, sorted. */
+function testFiles(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules') continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.test\.tsx?$/.test(entry)) found.push(relative(ROOT, full).split(sep).join('/'));
+    }
+  };
+  for (const root of TEST_ROOTS) walk(join(ROOT, root));
+  return found.sort();
+}
+
+/**
+ * `text` with WHOLE-LINE comments dropped — a line whose first non-space
+ * characters are `//`, `/*` or `*`.
+ *
+ * This is the only comment-awareness that survives, and it survives because
+ * it is line-BOUNDED: it decides one line at a time, pairs no delimiters, and
+ * therefore cannot mis-read one construct into swallowing the next (the whole
+ * defect in the lexer it replaces). Same reasoning as `jobBlock`: prose
+ * describing a doc must not make a suite look like it reads one.
+ *
+ * Its one residual: a doc path that appears ONLY inside a whole-line comment
+ * is not seen — which is correct, because a path in a comment is not read. A
+ * trailing comment on a code line still counts, and is meant to: that is an
+ * over-approximation, and over-approximating is the point.
+ */
+function codeLines(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*(?:\/\/|\/\*|\*)/.test(line))
+    .join('\n');
+}
+
+/**
+ * Does `text` name a repo doc in code? "Doc" is ci.yml's `docs_only`
+ * vocabulary exactly — a `docs/` or `.claude/` path, or a token ending `.md`
+ * (which covers AGENTS.md, CONTEXT-MAP.md and .agents/**\/*.md too). The
+ * token is looked for WHEREVER it sits: a failure message embeds the path
+ * mid-sentence rather than as a whole literal
+ * (design-token-single-source.test.ts: "... (docs/brand-asset-library/
+ * design-systems/README.md rule 2)."), and a read composes it
+ * (`resolve('docs/legal', file)`).
+ *
+ * Deliberately NOT parsed: no string-literal pairing, no regex-literal
+ * handling, no read-call matching. Each of those narrows the scan, and every
+ * narrowing is a way for a real doc-reading suite to escape unnoticed.
+ */
+function namesDocPath(text: string): boolean {
+  const code = codeLines(text);
+  return /(^|[\s('"`[])(docs\/|\.claude\/)/.test(code) || /\.md(?:[\s)'"`\],.:;]|$)/.test(code);
+}
+
+/**
+ * Every test file under src/ and scripts/ that names a doc path in code — the
+ * candidate set #1199's fix has to account for, one way or the other.
+ * Repo-relative paths, sorted.
+ */
+function docReadingCandidates(): string[] {
+  return testFiles()
+    .filter((file) => file !== SCANNER)
+    .filter((file) => namesDocPath(readFileSync(join(ROOT, file), 'utf-8')));
+}
+
+/**
+ * Candidates that are NOT wired into the two docs-only lanes. Each needs a
+ * reason, because the default reading of an unexplained mention is "this
+ * suite reads a doc and the docs-only lane must run it."
+ *
+ * Two reason shapes live here, and they are not interchangeable:
+ *   - "not a read" — the suite names a doc path in a failure message, a test
+ *     fixture, or a pure-function argument, and touches no repo doc. Nothing
+ *     is lost by not running it on a docs-only PR.
+ *   - "deferred on COST" — the suite genuinely reads a repo doc, but is too
+ *     slow to put on every PR's `lint` job. This is a real, named gap: a
+ *     docs-only PR does not run it. It is recorded here rather than hidden so
+ *     ci.yml's comment can stay true about what the skip does and does not
+ *     cover.
+ */
+const NOT_DOC_READING: Record<string, string> = {
+  // --- src/__tests__ -------------------------------------------------------
+  // Reads CSS only (globals.css, tokens.css, page CSS via helpers/css-tokens);
+  // the docs path sits inside an `expect(actual, message)` failure string
+  // pointing a future reader at the design-system README — never a
+  // `readFileSync` argument.
+  'src/__tests__/design-scope-purity.test.ts':
+    'names a docs path inside a FAILURE MESSAGE, not a read',
+  // Same shape: reads globals.css / tokens.css / theme.css / console.css and
+  // friends; every docs/ mention here is quoted inside failure-message text.
+  'src/__tests__/design-token-single-source.test.ts':
+    'names a docs path inside a FAILURE MESSAGE, not a read',
+  // --- src/lib -------------------------------------------------------------
+  // Names ADR 0022 inside an assertion message about the rate cap; reads no
+  // file at all.
+  'src/lib/solicitation/__tests__/dispatch-rate-bound.test.ts':
+    'names an ADR inside a FAILURE MESSAGE, not a read',
+  // --- scripts/ci ----------------------------------------------------------
+  // `docs/admin-api/` is the delivery PREFIX asserted against in-memory
+  // Buffers; the only file read is .github/workflows/admin-contract-delivery.yml.
+  'scripts/ci/__tests__/admin-contract-delivery.test.ts':
+    'docs/admin-api is a delivery prefix in fixtures; reads only a workflow file',
+  // Every docs/reviews/** path is written into, then read back from, a
+  // throwaway git repo under mkdtemp.
+  'scripts/ci/__tests__/blast-radius.test.ts': 'docs paths are mkdtemp FIXTURES, not repo docs',
+  // Drives .codex/hooks/* against a mkdtemp repo; the only repo file it copies
+  // is .agents/skills/feature/scripts/gate-fingerprint.mjs — a .mjs, not a doc.
+  'scripts/ci/__tests__/codex-hook-enforcement.test.ts':
+    'reads .codex hooks and a .mjs script; every doc path is a mkdtemp fixture',
+  // Parses registry markdown passed in as a string; `doc.md` is a label.
+  'scripts/ci/__tests__/env-registry-audit.test.ts': 'parses markdown STRINGS; reads no file',
+  // Feeds path lists to the surface matcher as plain arguments.
+  'scripts/ci/__tests__/feature-surface-audit.test.ts':
+    'doc paths are matcher ARGUMENTS; reads no file',
+  // Runs scripts/feature-state.sh + scripts/gate-summary.sh against a mkdtemp
+  // repo; `plan.md` and docs/reviews/feat-x.md are files it writes there.
+  'scripts/ci/__tests__/gate-loop.test.ts': 'reads scripts/*.sh; doc paths are mkdtemp fixtures',
+  // Runs scripts/gate-promised-tests.sh against mkdtemp fixture trees; the
+  // `src/notes.md` it names is a sibling non-test file it writes there to
+  // prove the title search never widens past *.test.ts(x).
+  'scripts/ci/__tests__/gate-promised-tests.test.ts':
+    'reads scripts/gate-promised-tests.sh; src/notes.md is a mkdtemp fixture',
+  // Reads scripts/gate-rows.sh, scripts/verify-gate.sh and
+  // scripts/gate-promised-tests.sh. The doc paths are row-name INPUTS to
+  // row_slug/bucketOf, never opened.
+  'scripts/ci/__tests__/gate-rows.test.ts':
+    'reads scripts/*.sh only; doc paths are row-slug inputs',
+  // `isProductionFile` / ledger classification over path STRINGS.
+  'scripts/ci/__tests__/merge-ledger-audit.test.ts':
+    'classifies path STRINGS; opens no doc',
+  // Runs scripts/new-worktree.sh against a mkdtemp repo whose README.md it
+  // writes itself.
+  'scripts/ci/__tests__/new-worktree-env.test.ts':
+    'reads scripts/new-worktree.sh; README.md is a mkdtemp fixture',
+  // Copies .agents/skills/feature/scripts (a .mjs tree) into a mkdtemp repo;
+  // the finding-checklists path is written and read back inside that repo.
+  'scripts/ci/__tests__/review-log.test.ts':
+    'reads .agents .mjs scripts; doc paths are mkdtemp fixtures',
+  // Scans source STRINGS handed to scanFile; the doc names appear in the
+  // findings' detail text.
+  'scripts/ci/__tests__/static-policy-audit.test.ts':
+    'scans source STRINGS; doc names sit in finding detail text',
+  // Builds synthetic diffs in memory; the doc paths are diff headers.
+  'scripts/ci/__tests__/weakened-checks-audit.test.ts':
+    'doc paths are synthetic DIFF headers; reads no file',
+  // --- deferred on COST (these DO read repo docs) --------------------------
+  // Reads docs/reviews/red-team/**/findings.json fixtures committed in-repo
+  // and .agents|.claude/skills/red-team/SKILL.md. Measured at 71s standalone —
+  // the `lint` step runs on EVERY PR and the other 17 doc-reading suites
+  // together cost ~7s, so this one would multiply that step's cost by ~10.
+  // Gap, stated plainly: a docs-only PR that edits those fixtures or SKILL.md
+  // does not run this suite; it goes red on the next non-docs PR instead.
+  'scripts/ci/__tests__/red-team-status.test.ts':
+    'READS repo docs — deferred on COST (71s standalone); docs-only PRs do not run it',
+  // Same inputs, same gap, 122s standalone: it spawns vitest inside mkdtemp
+  // repos for the mutation lane.
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts':
+    'READS repo docs — deferred on COST (122s standalone); docs-only PRs do not run it',
+};
+
+/** Every `src/**` or `scripts/**` test path literally named in `text`. */
+function testPathsNamedIn(text: string): string[] {
+  return [
+    ...new Set(text.match(/(?:src|scripts)\/[\w./\-[\]()]*\.test\.tsx?/g) ?? []),
+  ].sort();
+}
+
+/**
+ * `text` with whole-line `#` comments removed. Same reasoning as `jobBlock`
+ * above: prose describing a suite must never satisfy a check for running it.
+ */
+function withoutHashComments(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
+
+const lintDocSuitePaths = testPathsNamedIn(jobBlock('lint'));
+const verifyGateDocSuitePaths = testPathsNamedIn(
+  withoutHashComments(readFileSync(join(ROOT, 'scripts', 'verify-gate.sh'), 'utf-8')),
+);
+
+describe('doc-reading test suites are wired into the docs-only lane (#1199)', () => {
+  const candidates = docReadingCandidates();
+
+  it('finds candidates to check — a suite mentioning docs/, .claude/, or *.md', () => {
+    // A floor, not a count: if this collapsed to 0, every assertion below
+    // would be vacuously true — the exact failure shape #1199 itself was.
+    // Raised from 3 when the scan widened from `src/__tests__` alone to every
+    // test file under src/ and scripts/ (35 candidates at the time).
+    expect(candidates.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('scans both test roots, recursively, including .tsx', () => {
+    // The first cut read `src/__tests__` non-recursively and only `.test.ts`.
+    // These three are outside that shape and each names a doc path in code, so
+    // a regression to a flat, single-root, single-extension scan fails here by
+    // name rather than as a quiet shrink of the candidate list.
+    expect(candidates).toContain('src/lib/legal/__tests__/content.test.ts');
+    expect(candidates).toContain('scripts/ci/__tests__/rls-audit.test.ts');
+    expect(testFiles().some((file) => file.endsWith('.test.tsx'))).toBe(true);
+  });
+
+  it('finds a doc path sharing a line with a quote-bearing regex literal', () => {
+    // The lexer this scan replaced paired quotes without knowing about JS
+    // REGEX literals: the `['"]` class below opened a "string" that ran to the
+    // next quote, so the scan returned `]/); const DOC = ` and the doc path on
+    // the same line vanished. A doc-reading suite that escapes the candidate
+    // set makes the whole `it.each` above pass vacuously — a false green in
+    // the lane #1199 exists to keep honest. The shape is live at
+    // src/__tests__/page-metadata.test.ts (`/title:\s*['"]/`).
+    const source = ["const RE = /title:\\s*['\"]/;", 'const DOC = "docs/context/thing.md";'].join(
+      ' ',
+    );
+    expect(namesDocPath(source)).toBe(true);
+    // The same line split across two, and the regex alone (no doc path).
+    expect(namesDocPath("const RE = /title:\\s*['\"]/;\nconst DOC = 'docs/currents.md';")).toBe(
+      true,
+    );
+    expect(namesDocPath("const RE = /title:\\s*['\"]/;\nconst X = 1;")).toBe(false);
+  });
+
+  it('ignores a doc path that appears only in a whole-line comment', () => {
+    // The one comment-awareness kept, and the reason it is safe: the filter is
+    // line-bounded, so it can never swallow the line after it.
+    expect(namesDocPath('// see docs/currents.md\nconst X = 1;')).toBe(false);
+    expect(namesDocPath(' * see docs/currents.md\nconst X = 1;')).toBe(false);
+    // A trailing comment on a code line still counts — over-approximating is
+    // the point, and the cost is one excuse entry.
+    expect(namesDocPath('const X = 1; // see docs/currents.md')).toBe(true);
+  });
+
+  it.each(candidates)(
+    'every test that reads a doc at run time is wired into the docs-only lane or excused with a reason',
+    (file) => {
+      const wired = lintDocSuitePaths.includes(file) && verifyGateDocSuitePaths.includes(file);
+      const excused = file in NOT_DOC_READING;
+      // A candidate in neither column is exactly #1199: a suite that reads a
+      // doc at run time but that a docs-only PR never runs.
+      expect({ file, wired, excused }).toEqual({ file, wired: !excused, excused });
+    },
+  );
+
+  it('excuses only files the candidate scan still finds', () => {
+    // Mirrors "excuses only scripts that exist" above: a NOT_DOC_READING entry
+    // for a file that no longer names a doc path — or no longer exists — is a
+    // stale excuse.
+    expect(candidates).toEqual(expect.arrayContaining(Object.keys(NOT_DOC_READING)));
+  });
+
+  it('states for every cost-deferred excuse that a docs-only PR does not run it', () => {
+    // A cost deferral is a REAL gap, not a "this reads no doc" dismissal. Its
+    // reason has to say so, or ci.yml's comment starts claiming coverage the
+    // lane does not have — the defect #1199 exists to remove.
+    for (const [file, reason] of Object.entries(NOT_DOC_READING)) {
+      if (!reason.includes('COST')) continue;
+      expect(reason, `${file}: a cost deferral must name the gap`).toMatch(
+        /docs-only PRs do not run it/,
+      );
+    }
+  });
+
+  it('the lint job runs the doc-reading suites, and the lint job never skips', () => {
+    const lint = jobBlock('lint');
+    expect(lint).toMatch(/run:\s*pnpm vitest run\b/);
+    for (const file of candidates.filter((c) => !(c in NOT_DOC_READING))) {
+      expect(lint).toContain(file);
+    }
+    // The draft-PR gate (next to `changes`) is the only condition `lint` may
+    // carry — never a docs-only skip. That is the entire reason the
+    // doc-reading suites run here instead of in `test`.
+    expect(lint).not.toMatch(/needs\.changes\.outputs\.docs_only/);
+  });
+
+  it('verify-gate docs-only mode runs the same doc-reading suites as the lint job', () => {
+    // Raised from 3 with the widened scan: 17 suites are wired today.
+    expect(lintDocSuitePaths.length).toBeGreaterThanOrEqual(10);
+    // Equal, not "both non-empty": the two docs-only lanes must never drift.
+    expect(verifyGateDocSuitePaths).toEqual(lintDocSuitePaths);
+  });
+
+  it('counts the design-system doc pin as a doc-reading suite', () => {
+    // #1199 named reference-shape.test.ts and claude-md-shape.test.ts but
+    // missed this one — a regression that drops it again must fail BY NAME,
+    // not merely as a count mismatch elsewhere in this file.
+    const file = 'src/__tests__/design-doc-token-pin.test.ts';
+    expect(candidates).toContain(file);
+    expect(NOT_DOC_READING[file]).toBeUndefined();
+    expect(lintDocSuitePaths).toContain(file);
+    expect(verifyGateDocSuitePaths).toContain(file);
   });
 });

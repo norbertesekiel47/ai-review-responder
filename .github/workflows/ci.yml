@@ -169,6 +169,20 @@ jobs:
         run: pnpm lint
       - name: Run typecheck
         run: pnpm typecheck
+      # #1199: the `test` job below skips entirely on a docs-only PR, but these
+      # suites read a doc at RUN TIME — DESIGN.md tables, CLAUDE.md, the
+      # .claude/rules + docs/context + docs/directory tree, docs/legal/*.md,
+      # docs/adr/*.md, docs/security/rls-inventory.md, docs/admin-api/*,
+      # docs/runbooks/whatsapp-templates.md, docs/superpowers/plans/*.json,
+      # the .claude/hooks + .claude/skills scripts, and the .claude/commands +
+      # .agents lane docs — so a docs-only PR can bust one. `lint` never skips,
+      # so they run here. Measured together: ~7s wall, one vitest process.
+      # Keep this path list in lockstep with scripts/verify-gate.sh's
+      # docs-only `doc-shape` row — src/__tests__/ci-audit-wiring.test.ts
+      # derives every doc-reading suite under src/ and scripts/ and fails if
+      # the two sets diverge.
+      - name: Run doc-reading test suites (run here because `test` skips docs-only PRs)
+        run: pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts
       - name: Run tenant scope audit
         run: pnpm ci:tenant-scope
       - name: Run analytics events audit
@@ -237,11 +251,22 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
-    # Docs-only PRs skip the whole job: no unit test reads docs/** or *.md at
-    # run time (verified when this gate landed — the guards in src/__tests__
-    # read package.json/workflows/lefthook, and the audits that DO scan docs
-    # run in `lint`, which never skips). If a doc-reading test ever appears,
-    # this condition must learn about it.
+    # Docs-only PRs skip this whole job. What covers that skip:
+    # src/__tests__/ci-audit-wiring.test.ts walks every *.test.ts(x) under
+    # src/ and scripts/, derives the ones that name a doc path in code, and
+    # forces each to be either run by `lint` (which never skips) AND by
+    # verify-gate.sh's docs-only `doc-shape` row, or excused BY NAME with a
+    # reason in that suite's NOT_DOC_READING table. A new doc-reading suite
+    # therefore fails the guard until it is wired into both lanes (#1199 —
+    # this comment used to assert the premise instead of deriving it, and went
+    # stale the day a doc-reading suite was added without updating it).
+    #
+    # Two known exceptions, excused there on RUNTIME COST, not on "reads no
+    # doc": scripts/ci/__tests__/red-team-status.test.ts (71s) and
+    # red-team-mutation-runner.test.ts (122s). They read docs/reviews/red-team
+    # fixtures and the red-team SKILL.md, and a docs-only PR does NOT run
+    # them — such a change surfaces on the next non-docs PR instead. The
+    # excuse table is the single place that gap is recorded.
     if: needs.changes.outputs.docs_only != 'true'
     # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
     # and other *.integration.test.ts) actually runs instead of self-skipping.

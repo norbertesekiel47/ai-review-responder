@@ -185,12 +185,21 @@ gate_abort() {
 GATE_SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scripts/gate-rows.sh
 . "$GATE_SCRIPT_DIR/gate-rows.sh"
+# shellcheck source=scripts/gate-promised-tests.sh
+. "$GATE_SCRIPT_DIR/gate-promised-tests.sh"
 # A library that did not load must not surface as a bogus collision: with
 # assert_unique_row_name undefined, `launch` reads the resulting exit 127 as a
 # duplicate and aborts naming a row that is perfectly fine.
 command -v row_slug >/dev/null 2>&1 && [ -n "${GATE_ROW_HASH_CMD:-}" ] \
   || gate_abort "row-identity" \
        "scripts/gate-rows.sh did not load (see above) — row names cannot be made collision-free."
+# A matcher that did not load must not surface as "every title missing": with
+# promised_title_found undefined, the promised-tests loop below would read
+# every call's exit 127 as a genuine absence and fail every promised title
+# (#1108's exact failure direction).
+command -v promised_title_found >/dev/null 2>&1 \
+  || gate_abort "promised-tests" \
+       "scripts/gate-promised-tests.sh did not load (see above) — every promised title would be reported missing."
 
 DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
 
@@ -369,6 +378,21 @@ if [ "$DOCS_ONLY" = false ]; then
   else
     launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
   fi
+else
+  # #1199: docs-only mode skips the `test` row above (ci.yml's `test` job
+  # comment carries the same reasoning), but these suites read a doc at RUN
+  # TIME — DESIGN.md tables, CLAUDE.md, the reference/rules/context/directory
+  # tree, docs/legal/*.md, docs/adr/*.md, docs/security/rls-inventory.md,
+  # docs/admin-api/*, docs/runbooks/whatsapp-templates.md, the .claude/hooks
+  # and .claude/skills scripts, and the .claude/commands + .agents lane docs —
+  # so a docs-only branch can bust one. Run them here so such a branch can
+  # never go green silently (~7s wall, one vitest process). Keep this path
+  # list in lockstep with ci.yml's `lint` job "Run doc-reading test suites"
+  # step — src/__tests__/ci-audit-wiring.test.ts derives every doc-reading
+  # suite under src/ and scripts/ and fails if the two lanes diverge. Two
+  # red-team suites are excused there on RUNTIME COST (71s and 122s): they DO
+  # read repo docs and this row does not run them.
+  launch doc-shape pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
@@ -491,13 +515,16 @@ run_sync() {
 #     promises 13 corpus titles there.
 # Adding a root is cheap; the grep is fixed-string and bounded by --include.
 #
-# Matching is fixed-string against the file, so a promised title must appear
-# UNESCAPED in source: write a title containing an apostrophe with double
-# quotes, or the `\'` will not match the locked text.
+# Quoting style no longer matters (#1108): promised_title_found
+# (scripts/gate-promised-tests.sh) tries the title verbatim and each
+# single-character escape a JavaScript test name might spell it with — `\'`
+# for a single-quoted name, `\"` for a double-quoted one, `` \` `` for a
+# template literal — so a promised title matches regardless of which quoting
+# style its test source happens to use.
 MISSING_TITLES=""
 while IFS= read -r TITLE; do
   [ -n "$TITLE" ] || continue
-  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts tests 2>/dev/null && continue
+  promised_title_found "$TITLE" src worker scripts tests && continue
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)
@@ -643,7 +670,9 @@ if [ "$FAST_MODE" = true ]; then
 fi
 if [ "$DOCS_ONLY" = true ]; then
   echo "  (docs-only mode: every changed path is docs/, .claude/, or *.md —"
-  echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped)"
+  echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped;"
+  echo "   doc-shape runs the src/ + scripts/ suites that read a doc at run time,"
+  echo "   minus the two red-team suites excused on runtime cost)"
 fi
 for i in "${!NAMES[@]}"; do
   printf '  %-24s %s\n' "${NAMES[$i]}" "${RESULTS[$i]}"

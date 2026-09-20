@@ -1674,6 +1674,18 @@ describe('the watcher precondition', () => {
     expect(result.stderr).toContain('ABORT');
   });
 
+  // A fixture process list must be resolved with a FIXTURE cwd lookup. This
+  // pid is live and its cwd is the checkout running the test, never the
+  // fixture root: resolved with the real `lsof` the abort silently disappears,
+  // and the cases above pass only because pid 999 happens not to exist here.
+  // The pid is listed, never signalled.
+  it('resolves a fixture process list without reading the machine\'s live cwds', () => {
+    write('ps.txt', ` ${process.pid} node /x/next dev\n`);
+    const result = run('watchers', '--ps-source', join(repo, 'ps.txt'));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('ABORT');
+  });
+
   // Measured on a real machine: the SHELL that invoked the check was reported,
   // because its own command line embedded a script containing "next dev". Same
   // self-match that makes a grep-based guard block its own documentation.
@@ -2341,8 +2353,270 @@ describe('Operator same-round continuation safeguards', () => {
       operatorLegacyReconstruction: (id: string, original: string, from: string, to: string, mutant: string) => boolean;
       operatorMeasuredAssertion: (launch: unknown, candidate: unknown, status: string) => boolean;
       escapeTestName: (test: string) => string;
+      findWorktreeWatchers: (
+        psOutput: string, ignorePids: Set<number>, root: string, cwdOf?: (pid: number) => string | null,
+      ) => string[];
+      processServes: (root: string, pid: number, cwdOf?: (pid: number) => string | null) => boolean;
+      operatorRunRejectionReason: (input: {
+        admissionValid: boolean; phaseValid: boolean; candidateMetadataValid: boolean; argvMatches: boolean;
+        resultPathValid: boolean; supervisorClash: boolean; launchAllowed: boolean; dotenvSafe: boolean;
+        noRelease: boolean;
+      }) => string | null;
     }>;
   }
+
+  /**
+   * A committed Operator continuation that `validateOperatorAdmission` actually
+   * ADMITS: product baseline, restored checkpoint reports, both scheduling
+   * exceptions, the immutable admission manifest and the matching journal.
+   *
+   * Shared, because the watcher precondition is the LAST thing the admission
+   * gate checks — nothing cheaper reaches it, and a test that stops at the
+   * helper cannot see the production call site at all.
+   */
+  async function buildOperatorAdmissionFixture() {
+    const { symlinkSync } = await import('node:fs');
+    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
+    const reportPath = 'docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.json';
+    const markdownPath = reportPath.replace('.json', '.md');
+    const intakePath = 'docs/superpowers/plans/codex-operator-fallow-refactor-intake.json';
+    const runnerTest = 'scripts/ci/__tests__/red-team-mutation-runner.test.ts';
+    const statusTest = 'scripts/ci/__tests__/red-team-status.test.ts';
+    const axes = ['spec-correctness', 'security', 'database', 'standards-maintainability']
+      .map((axis) => `docs/reviews/codex-operator-fallow-refactor/${axis}.md`);
+    git('branch', '-m', 'codex/operator-fallow-refactor');
+    write('.gitignore', '.feature/\nnode_modules/\n.env*\n');
+    write('package.json', '{"type":"module"}\n');
+    write('vitest.config.mjs', "export default { root: '.', test: { include: ['src/gate.test.ts'], environment: 'node', setupFiles: [] } };\n");
+    write('src/gate.test.ts', 'import { it, expect } from "vitest"; import { allow } from "./gate"; it("fixture candidate 1", () => expect(allow(1)).toBe(true));\n');
+    write(runnerTest, '// original runner assertions retained\n');
+    write(statusTest, '// original status assertions retained\n');
+    const initialIntake = JSON.stringify({ command: 'pnpm test --maxWorkers=2 --coverage --coverage.reportsDirectory=.feature/operator-live-coverage/full && merge .feature/operator-live-coverage' });
+    write(intakePath, initialIntake);
+    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\n');
+    git('add', '.');
+    git('commit', '-qm', 'fixture product baseline');
+    const baselineHead = git('rev-parse', 'HEAD');
+    const originalOid = git('rev-parse', 'HEAD:src/gate.ts');
+    const mutantSource = read('src/gate.ts').replace('n > 0', 'n < 0');
+    write('.feature/mutant.ts', mutantSource);
+    const mutantOid = git('hash-object', '-w', '--', '.feature/mutant.ts');
+    const inventory = Array.from({ length: 501 }, (_, index) => ({ id: `rt-${String(index + 1).padStart(4, '0')}`,
+      file: 'src/gate.test.ts', test: `fixture candidate ${index + 1}`, outcome: index >= 55 && index <= 58 ? 'excluded' : 'skipped-budget',
+      reason: index >= 55 && index <= 58 ? 'original exclusion' : 'original budget exhausted' }));
+    const historical = { inventory, branch: 'codex/operator-fallow-refactor', round: 1, head_sha: baselineHead };
+    const historicalRaw = JSON.stringify(historical);
+    const historicalMarkdown = 'Original measured narrative remains byte-identical.\n';
+    write(reportPath, historicalRaw);
+    write(markdownPath, historicalMarkdown);
+    for (const axis of axes) write(axis, `Pinned ${axis}\n`);
+    git('add', '.');
+    git('commit', '-qm', 'fixture restored checkpoint reports');
+    const checkpointHead = git('rev-parse', 'HEAD');
+    const jsonBlob = git('rev-parse', `HEAD:${reportPath}`);
+    const markdownBlob = git('rev-parse', `HEAD:${markdownPath}`);
+    write(intakePath, initialIntake.replace('--maxWorkers=2', '--maxWorkers=1'));
+    git('add', intakePath);
+    git('commit', '-qm', 'fixture schedule one');
+    const scheduleOne = git('rev-parse', 'HEAD');
+    write(intakePath, read(intakePath).replace('pnpm test --maxWorkers=1 --coverage', 'pnpm test --project=integration --maxWorkers=1 --coverage')
+      .replaceAll('.feature/operator-live-coverage', '.feature/operator-integration-coverage'));
+    git('add', intakePath);
+    git('commit', '-qm', 'fixture schedule two');
+    const scheduleTwo = git('rev-parse', 'HEAD');
+    const checkpoint = { version: 1, round: 1, runs: 30, dotenv: { open: false, files: [] },
+      mutations: Array.from({ length: 15 }, () => ({ path: 'src/gate.ts', originalOid, mutantOid,
+        patchSha256: digest(mutantSource), state: 'restored' })),
+      supervisors: Array.from({ length: 30 }, (_, index) => ({ pid: 900000 + index, pgid: 900000 + index, active: false })) };
+    const legacyCandidateNumbers = [126, 127, 137, 138, 139, 140, 142, 117, 118, 120, 122, 155, 156, 261, 262];
+    const legacyAttempts = Array.from({ length: 15 }, (_, index) => {
+      const legacyResult = join(repo, `.feature/legacy-${index}.json`);
+      const legacyLog = join(repo, `.feature/legacy-${index}.log`);
+      writeFileSync(legacyResult, '{}');
+      writeFileSync(legacyLog, 'retained supervisor result\n');
+      const artifact = { resultPath: legacyResult, resultSha256: digest('{}'), logPath: legacyLog,
+        logSha256: digest('retained supervisor result\n') };
+      const candidate = inventory[legacyCandidateNumbers[index]! - 1]!;
+      return { mutationIndex: index, candidateId: candidate.id, selector: candidate.test,
+        attempt: 1, baseline: { ...artifact, launch: index * 2 + 1 }, mutant: { ...artifact, launch: index * 2 + 2 } };
+    });
+    const measurements = legacyAttempts.map((mapping, index) => ({ ...inventory[legacyCandidateNumbers[index]! - 1],
+      mutation: { file: 'src/gate.ts', from: 'n > 0', to: 'n < 0' },
+      baseline: { report: mapping.baseline.resultPath }, mutant: { report: mapping.mutant.resultPath } }));
+    const measurementsPath = join(repo, '.feature/measurements.json');
+    const measurementsRaw = JSON.stringify(measurements);
+    writeFileSync(measurementsPath, measurementsRaw);
+    const corrections = ([[46, 46], [55, 55], [63, 65], [73, 79], [81, 87], [109, 116],
+      [125, 125], [128, 128], [132, 133], [136, 136], [145, 154], [172, 172], [175, 190],
+      [192, 193], [195, 195], [201, 201], [208, 208], [210, 246], [276, 279], [310, 332],
+      [334, 334], [342, 343], [346, 501]] as const)
+      .flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => ({
+        id: `rt-${String(first + index).padStart(4, '0')}`, reason: 'Direction B discovery correction: fixture call path',
+        proof: 'Independent fixture proof: no changed production hunk is reachable.',
+      })));
+    const additionalCorrections = [8, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 42, 43, 47, 48, 49, 50, 51, 52, 53, 54, 119, 131, 135, 143, 163, 171, 194, 196, 197, 199, 202, 207, 209, 257, 272, 282, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 338, 339, 340]
+      .map((id) => ({ id: `rt-${String(id).padStart(4, '0')}`,
+        reason: 'Direction B additional discovery correction: fixture contract scope',
+        proof: 'Fixture assertions target a different unchanged contract despite incidental changed-code execution.',
+        category: 'B', evidence: ['src/gate.test.ts:1'] }));
+    const inventoryHash = digest(JSON.stringify(inventory.map(({ id, file, test }) => ({ id, file, test }))));
+    const journalHash = digest(JSON.stringify(checkpoint));
+    const manifest = { schema: 1, id: 'operator-fallow-round-1-continuation-2026-09-15', branch: 'codex/operator-fallow-refactor',
+      round: 1, maxRuns: 1500, maxTimeoutMs: 120000, maxMutantsPerCandidate: 2,
+      ownerApproval: '[@Computer](plugin://computer-use@openai-bundled) you can proceed and finish the remaining work please',
+      productBaseline: baselineHead, checkpointHead, schedulingHeads: [scheduleOne, scheduleTwo],
+      historicalReportSha256: digest(historicalRaw), historicalMarkdownSha256: digest(historicalMarkdown),
+      inventorySha256: inventoryHash, journalSha256: journalHash, checkpointJournal: checkpoint,
+      axisBlobs: Object.fromEntries(axes.map((axis) => [axis, git('rev-parse', `HEAD:${axis}`)])), suffix: [], legacyAttempts,
+      measurements: { path: measurementsPath, sha256: digest(measurementsRaw) }, discoveryCorrections: [...corrections, ...additionalCorrections],
+      discoveryAdjudication: { arbiter: 'inventory_scope_audit', decision: 'exclude-never-measured',
+        idsSha256: digest(JSON.stringify(corrections.map(({ id }) => id))),
+        ownerApproval: 'Approve the exact 287 documented discovery corrections',
+        proposalSha256: 'f8b5181724be926ee0d6a732d56b40a2c62678d824e76ca161176e12e81de637' },
+      additionalDiscoveryAdjudication: { arbiter: 'root-and-independent-discovery-review', decision: 'exclude-never-measured-contract-scope',
+        idsSha256: digest(JSON.stringify(additionalCorrections.map(({ id }) => id))),
+        ownerApproval: 'Approve the exact 68 additional documented discovery corrections',
+        proposalSha256: '47a86bfaeaf00295109a950da50d6ab3dfa540fb547b440f586ca5889ef96440' } };
+    write(review, `## Operator continuation manifest\n\n\x60\x60\x60json\n${JSON.stringify(manifest)}\n\x60\x60\x60\n`);
+    git('add', review);
+    git('commit', '-qm', 'fixture immutable admission');
+    const admissionHead = git('rev-parse', 'HEAD');
+    write('.feature/intake.json', read(intakePath));
+    writeJournal(checkpoint);
+    // Never expose the real node_modules directory to a fixture package manager:
+    // pnpm 11 performs an implicit install before exec and rewrites its metadata.
+    mkdirSync(join(repo, 'node_modules'), { recursive: true });
+    symlinkSync(resolve(process.cwd(), 'node_modules/vitest'), join(repo, 'node_modules/vitest'), 'dir');
+    const shimDirectory = join(repo, '.feature/bin');
+    mkdirSync(shimDirectory, { recursive: true });
+    writeFileSync(join(shimDirectory, 'pnpm'), `#!${process.execPath}\nimport { spawnSync } from 'node:child_process';\nconst r=spawnSync(process.execPath,[${JSON.stringify(resolve(process.cwd(), 'node_modules/vitest/vitest.mjs'))},...process.argv.slice(5)],{stdio:'inherit',env:process.env});\nprocess.exit(r.status??1);\n`, { mode: 0o755 });
+    const fixtureRun = (...args: string[]): RunResult => {
+      const result = spawnSync(process.execPath, [runner, ...args], { cwd: repo, encoding: 'utf8',
+        env: { ...GIT_FREE_ENV, PATH: `${shimDirectory}:${GIT_FREE_ENV.PATH}` } });
+      return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
+    };
+    runner = join(repo, '.feature/operator-runner.mjs');
+    let source = readFileSync(RUNNER, 'utf8');
+    const replacements = new Map([
+      ['2ac6ff871b4496f996c37aaaaade9bdc7eee9a62', baselineHead], ['8660fd1d01e35c22b9142b4fc2a020c05946f1c5', checkpointHead],
+      ['15a5f447f9c415be5671ddd432917f472f939b9f', scheduleOne], ['8ea2ac28f49724dd6df65435fe956d781dd72638', scheduleTwo],
+      ['08cdc7ea5f3d566993ff1deba8246f04340121ef', jsonBlob], ['e8c8f894ee43ad34519e5c7d34211c5be276e39c', markdownBlob],
+      ['9b1f54e102b0badf1a7c515084984e8c92f997971d381f78bc241b0b614a6073', journalHash],
+      ['378cb2ba55fafec04566cda2b201631143432d3f34c5d71ac4fd1ca1bc353972', inventoryHash],
+      ['cb2c6819986e93c46e4a9c928c83974429696e00044404b78ac50a67e22c6c60', digest(JSON.stringify(corrections))],
+      ['5ef86e871b2f321bdd70694555205a2098a9c549f66dd57f10f624651dd70482', digest(JSON.stringify(additionalCorrections))],
+    ]);
+    for (const [original, replacement] of replacements) source = source.replaceAll(original, replacement);
+    writeFileSync(runner, source);
+    const metadata = ['--candidate', 'rt-0001', '--attempt', '1', '--test-file', 'src/gate.test.ts',
+      '--selector', 'fixture candidate 1', '--target', 'src/gate.ts', '--mutant-sha256', digest(mutantSource)];
+    const launch = (phase: string, runnerFlags: string[] = [], commandFlags: string[] = []) => {
+      const result = join(repo, `.feature/${phase}.json`);
+      return fixtureRun('run', ...metadata, '--phase', phase, '--result', result, ...runnerFlags, '--', 'pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run',
+        'src/gate.test.ts', '--testNamePattern', 'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1', ...commandFlags);
+    };
+    return { review, reportPath, markdownPath, intakePath, runnerTest, statusTest, axes,
+      baselineHead, checkpointHead, admissionHead, mutantSource, inventory, historical,
+      historicalRaw, checkpoint, manifest, shimDirectory, fixtureRun, metadata, launch };
+  }
+
+  /**
+   * `ps` and `lsof` replaced on PATH, so the admission gate's watcher scan
+   * reads THIS fixture and never the developer's machine. The `ps` shim
+   * answers only the full listing (`-A…`), which leaves `selfAncestry()`
+   * empty; the `lsof` shim answers the cwd probe and logs every call, so a
+   * "refused" verdict can be shown to come from the cwd it reported rather
+   * than from `processServes`'s fail-closed path.
+   *
+   * `verdict()` calls the PRODUCTION entry point. Asserting on
+   * `findWorktreeWatchers` alone leaves the admission call site unpinned:
+   * reverting it to the machine-global `findWatchers(...)` — undoing the whole
+   * narrowing — kept all 248 tests green (measured 2026-09-19).
+   */
+  function shimProcessTable(shimDirectory: string, psOutput: string, cwd: string) {
+    const lsofLog = join(shimDirectory, 'lsof-calls.log');
+    writeFileSync(join(shimDirectory, 'ps'), `#!${process.execPath}\n`
+      + `if (process.argv.slice(2).some((flag) => flag.startsWith('-A'))) process.stdout.write(${JSON.stringify(psOutput)});\n`,
+      { mode: 0o755 });
+    writeFileSync(join(shimDirectory, 'lsof'), `#!${process.execPath}\n`
+      + `const call = process.argv.slice(2).join(' ');\n`
+      + `process.stdout.write('n' + ${JSON.stringify(cwd)} + '\\n');\n`
+      + `import('node:fs').then((fs) => fs.appendFileSync(${JSON.stringify(lsofLog)}, call + '\\n'));\n`,
+      { mode: 0o755 });
+    const verdict = (): string => spawnSync(process.execPath, ['--input-type=module', '-e',
+      'const m=await import(process.argv[2]);const fs=await import("node:fs");'
+      + 'const p=m.validateOperatorAdmission(process.cwd(),JSON.parse(fs.readFileSync(".feature/red-team-journal.json")));'
+      + 'console.log(p ? "admitted" : "refused");',
+      'fixture-check', runner],
+    { cwd: repo, encoding: 'utf8', env: { ...GIT_FREE_ENV, PATH: `${shimDirectory}:${GIT_FREE_ENV.PATH}` } }).stdout.trim();
+    return { verdict, lsofLog };
+  }
+
+  // #1338-style regression: WATCHER_PATTERNS matches by TEXT alone, machine-
+  // wide. An unrelated checkout's dev server must never block admission for
+  // THIS worktree — that was the live defect, proven by neutralising the
+  // watcher expression to `false` and watching the giant fixture below pass.
+  it('admits an operator continuation while an unrelated checkout runs a dev server', async () => {
+    const { findWorktreeWatchers } = await helpers();
+    const pid = Number.MAX_SAFE_INTEGER - 101;
+    const psOutput = `${pid} node /unrelated/checkout/node_modules/.bin/next dev\n`;
+    const cwdOf = (candidate: number) => (candidate === pid ? '/unrelated/checkout' : null);
+    expect(findWorktreeWatchers(psOutput, new Set(), repo, cwdOf)).toEqual([]);
+    const { shimDirectory } = await buildOperatorAdmissionFixture();
+    const { verdict } = shimProcessTable(shimDirectory, psOutput, '/unrelated/checkout');
+    expect(verdict()).toBe('admitted');
+  });
+
+  // The complementary case, and the safety-critical direction: narrowing to
+  // this worktree must not disarm the gate it narrows. A watcher whose cwd IS
+  // this worktree still blocks admission at the production call site.
+  it('refuses an operator continuation while a watcher serves this worktree', async () => {
+    const { findWorktreeWatchers } = await helpers();
+    const pid = Number.MAX_SAFE_INTEGER - 102;
+    const psOutput = `${pid} node ${repo}/node_modules/.bin/next dev\n`;
+    const cwdOf = (candidate: number) => (candidate === pid ? repo : null);
+    const matches = findWorktreeWatchers(psOutput, new Set(), repo, cwdOf);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toContain('next dev');
+    const { shimDirectory } = await buildOperatorAdmissionFixture();
+    const { verdict, lsofLog } = shimProcessTable(shimDirectory, psOutput, repo);
+    expect(verdict()).toBe('refused');
+    // Not the fail-closed path: the gate really read this pid's cwd, and it
+    // was this worktree. An unreadable cwd would refuse for another reason.
+    expect(readFileSync(lsofLog, 'utf8')).toContain(String(pid));
+  });
+
+  it('names the failing admission condition instead of one fused message', async () => {
+    const { operatorRunRejectionReason } = await helpers();
+    const passing = {
+      admissionValid: true, phaseValid: true, candidateMetadataValid: true, argvMatches: true, resultPathValid: true,
+      supervisorClash: false, launchAllowed: true, dotenvSafe: true, noRelease: false,
+    };
+    const admissionReason = operatorRunRejectionReason({ ...passing, admissionValid: false });
+    const argvReason = operatorRunRejectionReason({ ...passing, argvMatches: false });
+    expect(operatorRunRejectionReason(passing)).toBeNull();
+    expect(admissionReason).not.toBeNull();
+    expect(argvReason).not.toBeNull();
+    expect(admissionReason).not.toBe(argvReason);
+    expect(admissionReason).toMatch(/admission/i);
+    expect(argvReason).toMatch(/test command/i);
+  });
+
+  // An unknown --phase is a NINTH cause. It also suppresses the candidate
+  // metadata lookup, so reporting it as "candidate metadata is invalid" would
+  // re-fuse the ninth cause into the eighth one's name.
+  it('names an unknown --phase as its own cause, not as invalid candidate metadata', async () => {
+    const { operatorRunRejectionReason } = await helpers();
+    const passing = {
+      admissionValid: true, phaseValid: true, candidateMetadataValid: true, argvMatches: true, resultPathValid: true,
+      supervisorClash: false, launchAllowed: true, dotenvSafe: true, noRelease: false,
+    };
+    const phaseReason = operatorRunRejectionReason({ ...passing, phaseValid: false, candidateMetadataValid: false });
+    const metadataReason = operatorRunRejectionReason({ ...passing, candidateMetadataValid: false });
+    expect(phaseReason).toMatch(/phase/i);
+    expect(metadataReason).toMatch(/candidate metadata/i);
+    expect(phaseReason).not.toBe(metadataReason);
+  });
 
   function historyFixture() {
     const inventory = Array.from({ length: 501 }, (_, index) => ({
@@ -2577,149 +2851,23 @@ describe('Operator same-round continuation safeguards', () => {
   });
 
   it('runs an admitted baseline mutant and restoration with corroborated report evidence', async () => {
-    const { symlinkSync } = await import('node:fs');
-    const review = 'docs/reviews/codex-operator-fallow-refactor/budget-extension-review.md';
-    const reportPath = 'docs/reviews/red-team/codex-operator-fallow-refactor-3b29b6/findings.json';
-    const markdownPath = reportPath.replace('.json', '.md');
-    const intakePath = 'docs/superpowers/plans/codex-operator-fallow-refactor-intake.json';
-    const runnerTest = 'scripts/ci/__tests__/red-team-mutation-runner.test.ts';
-    const statusTest = 'scripts/ci/__tests__/red-team-status.test.ts';
-    const axes = ['spec-correctness', 'security', 'database', 'standards-maintainability']
-      .map((axis) => `docs/reviews/codex-operator-fallow-refactor/${axis}.md`);
-    git('branch', '-m', 'codex/operator-fallow-refactor');
-    write('.gitignore', '.feature/\nnode_modules/\n.env*\n');
-    write('package.json', '{"type":"module"}\n');
-    write('vitest.config.mjs', "export default { root: '.', test: { include: ['src/gate.test.ts'], environment: 'node', setupFiles: [] } };\n");
-    write('src/gate.test.ts', 'import { it, expect } from "vitest"; import { allow } from "./gate"; it("fixture candidate 1", () => expect(allow(1)).toBe(true));\n');
-    write(runnerTest, '// original runner assertions retained\n');
-    write(statusTest, '// original status assertions retained\n');
-    const initialIntake = JSON.stringify({ command: 'pnpm test --maxWorkers=2 --coverage --coverage.reportsDirectory=.feature/operator-live-coverage/full && merge .feature/operator-live-coverage' });
-    write(intakePath, initialIntake);
-    write(intakePath.replace('-intake.json', '-deviations.md'), 'fixture original deviations\n');
-    git('add', '.');
-    git('commit', '-qm', 'fixture product baseline');
-    const baselineHead = git('rev-parse', 'HEAD');
-    const originalOid = git('rev-parse', 'HEAD:src/gate.ts');
-    const mutantSource = read('src/gate.ts').replace('n > 0', 'n < 0');
-    write('.feature/mutant.ts', mutantSource);
-    const mutantOid = git('hash-object', '-w', '--', '.feature/mutant.ts');
-    const inventory = Array.from({ length: 501 }, (_, index) => ({ id: `rt-${String(index + 1).padStart(4, '0')}`,
-      file: 'src/gate.test.ts', test: `fixture candidate ${index + 1}`, outcome: index >= 55 && index <= 58 ? 'excluded' : 'skipped-budget',
-      reason: index >= 55 && index <= 58 ? 'original exclusion' : 'original budget exhausted' }));
-    const historical = { inventory, branch: 'codex/operator-fallow-refactor', round: 1, head_sha: baselineHead };
-    const historicalRaw = JSON.stringify(historical);
-    const historicalMarkdown = 'Original measured narrative remains byte-identical.\n';
-    write(reportPath, historicalRaw);
-    write(markdownPath, historicalMarkdown);
-    for (const axis of axes) write(axis, `Pinned ${axis}\n`);
-    git('add', '.');
-    git('commit', '-qm', 'fixture restored checkpoint reports');
-    const checkpointHead = git('rev-parse', 'HEAD');
-    const jsonBlob = git('rev-parse', `HEAD:${reportPath}`);
-    const markdownBlob = git('rev-parse', `HEAD:${markdownPath}`);
-    write(intakePath, initialIntake.replace('--maxWorkers=2', '--maxWorkers=1'));
-    git('add', intakePath);
-    git('commit', '-qm', 'fixture schedule one');
-    const scheduleOne = git('rev-parse', 'HEAD');
-    write(intakePath, read(intakePath).replace('pnpm test --maxWorkers=1 --coverage', 'pnpm test --project=integration --maxWorkers=1 --coverage')
-      .replaceAll('.feature/operator-live-coverage', '.feature/operator-integration-coverage'));
-    git('add', intakePath);
-    git('commit', '-qm', 'fixture schedule two');
-    const scheduleTwo = git('rev-parse', 'HEAD');
-    const checkpoint = { version: 1, round: 1, runs: 30, dotenv: { open: false, files: [] },
-      mutations: Array.from({ length: 15 }, () => ({ path: 'src/gate.ts', originalOid, mutantOid,
-        patchSha256: digest(mutantSource), state: 'restored' })),
-      supervisors: Array.from({ length: 30 }, (_, index) => ({ pid: 900000 + index, pgid: 900000 + index, active: false })) };
-    const legacyCandidateNumbers = [126, 127, 137, 138, 139, 140, 142, 117, 118, 120, 122, 155, 156, 261, 262];
-    const legacyAttempts = Array.from({ length: 15 }, (_, index) => {
-      const legacyResult = join(repo, `.feature/legacy-${index}.json`);
-      const legacyLog = join(repo, `.feature/legacy-${index}.log`);
-      writeFileSync(legacyResult, '{}');
-      writeFileSync(legacyLog, 'retained supervisor result\n');
-      const artifact = { resultPath: legacyResult, resultSha256: digest('{}'), logPath: legacyLog,
-        logSha256: digest('retained supervisor result\n') };
-      const candidate = inventory[legacyCandidateNumbers[index]! - 1]!;
-      return { mutationIndex: index, candidateId: candidate.id, selector: candidate.test,
-        attempt: 1, baseline: { ...artifact, launch: index * 2 + 1 }, mutant: { ...artifact, launch: index * 2 + 2 } };
-    });
-    const measurements = legacyAttempts.map((mapping, index) => ({ ...inventory[legacyCandidateNumbers[index]! - 1],
-      mutation: { file: 'src/gate.ts', from: 'n > 0', to: 'n < 0' },
-      baseline: { report: mapping.baseline.resultPath }, mutant: { report: mapping.mutant.resultPath } }));
-    const measurementsPath = join(repo, '.feature/measurements.json');
-    const measurementsRaw = JSON.stringify(measurements);
-    writeFileSync(measurementsPath, measurementsRaw);
-    const corrections = ([[46, 46], [55, 55], [63, 65], [73, 79], [81, 87], [109, 116],
-      [125, 125], [128, 128], [132, 133], [136, 136], [145, 154], [172, 172], [175, 190],
-      [192, 193], [195, 195], [201, 201], [208, 208], [210, 246], [276, 279], [310, 332],
-      [334, 334], [342, 343], [346, 501]] as const)
-      .flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => ({
-        id: `rt-${String(first + index).padStart(4, '0')}`, reason: 'Direction B discovery correction: fixture call path',
-        proof: 'Independent fixture proof: no changed production hunk is reachable.',
-      })));
-    const additionalCorrections = [8, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 42, 43, 47, 48, 49, 50, 51, 52, 53, 54, 119, 131, 135, 143, 163, 171, 194, 196, 197, 199, 202, 207, 209, 257, 272, 282, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 338, 339, 340]
-      .map((id) => ({ id: `rt-${String(id).padStart(4, '0')}`,
-        reason: 'Direction B additional discovery correction: fixture contract scope',
-        proof: 'Fixture assertions target a different unchanged contract despite incidental changed-code execution.',
-        category: 'B', evidence: ['src/gate.test.ts:1'] }));
-    const inventoryHash = digest(JSON.stringify(inventory.map(({ id, file, test }) => ({ id, file, test }))));
-    const journalHash = digest(JSON.stringify(checkpoint));
-    const manifest = { schema: 1, id: 'operator-fallow-round-1-continuation-2026-09-15', branch: 'codex/operator-fallow-refactor',
-      round: 1, maxRuns: 1500, maxTimeoutMs: 120000, maxMutantsPerCandidate: 2,
-      ownerApproval: '[@Computer](plugin://computer-use@openai-bundled) you can proceed and finish the remaining work please',
-      productBaseline: baselineHead, checkpointHead, schedulingHeads: [scheduleOne, scheduleTwo],
-      historicalReportSha256: digest(historicalRaw), historicalMarkdownSha256: digest(historicalMarkdown),
-      inventorySha256: inventoryHash, journalSha256: journalHash, checkpointJournal: checkpoint,
-      axisBlobs: Object.fromEntries(axes.map((axis) => [axis, git('rev-parse', `HEAD:${axis}`)])), suffix: [], legacyAttempts,
-      measurements: { path: measurementsPath, sha256: digest(measurementsRaw) }, discoveryCorrections: [...corrections, ...additionalCorrections],
-      discoveryAdjudication: { arbiter: 'inventory_scope_audit', decision: 'exclude-never-measured',
-        idsSha256: digest(JSON.stringify(corrections.map(({ id }) => id))),
-        ownerApproval: 'Approve the exact 287 documented discovery corrections',
-        proposalSha256: 'f8b5181724be926ee0d6a732d56b40a2c62678d824e76ca161176e12e81de637' },
-      additionalDiscoveryAdjudication: { arbiter: 'root-and-independent-discovery-review', decision: 'exclude-never-measured-contract-scope',
-        idsSha256: digest(JSON.stringify(additionalCorrections.map(({ id }) => id))),
-        ownerApproval: 'Approve the exact 68 additional documented discovery corrections',
-        proposalSha256: '47a86bfaeaf00295109a950da50d6ab3dfa540fb547b440f586ca5889ef96440' } };
-    write(review, `## Operator continuation manifest\n\n\x60\x60\x60json\n${JSON.stringify(manifest)}\n\x60\x60\x60\n`);
-    git('add', review);
-    git('commit', '-qm', 'fixture immutable admission');
-    const admissionHead = git('rev-parse', 'HEAD');
-    write('.feature/intake.json', read(intakePath));
-    writeJournal(checkpoint);
-    // Never expose the real node_modules directory to a fixture package manager:
-    // pnpm 11 performs an implicit install before exec and rewrites its metadata.
-    mkdirSync(join(repo, 'node_modules'), { recursive: true });
-    symlinkSync(resolve(process.cwd(), 'node_modules/vitest'), join(repo, 'node_modules/vitest'), 'dir');
-    const shimDirectory = join(repo, '.feature/bin');
-    mkdirSync(shimDirectory, { recursive: true });
-    writeFileSync(join(shimDirectory, 'pnpm'), `#!${process.execPath}\nimport { spawnSync } from 'node:child_process';\nconst r=spawnSync(process.execPath,[${JSON.stringify(resolve(process.cwd(), 'node_modules/vitest/vitest.mjs'))},...process.argv.slice(5)],{stdio:'inherit',env:process.env});\nprocess.exit(r.status??1);\n`, { mode: 0o755 });
-    const fixtureRun = (...args: string[]): RunResult => {
-      const result = spawnSync(process.execPath, [runner, ...args], { cwd: repo, encoding: 'utf8',
-        env: { ...GIT_FREE_ENV, PATH: `${shimDirectory}:${GIT_FREE_ENV.PATH}` } });
-      return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
-    };
-    runner = join(repo, '.feature/operator-runner.mjs');
-    let source = readFileSync(RUNNER, 'utf8');
-    const replacements = new Map([
-      ['2ac6ff871b4496f996c37aaaaade9bdc7eee9a62', baselineHead], ['8660fd1d01e35c22b9142b4fc2a020c05946f1c5', checkpointHead],
-      ['15a5f447f9c415be5671ddd432917f472f939b9f', scheduleOne], ['8ea2ac28f49724dd6df65435fe956d781dd72638', scheduleTwo],
-      ['08cdc7ea5f3d566993ff1deba8246f04340121ef', jsonBlob], ['e8c8f894ee43ad34519e5c7d34211c5be276e39c', markdownBlob],
-      ['9b1f54e102b0badf1a7c515084984e8c92f997971d381f78bc241b0b614a6073', journalHash],
-      ['378cb2ba55fafec04566cda2b201631143432d3f34c5d71ac4fd1ca1bc353972', inventoryHash],
-      ['cb2c6819986e93c46e4a9c928c83974429696e00044404b78ac50a67e22c6c60', digest(JSON.stringify(corrections))],
-      ['5ef86e871b2f321bdd70694555205a2098a9c549f66dd57f10f624651dd70482', digest(JSON.stringify(additionalCorrections))],
-    ]);
-    for (const [original, replacement] of replacements) source = source.replaceAll(original, replacement);
-    writeFileSync(runner, source);
-    const metadata = ['--candidate', 'rt-0001', '--attempt', '1', '--test-file', 'src/gate.test.ts',
-      '--selector', 'fixture candidate 1', '--target', 'src/gate.ts', '--mutant-sha256', digest(mutantSource)];
-    const launch = (phase: string, runnerFlags: string[] = [], commandFlags: string[] = []) => {
-      const result = join(repo, `.feature/${phase}.json`);
-      return fixtureRun('run', ...metadata, '--phase', phase, '--result', result, ...runnerFlags, '--', 'pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run',
-        'src/gate.test.ts', '--testNamePattern', 'fixture candidate 1', '--reporter=json', `--outputFile=${result}`, '--maxWorkers=1', ...commandFlags);
-    };
-    expect(launch('baseline', [], ['--reporter=default']).status).toBe(1);
+    const { review, reportPath, intakePath, runnerTest, statusTest, mutantSource, inventory, historical,
+      historicalRaw, admissionHead, metadata, fixtureRun, launch } = await buildOperatorAdmissionFixture();
+    let source = readFileSync(runner, 'utf8');
+    // Each rejection is pinned to ITS OWN cause, not merely "some rejection
+    // happened" — a fused message made both of these pass vacuously whenever
+    // an unrelated watcher elsewhere blocked admission instead (see the two
+    // "operator continuation" watcher-scope tests above).
+    const argvMismatch = launch('baseline', [], ['--reporter=default']);
+    expect(argvMismatch.status, argvMismatch.stderr).toBe(1);
+    expect(argvMismatch.stderr).toContain('test command');
+    const unknownPhase = launch('warmup');
+    expect(unknownPhase.status, unknownPhase.stderr).toBe(1);
+    expect(unknownPhase.stderr).toContain('phase');
     write('.env.local', 'MOCK_EXTERNAL_APIS=false\n');
-    expect(launch('baseline').status).toBe(1);
+    const dotenvUnsafe = launch('baseline');
+    expect(dotenvUnsafe.status, dotenvUnsafe.stderr).toBe(1);
+    expect(dotenvUnsafe.stderr).toContain('dotenv');
     rmSync(join(repo, '.env.local'));
     expect(journal().runs).toBe(30);
     const baseline = launch('baseline');
