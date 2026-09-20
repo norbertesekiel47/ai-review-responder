@@ -46,18 +46,21 @@ mkdir -p .feature/logs .feature/live .feature/review-staging
 PROGRESS_MJS=".agents/skills/feature/scripts/progress.mjs"
 if [ ! -f .feature/progress.json ]; then
   if [ -f "$PROGRESS_MJS" ] && command -v node >/dev/null 2>&1; then
-    RISK_TYPE=$(jq -r '.risk | type' .feature/intake.json)
-    if [ "$RISK_TYPE" = "string" ]; then
-      LADDER_RISK=$(jq -r '.risk' .feature/intake.json)
-    elif [ "$RISK_TYPE" = "null" ] && [ "$(jq -r '.classification | type' .feature/intake.json)" = "string" ]; then
-      # Legacy spelling: an older intake used `classification` for the risk
-      # axis. Only a SCALAR classification is a valid legacy value — an
-      # object (e.g. a stale carried-ladder shape) is out-of-vocabulary, not
-      # a value to unwrap.
-      LADDER_RISK=$(jq -r '.classification' .feature/intake.json)
-    else
-      LADDER_RISK=$(jq -c '.risk // .classification' .feature/intake.json)
-    fi
+    # One jq pass emits all three axis values, risk/surface/size, one per line.
+    # A string field comes back raw (the value to match); anything else comes
+    # back as COMPACT JSON, so the DISARMED message below shows what was
+    # actually there instead of a coerced-looking word. `classification` is an
+    # older intake's spelling of the risk axis and is honoured only as a SCALAR
+    # — an object (e.g. a stale carried-ladder shape) is out-of-vocabulary, not
+    # a value to unwrap.
+    AXES=$(jq -r 'def axis: if type == "string" then . else tojson end;
+      (if (.risk | type) == "string" then .risk
+       elif .risk == null and (.classification | type) == "string" then .classification
+       else ((.risk // .classification) | tojson) end),
+      (.surface | axis),
+      (.size | axis)' .feature/intake.json)
+    { IFS= read -r LADDER_RISK; IFS= read -r LADDER_SURFACE; IFS= read -r LADDER_SIZE; } <<<"$AXES"
+
     case "$LADDER_RISK" in
       normal|high) ;;
       *)
@@ -66,12 +69,6 @@ if [ ! -f .feature/progress.json ]; then
         ;;
     esac
 
-    SURFACE_TYPE=$(jq -r '.surface | type' .feature/intake.json)
-    if [ "$SURFACE_TYPE" = "string" ]; then
-      LADDER_SURFACE=$(jq -r '.surface' .feature/intake.json)
-    else
-      LADDER_SURFACE=$(jq -c '.surface' .feature/intake.json)
-    fi
     case "$LADDER_SURFACE" in
       ui|backend|mixed) ;;
       *)
@@ -80,12 +77,6 @@ if [ ! -f .feature/progress.json ]; then
         ;;
     esac
 
-    SIZE_TYPE=$(jq -r '.size | type' .feature/intake.json)
-    if [ "$SIZE_TYPE" = "string" ]; then
-      LADDER_SIZE=$(jq -r '.size' .feature/intake.json)
-    else
-      LADDER_SIZE=$(jq -c '.size' .feature/intake.json)
-    fi
     case "$LADDER_SIZE" in
       trivial|small|standard|epic) ;;
       *)

@@ -16,18 +16,27 @@ function feature(script: string, ...args: string[]) {
   return run('node', [`.agents/skills/feature/scripts/${script}.mjs`, ...args]);
 }
 
-// `carry` compares a carried ladder's `updatedAt` against the locked intake
-// file's mtime. Backdating the intake file well into the past (rather than
-// relying on "the parent write happens after, so real time moved on") keeps
-// that comparison deterministic — filesystem mtime resolution on some
-// filesystems is coarser than the millisecond gap between two writes in the
-// same test.
-function writeIntakeInThePast(intake: Record<string, unknown>) {
+// `carry` compares a carried ladder's `updatedAt` against the mtime of the
+// intake file it is handed, so every fixture below lays the three events down
+// in PRODUCTION order: the intake is AUTHORED first (its own file, outside
+// .feature/), the parent ladder is updated next while the run is still in the
+// parent checkout, and feature-setup.sh COPIES the intake into .feature/ last.
+// `cp` stamps that copy NOW, so the installed copy is always the newest of the
+// three and says nothing about when this run's intake was written — anchoring
+// recency on it refuses every legitimate carry. The anchor is the authored
+// source, which feature-setup.sh passes as `--intake "$SRC"`.
+//
+// Author time is set explicitly rather than relying on "the later write really
+// did happen later": filesystem mtime resolution on some filesystems is
+// coarser than the millisecond gap between two writes in the same test.
+function authorIntake(intake: Record<string, unknown>, authoredMsAgo: number) {
+  const source = join(root, 'authored-intake.json');
+  writeFileSync(source, JSON.stringify(intake));
+  const authoredAt = new Date(Date.now() - authoredMsAgo);
+  utimesSync(source, authoredAt, authoredAt);
   mkdirSync(join(root, '.feature'), { recursive: true });
-  const intakePath = join(root, '.feature/intake.json');
-  writeFileSync(intakePath, JSON.stringify(intake));
-  const past = new Date(Date.now() - 60_000);
-  utimesSync(intakePath, past, past);
+  writeFileSync(join(root, '.feature/intake.json'), JSON.stringify(intake));
+  return source;
 }
 
 beforeEach(() => {
@@ -246,12 +255,12 @@ describe('native Codex workflow', () => {
     // #1107: carry now checks the parent ladder's axes and recency against
     // the locked intake, so this fixture needs one that matches and a parent
     // ladder that is not older than it.
-    writeIntakeInThePast({ size: 'standard', risk: 'normal', surface: 'backend' });
+    const authored = authorIntake({ size: 'standard', risk: 'normal', surface: 'backend' }, 120_000);
     writeFileSync(join(root, 'parent-progress.json'), JSON.stringify({
       runtime: 'claude', size: 'standard', risk: 'normal', surface: 'backend', steps: {},
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
     }));
-    expect(feature('progress', 'carry', 'parent-progress.json', '--runtime', 'codex').status).toBe(0);
+    expect(feature('progress', 'carry', 'parent-progress.json', '--intake', authored, '--runtime', 'codex').status).toBe(0);
     expect(JSON.parse(readFileSync(join(root, '.feature/progress.json'), 'utf8')).runtime).toBe('codex');
     expect(feature('progress', 'cost').stdout).toContain('unavailable');
   });
@@ -273,15 +282,19 @@ describe('native Codex workflow', () => {
 // intake before replacing the stub, and say why when it refuses.
 describe('parent ladder carry (#1107)', () => {
   it('carries the parent ladder when its axes match the intake and it is no older', () => {
-    writeIntakeInThePast({ size: 'standard', risk: 'high', surface: 'backend' });
+    // Production ordering: intake authored, THEN the ladder updated, THEN the
+    // installed copy stamped now (authorIntake writes all three). The ladder
+    // is older than the installed copy and newer than the authored source —
+    // which is why the anchor has to be the source.
+    const authored = authorIntake({ size: 'standard', risk: 'high', surface: 'backend' }, 120_000);
     const parentSteps = { orient: { status: 'done' }, intake: { status: 'done' } };
     const parentTracers = [{ id: 'T1', title: 'gate constant', status: 'done' }];
     writeFileSync(join(root, 'parent-progress.json'), JSON.stringify({
       runtime: 'claude', size: 'standard', risk: 'high', surface: 'backend',
-      steps: parentSteps, tracers: parentTracers, updatedAt: new Date().toISOString(),
+      steps: parentSteps, tracers: parentTracers, updatedAt: new Date(Date.now() - 60_000).toISOString(),
     }));
 
-    const result = feature('progress', 'carry', 'parent-progress.json');
+    const result = feature('progress', 'carry', 'parent-progress.json', '--intake', authored);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('ladder: carried from');
 
@@ -292,14 +305,14 @@ describe('parent ladder carry (#1107)', () => {
   });
 
   it('refuses to carry a parent ladder whose axes disagree with the intake', () => {
-    writeIntakeInThePast({ size: 'small', risk: 'high', surface: 'backend' });
+    const authored = authorIntake({ size: 'small', risk: 'high', surface: 'backend' }, 120_000);
     expect(feature('progress', 'init', '--size', 'small', '--risk', 'high', '--surface', 'backend').status).toBe(0);
     writeFileSync(join(root, 'parent-progress.json'), JSON.stringify({
       runtime: 'claude', size: 'standard', risk: 'high', surface: 'ui', steps: {}, tracers: [],
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
     }));
 
-    const result = feature('progress', 'carry', 'parent-progress.json');
+    const result = feature('progress', 'carry', 'parent-progress.json', '--intake', authored);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('ladder: kept the intake stub');
 
@@ -308,16 +321,64 @@ describe('parent ladder carry (#1107)', () => {
   });
 
   it('refuses to carry a parent ladder older than the locked intake', () => {
-    writeIntakeInThePast({ size: 'standard', risk: 'high', surface: 'backend' });
+    // The #1107 shape, which the author-time anchor must still refuse: the
+    // intake was authored for THIS run just now, and the parent still holds a
+    // ladder from an earlier, already-merged run days before it.
+    const authored = authorIntake({ size: 'standard', risk: 'high', surface: 'backend' }, 0);
     expect(feature('progress', 'init', '--size', 'standard', '--risk', 'high', '--surface', 'backend').status).toBe(0);
     writeFileSync(join(root, 'parent-progress.json'), JSON.stringify({
       runtime: 'claude', size: 'standard', risk: 'high', surface: 'backend', steps: {}, tracers: [],
       updatedAt: new Date(0).toISOString(),
     }));
 
-    const result = feature('progress', 'carry', 'parent-progress.json');
+    const result = feature('progress', 'carry', 'parent-progress.json', '--intake', authored);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('ladder: kept the intake stub');
+    expect(result.stdout).toContain('is older than the locked intake');
+  });
+
+  // The refusal half was pinned from the start; the carry half was not, and
+  // nothing ran feature-setup.sh end to end against a MATCHING parent ladder.
+  // That is the case feature-setup broke: it installs .feature/intake.json
+  // with `cp` moments before calling carry, so anchoring recency on the
+  // installed copy made every legitimate carry refuse and threw the parent's
+  // real orient/intake history and sign-off note away.
+  it('carries the parent ladder through feature-setup when the axes match', () => {
+    const parentSteps = {
+      orient: { status: 'done', note: 'orientation read' },
+      intake: { status: 'done', note: 'owner signed off on the locked intake' },
+    };
+    const parentTracers = [{ id: 'T1', title: 'gate constant', status: 'done' }];
+    mkdirSync(join(root, '.feature'), { recursive: true });
+    writeFileSync(join(root, '.feature/progress.json'), JSON.stringify({
+      version: 1, runtime: 'claude', size: 'small', risk: 'high', surface: 'backend',
+      steps: parentSteps, tracers: parentTracers, updatedAt: new Date().toISOString(),
+    }));
+
+    const worktreePath = mkdtempSync(join(tmpdir(), 'feature-runtime-carry-'));
+    try {
+      expect(run('git', ['worktree', 'add', '-b', 'codex/child-carry', worktreePath]).status).toBe(0);
+      const draftPath = join(worktreePath, 'draft.json');
+      writeFileSync(draftPath, JSON.stringify({
+        size: 'small', risk: 'high', surface: 'backend', allowed_edit_surface: ['src/allowed.ts'],
+      }));
+      // Authored before the parent ladder was last updated, as in a real run.
+      const authoredAt = new Date(Date.now() - 120_000);
+      utimesSync(draftPath, authoredAt, authoredAt);
+
+      const result = spawnSync('bash', ['scripts/feature-setup.sh', 'draft.json', '--runtime', 'claude'], { cwd: worktreePath, env, encoding: 'utf8' });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.stdout).toContain('ladder: carried from');
+      expect(result.stdout).not.toContain('ladder: kept the intake stub');
+
+      const progress = JSON.parse(readFileSync(join(worktreePath, '.feature/progress.json'), 'utf8'));
+      expect(progress).toMatchObject({ size: 'small', risk: 'high', surface: 'backend', runtime: 'claude' });
+      expect(progress.steps.orient).toMatchObject(parentSteps.orient);
+      expect(progress.steps.intake).toMatchObject(parentSteps.intake);
+      expect(progress.tracers).toEqual(parentTracers);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
   });
 
   it('names the reason when feature-setup keeps the intake stub instead of carrying', () => {

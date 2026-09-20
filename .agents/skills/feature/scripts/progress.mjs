@@ -226,6 +226,14 @@ switch (command) {
       process.exit(0);
     };
 
+    // The recency test below compares the parent ladder's `updatedAt` against
+    // this file's MTIME, so the file handed in must carry AUTHOR time, not
+    // copy time. feature-setup.sh installs `.feature/intake.json` with `cp`
+    // moments before calling `carry` — `cp` stamps the copy NOW, newer than
+    // any parent ladder written during steps 0-1, so anchoring on the
+    // installed copy refused every legitimate carry. feature-setup therefore
+    // passes `--intake "$SRC"`, the path the owner authored and handed in;
+    // the default below is for a direct/manual call, which has no such path.
     const intakePath = resolve(root, flags.intake ?? join(dir, 'intake.json'));
     let intake;
     let intakeMtimeMs;

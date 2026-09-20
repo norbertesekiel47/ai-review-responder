@@ -105,6 +105,25 @@ describe('promised_title_found', () => {
     }
   });
 
+  it('finds a promised title whose literal backslash the source doubles', () => {
+    // #1108 review finding 3: the intake's edge_cases claims the VERBATIM
+    // spelling still matches a title containing a literal backslash. Verified
+    // false — a real JS test name always escapes a literal backslash the
+    // same way regardless of quote style, so the source doubles it. Written
+    // exactly as a real single-quoted JS test name would spell it: the
+    // source literally contains the substring `a \\ b escape` (two
+    // backslash characters).
+    const dir = makeFixture();
+    try {
+      writeFixtureTest(dir, 'src', `it('a \\\\ b escape', () => {});\n`);
+      const raw = readFileSync(join(dir, 'src', 'fixture.test.ts'), 'utf8');
+      expect(raw).toContain(`a \\\\ b escape`);
+      expect(titleFound(dir, 'a \\ b escape')).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps the gate honest about a title that carries an author\'s apostrophe', () => {
     // This test's own name, above, is written single-quoted in THIS file's
     // source, so it literally spells `author\'s apostrophe`. That title is
@@ -148,13 +167,42 @@ describe('promised_title_found', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('does not match a promised title that appears only in a non-test file', () => {
+    // The --include='*.test.ts' --include='*.test.tsx' filters are pinned by
+    // nothing else: every fixture above only ever writes fixture.test.ts, so
+    // a mutant that drops both --include flags survives the whole suite. That
+    // mutant widens the search into every file under the root, which is the
+    // dangerous direction — the gate would report a promised test exists
+    // because its title merely appears in a markdown note or a source
+    // comment. This fixture writes the title into a sibling non-test file so
+    // dropping the flags is the one change that flips this test to true.
+    const dir = makeFixture();
+    try {
+      writeFileSync(
+        join(dir, 'src', 'notes.md'),
+        'a title that only a markdown file spells\n',
+        'utf8',
+      );
+      expect(titleFound(dir, 'a title that only a markdown file spells')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('verify-gate.sh row wiring', () => {
   it('the verify gate reads its promised-tests verdict from the shared matcher', () => {
+    // This pins WIRING only — that verify-gate.sh sources this file and
+    // routes its verdict through promised_title_found — not the search
+    // roots. A source-text regex naming the roots (`src worker scripts
+    // tests`) passes against a mutant that names them in a comment and
+    // drops them from the real command it calls; gate-rows.test.ts's
+    // "promised-tests title discovery" suite covers the roots properly, by
+    // extracting that exact line and EXECUTING it against a fixture.
     const source = readFileSync(GATE, 'utf8');
     expect(source).toContain('gate-promised-tests.sh');
-    expect(source).toMatch(/promised_title_found\s+"\$TITLE"\s+src\s+worker\s+scripts\s+tests/);
+    expect(source).toMatch(/promised_title_found\s+"\$TITLE"/);
   });
 });
 

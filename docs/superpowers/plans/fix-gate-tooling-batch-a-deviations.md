@@ -157,3 +157,44 @@ reason.
 abort-criterion tension raised before proceeding rather than after. Gate green
 31/31 at `5842cd366`; the suite went 244/245 → 248/248.
 
+## Review round 1 — a promised title retitled, and two suites deferred on cost
+
+A `tests_to_add` retitle is a deviations entry, not a surface amendment, so it
+costs no amendment budget. Two entries here.
+
+**1. The title overstated its own check.** The locked title read `every src
+test that reads a doc at run time runs in the docs-only lane`. After the
+review widened the scan (below) it is false twice over: the scan now covers
+`src/` AND `scripts/`, and two doc-reading suites are deferred rather than
+run. The fix agent correctly REFUSED to rename a locked title and handed it
+back instead. Retitled in both intake copies and in the test to `every test
+that reads a doc at run time is wired into the docs-only lane or excused with
+a reason`, which is what the assertion has always checked. The assertion body
+is unchanged — only the label, which was claiming more than the code delivers.
+That is this branch's own defect class, so shipping it would have been absurd.
+
+**2. Two doc-reading suites are excused ON COST, and this needs a ticket.**
+Review found #1199 was only half fixed: the guard scanned
+`src/__tests__/*.test.ts` non-recursively, so at least five doc-reading suites
+still skipped on a docs-only PR — including
+`src/lib/legal/__tests__/content.test.ts`, which reads `docs/legal/*`. A PR
+editing only `docs/legal/terms.md` is classified `docs_only` and would have
+shipped a legal-content divergence GREEN.
+
+Widened to `*.test.ts(x)` recursively under `src/` and `scripts/`: 36
+candidates, 17 wired into both lanes, 18 excused with per-file reasons, 1
+self-excluded (the scanner). Measured, not assumed: the 17 run together in one
+vitest process in 6.7s / 538 cases, so the lint step grows by roughly +5s
+rather than the sum of the parts.
+
+`scripts/ci/__tests__/red-team-status.test.ts` (71.1s) and
+`red-team-mutation-runner.test.ts` (122.1s) DO read repo docs
+(`docs/reviews/red-team/**/findings.json`, the red-team `SKILL.md`) and are
+excused on cost alone. **This is a named, open hole, not a closed one.** Their
+`NOT_DOC_READING` reasons say so verbatim, a test enforces that wording, and
+both `ci.yml`'s `test`-job comment and `verify-gate.sh`'s banner name the gap,
+precisely so the next reader does not inherit the stale-comment failure #1199
+is about. A follow-up ticket is owed.
+
+**Verdict:** ACCEPT.
+

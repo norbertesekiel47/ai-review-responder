@@ -696,17 +696,23 @@ export function operatorLaunchAllowed(runs, timeout) {
  * cause is no longer fused into a single string.
  *
  * A fused message ("admission, candidate metadata, test command, result path
- * or timeout invalid") is identical for all eight causes, so a test asserting
+ * or timeout invalid") is identical for all NINE causes, so a test asserting
  * "this specific bad input is refused" passes even when the REAL cause was
  * something else entirely (an unrelated watcher blocking admission, say) —
  * it never actually exercised the input under test. Naming the cause turns
  * that into a real assertion instead of a vacuous one.
+ *
+ * `phaseValid` is one of those nine and gets its OWN name: an unknown
+ * `--phase` also suppresses the candidate-metadata lookup at the call site,
+ * so reporting it as "candidate metadata is invalid" would put a ninth cause
+ * back under the eighth one's name — the same fusion, one layer down.
  */
 export function operatorRunRejectionReason({
-  admissionValid, candidateMetadataValid, argvMatches, resultPathValid,
+  admissionValid, phaseValid, candidateMetadataValid, argvMatches, resultPathValid,
   supervisorClash, launchAllowed, dotenvSafe, noRelease,
 }) {
   if (!admissionValid) return 'operator continuation admission is invalid';
+  if (!phaseValid) return 'the run phase is neither baseline nor mutant';
   if (!candidateMetadataValid) return 'candidate metadata is invalid';
   if (!argvMatches) return 'the test command does not match the expected invocation';
   if (!resultPathValid) return 'the result path is missing or already in use';
@@ -2049,10 +2055,17 @@ function cmdWatchers(root, parsed) {
   const output = typeof parsed['ps-source'] === 'string'
     ? readFileSync(resolve(parsed['ps-source']), 'utf8')
     : (spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).stdout ?? '');
+  // `--ps-source` is the HERMETIC path: the process list is a fixture, so the
+  // cwd lookup must be one too. Resolving fixture pids with the real `lsof`
+  // reads the live machine — a fixture pid that happens to exist locally with
+  // a cwd outside this worktree then flips the answer, which is exactly the
+  // machine dependence `findWorktreeWatchers` exists to remove. In fixture
+  // mode every listed pid serves `root` by construction and `lsof` never runs.
   const matches = findWorktreeWatchers(
     output,
     typeof parsed['ps-source'] === 'string' ? new Set() : selfAncestry(),
     root,
+    typeof parsed['ps-source'] === 'string' ? () => root : undefined,
   );
   if (matches.length === 0) {
     console.log('watchers: none — no dev server, watch worker, or E2E server is serving this worktree');
@@ -2146,8 +2159,7 @@ async function cmdRun(root, parsed) {
     const proof = validateOperatorAdmission(root, journal);
     const timeout = Number(parsed.timeout ?? RUN_TIMEOUT_MS);
     const phaseValid = ['baseline', 'mutant'].includes(parsed.phase);
-    const candidateMetadata = proof && phaseValid ? operatorRunMetadata(root, parsed, proof, journal, parsed.phase) : null;
-    operatorMetadata = candidateMetadata;
+    operatorMetadata = proof && phaseValid ? operatorRunMetadata(root, parsed, proof, journal, parsed.phase) : null;
     const candidate = proof?.inventory.find((row) => row.id === parsed.candidate);
     const resultPath = typeof parsed.result === 'string' ? resolve(parsed.result) : null;
     const expectedArgv = ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'vitest', 'run', candidate?.file, '--testNamePattern', parsed.selector,
@@ -2162,7 +2174,8 @@ async function cmdRun(root, parsed) {
     const supervisorClash = journal.supervisors.some((entry) => entry.active === true || entry.resultPath === resultPath);
     const rejection = operatorRunRejectionReason({
       admissionValid: !!proof,
-      candidateMetadataValid: !!candidateMetadata,
+      phaseValid,
+      candidateMetadataValid: !!operatorMetadata,
       argvMatches: JSON.stringify(argv) === JSON.stringify(expectedArgv),
       resultPathValid,
       supervisorClash,

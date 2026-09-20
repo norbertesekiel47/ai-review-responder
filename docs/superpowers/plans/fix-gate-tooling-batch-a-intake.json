@@ -88,7 +88,7 @@
     "builds the arm-check stub from the intake size, risk and surface",
     "refuses to arm when the intake risk is absent or not a declared value",
     "reports the stub without claiming a carry outcome it does not decide",
-    "every src test that reads a doc at run time runs in the docs-only lane",
+    "every test that reads a doc at run time is wired into the docs-only lane or excused with a reason",
     "the lint job runs the doc-reading suites, and the lint job never skips",
     "verify-gate docs-only mode runs the same doc-reading suites as the lint job",
     "counts the design-system doc pin as a doc-reading suite",
