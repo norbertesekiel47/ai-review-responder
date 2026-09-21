@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1149-mfa-second-factor-name-05137d",
+  "branch": "fix/1149-mfa-second-factor-name",
+  "fork_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "merge_base_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "head_sha": "25bf1b3fda644238778fa1322b3da5055f8e8c30",
+  "intake_sha256": "3031ba4d24022d04c3b8dac99506d637a6b519aa5c7321b7f1f8d7bb3de51769",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-21T16:20:13Z",
+  "inventory": [
+    {
+      "id": "rt-1149-01",
+      "test": "nextFactorFriendlyName returns RepWorth when no factor holds it",
+      "file": "src/lib/auth/__tests__/mfa.test.ts",
+      "outcome": "killed",
+      "reason": "M1 removed the unnumbered first name (`if (!taken.has('RepWorth')) return 'RepWorth'` deleted, so an empty list yields `RepWorth 2`); the test failed."
+    },
+    {
+      "id": "rt-1149-02",
+      "test": "nextFactorFriendlyName returns the first unused numbered name and fills a gap",
+      "file": "src/lib/auth/__tests__/mfa.test.ts",
+      "outcome": "killed",
+      "reason": "M2 replaced gap-filling with appending (`let n = 2` -> `let n = taken.size + 1`), so ['RepWorth','RepWorth 3'] yields `RepWorth 4`; the test failed."
+    },
+    {
+      "id": "rt-1149-03",
+      "test": "nextFactorFriendlyName ignores null names and names outside the sequence",
+      "file": "src/lib/auth/__tests__/mfa.test.ts",
+      "outcome": "killed",
+      "reason": "M3 made the comparison case-insensitive, so 'repworth 2' counted as taken and the result became `RepWorth 3`; the test failed. The case-sensitivity decision in the intake is genuinely pinned."
+    },
+    {
+      "id": "rt-1149-04",
+      "test": "invariant: nextFactorFriendlyName never returns a name an existing factor holds",
+      "file": "src/lib/auth/__tests__/mfa.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "M4a replaced the whole body with `return 'RepWorth';` — the exact negation of the asserted invariant — and the property test PASSED. Arbiter: the mutant is not equivalent (rows 01-03 kill it) and the mutated statement is executed on every draw, but the mutation only diverges on inputs containing the literal 'RepWorth', and the shipped arbitrary `fc.array(fc.option(fc.string()))` produced 0 such inputs in 100,000 draws (measured this pass; the suite ships fast-check's default 100). The divergence therefore lies in a subdomain this test's generator cannot reach, which is a claim about the ORACLE, not about the mutant. Recorded as finding RT-1149-F1 rather than a confirmed P0, because the production behaviour itself is covered — rows 01-03 kill three independent mutants of the same function.",
+      "finding_id": "RT-1149-F1"
+    },
+    {
+      "id": "rt-1149-05",
+      "test": "enrolls a second factor under a name no existing factor holds",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M5 kept the fresh `listFactors()` read but derived the name from an empty list, so enroll was called with `RepWorth` instead of `RepWorth 2`; the test failed."
+    },
+    {
+      "id": "rt-1149-06",
+      "test": "re-reads the factor list before enroll so a cancelled enrollment does not reuse its name",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M6 deleted the fresh read and derived the name from the hook's already-loaded `state.factors` (the pre-fix shape of the bug), so the second start re-sent `RepWorth`; the test failed."
+    },
+    {
+      "id": "rt-1149-07",
+      "test": "does not call enroll when the fresh factor list cannot be loaded",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M7 kept the error dispatch but removed the `return`, so enroll ran after a failed list read; the test failed."
+    },
+    {
+      "id": "rt-1149-08",
+      "test": "shows the name-conflict message when Supabase returns mfa_factor_name_conflict",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M8 removed the `mfa_factor_name_conflict` branch of `enrollmentErrorMessage`, so the provider message was surfaced instead of the mapped copy; the test failed."
+    },
+    {
+      "id": "rt-1149-09",
+      "test": "shows the factor-limit message when Supabase returns too_many_enrolled_mfa_factors",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M9 removed the `too_many_enrolled_mfa_factors` branch; the test failed."
+    },
+    {
+      "id": "rt-1149-10",
+      "test": "shows the Supabase error message for an unmapped enrollment error",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M10 removed the `if (message)` interpolation branch, so an unmapped error fell through to the generic sentence; the test failed."
+    },
+    {
+      "id": "rt-1149-11",
+      "test": "keeps the generic message when the enrollment error has no message",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "M11 weakened the emptiness check (`if (message)` -> `if (typeof message === 'string')`), so an empty provider message produced a dangling 'Could not start MFA enrollment: '; the test failed."
+    },
+    {
+      "id": "rt-1149-12",
+      "test": "runs enroll -> challenge -> verify and reloads factors on success",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "Direction B: pre-existing test that now transits the new fresh-read hunk. M12 inverted the new guard (`if (listError)` -> `if (!listError)`), so the happy path aborted before enroll; the test failed."
+    },
+    {
+      "id": "rt-1149-13",
+      "test": "reports a rate-limit error without accepting the verification",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "Direction B: same M12 inverted guard; the enrollment never started, so the rate-limit assertions failed."
+    },
+    {
+      "id": "rt-1149-14",
+      "test": "surfaces verified factors from the initial load",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "excluded",
+      "reason": "Not a candidate: exercises only `loadFactors`/`normalizeFactors`, which the diff does not change. Green baseline confirmed."
+    },
+    {
+      "id": "rt-1149-15",
+      "test": "maps a 403 on unenroll to the re-authenticate hint",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "excluded",
+      "reason": "Not a candidate: exercises only `unenrollFactor`, an unchanged server-routed path (intake non-goal)."
+    },
+    {
+      "id": "rt-1149-16",
+      "test": "SecurityClient suite (whole file)",
+      "file": "src/app/(authenticated)/settings/security/__tests__/SecurityClient.test.tsx",
+      "outcome": "excluded",
+      "reason": "Reverse-import candidate that cannot cover the diff: the suite replaces the whole hook module with `vi.mock('@/components/auth/useMfaEnrollment')`, so no changed production line executes."
+    },
+    {
+      "id": "rt-1149-17",
+      "test": "SecuritySections suite (whole file)",
+      "file": "src/app/(authenticated)/settings/security/__tests__/SecuritySections.test.tsx",
+      "outcome": "excluded",
+      "reason": "Reverse-import candidate that cannot cover the diff: it imports only the `MfaFactor`/`MfaEnrollmentState` TYPES from the changed file; no changed production line executes."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1149-F1",
+      "severity": "P1",
+      "title": "The promised invariant test cannot falsify its invariant: `fc.string()` never draws a name in the RepWorth sequence, so a `return 'RepWorth'` implementation passes it",
+      "at": "src/lib/auth/__tests__/mfa.test.ts:183",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured, not inferred. (1) With `nextFactorFriendlyName` replaced by `return 'RepWorth';` the test passes (rt-1149-04). (2) Over 100,000 draws of the shipped arbitrary `fc.array(fc.option(fc.string(), { nil: null }), { maxLength: 20 })`, ZERO generated arrays contained the literal 'RepWorth'; the suite runs fast-check's default 100. (3) The same mutant is killed in 7 draws by a domain-shaped arbitrary (`fc.oneof(fc.constantFrom('RepWorth','RepWorth 2','RepWorth 3','Laptop'), fc.option(fc.string(), { nil: null }))`), which still passes against the real implementation over 2,000 draws. The house-style reference the intake cites (`src/lib/reviews/__tests__/sentiment.test.ts:46`) uses a domain-shaped arbitrary (`fc.option(fc.double(...))` over the real rating domain) precisely so the branches are reached. Behavioural replacement: draw names from the RepWorth sequence alongside arbitrary strings, keeping the same assertion."
+    },
+    {
+      "id": "RT-1149-F2",
+      "severity": "P2",
+      "title": "Provider-controlled enrollment error text now reaches `isStepUpRequiredError`'s /sign in again/i sniff, which can attach a 'Verify with your authenticator' link to an enrollment failure",
+      "at": "src/components/auth/useMfaEnrollment.ts:76",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Before this branch the enrollment failure string was the fixed constant 'Could not start MFA enrollment.', so the regex at src/app/(authenticated)/settings/security/SecuritySections.tsx:42 could never match it. The new unmapped branch interpolates the raw Supabase message into that same string, and SecurityClient.tsx:71 feeds the hook's `error` straight into `SecurityErrorNotice`, which renders the STEP_UP_HREF link whenever the sentence matches /sign in again/i. Whether Supabase Auth ever emits an enroll-path message containing that phrase was NOT verified in this pass (offline), so this is recorded as a coupling the diff creates with no test over it, not a proven defect. Cheapest fix: key the step-up link off a sentinel the hook sets, not off the sentence text."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 17,
+    "killed": 12,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 1,
+    "skipped_budget": 0,
+    "excluded": 4,
+    "findings_total": 2,
+    "p0_open": 0,
+    "p1_open": 1,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_ORACLE"
+}
