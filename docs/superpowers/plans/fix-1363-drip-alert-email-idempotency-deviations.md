@@ -310,3 +310,46 @@ be surface amendment #2 on a branch whose review wave has already run. Recorded
 as non-goals in the intake.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D14 — Three review rounds, and what they actually cost
+
+**The shape of the run.** Round 1 (5 axes) reversed the core design. Round 2
+(2 agents) found that the reversal failed silently on both new paths. Round 3
+(owner-authorized, the cap) found that round 2's fix re-opened round 2's own
+finding, because I added the durable failure records without the try/catch that
+`.claude/rules/worker-layout.md` requires by name.
+
+**Estimate corrected again.** `estimated_test_lines` 320 -> 660. The test churn
+roughly doubled across the rounds: each round's findings bought new tests (the
+three replay-log oracles, the keyed-drip ordering negative, two failure-record
+paths, two best-effort guards), and several existing assertions had to be
+strengthened rather than merely updated. Re-classification re-run: `size: small`,
+`risk: high`, `surface: backend` — all unchanged for the third time. The lane was
+right throughout; my estimates were not.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D15 — The last commit is newer than the pass that justified it
+
+**What happened.** Structural, and worth stating rather than hiding. Each round's
+fixes necessarily post-date the round that demanded them, so the red-team sidecar
+is stale by one commit at the moment of shipping. Round 3 was authorized
+precisely to close that gap for round 2's fixes, and round 3 is the protocol cap
+— there is no round 4 to close it for round 3's.
+
+**What stands behind the final commit instead:** two hand-run mutation checks
+(removing either new guard fails exactly one test, and it is the test written for
+it), 69 green tests across the three affected suites, and a full gate green on
+every row but the pre-existing local `build`.
+
+**Resolution.** Not papered over. `red-team-status.mjs` is NOT forced, the
+`reviewed` phase is not claimed, and the PR description states the gap in plain
+words. I considered editing the sidecar's `head_sha` to match HEAD and rejected
+it: that would assert evidence at a commit red team never examined, which is the
+exact lie the checker exists to catch.
+
+**Verdict:** ACCEPT — with the caveat carried into the PR rather than resolved.
