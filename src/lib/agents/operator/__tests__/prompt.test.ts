@@ -13,6 +13,12 @@ import { OperatorModelOutputSchema, STATUS_METRICS } from '../schema';
 import { modelVisibleOperations } from '../catalog';
 import type { Snapshot } from '../context';
 import { OPERATOR_REFUSAL_REASONS } from '../refusals';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
+
+/** The "Output rules:" bullets, which is the only region these cases read. */
+function outputRules(system: string): string[] {
+  return system.split('\n').filter((line) => line.startsWith('- '));
+}
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -29,6 +35,7 @@ const snapshot: Snapshot = {
     location: { threshold: null, vetoWindowMinutes: 15, dailyCap: 10 },
     locationOverrideExists: false,
   },
+  posting: { blocked: false, reasons: [], sentences: [], correctionOwed: false },
   facts: { tone: 'professional and friendly', productsServices: null, avoidFacts: [], highlightFacts: [] },
   allowedOperations: modelVisibleOperations({ blockReasons: ['autopilot_unavailable'] }),
   locations: [{ id: LOCATION, name: 'Salon' }],
@@ -69,8 +76,115 @@ describe('operator prompt', () => {
     }]);
     expect(example.segments).toEqual([{ type: 'proposal_ref', index: 0 }]);
     expect(example.unsupported).toEqual([]);
-    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-14.2');
+    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-20.3');
     expect(operatorSystemPromptHash()).not.toBe('3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a');
+  });
+
+  it('system prompt tells the model to state the Posting block instead of claiming replies post', () => {
+    const { system } = buildOperatorPrompt(snapshot, 'Only auto-post 5 star replies');
+    const owed = outputRules(system).find(
+      (rule) => rule.includes('snapshot.posting.correctionOwed is true') && rule.includes('snapshot.posting.sentences'),
+    );
+    expect(owed).toBeDefined();
+    // The sentences ride the snapshot; the model repeats them and adds nothing.
+    expect(owed).toContain('verbatim');
+    expect(owed).toMatch(/Invent no reason/);
+    expect(owed).toMatch(/no reason the snapshot did not list/);
+
+    // The five owner sentences are owned by posting-block-copy.ts and reach the
+    // model through the snapshot. Inlining one here would move the prompt hash
+    // on an owner-facing copy edit.
+    for (const [reason, sentence] of Object.entries(POSTING_BLOCK_COPY)) {
+      expect(system, reason).not.toContain(sentence);
+    }
+  });
+
+  it('system prompt says set to post and never posts when a Posting block is present', () => {
+    const { system } = buildOperatorPrompt(snapshot, 'Turn automatic replies off for all locations.');
+    const phrasing = outputRules(system).find((rule) => rule.includes('"set to post"'));
+    expect(phrasing).toBeDefined();
+    expect(phrasing).toContain('never "posts"');
+    // A configured rule is a setting, not a guarantee about any single reply.
+    expect(phrasing).toMatch(/not a guarantee/);
+    expect(phrasing).toMatch(/safety checks and service availability/);
+  });
+
+  it('system prompt gates UNSOLICITED Posting block mention on correctionOwed while allowing a direct answer and preserving supported proposals', () => {
+    const { system } = buildOperatorPrompt(snapshot, 'Turn automatic replies off for all locations.');
+    const rules = outputRules(system);
+
+    // Nothing owed means nothing VOLUNTEERED, even for a blocked account: the
+    // server has already decided, and the model never re-derives it.
+    const silence = rules.find((rule) => rule.includes('snapshot.posting.correctionOwed is false'));
+    expect(silence).toBeDefined();
+    expect(silence).toMatch(/never volunteer a Posting block/);
+    expect(silence).toMatch(/no unprompted warning/);
+    expect(silence).toMatch(/snapshot\.posting\.blocked is true/);
+    expect(silence).toMatch(/never re-derive account-wide armed state/);
+
+    // But it is NOT a gag. An owner who asks directly — "apart from my rule
+    // being off, is anything stopping automatic posting?" — is answered from
+    // the snapshot, verbatim, inventing nothing. Concealing a known fact from a
+    // direct question is #1352 wearing the opposite sign, and no card is
+    // involved in that exchange, so the deterministic half protects nobody.
+    expect(silence).toMatch(/asks directly/);
+    expect(silence).toMatch(/answer from snapshot\.posting\.sentences/);
+    expect(silence).toMatch(/verbatim/);
+    expect(silence).not.toMatch(/say nothing about a Posting block/);
+
+    // Rules 4 and 5 are subordinate to correctionOwed: EVERY rule that names
+    // the Posting block defers the decision to mention it back to that field.
+    const postingRules = rules.filter((rule) => rule.includes('Posting block'));
+    expect(postingRules.length).toBeGreaterThanOrEqual(3);
+    for (const rule of postingRules) {
+      expect(rule, rule).toContain('correctionOwed');
+    }
+
+    // What is gated is the MENTION, not every wording rule. The always-on
+    // "set to post" rule is about promise level — it applies to any reply about
+    // any rule, block or none — so it names neither concept and is gated on
+    // nothing. "Every rule is gated" would be the overstatement this title used
+    // to make.
+    const phrasing = rules.find((rule) => rule.includes('"set to post"'));
+    expect(phrasing).toBeDefined();
+    expect(phrasing).not.toContain('correctionOwed');
+    expect(postingRules).not.toContain(phrasing);
+
+    const proposals = rules.find((rule) => rule.includes('never withholds a proposal'));
+    expect(proposals).toBeDefined();
+    expect(proposals).toMatch(/including a contraction/);
+    const suspension = rules.find((rule) => rule.includes('suspended'));
+    expect(suspension).toBeDefined();
+    expect(suspension).toMatch(/state the suspension first/);
+    // RT-07: the suspension rule carries the SAME two-branch contract as the
+    // rule above, never a stricter one. `correctionOwed` gates the UNPROMPTED
+    // sentence; a direct question is still answered verbatim. A bare "only when
+    // correctionOwed is true" here would forbid, for a suspended account,
+    // precisely what the rule above permits — and the model cannot obey both.
+    expect(suspension).toMatch(/unprompted only when snapshot\.posting\.correctionOwed is true/);
+    expect(suspension).toMatch(/otherwise only as the answer to a direct question/);
+    expect(suspension).toMatch(/verbatim from snapshot\.posting\.sentences/);
+    // Stated first, then at most once — the ordering and the de-duplication are
+    // what this rule adds on top of the two branches.
+    expect(suspension).toMatch(/at most once/);
+
+    // No Posting block rule may make the model hold back the requested work.
+    for (const rule of postingRules) {
+      expect(rule, rule).not.toMatch(/do not propose|withhold the proposal|refuse the proposal|ask the owner to wait/i);
+    }
+
+    // ONE contract, not two. Wherever a rule makes `correctionOwed is true` a
+    // NECESSARY condition, it must scope that gate to the unprompted branch; a
+    // bare "only when" reads as a gate on every mention and contradicts the
+    // direct answer the rule above permits (RT-07).
+    for (const rule of postingRules) {
+      expect(rule, rule).not.toMatch(/(?<!unprompted )only when snapshot\.posting\.correctionOwed is true/);
+    }
+
+    // They sit with the other block concept, not scattered through the list.
+    const expansion = rules.findIndex((rule) => rule.includes('expansionBlockedBy reasons'));
+    expect(expansion).toBeGreaterThanOrEqual(0);
+    expect(rules.indexOf(postingRules[0]!)).toBe(expansion + 1);
   });
 
   it('the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts', () => {

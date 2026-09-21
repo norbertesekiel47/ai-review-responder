@@ -54,6 +54,7 @@ const snapshot: Snapshot = {
     location: { threshold: null, vetoWindowMinutes: 30, dailyCap: 10 },
     locationOverrideExists: false,
   },
+  posting: { blocked: false, reasons: [], sentences: [], correctionOwed: false },
   facts: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [] },
   allowedOperations: [
     { id: 'set_tone', kind: 'proposable', labelKind: 'fact', describe: 'Set the reply tone' },

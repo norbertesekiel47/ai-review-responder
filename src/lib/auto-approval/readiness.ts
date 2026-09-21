@@ -2,7 +2,14 @@ import type { AutoApprovalReadiness, AutoApprovalReadinessBlockReason } from './
 
 interface BuildAutoApprovalReadinessInput {
   runtimeEnabled: boolean;
-  /** Tier entitlement plus the composed server-side Autopilot sale/runtime gate. */
+  /**
+   * Tier entitlement ONLY (`tierGrantsAutopilot`). Deliberately excludes
+   * `autopilotPurchasable()` (ADR 0034): that answers whether Autopilot may be
+   * BOUGHT right now, while readiness answers whether an owner may widen the
+   * auto-approval they already hold — so a paused sale must not freeze an
+   * existing Autopilot owner's settings. Its runtime half arrives separately
+   * on `runtimeEnabled`.
+   */
   autopilotAvailable: boolean;
   providerModerationEnabled: boolean;
   providerModerationValidated: boolean;

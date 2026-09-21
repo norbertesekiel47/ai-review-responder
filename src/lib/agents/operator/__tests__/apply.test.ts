@@ -66,6 +66,10 @@ vi.mock('@/lib/auto-approval/settings', () => {
     AutoApprovalSettingsError,
     getAutoApprovalSettings: (...a: unknown[]) => mockGetSettings(...a),
     patchAutoApprovalSettingsInTransaction: (...a: unknown[]) => mockPatchSettings(...a),
+    // A plain stub, not a recording mock: this suite makes positional
+    // `sqlCalls[n]` assertions, and a stub that issued a query would shift
+    // every index.
+    getAutoApprovalPostingStatus: async () => ({ blocked: false, reasons: [] }),
   };
 });
 

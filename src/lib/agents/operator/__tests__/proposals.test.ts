@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockSql, sqlCalls, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../../worker/__tests__/helpers/mock-sql');
@@ -11,7 +11,10 @@ vi.mock('../policy-state', () => ({
   consequenceForPolicy: (...a: unknown[]) => mockConsequence(...a),
 }));
 
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import { DEFAULT_DAILY_AUTO_POST_CAP } from '@/lib/auto-approval/policy';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
 import { proposableOperation } from '../catalog';
 import type { PolicySnapshot } from '../policy-state';
@@ -169,8 +172,10 @@ describe('declineProposal', () => {
     resetMockSql();
     sqlReturnQueue.push(
       mkTaggedResult([PENDING_ROW]),                                        // lock
+      mkTaggedResult([ACCOUNT_ROW]),                                        // Posting block
       mkTaggedResult([]),                                                   // UPDATE
       mkTaggedResult([{ ...PENDING_ROW, status: 'rejected' }]),             // re-read
+      mkTaggedResult([ACCOUNT_ROW]),                                        // Posting block
     );
 
     const first = await declineProposal(db, {
@@ -200,6 +205,7 @@ describe('declineProposal', () => {
     resetMockSql();
     sqlReturnQueue.push(
       mkTaggedResult([{ ...PENDING_ROW, status: 'rejected' }]),             // lock
+      mkTaggedResult([ACCOUNT_ROW]),                                        // Posting block
     );
     const second = await declineProposal(db, {
       proposalId: PENDING_ROW.id,
@@ -451,9 +457,14 @@ describe('buildProposalRows policy stamping', () => {
       applied_at: null,
       failure_reason: null,
     };
+    // Two reads, and each one now also asks `accounts` for the **Posting
+    // block** — the interleaved account rows keep the second read's proposal
+    // row in its own position in the queue.
     sqlReturnQueue.push(
       mkTaggedResult([storedRow]),
+      mkTaggedResult([ACCOUNT_ROW]),
       mkTaggedResult([{ ...storedRow, location_id: LOCATION }]),
+      mkTaggedResult([ACCOUNT_ROW]),
     );
 
     const [account] = await listProposalsForTurn(mockSql as unknown as postgres.Sql, { turnId: TURN, accountId: ACCOUNT });
@@ -506,5 +517,274 @@ describe('buildProposalRows policy stamping', () => {
     await expect(markSiblingProposalsStale(tx, {
       accountId: ACCOUNT, domain: 'voice', locationId: null, excludeProposalId: exclude,
     })).rejects.toThrow(/voice write always names a location/);
+  });
+});
+
+// ── The Posting block on a Proposal card (#1352) ───────────────────────────
+//
+// The card's correction is DERIVED at read time from the CURRENT account, so
+// every case here fixes the account row and the flags and then asserts what
+// `mapStoredRows` puts on the view. The frozen `expansionBlockedBy` sits in the
+// same fixture on purpose: the two facts must not be confused for each other.
+
+/** Active + Autopilot, so the flags below are the only Posting block input. */
+const ACCOUNT_ROW = {
+  id: ACCOUNT,
+  subscription_tier: SubscriptionTier.AUTOPILOT,
+  subscription_status: SubscriptionStatus.ACTIVE,
+  past_due_at: null,
+  flags: {},
+};
+
+/** EXACTLY ONE reason, so the rendered sentences are an equality, not a match. */
+function blockPostingOnJudge(): void {
+  vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+  vi.stubEnv('OPENAI_MODERATION_ENABLED', 'true');
+  vi.stubEnv('JUDGE_ENABLED', 'false');
+}
+
+function clearPostingBlock(): void {
+  vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+  vi.stubEnv('OPENAI_MODERATION_ENABLED', 'true');
+  vi.stubEnv('JUDGE_ENABLED', 'true');
+}
+
+function policyStoredRow(overrides: Record<string, unknown> = {}) {
+  return {
+    turn_id: TURN,
+    id: '66666666-6666-4666-8666-666666666666',
+    operation: 'set_auto_reply_scope',
+    contract_version: 1,
+    label_kind: 'rule',
+    location_id: null,
+    status: PROPOSAL_STATUS.PENDING,
+    rationale: 'You asked to let good reviews post.',
+    input: { threshold: 4 },
+    before: { ...policyState(), consequence: LINE(0) },
+    after: {
+      ...policyState({ threshold: 4 }), consequence: LINE(2),
+      expansionBlockedBy: ['autopilot_unavailable'],
+    },
+    prepared_version_token: ACCOUNT_TOKEN,
+    receipt: null,
+    applied_at: null,
+    failure_reason: null,
+    ...overrides,
+  };
+}
+
+/** The applied Proposal a Restore card inverts, and its stored evidence. */
+const RESTORE_SOURCE = '99999999-9999-4999-8999-999999999999';
+
+/** Armed → off. Restoring it therefore RE-ARMS auto-posting. */
+const RESTORE_SOURCE_ROW = {
+  id: RESTORE_SOURCE,
+  operation: 'set_auto_reply_scope',
+  contract_version: 1,
+  location_id: null,
+  status: PROPOSAL_STATUS.APPLIED,
+  turn_id: TURN,
+  receipt: {
+    version: 1,
+    operation: 'set_auto_reply_scope',
+    scope: { accountId: ACCOUNT, locationId: null },
+    before: { ...policyState({ threshold: 4 }), consequence: LINE(2), affectedLocationCount: 1 },
+    after: { ...policyState(), consequence: LINE(0), affectedLocationCount: 1 },
+    differsFromPreview: false,
+    effectiveNow: true,
+    affects: 'future_eligible_reviews',
+    remainingBlocked: [],
+    appliedAt: '2026-09-13T03:00:00.000Z',
+    actorUserId: ACTOR,
+    actorName: 'Ada Owner',
+    ownerText: 'Turn automatic replies off',
+    turnId: TURN,
+    versionToken: { before: ACCOUNT_TOKEN, after: ACCOUNT_TOKEN },
+    retainedVeto: { count: 0, asOf: '2026-09-13 03:00:00.123456+00' },
+  },
+};
+
+/** A PENDING restore proposal: currently off, armed again after Apply. */
+function restoreStoredRow() {
+  return policyStoredRow({
+    input: { restore: { sourceProposalId: RESTORE_SOURCE } },
+    before: { ...policyState(), consequence: LINE(0) },
+    after: { ...policyState({ threshold: 4 }), consequence: LINE(2) },
+  });
+}
+
+const db = () => mockSql as unknown as postgres.Sql;
+const readOne = async () =>
+  (await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT }))[0];
+
+describe('proposal card Posting block', () => {
+  beforeEach(() => {
+    resetMockSql();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('a policy proposal that arms auto-posting carries the account Posting block reasons', async () => {
+    blockPostingOnJudge();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow()]), mkTaggedResult([ACCOUNT_ROW]));
+
+    const view = await readOne();
+
+    // The OWNER SENTENCES, byte for byte, from the one copy owner — the view
+    // does no mapping of its own and neither does the card.
+    expect(view!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+    // And the frozen preparation-time fact is untouched beside it. The stored
+    // `expansionBlockedBy` says `autopilot_unavailable`; the sentences say
+    // nothing of the kind, because they came from the CURRENT account.
+    expect(view!.readinessBlockReasons).toEqual(['autopilot_unavailable']);
+
+    // ONE account-scoped primary-key read, issued alongside the proposal
+    // SELECT and never per row.
+    expect(sqlCalls).toHaveLength(2);
+    const accountRead = sqlCalls.find((call) => call.text.includes('FROM accounts'))!;
+    expect(accountRead).toBeDefined();
+    expect(accountRead.values).toContain(ACCOUNT);
+  });
+
+  it('a policy proposal that turns auto-posting off carries no Posting block reasons', async () => {
+    blockPostingOnJudge();
+    // The stored `after` is UNARMED: this card already tells the owner replies
+    // will not post, so a block must not turn a true sentence into a
+    // correction.
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow({
+      input: { threshold: null },
+      before: { ...policyState({ threshold: 4 }), consequence: LINE(2) },
+      after: { ...policyState(), consequence: LINE(0) },
+    })]), mkTaggedResult([ACCOUNT_ROW]));
+
+    const view = await readOne();
+
+    expect(view!.postingBlockSentences).toEqual([]);
+    // The account really is blocked — the empty list is the precedence rule,
+    // not a missing read.
+    expect(sqlCalls.some((call) => call.text.includes('FROM accounts'))).toBe(true);
+  });
+
+  it('a Posting block corrects neither history, a voice proposal, nor an unblocked account', async () => {
+    // APPLIED and armed, while blocked: a record of the past gets no
+    // correction.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(
+      mkTaggedResult([policyStoredRow({ status: PROPOSAL_STATUS.APPLIED })]),
+      mkTaggedResult([ACCOUNT_ROW]),
+    );
+    expect((await readOne())!.postingBlockSentences).toEqual([]);
+
+    // A VOICE proposal while blocked: the Posting block is about posting, and
+    // a tone change does not claim anything about it.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([{
+      turn_id: TURN, id: '66666666-6666-4666-8666-666666666666', operation: 'set_tone',
+      contract_version: 1, label_kind: 'fact', location_id: LOCATION,
+      status: PROPOSAL_STATUS.PENDING, rationale: 'r', input: { tone: 'warm' },
+      before: VOICE, after: { ...VOICE, tone: 'warm' },
+      prepared_version_token: { businessId: LOCATION, updatedAt: VOICE.updatedAt },
+      receipt: null, applied_at: null, failure_reason: null,
+    }]), mkTaggedResult([ACCOUNT_ROW]));
+    expect((await readOne())!.postingBlockSentences).toEqual([]);
+
+    // An UNBLOCKED account: the same pending, armed row carries nothing.
+    resetMockSql();
+    clearPostingBlock();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow()]), mkTaggedResult([ACCOUNT_ROW]));
+    expect((await readOne())!.postingBlockSentences).toEqual([]);
+
+    // An EMPTY read issues no statement at all — not the restore-source read
+    // and not the account's Posting block.
+    resetMockSql();
+    blockPostingOnJudge();
+    sqlReturnQueue.push(mkTaggedResult([]));
+    expect(await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT })).toEqual([]);
+    expect(sqlCalls).toHaveLength(1);
+  });
+
+  it('an applied armed rule states the account posting status NOW, and the pending warning stays pending-only', async () => {
+    // #1352 at the moment of confirmation: Apply succeeds (Judge availability
+    // is no expansion-readiness gate), the label reads "Active rule" and the
+    // receipt says "Effective now" — so a card that went silent here would
+    // tell the owner the rule is live while nothing posts.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(
+      mkTaggedResult([policyStoredRow({ status: PROPOSAL_STATUS.APPLIED })]),
+      mkTaggedResult([ACCOUNT_ROW]),
+    );
+
+    const applied = await readOne();
+
+    expect(applied!.postingBlockNowSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+    // The PRE-Apply warning is still pending-only. The two lists are mutually
+    // exclusive by construction, so history is never repainted with it.
+    expect(applied!.postingBlockSentences).toEqual([]);
+
+    // An applied rule that turns auto-posting OFF claims nothing about posting
+    // and gets no notice, on the same blocked account.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow({
+      status: PROPOSAL_STATUS.APPLIED,
+      input: { threshold: null },
+      before: { ...policyState({ threshold: 4 }), consequence: LINE(2) },
+      after: { ...policyState(), consequence: LINE(0) },
+    })]), mkTaggedResult([ACCOUNT_ROW]));
+    expect((await readOne())!.postingBlockNowSentences).toEqual([]);
+
+    // And the PENDING card carries the warning, never the current-status
+    // notice: one status per row, one list per status.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow()]), mkTaggedResult([ACCOUNT_ROW]));
+    const pending = await readOne();
+    expect(pending!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+    expect(pending!.postingBlockNowSentences).toEqual([]);
+  });
+
+  it('a pending restore that re-arms auto-posting carries the Posting block through the restore branch', async () => {
+    // The SECOND route into `policyCardFacts`. A restore that re-arms
+    // auto-posting makes the same claim about posting as an ordinary rule
+    // card, and a fix threaded into only one branch leaves restore cards
+    // silent — which nothing else in the tree observes.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(
+      mkTaggedResult([restoreStoredRow()]),
+      mkTaggedResult([RESTORE_SOURCE_ROW]),
+      mkTaggedResult([ACCOUNT_ROW]),
+    );
+
+    const view = await readOne();
+
+    // It really is the restore card: its words come from `describePolicyRestore`
+    // and it names the source receipt it inverts.
+    expect(view!.describe).toMatch(/^Restore: Account default now/);
+    expect(view!.restoreSourceProposalId).toBe(RESTORE_SOURCE);
+    expect(view!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+  });
+
+  it('a batch no row could use issues no Posting block read at all', async () => {
+    // A rejected/stale page can use neither list, so the account-wide read is
+    // not issued — including inside the Apply transaction, which holds
+    // `SELECT … FOR UPDATE` while `mapStoredRows` runs.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(mkTaggedResult([
+      policyStoredRow({ status: PROPOSAL_STATUS.REJECTED }),
+      policyStoredRow({ id: '88888888-8888-4888-8888-888888888888', status: PROPOSAL_STATUS.STALE }),
+    ]));
+
+    const views = await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT });
+
+    expect(views).toHaveLength(2);
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls.some((call) => call.text.includes('FROM accounts'))).toBe(false);
+    // The neutral status degrades through the same predicate: empty lists, not
+    // a crash and not a stale correction.
+    for (const view of views) {
+      expect(view.postingBlockSentences).toEqual([]);
+      expect(view.postingBlockNowSentences).toEqual([]);
+    }
   });
 });

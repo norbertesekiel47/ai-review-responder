@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AutoApprovalClient } from '../AutoApprovalClient';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import type {
   AutoApprovalLocationSettings,
   AutoApprovalSettingsResponse,
 } from '@/lib/auto-approval/types';
+import { ProposalCard } from '@/app/(authenticated)/dashboard/operator/ProposalCard';
+import type { ProposalView } from '@/lib/agents/operator/proposals';
 
 // Column-default dial values (the WS4 Task 12 API-state widening); the Task 13
 // UI renders them.
@@ -407,6 +410,67 @@ describe('AutoApprovalClient', () => {
         expect(within(banner).getByText(
           'Our reply review step is switched off right now, and nothing posts without it.',
         )).toBeInTheDocument();
+      });
+
+      // #1352 — the Owner Operator's Proposal card (a later task, T5) needs the
+      // same owner-facing block sentences as this page. This task only moves
+      // the copy to a shared module; it asserts the settings page still reads
+      // from it. A later task extends this title to the card.
+      it('the settings page and the Proposal card render the same sentence for judge_disabled', () => {
+        const settingsPage = render(<AutoApprovalClient initialState={blocked(['judge_disabled'])} />);
+
+        const banner = screen.getByTestId('auto-approval-status');
+        expect(within(banner).getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
+        settingsPage.unmount();
+
+        // THE OTHER HALF (#1352 T5): the Operator's Proposal card reads the
+        // SAME copy module, not a second mapping of its own. Fixture and
+        // render setup copied from ProposalCard.test.tsx's
+        // `proposal()`/`renderCard()` — not invented here.
+        const cardVoiceBefore = {
+          tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [],
+        };
+        const cardSalon = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const cardProposal = {
+          id: '99999999-9999-4999-8999-999999999999',
+          turnId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          operation: 'set_tone',
+          contractVersion: 1,
+          labelKind: 'fact' as const,
+          locationId: cardSalon,
+          status: 'pending' as const,
+          rationale: 'You asked for warmer replies.',
+          input: { tone: 'warm and brief' },
+          before: cardVoiceBefore,
+          after: { ...cardVoiceBefore, tone: 'warm and brief' },
+          describe: 'Set the reply tone to "warm and brief"',
+          preparedVersionToken: { businessId: cardSalon, updatedAt: '2026-09-12 09:00:00.111111+00' },
+          receipt: null,
+          appliedAt: null,
+          failureReason: null,
+          requiresConfirmation: false,
+          confirmationPhrase: null,
+          readinessBlockReasons: [],
+          postingBlockSentences: [POSTING_BLOCK_COPY.judge_disabled],
+          consequence: null,
+          affectedLocationCount: null,
+        } as unknown as ProposalView;
+
+        render(
+          <ProposalCard
+            proposal={cardProposal}
+            turnLocationId={cardSalon}
+            locationLabel={() => 'Salon'}
+            scopeMoved={false}
+            onApply={vi.fn()}
+            onDecline={vi.fn()}
+            onRefreshPlan={vi.fn()}
+            busy={false}
+            error={null}
+          />,
+        );
+
+        expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
       });
 
       it('suspended headline wins over a posting block', () => {

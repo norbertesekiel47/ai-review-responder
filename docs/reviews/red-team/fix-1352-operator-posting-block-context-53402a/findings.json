@@ -1,0 +1,203 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1352-operator-posting-block-context-53402a",
+  "branch": "fix/1352-operator-posting-block-context",
+  "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "head_sha": "b731c8e7073f3c773beac69999c7b5efccc46517",
+  "intake_sha256": "f01c796c90d76796b6992afd6e0b507e97dda033e974ddd8c63a2791f7b12d5d",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-21T07:20:00Z",
+  "inventory": [
+    {
+      "id": "RT2-M01",
+      "test": "the card still allows Apply while a Posting block is present",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "killed",
+      "reason": "RT-01 re-verification. ProposalCard.tsx:218 `proposal.postingBlockSentences.length > 0` -> `> 1` — the exact round-1 survivor. The test now FAILS: `TestingLibraryElementError: Unable to find an element with the text: Our reply review step is switched off right now, and nothing posts without it.` The single-sentence render is observed."
+    },
+    {
+      "id": "RT2-M02",
+      "test": "an applied armed rule says the account is not set up to post right now",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "killed",
+      "reason": "The NEW render gate at the same arity. ProposalCard.tsx:229 `postingBlockNow.length > 0` -> `> 1`. Test FAILED: `Unable to find an element with the text: /This rule is saved, but your account is not set up to post replies automatically right now/`. The new field's gate does not repeat RT-01's shape."
+    },
+    {
+      "id": "RT2-M03",
+      "test": "a pending restore that re-arms auto-posting carries the Posting block through the restore branch",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "RT-02 re-verification, same mutation as round 1: proposals.ts:527 `restoreCardFacts` passes `{ ...context, posting: { blocked: false, reasons: [] } }` into `policyCardFacts`, neutering the restore branch only. Test FAILED at proposals.test.ts:765 (`expected [] to deeply equal [ Array(1) ]`). The second route into policyCardFacts is now covered."
+    },
+    {
+      "id": "RT2-M04",
+      "test": "admin readiness drops autopilot_unavailable for an Autopilot account while AUTOPILOT_PURCHASABLE is false",
+      "file": "src/lib/admin/__tests__/business-detail.test.ts",
+      "outcome": "killed",
+      "reason": "mappers.ts:191 reverted to `tierGrantsAutopilot(accountRow?.subscription_tier) && autopilotPurchasable()` (import restored so the mutant compiles). Test FAILED: `expected [ 'auto_approval_disabled', ...(3) ] to not include 'autopilot_unavailable'` at business-detail.test.ts:455. The ADR 0034 half-revert is pinned."
+    },
+    {
+      "id": "RT2-M05",
+      "test": "an applied armed rule states the account posting status NOW, and the pending warning stays pending-only",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "New-surface condition 2 of 3. proposals.ts:457 `const blockedNow = armedUnderBlock && context.status === PROPOSAL_STATUS.APPLIED` -> `const blockedNow = armedUnderBlock` (APPLIED requirement dropped). Test FAILED at proposals.test.ts:744 (`expected [ Array(1) ] to deeply equal []`) — the PENDING row would carry both lists. Mutual exclusivity is measured."
+    },
+    {
+      "id": "RT2-M06",
+      "test": "an applied armed rule states the account posting status NOW, and the pending warning stays pending-only",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "New-surface condition 3 of 3. proposals.ts:457 armed requirement dropped (`context.posting.blocked && context.status === APPLIED`). Test FAILED at proposals.test.ts:736 (`expected [ Array(1) ] to deeply equal []`) — an APPLIED rule that turns auto-posting OFF would wrongly carry the notice."
+    },
+    {
+      "id": "RT2-M07",
+      "test": "an applied armed rule states the account posting status NOW, and the pending warning stays pending-only",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "equivalent",
+      "reason": "New-surface condition 1 of 3. proposals.ts:457 `context.posting.blocked` conjunct dropped (`storedAfter.threshold !== null && context.status === APPLIED`). Survived. PROOF of behaviour preservation, identical to round 1's RT-M03 on the sibling predicate: `buildAutoApprovalPostingStatus` (src/lib/auto-approval/posting-status.ts:65) returns `{ blocked: reasons.length > 0, reasons }`, so `blocked === false` implies `reasons === []`; the neutral value `mapStoredRows` substitutes when the read is skipped is likewise `{ blocked: false, reasons: [] }`; and the guarded expression is `blockedNow ? postingBlockSentencesFor(context.posting.reasons) : []`, which maps [] to [] either way (posting-block-copy.test.ts:39 pins `postingBlockSentences([]) === []`). The conjunct is redundant by construction, not untested. Claim about the MUTANT, not the oracle — does not block."
+    },
+    {
+      "id": "RT2-M08",
+      "test": "an applied armed rule states the account posting status NOW, and the pending warning stays pending-only",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "FIX 3, the read guard. proposals.ts:643 `usable` narrowed to `status === PROPOSAL_STATUS.PENDING` (APPLIED dropped) — the exact shape of the feared silent drop. Test FAILED at proposals.test.ts:722 (`expected [] to deeply equal [ Array(1) ]`): an APPLIED-only batch would get the neutral status and lose its notice."
+    },
+    {
+      "id": "RT2-M09",
+      "test": "a batch no row could use issues no Posting block read at all",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "FIX 3, the other direction. proposals.ts:641 `const usable = true || rows.some(...)`. Test FAILED: `expected [ { ...(3) }, { ...(3) } ] to have a length of 1 but got 2` — the skipped `FROM accounts` read is observed, including the Apply-transaction case the comment names."
+    },
+    {
+      "id": "RT2-M10",
+      "test": "RestoreWorkflow.test.tsx + OperatorClient.test.tsx (29 tests; 14 failed under the mutant)",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx",
+      "outcome": "killed",
+      "reason": "The optionality claim itself. ProposalCard.tsx:195 `proposal.postingBlockNowSentences ?? []` -> `proposal.postingBlockNowSentences as string[]`. Both suites' proposal fixtures OMIT the field, so the mutant reads `.length` off `undefined`: 14 of 29 tests failed. The `?? []` fallback — 'a payload built before the field existed carries no notice rather than no card' — is exercised by real existing fixtures, not merely asserted in a comment. Run at file scope (no `-t`), so `assert-one-test` was not applied; conservative for a kill, recorded as a deviation."
+    },
+    {
+      "id": "RT2-M11",
+      "test": "system prompt gates UNSOLICITED Posting block mention on correctionOwed while allowing a direct answer and preserving supported proposals",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "outcome": "killed",
+      "reason": "prompt.ts:85 reverted to the round-1 wording (`say nothing about a Posting block, even when snapshot.posting.blocked is true. The server has already decided what the owner is owed; never re-derive it.`). Test FAILED: `expected '- When snapshot.posting.correctionOwe...' to match /never volunteer a Posting block/`. The narrowing is pinned in both directions (the suite also asserts the old literal is ABSENT). Run at file scope; recorded as a deviation."
+    },
+    {
+      "id": "RT2-M12",
+      "test": "its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "outcome": "killed",
+      "reason": "Resolves round 1's only `skipped-budget` row. prompt.ts:79 `OWNER_OPERATOR_PROMPT_VERSION` '2026-09-20.2' -> '2026-09-20.1'. Test FAILED: `expected '2026-09-20.1' to be '2026-09-20.2'`. Round 1 declined this as circular; it is not — the version LABEL and the independently computed `operatorSystemPromptHash()` are asserted in the same test, so a label left stale beside a moved hash is caught. Run at file scope; recorded as a deviation."
+    },
+    {
+      "id": "RT2-M13",
+      "test": "src/lib/agents/operator/context.ts hunk",
+      "file": "src/lib/agents/operator/context.ts",
+      "outcome": "excluded",
+      "reason": "The whole hunk is a docblock rewrite on `SnapshotPosting.correctionOwed` (verified against `git diff 9bfc3491f..HEAD -- src/lib/agents/operator/context.ts`: no executable line changed). Nothing to mutate. Its claim was re-resolved statically under Duty 3 instead."
+    },
+    {
+      "id": "RT2-M14",
+      "test": "scripts/ws8-staging-smoke.ts scenario 12 (12-expansion-denial-gate-closed)",
+      "file": "scripts/ws8-staging-smoke.ts",
+      "outcome": "excluded",
+      "reason": "No CI gate, lefthook step or Vitest suite executes this script — it is a Railway-run staging smoke. Mutation would measure nothing. Read as code instead (Duty 3): if expansion is wrongly ALLOWED, `thrown === 'none'` fails `expansion_blocked_error`; `blockReasons` stays `null`, so `null?.includes(...) === false` evaluates `undefined === false` -> FALSE and fails `no_autopilot_unavailable_reason`; `(null?.length ?? 0) > 0` fails `other_block_reason_present`; and the written policy row fails `no_policy_row_written`. Four of four checks fail. If ADR 0034 is half-reverted, `autopilot_unavailable` reappears and `no_autopilot_unavailable_reason` fails. The scenario detects both directions."
+    },
+    {
+      "id": "RT2-M15",
+      "test": "reads the Posting block on a pending card / re-reads it after Apply (promised tests #23 and #24)",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Unchanged by the round-2 fix set (`git diff 9bfc3491f..HEAD` does not touch this file) and therefore outside round 2's declared scope of the fix hunks and their direct callers. Not re-recorded as `inconclusive`/`infra`: the orchestrator's gate at this HEAD ran both integration suites and both PASS (`.feature/gate-status.json`, `live-db-suites: PASS`, `test: PASS`). Round 1's infra note is superseded, not repeated."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "title": "The Proposal card's Posting block render gate is unverified at the single-sentence arity, which is the modal case and #1352's own headline scenario",
+      "at": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx:218",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "ROUND 2 DISPOSITION: FIXED, re-measured, not taken on trust. `ProposalCard.test.tsx:246` now asserts `expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument()` inside `the card still allows Apply while a Posting block is present`, the n=1 test. Re-running round 1's exact mutation (`length > 0` -> `length > 1`, inventory RT2-M01) now KILLS that test with `Unable to find an element with the text: Our reply review step is switched off right now, and nothing posts without it.` The same gate on the NEW field (`postingBlockNow.length > 0`, line 229) was mutated identically (RT2-M02) and also killed, so the fix did not reintroduce the defect one field over. Line moved 206 -> 218 as the fix added the lead-in constant and the second block."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "title": "The restore-card branch of the fix had no covering test",
+      "at": "src/lib/agents/operator/proposals.ts:527",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "ROUND 2 DISPOSITION: FIXED. `proposals.test.ts:747` adds `a pending restore that re-arms auto-posting carries the Posting block through the restore branch`, with a real applied-source row (`RESTORE_SOURCE_ROW`, armed -> off, so restoring it RE-ARMS) and a pending restore row. The test does not merely assert the sentences: it first proves it really is the restore card (`describe` matches /^Restore: Account default now/, `restoreSourceProposalId` equals the source), which is what stops it passing through the ordinary branch. Re-running round 1's exact neutering mutation (RT2-M03) now FAILS at proposals.test.ts:765. The mocked suite is sufficient here — the branch is a pure argument-threading decision, not a DB behaviour."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "title": "A false universal in the directory page's prompt.ts row (\"Five rules ... every one of them gated on correctionOwed\", enumerating four)",
+      "at": "docs/directory/lib-owner-operator.md:26",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "ROUND 2 DISPOSITION: FIXED, re-resolved against prompt.ts at HEAD line by line. The row no longer counts rules or claims a universal; it separates the gated Posting-block wording from the always-on phrasing rule explicitly (\"an always-on wording rule - say 'set to post', never 'posts' - is about promise level, not the block, and is gated on nothing\"), which matches prompt.ts:86 carrying neither 'Posting block' nor 'correctionOwed'. Every other clause checks out: true-branch (prompt.ts:84), false-branch with the direct-question carve-out (:85), never withholds a proposal (:87), suspension first (:88). The row also replaced the hard-coded version string with the constant NAME, removing a second staleness trap of the same family. prevalidate-plan.py on this file: PASS, 1 citation checked, 0 unresolved."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "title": "A context.test.ts comment and fixture asserted the readiness behaviour this branch's own ADR 0034 deleted, modelling a state no account could reach",
+      "at": "src/lib/agents/operator/__tests__/context.test.ts:354",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "ROUND 2 DISPOSITION: FIXED, and the replacement combination was independently PROVEN REACHABLE at HEAD rather than assumed. The test now builds `readiness.blockReasons: ['provider_moderation_not_validated']` beside `posting: { blocked: false, reasons: [] }`. Reachability: readiness' reason comes from `providerModerationValidated` (readiness.ts:42), fed by `providerModerationValidated()` = `readFlag('AUTO_APPROVAL_PROVIDER_MODERATION_READY')` (flags.ts:15-17). The Posting block's provider arm is a DIFFERENT input, `providerModerationEnabled` (posting-status.ts:62), fed by `readFlag('OPENAI_MODERATION_ENABLED')` (flags.ts:11-13). The two flags are independent env reads, so `OPENAI_MODERATION_ENABLED=true` with `AUTO_APPROVAL_PROVIDER_MODERATION_READY=false` yields exactly this pair on an otherwise-clean Autopilot account. Unlike the deleted `autopilot_unavailable` fixture, no arm of `buildAutoApprovalPostingStatus` is forced by it. The comment now states the same discriminator posting-status.ts:34 and the glossary state."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P2",
+      "title": "queryByText('judge_disabled') was an absence-of-one-literal proxy that passed trivially",
+      "at": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:220",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "ROUND 2 DISPOSITION: FIXED with the behavioural replacement round 1 named, and then some. The absence proxy is replaced by an exact ordered equality on the rendered list (`Array.from(document.querySelectorAll('.op-readiness li')).map(i => i.textContent)` toEqual the supplied sentences), which catches an added, dropped or reordered line; the leak check is kept but widened to iterate every key of POSTING_BLOCK_COPY rather than one. The querySelectorAll is document-wide and therefore also spans the readiness list and the new postingBlockNow list — that coupling can only make the assertion FAIL louder, never pass vacuously, so it is not a new fragility."
+    },
+    {
+      "id": "RT-06",
+      "severity": "P1",
+      "title": "The directory page's proposals.ts row was not swept for FIX 3 or for the new field: its enumeration of when the Posting-block read is skipped is now incomplete, and postingBlockNowSentences is undocumented",
+      "at": "docs/directory/lib-owner-operator.md:30",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed at 324d94b65. The proposals.ts directory row now states BOTH skip cases (empty read returns before any statement; a non-empty batch with no PENDING and no APPLIED row passes a neutral {blocked:false,reasons:[]}) and BOTH fields, with the PENDING vs APPLIED split and the optional-on-view/required-on-CardFacts compile guard named. ci:directory-map passes; it audits row existence, not content, which is why nothing mechanical caught this."
+    },
+    {
+      "id": "RT-07",
+      "severity": "P1",
+      "title": "Narrowing correctionOwed to unsolicited mention in rule 2 left rule 5's \"and only when correctionOwed is true\" un-narrowed, so the two rules instruct opposite things for a suspended account asked a direct question",
+      "at": "src/lib/agents/operator/prompt.ts:88",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed at 324d94b65. Confirmed a real contradiction, not an instance of the accepted chat-guided limitation: \"only when X\" is a necessary condition, so a suspended account with correctionOwed=false and a direct question was one reachable state receiving two opposite instructions. Unguaranteed and contradictory are different failures - the first says the model may not comply, the second means compliance is undefined. Rule 5 now defers to the same terms as rules 1 and 2; prompt version bumped to 2026-09-20.3; a new test loop forbids a bare \"only when correctionOwed is true\" in any Posting-block rule, and the old rule-5 text was verified to trip it."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 15,
+    "killed": 11,
+    "survived_confirmed_p0": 0,
+    "equivalent": 1,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 7,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 7,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}

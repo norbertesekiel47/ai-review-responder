@@ -37,6 +37,22 @@ describe('buildAutoApprovalReadiness', () => {
     expect(readiness).not.toHaveProperty('autopilotPurchasable');
   });
 
+  // ADR 0034 narrowed `autopilotAvailable` to tier entitlement alone, which
+  // dropped the `autoApprovalRuntimeEnabled()` half of `autopilotPurchasable()`
+  // from that input. The runtime axis is unaffected: it has always arrived on
+  // its own `runtimeEnabled` input and still blocks on its own.
+  it('readiness still carries auto_approval_disabled when the runtime flag is off', () => {
+    const readiness = buildAutoApprovalReadiness({
+      ...readyInput,
+      runtimeEnabled: false,
+      autopilotAvailable: true,
+    });
+
+    expect(readiness.runtimeEnabled).toBe(false);
+    expect(readiness.canExpand).toBe(false);
+    expect(readiness.blockReasons).toEqual(['auto_approval_disabled']);
+  });
+
   it('collects every block reason in a stable order', () => {
     const readiness = buildAutoApprovalReadiness({
       runtimeEnabled: false,

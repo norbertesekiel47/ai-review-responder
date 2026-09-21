@@ -13,6 +13,7 @@ import {
   isThresholdExpansion,
   type PolicyExposure,
 } from '@/lib/auto-approval/policy';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import {
   SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES,
   autoApprovalThresholdLabel,
@@ -23,7 +24,6 @@ import type {
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
   AutoApprovalPolicyApiState,
-  AutoApprovalPostingBlockReason,
   AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
@@ -102,27 +102,6 @@ const READINESS_REASONS_RESTATED_BY_POSTING: ReadonlySet<AutoApprovalReadinessBl
   'auto_approval_disabled',
   'provider_moderation_disabled',
 ]);
-
-/**
- * Owner-language Posting block reasons — why this account is not set up to post
- * automatically, whatever the policy says. Deliberately separate from
- * `BLOCK_REASON_COPY` above: that one explains why the owner cannot WIDEN
- * auto-approval, this one explains why the lane is not configured to act. The
- * exhaustive `Record` is the guard — a new reason without a sentence is a
- * compile error.
- *
- * `autopilot_tier_required` names Copilot literally, and that is correct:
- * `tierGrantsAutopilot` is true only for Autopilot, so Copilot is the only tier
- * that can produce this reason. It is a display name, not a tier comparison —
- * no code here branches on a tier value.
- */
-const POSTING_BLOCK_COPY: Record<AutoApprovalPostingBlockReason, string> = {
-  runtime_disabled: 'Auto-posting is not switched on for RepWorth yet.',
-  judge_disabled: 'Our reply review step is switched off right now, and nothing posts without it.',
-  autopilot_tier_required: 'Auto-posting is part of the Autopilot plan, and this account is on Copilot.',
-  provider_moderation_disabled: 'Safety screening for replies is switched off right now, so nothing posts on its own.',
-  publisher_subscription_denied: 'Your billing needs attention before any reply can post.',
-};
 
 /**
  * Every error code PATCH /api/settings/auto-approval can return, as the one

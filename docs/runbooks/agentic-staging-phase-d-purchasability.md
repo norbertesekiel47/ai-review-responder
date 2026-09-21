@@ -27,15 +27,22 @@ operational surfaces** it deliberately bypassed.
 | # | Phase C shortcut | Real path Phase D must prove |
 |---|---|---|
 | 1 | `subscription_tier='autopilot'` set via SQL | **Stripe purchase → autopilot tier**: new-signup Autopilot Checkout AND copilot→autopilot upgrade via `POST /api/billing/tier-change` |
-| 2 | `auto_approval_policies` seeded via SQL (invariant-#14 deviation) | **Owner trust-dial writes through the settings UI**: expansion allowed when the gate is open; expansion **blocked** when closed; contraction always allowed |
+| 2 | `auto_approval_policies` seeded via SQL (invariant-#14 deviation) | **Owner trust-dial writes through the settings UI**: expansion allowed when readiness is clear; expansion **blocked** when a readiness gate refuses (`AUTO_APPROVAL_ENABLED=false`, provider moderation, subscription, Governor — **not** the sale flag, per ADR 0034); contraction always allowed |
 | 3 | Admin unsuspend SQL-simulated | **`/admin/autonomy` unsuspend UI** under a real admin session with **AAL2** (MFA) |
 | 4 | — (not attempted) | **Publish-time downgrade**: tier drops mid-veto-window → no auto-post (smoke scenario `14`) |
 
 **The purchasability gate is composed:** effective purchasability =
 `AUTOPILOT_PURCHASABLE` **AND** `autoApprovalRuntimeEnabled()`
-(accessor in `src/lib/auto-approval/settings.ts`). Closing either side blocks
-new Autopilot Checkout and autonomy-expanding trust-dial edits; contractions
-remain allowed. This means parts of Phase D need the autonomy runtime flags ON.
+(`autopilotPurchasable()` in `src/lib/payments/tier-purchasability.ts`; the
+runtime accessor is in `src/lib/auto-approval/flags.ts`). Closing either side
+blocks a new Autopilot **purchase** — Checkout and `POST /api/billing/tier-change`,
+both through `assertTierPurchasable`. Since **ADR 0034**
+(`docs/adr/0034-readiness-autopilot-entitlement-is-tier-only.md`) it does **not**
+block autonomy-expanding trust-dial edits: readiness' Autopilot entitlement is
+tier entitlement alone, so expansion is gated by readiness — `AUTO_APPROVAL_ENABLED`,
+provider moderation, subscription writability, the Governor — and not by the sale
+flag. Contractions remain allowed either way. Parts of Phase D still need the
+autonomy runtime flags ON.
 
 ## 1. Preconditions
 
@@ -92,7 +99,9 @@ railway run --environment staging --service repworth-worker -- \
   pnpm tsx scripts/ws8-staging-smoke.ts state        # baseline snapshot
 # Then, one at a time (order matters only where noted):
 #   02b-autopilot-denied-gate-closed   ← run FIRST (proves the closed gate denies)
-#   12-expansion-denial-gate-closed    ← ditto (settings expansion denied)
+#   12-expansion-denial-gate-closed    ← settings expansion denied — by the runtime
+#                                        and provider-moderation gates, NOT by the
+#                                        closed sale gate (ADR 0034)
 #   13-copilot-grant-denial            ← copilot tier never grants autonomy
 #   01-list / 01-founding / 01c-trial  ← copilot checkout variants
 #   02-autopilot-list / 02-autopilot-founding
@@ -141,10 +150,18 @@ convention). Then, in a real browser against `https://staging.repworth.net`:
 3. **Trust-dial settings UI, three writes** on the upgraded account
    *(closes #2 — the invariant-#14-clean path)*:
    a. **Expansion** (enable auto-approve ≥4★, window 15, cap 10) → succeeds.
-   b. Flip `AUTOPILOT_PURCHASABLE=false` (both platforms) → **expansion edit
-      blocked** with the `AutoApprovalExpansionBlockedError` surface;
-      **contraction** (raise threshold / disable) → still **allowed**.
-   c. Restore `AUTOPILOT_PURCHASABLE=true`, re-verify expansion works.
+   b. Flip `AUTOPILOT_PURCHASABLE=false` (both platforms). Since **ADR 0034**
+      (`docs/adr/0034-readiness-autopilot-entitlement-is-tier-only.md`) the flag
+      gates **purchase only**: readiness' Autopilot entitlement is tier
+      entitlement alone, so a paused sale contributes no `autopilot_unavailable`
+      and no longer freezes an existing Autopilot owner's settings. Expect: a
+      copilot→autopilot **tier change is refused** (`TierNotPurchasableError`),
+      while **this owner's expansion edit still succeeds** and **contraction**
+      (raise threshold / disable) is allowed, as it always was. If the expansion
+      edit is blocked here, read the `blockReasons` — the cause is a readiness
+      gate (`auto_approval_disabled`, `provider_moderation_*`,
+      `subscription_not_writable`, `policy_suspended`), not the flag.
+   c. Restore `AUTOPILOT_PURCHASABLE=true` and re-verify the purchase surface.
 4. **Admin unsuspend under AAL2** *(closes #3)*: force a suspension exactly as
    Phase C §4.4 did (insert ≥5 `flag` judge_verdicts on the account, shorten
    `GOVERNOR_INTERVAL_MS`, wait for auto-suspend + notices), then — as the AAL2

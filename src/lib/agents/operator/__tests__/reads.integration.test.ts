@@ -21,6 +21,8 @@ import {
   assertSchemaReady,
   MIGRATION_120_OWNER_OPERATOR,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { POSTING_BLOCK_COPY } from '@/lib/auto-approval/posting-block-copy';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   cleanupTenantAccount,
@@ -177,6 +179,93 @@ async function completeTurnWithProposals(
         reply = ${db.json(segments as never)},
         completed_at = NOW()
     WHERE id = ${turnId}::uuid AND account_id = ${accountId}::uuid
+  `;
+}
+
+/**
+ * One PENDING policy **Proposal** whose stored `after` carries the given
+ * threshold, written through the production writer.
+ *
+ * `expansionBlockedBy` is stamped at PREPARATION, and these cases read the row
+ * back repeatedly without ever rewriting it — which is how the frozen readiness
+ * fact and the read-time **Posting block** can be told apart.
+ */
+async function seedPolicyProposal(
+  input: {
+    conversationId: string;
+    turnId: string;
+    threshold: 4 | 5 | null;
+  },
+): Promise<string> {
+  const base = {
+    domain: 'policy' as const,
+    threshold: null as 4 | 5 | null,
+    vetoWindowMinutes: DEFAULT_VETO_WINDOW_MINUTES,
+    dailyAutoPostCap: null,
+    effectiveDailyCap: DEFAULT_DAILY_AUTO_POST_CAP,
+    rowExists: true,
+  };
+  const line = {
+    total: 0, eligible: 0, held: { below_threshold: 0, cap_reached: 0, manual: 0 },
+    byDay: [], busiestDay: 0,
+    windowStart: '2026-08-14 03:00:00+00', windowEnd: '2026-09-13 03:00:00+00',
+    asOf: '2026-09-13 03:00:00.123456+00', source: 'reviews_received_30d',
+    excludedImported: 0, excludedUnknown: 0,
+  };
+  const row: ProposalRow = {
+    id: randomUUID(),
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    accountId: tenant.accountId,
+    actorUserId: tenant.userId,
+    // The ACCOUNT default: a policy proposal keyed `null`, never the turn's
+    // location.
+    locationId: null,
+    operation: 'set_auto_reply_scope',
+    contractVersion: 1,
+    input: { threshold: input.threshold },
+    before: { ...base, consequence: line, affectedLocationCount: 0 },
+    after: {
+      ...base, threshold: input.threshold, consequence: line, affectedLocationCount: 0,
+      ...(input.threshold === null ? {} : { expansionBlockedBy: ['autopilot_unavailable'] }),
+    },
+    rationale: 'You asked about auto-posting.',
+    labelKind: 'rule',
+    preparedVersionToken: { accountDefaultRow: { id: 'absent' } },
+    requiresConfirmation: input.threshold !== null,
+    status: PROPOSAL_STATUS.PENDING,
+  };
+  await db.begin(async (tx) => { await insertProposals(tx, [row]); });
+  return row.id;
+}
+
+/**
+ * The account's **Posting block** inputs, pinned. Autopilot + active leaves the
+ * three flags as the only inputs, so `JUDGE_ENABLED` alone decides whether the
+ * account is blocked and the reason list is EXACTLY one entry long.
+ */
+async function pinPostingBlockInputs(judge: boolean): Promise<void> {
+  process.env.AUTO_APPROVAL_ENABLED = 'true';
+  process.env.OPENAI_MODERATION_ENABLED = 'true';
+  process.env.JUDGE_ENABLED = judge ? 'true' : 'false';
+  await db`
+    UPDATE accounts
+    SET subscription_tier = ${SubscriptionTier.AUTOPILOT},
+        subscription_status = ${SubscriptionStatus.ACTIVE}
+    WHERE id = ${tenant.accountId}::uuid
+  `;
+}
+
+/** Back to the seeded posture, so no later case inherits this one's account. */
+async function restorePostingBlockInputs(): Promise<void> {
+  delete process.env.AUTO_APPROVAL_ENABLED;
+  delete process.env.OPENAI_MODERATION_ENABLED;
+  delete process.env.JUDGE_ENABLED;
+  await db`
+    UPDATE accounts
+    SET subscription_tier = ${SubscriptionTier.COPILOT},
+        subscription_status = ${SubscriptionStatus.ACTIVE}
+    WHERE id = ${tenant.accountId}::uuid
   `;
 }
 
@@ -545,6 +634,108 @@ describeWithDb(
           segment.type === 'proposal')
         .map((segment) => segment.proposalId);
       expect(named).toEqual([toneId, avoidId]);
+    });
+
+    it('a pending armed proposal in the conversation transcript renders the current Posting block sentences', async () => {
+      // THE TRANSCRIPT PATH, not the pending panel. `listProposalsForTurns`
+      // carries no status predicate and `TurnBody` renders the owner's card
+      // from `turn.proposals`, so a fix that only reached `listPendingProposals`
+      // would leave the card the owner actually clicks silent. This asserts on
+      // the REAL `getConversationForOwner` result, never a component fixture.
+      try {
+        await pinPostingBlockInputs(false);
+        const conversationId = randomUUID();
+        const turn = createdOrThrow(await createTurn(db, baseTurnInput({
+          conversationId, text: 'Let the good reviews post.',
+        })));
+        const armedId = await seedPolicyProposal({
+          conversationId, turnId: turn.turnId, threshold: 4,
+        });
+        const offId = await seedPolicyProposal({
+          conversationId, turnId: turn.turnId, threshold: null,
+        });
+        await completeTurnWithProposals(
+          turn.turnId, tenant.accountId, 'Two cards below.', [armedId, offId],
+        );
+
+        const view = viewOrThrow(await getConversationForOwner(db, {
+          accountId: tenant.accountId, actorUserId: tenant.userId, conversationId,
+        }));
+        const [armed, off] = view.turns[0]!.proposals;
+
+        expect(armed!.id).toBe(armedId);
+        expect(armed!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+        // The frozen preparation-time readiness fact is a DIFFERENT answer and
+        // is unchanged beside it.
+        expect(armed!.readinessBlockReasons).toEqual(['autopilot_unavailable']);
+
+        // The sibling card turns auto-posting OFF and is already truthful, so
+        // the same block corrects nothing on it.
+        expect(off!.id).toBe(offId);
+        expect(off!.postingBlockSentences).toEqual([]);
+
+        // The pending panel reads the same rows through a different reader and
+        // must agree — "pending only" is a predicate on the ROW, not a choice
+        // of reader.
+        expect(view.summary!.pendingProposals
+          .find((proposal) => proposal.id === armedId)!.postingBlockSentences)
+          .toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+      } finally {
+        await restorePostingBlockInputs();
+      }
+    });
+
+    it('rereading the same pending proposal adds and removes Posting block sentences as current settings change', async () => {
+      try {
+        await pinPostingBlockInputs(false);
+        const conversationId = randomUUID();
+        const turn = createdOrThrow(await createTurn(db, baseTurnInput({
+          conversationId, text: 'Let the good reviews post.',
+        })));
+        const armedId = await seedPolicyProposal({
+          conversationId, turnId: turn.turnId, threshold: 4,
+        });
+        await completeTurnWithProposals(
+          turn.turnId, tenant.accountId, 'One card below.', [armedId],
+        );
+
+        const readCard = async () => {
+          const view = viewOrThrow(await getConversationForOwner(db, {
+            accountId: tenant.accountId, actorUserId: tenant.userId, conversationId,
+          }));
+          return view.turns[0]!.proposals[0]!;
+        };
+        /** The stored `after`, straight from the column — never the view. */
+        const storedAfter = async () => {
+          const [row] = await db<{ after: Record<string, unknown> }[]>`
+            SELECT after FROM agent_proposals
+            WHERE id = ${armedId}::uuid AND account_id = ${tenant.accountId}::uuid
+          `;
+          return row!.after;
+        };
+
+        // BLOCKED → CLEAR → BLOCKED, reading the SAME row each time and never
+        // rewriting it.
+        const blocked = await readCard();
+        expect(blocked.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+        const frozen = await storedAfter();
+
+        process.env.JUDGE_ENABLED = 'true';
+        expect((await readCard()).postingBlockSentences).toEqual([]);
+
+        process.env.JUDGE_ENABLED = 'false';
+        expect((await readCard()).postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+
+        // THE CONTRAST, and the point of the case: the sentences followed the
+        // CURRENT account while the preparation-time readiness fact stored on
+        // the row did not move at all. A frozen copy of the Posting block could
+        // only ever be a false warning or a missing one.
+        expect(await storedAfter()).toEqual(frozen);
+        expect(frozen.expansionBlockedBy).toEqual(['autopilot_unavailable']);
+        expect((await readCard()).readinessBlockReasons).toEqual(['autopilot_unavailable']);
+      } finally {
+        await restorePostingBlockInputs();
+      }
     });
 
     it('getConversationForOwner returns a null summary for a conversation with no turns', async () => {

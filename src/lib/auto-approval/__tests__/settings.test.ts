@@ -584,11 +584,52 @@ describe('auto-approval settings service', () => {
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
   });
 
-  it('blocks expansion when the sale gate closes but still allows contraction', async () => {
+  // ADR 0034. Readiness asks "may this owner WIDEN the auto-approval they
+  // already have?" — tier entitlement, not `autopilotPurchasable()`, which
+  // asks the sales question "may someone BUY Autopilot right now?". A paused
+  // sale used to freeze an existing Autopilot owner's settings while the
+  // posting runtime — which never reads purchasability — kept posting.
+  it('an Autopilot account is expansion-ready while AUTOPILOT_PURCHASABLE is false', async () => {
     dbState.accountDefault = { id: 'policy-default', threshold: 5 };
     process.env.AUTOPILOT_PURCHASABLE = 'false';
     resetServerConfigForTests();
     const { patchAutoApprovalSettings } = await import('../settings');
+
+    const expanded = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+    });
+
+    expect(expanded.readiness).toMatchObject({ canExpand: true, blockReasons: [] });
+    expect(expanded.accountDefault).toMatchObject({ threshold: 4 });
+    expect(dbState.accountDefault).toMatchObject({ threshold: 4 });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_manual',
+    });
+    expect(contracted.accountDefault.threshold).toBeNull();
+    expect(contracted.readiness.blockReasons).toEqual([]);
+  });
+
+  it('a Copilot account still carries autopilot_unavailable', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    const { getAutoApprovalSettings, patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+    expect(result.readiness).toMatchObject({
+      canExpand: false,
+      blockReasons: ['autopilot_unavailable'],
+    });
 
     await expect(patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -601,15 +642,49 @@ describe('auto-approval settings service', () => {
       name: 'AutoApprovalExpansionBlockedError',
       blockReasons: ['autopilot_unavailable'],
     });
+    expect(dbState.accountDefault).toBeNull();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
 
-    const contracted = await patchAutoApprovalSettings(mockSql, {
+  it('a missing account row still carries autopilot_unavailable', async () => {
+    dbState.accountExists = false;
+    const { getAutoApprovalSettings } = await import('../settings');
+
+    const result = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+
+    expect(result.readiness.canExpand).toBe(false);
+    expect(result.readiness.blockReasons).toContain('autopilot_unavailable');
+  });
+
+  // The runtime axis survives the ADR 0034 narrowing, and it must refuse a
+  // real WRITE — a pure `buildAutoApprovalReadiness` call cannot prove that
+  // `buildReadiness` still forwards `autoApprovalRuntimeEnabled()` once the
+  // `autopilotPurchasable()` conjunct (which folded the same flag in) is gone.
+  it('a paused-sale Autopilot account cannot expand settings when AUTO_APPROVAL_ENABLED is false', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5 };
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    process.env.AUTO_APPROVAL_ENABLED = 'false';
+    resetServerConfigForTests();
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
-      operation: 'set_account_manual',
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({
+      name: 'AutoApprovalExpansionBlockedError',
+      blockReasons: ['auto_approval_disabled'],
     });
-    expect(contracted.accountDefault.threshold).toBeNull();
-    expect(contracted.readiness.blockReasons).toEqual(['autopilot_unavailable']);
+
+    expect(dbState.accountDefault).toMatchObject({ threshold: 5 });
+    expect(sqlCalls.some((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('allows a Copilot rowless location veto change that creates a manual override', async () => {
@@ -892,20 +967,25 @@ describe('auto-approval settings service', () => {
     );
   });
 
-  it('blocks NULL-to-50 but allows NULL-to-1 when the Autopilot sale gate is closed', async () => {
+  // ADR 0034: a closed sale gate no longer touches readiness, so BOTH the
+  // NULL-to-50 expansion and the NULL-to-1 contraction go through. The
+  // suspended-policy twin below still pins the blocked expansion path.
+  it('allows NULL-to-50 and NULL-to-1 when the Autopilot sale gate is closed', async () => {
     dbState.accountDefault = { id: 'policy-default', threshold: 5, dailyAutoPostCap: null };
     process.env.AUTOPILOT_PURCHASABLE = 'false';
     resetServerConfigForTests();
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    await expect(patchAutoApprovalSettings(mockSql, {
+    const expanded = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
       operation: 'set_account_daily_cap',
       cap: 50,
       confirmationLevel: 'standard',
-    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+    });
+    expect(expanded.readiness.blockReasons).toEqual([]);
+    expect(expanded.accountDefault).toMatchObject({ dailyAutoPostCap: 50 });
 
     const contracted = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -918,8 +998,8 @@ describe('auto-approval settings service', () => {
       dailyAutoPostCap: 1,
       effectiveDailyCap: 1,
     });
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
+    expect(mockWriteAccountAuditLog).toHaveBeenLastCalledWith(
       mockSql,
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -2486,17 +2566,31 @@ describe('posting block', () => {
     ]);
   });
 
-  // THE TRAP. Readiness folds `autopilotPurchasable()` into
-  // `autopilot_unavailable`; the runtime never reads purchasability. A loader
-  // that forwarded the readiness value into `tierGrantsAutopilot` fails only
-  // this test — it would print "not posting" while replies post.
-  it('loadAutoApprovalSettings returns posting.blocked false and readiness.blockReasons containing autopilot_unavailable for an autopilot account whose sale is paused', async () => {
+  // Was THE TRAP: readiness used to fold `autopilotPurchasable()` into
+  // `autopilot_unavailable` while the runtime never read purchasability, so a
+  // paused sale printed "not posting" while replies posted. ADR 0034 made
+  // readiness tier-only, so the two facts now AGREE here — both unblocked.
+  it('loadAutoApprovalSettings leaves posting and readiness unblocked for an autopilot account whose sale is paused', async () => {
     process.env.AUTOPILOT_PURCHASABLE = 'false';
     resetServerConfigForTests();
 
     const result = await readPosting();
 
     expect(result.posting).toEqual({ blocked: false, reasons: [] });
-    expect(result.readiness.blockReasons).toContain('autopilot_unavailable');
+    expect(result.readiness.blockReasons).toEqual([]);
+  });
+
+  // The derivation trap itself, on the discriminator that survives ADR 0034:
+  // `providerModerationValidated` is a readiness input and NOT a posting
+  // input. A loader that forwarded readiness into `tierGrantsAutopilot` fails
+  // only this test — it would print "not posting" while replies post.
+  it('loadAutoApprovalSettings returns posting.blocked false while readiness carries provider_moderation_not_validated', async () => {
+    process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'false';
+    resetServerConfigForTests();
+
+    const result = await readPosting();
+
+    expect(result.posting).toEqual({ blocked: false, reasons: [] });
+    expect(result.readiness.blockReasons).toEqual(['provider_moderation_not_validated']);
   });
 });
