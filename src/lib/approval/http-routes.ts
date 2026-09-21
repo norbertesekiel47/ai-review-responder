@@ -148,7 +148,13 @@ export async function requireDashboardReviewOwner(
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE_HEADERS });
     }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
+    // #1361: anything that is not an AuthError is a server fault, not a
+    // refusal. Re-throw it so it surfaces as a real 5xx (captured by
+    // `onRequestError` in src/instrumentation.ts) instead of being masked as
+    // 401 — the same contract as `requireRoleOr401` in
+    // src/lib/auth/route-helpers.ts. No caller wraps this gate in a try block,
+    // so the throw escapes the handler.
+    throw err;
   }
 
   if (!user.accountId) {

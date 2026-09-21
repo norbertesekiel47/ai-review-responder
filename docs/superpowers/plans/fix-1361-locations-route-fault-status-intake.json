@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The change edits an auth-gate error path shared by 12 owner-facing API routes.",
+    "It replaces an existing test that pinned the wrong 401 behaviour, so a check changes rather than only gets added."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Issue #1361: when requireRole rejects for a reason that is not an AuthError, the three owner gates re-throw instead of answering 401, so a genuine server fault surfaces as a real 5xx.",
+  "non_goals": [
+    "Do not change the AuthError mapping; 401 and 403 responses stay byte-identical.",
+    "Do not catch and return an internal_error 500; the locked decision is to re-throw.",
+    "Do not change requireRoleOr401, requireAdminWithAal2, or any other auth gate.",
+    "Do not edit the four /api/locations routes or the eight dashboard routes that consume these helpers.",
+    "Do not add a logger or Sentry call; onRequestError in src/instrumentation.ts already captures an error that escapes a route."
+  ],
+  "user_visible_behavior": [
+    "A signed-out or non-owner caller still receives the same 401 or 403 JSON body it receives today.",
+    "A caller that hits a server fault, for example a database outage, receives a 5xx instead of 401 Unauthorized.",
+    "The owner no longer reads a server fault as a permissions problem; the response is a 5xx, not \"Unauthorized\". (The review wave measured that no client of these routes branches on 401, so no auto sign-out chain existed — that earlier claim is withdrawn.)",
+    "Sentry records the fault through onRequestError; today the 401 hides it."
+  ],
+  "invariants": [
+    "AuthError stays the single owner of the refusal vocabulary; only non-AuthError handling changes.",
+    "Every response the helpers still build keeps its no-store cache headers.",
+    "Invariant #8 is untouched: owner scoping by account_id does not change."
+  ],
+  "edge_cases": [
+    "requireRole rejects with a plain Error, for example a database outage: the helper re-throws.",
+    "requireRole rejects with a non-Error value, for example a thrown string: the helper re-throws that value unchanged.",
+    "requireRole rejects with an AuthError carrying 403: unchanged, the helper returns 403.",
+    "No call site wraps either helper in a try block, so the re-thrown error escapes the handler and Next.js returns 500.",
+    "The multi-location 404 gate and the same-origin 403 gate run before auth and stay unchanged."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/auth/route-helpers.ts:119-124 — requireRoleOr401 re-throws a non-AuthError.",
+    "src/lib/locations/owner-route.ts:43-54 — the same file's assertSameOrigin catch re-throws a non-SameOriginError.",
+    "src/lib/auth/route-helpers.ts:86-110 — the doc comment that names this exact drift as a past bug."
+  ],
+  "test_seams": [
+    "src/lib/locations/__tests__/owner-route.test.ts — mockRequireRole rejects and readOwnerForMultiLocationRoute is called directly.",
+    "src/lib/approval/__tests__/http-routes.test.ts — mockRequireRole rejects and requireDashboardReviewOwner is called directly.",
+    "src/lib/auth/__tests__/resolve-owner-scope.test.ts — mockRequireRole rejects and resolveOwnerScope is called directly."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/locations/owner-route.ts",
+    "src/lib/locations/__tests__/owner-route.test.ts",
+    "src/lib/approval/http-routes.ts",
+    "src/lib/approval/__tests__/http-routes.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "src/lib/auth/resolve-owner-scope.ts",
+    "src/lib/auth/__tests__/resolve-owner-scope.test.ts",
+    "docs/runbooks/beta-launch-alerting.md"
+  ],
+  "tests_to_add": [
+    "re-throws when requireRole rejects with a non-AuthError",
+    "re-throws a non-Error rejection value unchanged",
+    "re-throws a non-AuthError rejection instead of masking it as 401",
+    "re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401"
+  ],
+  "verification_commands": [
+    "pnpm vitest run src/lib/locations/__tests__/owner-route.test.ts src/lib/approval/__tests__/http-routes.test.ts"
+  ],
+  "estimated_prod_lines": 78,
+  "estimated_test_lines": 55,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single commit. The change is two edited catch blocks plus their tests. There is no migration, no feature flag, and no data change.",
+  "observability": [
+    "Sentry captures the escaped error through onRequestError in src/instrumentation.ts.",
+    "Vercel logs move the status for a server fault from 401 to 500, which is the signal this fix exists to restore."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "merge"
+  ],
+  "open_questions": []
+}
