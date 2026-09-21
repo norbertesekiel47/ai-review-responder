@@ -41,3 +41,38 @@ first-task enforcement spot check. T2 may then run parallel with T3.
 RISK = high. Rides `staging` before `main`, gets the step 7 review wave plus a
 red-team pass, and pauses for explicit merge approval. Approvals still owed:
 `push`, `staging_deploy`, `merge`.
+
+## Phase cost — final
+
+| Step | Input | Output | Wall | Turns |
+|---|---|---|---|---|
+| orient & classify | — | — | — | — |
+| intake locked | 1.9M (99% cached) | 8K | 2 min | 12 |
+| worktree armed | — | — | — | — |
+| plan approved | 13.8M (99% cached) | 67K | 25 min | 62 |
+| execute tracers | 17.7M (99% cached) | 51K | 37 min | 55 |
+| verified gate | 29.4M (100% cached) | 56K | 59 min | 70 |
+| **review** | **39.4M (98% cached)** | **73K** | **391 min** | **74** |
+| review-ready | 34.8M (100% cached) | 41K | 67 min | 55 |
+| **total** | **137.0M** | **295K** | **581 min** | |
+
+**The most expensive step was review, by a wide margin** — 391 minutes, more
+than the other seven combined, and 39.4M input tokens.
+
+Two caveats before anyone trims it on this evidence:
+
+1. **About 30 of those minutes were a hung process, not review.** A Codex run
+   was launched with its prompt heredoc consuming stdin, so it blocked waiting
+   for input that never came. It was killed and relaunched; the relaunch
+   finished in 200 seconds. Check the output file's byte count on long-running
+   background work rather than trusting a "still running" signal.
+2. **The review is what made the change correct.** It found the Apply-moment
+   regression (the fix relocating its own bug), the disclosure rule that gagged
+   a direct answer, a P0 test gap at the issue's own modal case, and a staging
+   scenario that would have failed the Phase D battery deterministically. Four
+   defects, none of which the author saw.
+
+`execute tracers` at 37 minutes against `review` at 391 is the honest shape of
+this run: building was cheap, proving was not. A future run should read that as
+an argument for a sharper plan, not a thinner review — two of the four defects
+above trace directly to plan decisions the plan rounds had already questioned.
