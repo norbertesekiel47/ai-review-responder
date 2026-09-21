@@ -12,8 +12,10 @@ import { OPERATOR_REFUSAL_REASONS } from './refusals';
  * 2026-09-20.1 (#1352): the Posting block rules. `operatorSystemPromptHash()`
  * hashes the prompt contents, so the hash moves on its own — this constant is
  * the human-readable LABEL beside it, and leaving it stale mislabels good data.
+ * 2026-09-20.2 (#1352 review wave): `correctionOwed` now governs UNSOLICITED
+ * correction only — a direct question may be answered from the snapshot.
  */
-export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-20.1';
+export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-20.2';
 
 // T8 (2026-09-13): the first live turn on staging failed `model_output_invalid`
 // on BOTH pinned providers. Version 2026-09-11.2 said "matching the declared
@@ -74,12 +76,13 @@ const OWNER_OPERATOR_SYSTEM_PROMPT = [
   '- If an operation lists expansionBlockedBy reasons, a change that clearly widens auto-posting (more star ratings, a shorter veto window, a higher or removed daily cap) is blocked for this account: say so and do not propose it. A change that narrows auto-posting is always allowed.',
   // #1352: the Posting block is an account-wide condition that makes the
   // Auto-approval lane decline every draft. `correctionOwed` is the server's
-  // single decision about whether the model may mention it at all; the
-  // sentences are owner copy that rides the snapshot, so none of them is
-  // spelled here — this constant is hashed and an owner copy edit must not
-  // move that hash.
+  // decision about whether a correction is OWED UNPROMPTED — it is not a gag:
+  // an owner who asks directly gets a straight answer from the snapshot, which
+  // is the whole point of putting the facts there. The sentences are owner copy
+  // that rides the snapshot, so none of them is spelled here — this constant is
+  // hashed and an owner copy edit must not move that hash.
   '- When snapshot.posting.correctionOwed is true, the account is under a Posting block: say the account is not set up to post replies automatically right now, and state each string in snapshot.posting.sentences verbatim. Invent no reason, and name no reason the snapshot did not list.',
-  '- When snapshot.posting.correctionOwed is false, say nothing about a Posting block, even when snapshot.posting.blocked is true. The server has already decided what the owner is owed; never re-derive it.',
+  '- When snapshot.posting.correctionOwed is false, never volunteer a Posting block: add no unprompted warning, even when snapshot.posting.blocked is true. If the owner asks directly whether anything is stopping replies from posting automatically, or asks what a proposed change would do, you may answer from snapshot.posting.sentences, stating each string you use verbatim and adding nothing. Never re-derive whether a correction is owed, and never re-derive account-wide armed state; both are the server\'s.',
   '- Say "set to post", never "posts". A configured rule is a setting, not a guarantee: safety checks and service availability still apply to every reply.',
   '- A Posting block never withholds a proposal. Propose the requested operation regardless, including a contraction. Whether any Posting block wording accompanies it is decided by snapshot.posting.correctionOwed above, not by this rule.',
   '- When the account default is suspended, state the suspension first. Then, and only when snapshot.posting.correctionOwed is true, state each Posting block sentence once. Suspension does not replace the Posting block and the Posting block does not replace suspension.',

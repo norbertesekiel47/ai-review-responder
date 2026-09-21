@@ -124,14 +124,28 @@ independently allow.
   derived from readiness; the guard test now keys on
   `provider_moderation_not_validated` instead of a paused sale.
 - The **Posting block** glossary entry in
-  `docs/context/core-reviews-responses.md` still says readiness "folds in
-  `autopilotPurchasable()`" and cites the paused-sale divergence as its
-  example. That sentence is now false and needs the discriminator above; it is
-  outside this change's edit surface.
-- `autopilotPurchasable()` keeps its remaining callers, which are all genuinely
-  about buying: `/pricing`, the onboarding plan picker, `/api/account/settings`
-  plan presentation, `assertTierPurchasable`, and the admin business-detail
-  mapper.
+  `docs/context/core-reviews-responses.md` was corrected in the same wave: it
+  now records `autopilotPurchasable()` as the trap's *former* headline example
+  and names `provider_moderation_not_validated` as the surviving
+  discriminator.
+- `autopilotPurchasable()` keeps its remaining callers. Four are genuinely about
+  buying: `/pricing`, the onboarding plan picker, `/api/account/settings` plan
+  presentation, and `assertTierPurchasable` (self-serve checkout via
+  `plan-activation.ts`, and `POST /api/billing/tier-change` via
+  `src/lib/accounts/tier-change.ts`). Two more are Stripe ingress readers that
+  only raise an operational alert —
+  `worker/ingress/stripe/checkout-completed.ts` and
+  `worker/ingress/stripe/subscription-updated.ts`, both emitting
+  `autopilot_activated_while_unavailable` when a tier activates while the sale
+  is paused; neither gates anything.
+- The **admin business-detail mapper**
+  (`src/lib/admin/business-detail/mappers.ts`) was NOT about buying, and an
+  earlier revision of this list wrongly filed it as such. It was readiness'
+  SECOND feed of `autopilotAvailable`, composing the very expression this ADR
+  narrows, so `/admin/businesses/<id>` reported `autopilot_unavailable` for an
+  account the owner route now lets expand. #1352 corrected it to
+  `tierGrantsAutopilot(...)` alone; it no longer calls
+  `autopilotPurchasable()`, and the admin and owner lanes now agree.
 
 ## Alternatives considered
 

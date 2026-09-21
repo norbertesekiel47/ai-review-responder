@@ -479,9 +479,15 @@ async function scenarioLeaseDriftStability(sql: Sql): Promise<boolean> {
 }
 
 /**
- * §6: settings expansion denial while the Autopilot gate is closed. Runs on an
- * AUTOPILOT account so the only thing withholding `autopilot_unavailable` is
- * AUTOPILOT_PURCHASABLE itself.
+ * §6: settings expansion denial under the ordinary staging posture, with the
+ * Autopilot sale gate CLOSED. Runs on an AUTOPILOT account, which since
+ * ADR 0034 (`docs/adr/0034-readiness-autopilot-entitlement-is-tier-only.md`)
+ * contributes NO `autopilot_unavailable`: readiness' Autopilot entitlement is
+ * tier entitlement alone, so a paused sale no longer freezes an existing
+ * Autopilot owner's settings. The denial must therefore come from the runtime
+ * and provider-moderation gates, and that is what this scenario pins — the
+ * expansion is blocked, nothing is written, and the block does not cite a
+ * purchasability reason.
  */
 async function scenarioExpansionDenialGateClosed(sql: Sql): Promise<boolean> {
   const id = '12-expansion-denial-gate-closed';
@@ -519,7 +525,11 @@ async function scenarioExpansionDenialGateClosed(sql: Sql): Promise<boolean> {
   `;
   const checks: Array<[string, boolean]> = [
     ['expansion_blocked_error', thrown === 'AutoApprovalExpansionBlockedError'],
-    ['autopilot_unavailable_reason', blockReasons?.includes('autopilot_unavailable') === true],
+    // ADR 0034: on an Autopilot account a paused sale contributes no reason, so
+    // the denial must NOT name it. `other_block_reason_present` is what stops
+    // `no_autopilot_unavailable_reason` passing vacuously on an empty list.
+    ['no_autopilot_unavailable_reason', blockReasons?.includes('autopilot_unavailable') === false],
+    ['other_block_reason_present', (blockReasons?.length ?? 0) > 0],
     ['no_policy_row_written', policies.length === 0],
   ];
   const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

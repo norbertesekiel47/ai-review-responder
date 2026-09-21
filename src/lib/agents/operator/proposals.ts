@@ -353,6 +353,24 @@ export interface ProposalView {
    * false warning or a missing one.
    */
   postingBlockSentences: string[];
+  /**
+   * Current posting status for an APPLIED, armed policy rule — "this is true
+   * NOW", never a record of what was true at Apply. Deliberately separate from
+   * `postingBlockSentences`, which is the PENDING card's pre-Apply warning, and
+   * deliberately NOT in the Receipt: a receipt records what happened, and
+   * repainting it with current facts would make history lie.
+   *
+   * Mutually exclusive with `postingBlockSentences` by construction — the two
+   * predicates differ only in the row status they require (`PENDING` versus
+   * `APPLIED`), and a row has one status.
+   *
+   * OPTIONAL on the view, REQUIRED on `CardFacts`: every server branch must
+   * decide it or fail to compile, while a `ProposalView` built before this
+   * field existed still renders a card instead of throwing. The card reads it
+   * as "no notice", which is the safe direction — a missing notice, never a
+   * missing card.
+   */
+  postingBlockNowSentences?: string[];
   /** The stored `after` consequence line of a policy proposal; `null` for voice. */
   consequence: StoredPolicyConsequence | null;
   /** Active locations affected at preparation; account defaults exclude overrides. */
@@ -383,7 +401,10 @@ function proposalColumns(db: Db) {
 type CardFacts = Pick<
   ProposalView,
   'describe' | 'requiresConfirmation' | 'confirmationPhrase' | 'readinessBlockReasons' | 'postingBlockSentences' | 'consequence' | 'affectedLocationCount'
->;
+> & {
+  /** Required here, optional on the view: a branch that forgets it is a compile error. */
+  postingBlockNowSentences: string[];
+};
 
 /**
  * The read-time facts a card's friction needs that the stored row cannot carry:
@@ -402,8 +423,9 @@ function withoutFriction(describe: string): CardFacts {
     confirmationPhrase: null,
     readinessBlockReasons: [],
     // A voice proposal claims nothing about posting, so a Posting block has
-    // nothing to correct on it.
+    // nothing to correct on it — neither before Apply nor after.
     postingBlockSentences: [],
+    postingBlockNowSentences: [],
     consequence: null,
     affectedLocationCount: null,
   };
@@ -424,9 +446,15 @@ function policyCardFacts(
   // (3) the stored `after` is ARMED. (3) is the precedence rule: a proposal
   // that turns auto-posting OFF is already truthful, and a block must not turn
   // a true sentence into a correction.
-  const corrected = context.posting.blocked
-    && context.status === PROPOSAL_STATUS.PENDING
-    && storedAfter.threshold !== null;
+  const armedUnderBlock = context.posting.blocked && storedAfter.threshold !== null;
+  const corrected = armedUnderBlock && context.status === PROPOSAL_STATUS.PENDING;
+  // #1352 at the moment of confirmation. An APPLIED armed rule is labelled
+  // "Active rule" and its receipt says "Effective now", so the pending warning
+  // disappearing there would restate the bug one step later. This is a
+  // READ-TIME notice about the account as it stands now — the receipt beside it
+  // is untouched history. The two predicates share `armedUnderBlock` and differ
+  // only in the required row status, so a row can never carry both lists.
+  const blockedNow = armedUnderBlock && context.status === PROPOSAL_STATUS.APPLIED;
   return {
     describe,
     requiresConfirmation: expansion,
@@ -435,6 +463,7 @@ function policyCardFacts(
     // The words come from `posting-block-copy.ts`, the one owner shared with
     // the settings page. Nothing here re-maps a reason.
     postingBlockSentences: corrected ? postingBlockSentencesFor(context.posting.reasons) : [],
+    postingBlockNowSentences: blockedNow ? postingBlockSentencesFor(context.posting.reasons) : [],
     consequence: storedAfter.consequence ?? null,
     affectedLocationCount: storedAfter.affectedLocationCount ?? null,
   };
@@ -602,10 +631,23 @@ async function mapStoredRows(db: Db, accountId: string, rows: readonly StoredRow
     return parsed ? [parsed.sourceProposalId] : [];
   });
   const sources = await readRestoreSources(db, accountId, ids);
+  // Only a PENDING or an APPLIED row can use the account's Posting block —
+  // those are the two statuses `policyCardFacts` answers, one list each. A
+  // batch of neither (a rejected, stale, superseded or failed page) issues no
+  // statement at all and degrades through the same predicate to `[]` rather
+  // than to a crash. It does NOT spare the read inside the Apply transaction,
+  // where the row under `SELECT … FOR UPDATE` is normally pending: a card that
+  // tells the truth at both ends of Apply needs the current account there too.
+  const usable = rows.some((row) => {
+    const status = asProposalStatus(row.status);
+    return status === PROPOSAL_STATUS.PENDING || status === PROPOSAL_STATUS.APPLIED;
+  });
   // ONCE per batch, and SEQUENTIALLY: these two share one pooled connection, so
   // no `Promise.all` or any other combinator.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-  const posting = await getAutoApprovalPostingStatus(db, accountId);
+  const posting: AutoApprovalPostingStatus = usable
+    ? await getAutoApprovalPostingStatus(db, accountId)
+    : { blocked: false, reasons: [] };
   return rows.map((row) => {
     const input = parseJsonbObject(row.input, 'agent_proposals.input');
     const sourceId = parseRestoreInput(input)?.sourceProposalId;

@@ -57,7 +57,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
     requiresConfirmation: false,
     confirmationPhrase: null,
     readinessBlockReasons: [],
-    postingBlockSentences: [],
+    postingBlockSentences: [], postingBlockNowSentences: [],
     consequence: null,
     affectedLocationCount: null,
     ...overrides,
@@ -216,8 +216,17 @@ describe('autonomy cards', () => {
     }));
     expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
     expect(screen.getByText(POSTING_BLOCK_COPY.autopilot_tier_required)).toBeInTheDocument();
-    // One <li> per reason, and no reason code leaking to the owner.
-    expect(screen.queryByText('judge_disabled')).not.toBeInTheDocument();
+    // EXACTLY the supplied list, in order: one <li> per reason, nothing added,
+    // nothing reordered, and nothing dropped. An absence check on a single
+    // reason code passed whatever the card did, since a card is never handed
+    // one — this equality is what observes the rendering.
+    expect(
+      Array.from(document.querySelectorAll('.op-readiness li')).map((item) => item.textContent),
+    ).toEqual([POSTING_BLOCK_COPY.judge_disabled, POSTING_BLOCK_COPY.autopilot_tier_required]);
+    // And no reason code reaches the owner — every one of the five, not one.
+    for (const reason of Object.keys(POSTING_BLOCK_COPY)) {
+      expect(screen.queryByText(reason), reason).not.toBeInTheDocument();
+    }
 
     // No sentences, no list: an unblocked account adds nothing to the card.
     unmount();
@@ -233,11 +242,38 @@ describe('autonomy cards', () => {
     const { onApply } = renderCard({
       postingBlockSentences: [POSTING_BLOCK_COPY.judge_disabled],
     });
+    // ONE sentence is the ordinary production shape — `JUDGE_ENABLED=false`
+    // alone is #1352's own case — and the render gate must be observed at that
+    // arity, not only at two. `length > 1` renders nothing here.
+    expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
     const apply = screen.getByRole('button', { name: APPLY });
     expect(apply).toBeEnabled();
     await user.click(apply);
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: PROPOSAL }));
     expect(screen.getByRole('button', { name: NOT_NOW })).toBeEnabled();
+  });
+
+  it('an applied armed rule says the account is not set up to post right now', () => {
+    // #1352 at the moment of confirmation. The label reads "Active rule" and
+    // the receipt says "Effective now", so the card must state the account as
+    // it STANDS — led by a line that concedes the rule is saved, so it cannot
+    // be read as a warning about a change the owner has yet to make.
+    const { unmount } = renderCard(policy({
+      status: 'applied',
+      postingBlockNowSentences: [POSTING_BLOCK_COPY.judge_disabled],
+    }));
+    const lead = screen.getByText(/This rule is saved, but your account is not set up to post replies automatically right now/);
+    expect(lead).toBeInTheDocument();
+    expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
+    // Present tense, never the pending card's pre-Apply phrasing.
+    expect(lead).toHaveTextContent(/right now/);
+
+    // The two lists are mutually exclusive on the server; a pending card shows
+    // the warning and no current-status lead-in.
+    unmount();
+    renderCard({ postingBlockSentences: [POSTING_BLOCK_COPY.judge_disabled] });
+    expect(screen.getByText(POSTING_BLOCK_COPY.judge_disabled)).toBeInTheDocument();
+    expect(screen.queryByText(/This rule is saved/)).not.toBeInTheDocument();
   });
 
   it('keeps the typed phrase and error association while a pending request is busy and then refused', async () => {

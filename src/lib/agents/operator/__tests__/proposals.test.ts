@@ -573,6 +573,46 @@ function policyStoredRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The applied Proposal a Restore card inverts, and its stored evidence. */
+const RESTORE_SOURCE = '99999999-9999-4999-8999-999999999999';
+
+/** Armed → off. Restoring it therefore RE-ARMS auto-posting. */
+const RESTORE_SOURCE_ROW = {
+  id: RESTORE_SOURCE,
+  operation: 'set_auto_reply_scope',
+  contract_version: 1,
+  location_id: null,
+  status: PROPOSAL_STATUS.APPLIED,
+  turn_id: TURN,
+  receipt: {
+    version: 1,
+    operation: 'set_auto_reply_scope',
+    scope: { accountId: ACCOUNT, locationId: null },
+    before: { ...policyState({ threshold: 4 }), consequence: LINE(2), affectedLocationCount: 1 },
+    after: { ...policyState(), consequence: LINE(0), affectedLocationCount: 1 },
+    differsFromPreview: false,
+    effectiveNow: true,
+    affects: 'future_eligible_reviews',
+    remainingBlocked: [],
+    appliedAt: '2026-09-13T03:00:00.000Z',
+    actorUserId: ACTOR,
+    actorName: 'Ada Owner',
+    ownerText: 'Turn automatic replies off',
+    turnId: TURN,
+    versionToken: { before: ACCOUNT_TOKEN, after: ACCOUNT_TOKEN },
+    retainedVeto: { count: 0, asOf: '2026-09-13 03:00:00.123456+00' },
+  },
+};
+
+/** A PENDING restore proposal: currently off, armed again after Apply. */
+function restoreStoredRow() {
+  return policyStoredRow({
+    input: { restore: { sourceProposalId: RESTORE_SOURCE } },
+    before: { ...policyState(), consequence: LINE(0) },
+    after: { ...policyState({ threshold: 4 }), consequence: LINE(2) },
+  });
+}
+
 const db = () => mockSql as unknown as postgres.Sql;
 const readOne = async () =>
   (await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT }))[0];
@@ -664,5 +704,87 @@ describe('proposal card Posting block', () => {
     sqlReturnQueue.push(mkTaggedResult([]));
     expect(await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT })).toEqual([]);
     expect(sqlCalls).toHaveLength(1);
+  });
+
+  it('an applied armed rule states the account posting status NOW, and the pending warning stays pending-only', async () => {
+    // #1352 at the moment of confirmation: Apply succeeds (Judge availability
+    // is no expansion-readiness gate), the label reads "Active rule" and the
+    // receipt says "Effective now" — so a card that went silent here would
+    // tell the owner the rule is live while nothing posts.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(
+      mkTaggedResult([policyStoredRow({ status: PROPOSAL_STATUS.APPLIED })]),
+      mkTaggedResult([ACCOUNT_ROW]),
+    );
+
+    const applied = await readOne();
+
+    expect(applied!.postingBlockNowSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+    // The PRE-Apply warning is still pending-only. The two lists are mutually
+    // exclusive by construction, so history is never repainted with it.
+    expect(applied!.postingBlockSentences).toEqual([]);
+
+    // An applied rule that turns auto-posting OFF claims nothing about posting
+    // and gets no notice, on the same blocked account.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow({
+      status: PROPOSAL_STATUS.APPLIED,
+      input: { threshold: null },
+      before: { ...policyState({ threshold: 4 }), consequence: LINE(2) },
+      after: { ...policyState(), consequence: LINE(0) },
+    })]), mkTaggedResult([ACCOUNT_ROW]));
+    expect((await readOne())!.postingBlockNowSentences).toEqual([]);
+
+    // And the PENDING card carries the warning, never the current-status
+    // notice: one status per row, one list per status.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([policyStoredRow()]), mkTaggedResult([ACCOUNT_ROW]));
+    const pending = await readOne();
+    expect(pending!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+    expect(pending!.postingBlockNowSentences).toEqual([]);
+  });
+
+  it('a pending restore that re-arms auto-posting carries the Posting block through the restore branch', async () => {
+    // The SECOND route into `policyCardFacts`. A restore that re-arms
+    // auto-posting makes the same claim about posting as an ordinary rule
+    // card, and a fix threaded into only one branch leaves restore cards
+    // silent — which nothing else in the tree observes.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(
+      mkTaggedResult([restoreStoredRow()]),
+      mkTaggedResult([RESTORE_SOURCE_ROW]),
+      mkTaggedResult([ACCOUNT_ROW]),
+    );
+
+    const view = await readOne();
+
+    // It really is the restore card: its words come from `describePolicyRestore`
+    // and it names the source receipt it inverts.
+    expect(view!.describe).toMatch(/^Restore: Account default now/);
+    expect(view!.restoreSourceProposalId).toBe(RESTORE_SOURCE);
+    expect(view!.postingBlockSentences).toEqual([POSTING_BLOCK_COPY.judge_disabled]);
+  });
+
+  it('a batch no row could use issues no Posting block read at all', async () => {
+    // A rejected/stale page can use neither list, so the account-wide read is
+    // not issued — including inside the Apply transaction, which holds
+    // `SELECT … FOR UPDATE` while `mapStoredRows` runs.
+    blockPostingOnJudge();
+    sqlReturnQueue.push(mkTaggedResult([
+      policyStoredRow({ status: PROPOSAL_STATUS.REJECTED }),
+      policyStoredRow({ id: '88888888-8888-4888-8888-888888888888', status: PROPOSAL_STATUS.STALE }),
+    ]));
+
+    const views = await listProposalsForTurn(db(), { turnId: TURN, accountId: ACCOUNT });
+
+    expect(views).toHaveLength(2);
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls.some((call) => call.text.includes('FROM accounts'))).toBe(false);
+    // The neutral status degrades through the same predicate: empty lists, not
+    // a crash and not a stale correction.
+    for (const view of views) {
+      expect(view.postingBlockSentences).toEqual([]);
+      expect(view.postingBlockNowSentences).toEqual([]);
+    }
   });
 });

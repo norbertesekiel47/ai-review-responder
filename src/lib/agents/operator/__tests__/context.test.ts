@@ -352,11 +352,26 @@ describe('operator context snapshot', () => {
   });
 
   it('snapshot posting is never derived from readiness block reasons', async () => {
-    // The real Autopilot-with-paused-sale case: readiness carries
-    // `autopilot_unavailable` (it folds in `autopilotPurchasable()`, which the
-    // runtime never reads) while the account posts perfectly well.
-    const response = settings([INHERITING]);
-    expect(response.readiness.blockReasons).toEqual(['autopilot_unavailable']);
+    // The SURVIVING discriminator, and the same one `settings.test.ts` keys its
+    // own trap guard on: readiness folds in `providerModerationValidated`,
+    // which the posting runtime never reads, so an unvalidated provider refuses
+    // EXPANSION while the account posts perfectly well.
+    //
+    // Not `autopilot_unavailable` any more. ADR 0034 — on this branch — made
+    // readiness' copy tier entitlement only, so that reason now implies
+    // not-Autopilot, which forces `autopilot_tier_required` into
+    // `posting.reasons` and `blocked: true`: no account can reach it beside an
+    // unblocked posting status, and a fixture pinning both models nothing.
+    const base = settings([INHERITING]);
+    const response: AutoApprovalSettingsResponse = {
+      ...base,
+      readiness: {
+        ...base.readiness,
+        providerModerationValidated: false,
+        blockReasons: ['provider_moderation_not_validated'],
+      },
+    };
+    expect(response.readiness.blockReasons).toEqual(['provider_moderation_not_validated']);
     expect(response.posting).toEqual({ blocked: false, reasons: [] });
 
     const snapshot = await snapshotWith(response);

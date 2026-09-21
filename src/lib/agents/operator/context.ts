@@ -166,8 +166,12 @@ export interface SnapshotPosting {
    * active location override is armed. The same predicate the settings page
    * applies at `AutoApprovalClient.tsx:705`.
    *
-   * This is the ONLY suppression switch. `blocked`, `reasons` and `sentences`
-   * stay complete regardless.
+   * It governs UNSOLICITED correction only, and is not a gag: an owner who
+   * asks directly whether anything stops automatic posting is answered from
+   * `sentences` whatever this says (prompt rule 2, version 2026-09-20.2).
+   * Concealing a known fact from a direct question was #1352's own failure
+   * wearing the opposite sign. `blocked`, `reasons` and `sentences` stay
+   * complete regardless.
    *
    * The model must not re-derive it. It cannot: the snapshot projects
    * operating rules for the SELECTED location only, so an armed override on

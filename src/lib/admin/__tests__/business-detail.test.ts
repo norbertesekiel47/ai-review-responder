@@ -4,9 +4,11 @@
 // BusinessDetailResponse DTO before extracting queries/mappers.
 // Mocking pattern modelled on denorm-queries.test.ts.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Sql } from 'postgres';
 import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
+import { resetServerConfigForTests } from '@/lib/config/server';
+import { SubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
@@ -174,7 +176,7 @@ const AUTO_APPROVAL_POLICY_ROWS = [
 ];
 
 const AUTO_APPROVAL_ACCOUNT_ROW = {
-  subscription_tier: 'autopilot',
+  subscription_tier: SubscriptionTier.AUTOPILOT,
   subscription_status: 'active',
   past_due_at: null,
   flags: {},
@@ -210,6 +212,14 @@ describe('getBusinessDetail — full DTO characterization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMockSql();
+  });
+
+  afterEach(() => {
+    // Only the ADR 0034 cases below set this; the rest of the suite reads the
+    // unset default. `getServerConfig()` memoizes, so the reset is what makes
+    // the deletion visible to the next case.
+    delete process.env.AUTOPILOT_PURCHASABLE;
+    resetServerConfigForTests();
   });
 
   it('returns the full BusinessDetailResponse DTO for a populated fixture', async () => {
@@ -414,6 +424,52 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(policySelect!.text).toContain('persona = ?');
     expect(policySelect!.text).toContain('action_class = ?');
     expect(policySelect!.values).toEqual(expect.arrayContaining(['reply', 'posting']));
+  });
+
+  // ── ADR 0034: admin readiness reads tier entitlement ONLY ──────────
+  //
+  // `buildAutoApprovalDiagnostics` is readiness' SECOND feed of
+  // `autopilotAvailable`. While it composed `&& autopilotPurchasable()`,
+  // /admin/businesses/<id> reported `autopilot_unavailable` for an account the
+  // owner route lets expand — a paused SALE freezing an existing subscriber's
+  // SETTINGS. Both halves of the boundary are pinned here so the fix cannot be
+  // half-reverted: the flag is off in both cases and only the tier moves.
+
+  /** Full 13-query queue with the readiness account row on `tier`. */
+  function queueAllResultsForTier(tier: SubscriptionTierValue) {
+    queueAllResults();
+    sqlReturnQueue[sqlReturnQueue.length - 1] = [
+      { ...AUTO_APPROVAL_ACCOUNT_ROW, subscription_tier: tier },
+    ];
+  }
+
+  it('admin readiness drops autopilot_unavailable for an Autopilot account while AUTOPILOT_PURCHASABLE is false', async () => {
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+
+    queueAllResultsForTier(SubscriptionTier.AUTOPILOT);
+
+    const res = (await getBusinessDetail(sql, 'biz-abc'))!;
+    expect(res).not.toBeNull();
+    expect(res.autoApproval.readiness.blockReasons).not.toContain('autopilot_unavailable');
+    // The paused sale is the ONLY thing that moved: the runtime flag is still
+    // off here, and its own reason still speaks for itself (ADR 0034 §"Why
+    // this is not a loosening").
+    expect(res.autoApproval.readiness.blockReasons).toContain('auto_approval_disabled');
+  });
+
+  it('admin readiness still carries autopilot_unavailable for a Copilot account', async () => {
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+
+    queueAllResultsForTier(SubscriptionTier.COPILOT);
+
+    const res = (await getBusinessDetail(sql, 'biz-abc'))!;
+    expect(res).not.toBeNull();
+    expect(res.autoApproval.readiness.blockReasons).toContain('autopilot_unavailable');
+    expect(res.autoApproval.readiness.canExpand).toBe(false);
   });
 
   it('returns null when the business row is not found (empty batch-1 business query)', async () => {

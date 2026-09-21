@@ -1,0 +1,268 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1352-operator-posting-block-context-53402a",
+  "branch": "fix/1352-operator-posting-block-context",
+  "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "head_sha": "9bfc3491f49464e5c804274dbc2b086116222821",
+  "intake_sha256": "96f2b873e6761ed25a35880393cc559c27a66b852f4492718ddc50529c75b751",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-21T01:19:07Z",
+  "inventory": [
+    {
+      "id": "RT-M01",
+      "test": "a Posting block corrects neither history, a voice proposal, nor an unblocked account",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "policyCardFacts: dropped the `context.status === PROPOSAL_STATUS.PENDING` conjunct. Test failed at proposals.test.ts:639 (`expected [ Array(1) ] to deeply equal []`) on the APPLIED-and-armed case."
+    },
+    {
+      "id": "RT-M02",
+      "test": "a policy proposal that turns auto-posting off carries no Posting block reasons",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "policyCardFacts: dropped the `storedAfter.threshold !== null` conjunct. Test failed at proposals.test.ts:625."
+    },
+    {
+      "id": "RT-M03",
+      "test": "a Posting block corrects neither history, a voice proposal, nor an unblocked account",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "equivalent",
+      "reason": "policyCardFacts: dropped the `context.posting.blocked` conjunct. PROOF of behaviour preservation: buildAutoApprovalPostingStatus (src/lib/auto-approval/posting-status.ts:65) returns `{ blocked: reasons.length > 0, reasons }`, so `blocked === false` implies `reasons === []`, and the guarded expression is `corrected ? postingBlockSentencesFor(context.posting.reasons) : []` — which maps [] to [] either way. The conjunct is redundant by construction, not untested."
+    },
+    {
+      "id": "RT-M04",
+      "test": "a Posting block corrects neither history, a voice proposal, nor an unblocked account",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "mapStoredRows: removed `if (rows.length === 0) return [];`. Test failed on the empty-read case (`expected 2 statements to have a length of 1`), proving the no-statement claim is measured, not asserted by comment."
+    },
+    {
+      "id": "RT-M05",
+      "test": "an off-by-default account with an armed location override states the Posting block",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "killed",
+      "reason": "projectPostingBlock: `correctionOwed: blocked && (accountArmed || anyLocationArmed)` -> `blocked && accountArmed`. Test failed at context.test.ts:408."
+    },
+    {
+      "id": "RT-M06",
+      "test": "snapshot posting is never derived from readiness block reasons",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "killed",
+      "reason": "projectPostingBlock: dropped the `blocked &&` conjunct from correctionOwed. Test failed at context.test.ts:364."
+    },
+    {
+      "id": "RT-M07",
+      "test": "a blocked but unarmed snapshot preserves every Posting block sentence while correctionOwed is false",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "killed",
+      "reason": "projectPostingBlock: `sentences: postingBlockSentences(reasons)` -> `sentences: []`. Test failed at context.test.ts:394, so the completeness-under-suppression claim is real."
+    },
+    {
+      "id": "RT-M08",
+      "test": "the snapshot distinguishes all locations being off from an armed override outside the selected location",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "equivalent",
+      "reason": "projectPostingBlock: removed `&& !location.effective.inherited` from anyLocationArmed. PROOF: resolveEffectivePolicy (src/lib/auto-approval/policy.ts:140) sets `source: locationOverride ? 'location_override' : 'account_default'`; settings.ts:1147 sets `inherited: effective.source !== 'location_override'`; toApiState (settings.ts:1302) sets `exists: Boolean(policy)` from the SAME `override` object. Therefore `override.exists === !effective.inherited` for every AutoApprovalSettingsResponse the loader can produce, and the two clauses are one predicate spelled twice."
+    },
+    {
+      "id": "RT-M09",
+      "test": "an account that is off by default with no armed override states off, not a Posting block correction",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "equivalent",
+      "reason": "projectPostingBlock: removed `location.override.exists` from anyLocationArmed. Same proof as RT-M08 — `override.exists` and `!effective.inherited` are the same predicate, so removing either preserves behaviour on every loader-produced response."
+    },
+    {
+      "id": "RT-M10",
+      "test": "the card renders one owner sentence per Posting block reason",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-01",
+      "reason": "ProposalCard.tsx:206 `proposal.postingBlockSentences.length > 0` -> `> 1`. The test renders exactly TWO sentences, so the mutant still renders them; its negative case renders ZERO, which both predicates suppress. The single-sentence arity — the modal real case and #1352's own headline scenario (judge_disabled alone) — is never rendered by this test."
+    },
+    {
+      "id": "RT-M11",
+      "test": "the card still allows Apply while a Posting block is present",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-01",
+      "reason": "Same mutant as RT-M10, run against the only other card test that supplies a Posting block. This test DOES render a single sentence but asserts nothing about it (only that Apply stays enabled), so the mutant survives here too. Together RT-M10 and RT-M11 show no runnable test discriminates the n=1 render."
+    },
+    {
+      "id": "RT-M12",
+      "test": "a Copilot account still carries autopilot_unavailable",
+      "file": "src/lib/auto-approval/__tests__/settings.test.ts",
+      "outcome": "killed",
+      "reason": "buildReadiness: `autopilotAvailable = tierGrantsAutopilot(account?.subscription_tier)` -> `= true`. Test failed on `canExpand`/`blockReasons`, so ADR 0034 narrowed the input without deleting the tier gate."
+    },
+    {
+      "id": "RT-M13",
+      "test": "maps reasons to sentences in the given order, adding nothing",
+      "file": "src/lib/auto-approval/__tests__/posting-block-copy.test.ts",
+      "outcome": "killed",
+      "reason": "postingBlockSentences: reversed the reason order before mapping. Test failed at posting-block-copy.test.ts:43, so the builder-order contract is measured."
+    },
+    {
+      "id": "RT-M14",
+      "test": "Operator Restore workflow shows preparation progress and a retryable error without creating an Apply button",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx",
+      "outcome": "killed",
+      "reason": "D7 RE-RUN of refreshed assertion site rt-0041. ProposalCard.tsx:232 `disabled={busy}` -> `disabled={false}`. Test failed with the site's pinned jest-dom shape (`Error: expect(element).toBeDisabled()` + `Received element is not disabled:` + a __VITEST_EXTEND_ASSERTION__ frame) and the single project stack frame resolved to RestoreWorkflow.test.tsx:218 — exactly the REFRESHED `line`. The inference D7 declined to demonstrate holds for this site."
+    },
+    {
+      "id": "RT-M15",
+      "test": "Operator Restore workflow keeps an out-of-window prepared restore actionable immediately and after loading persisted timeline history",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx",
+      "outcome": "killed",
+      "reason": "D7 RE-RUN of refreshed assertion site rt-0039. ProposalCard.tsx: the Apply label was forced to 'Confirm and apply'. Test failed with the site's pinned query-family shape (header `Error`, messagePrefix `Unable to find role=\"button\" and name \"Apply\"`, waitForWrapper + query-helpers.js dependency frames) at RestoreWorkflow.test.tsx:176 — exactly the REFRESHED `line`. Second refreshed site confirmed live."
+    },
+    {
+      "id": "RT-M16",
+      "test": "system prompt gates every Posting block mention on correctionOwed while preserving supported proposals",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "outcome": "killed",
+      "reason": "prompt.ts: deleted the `snapshot.posting.correctionOwed is false` silence rule. Test failed, so the suppression rule's presence is asserted rather than assumed."
+    },
+    {
+      "id": "RT-M17",
+      "test": "snapshot carries the account Posting block, blocked and reasons, from the settings response",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "killed",
+      "reason": "projectPostingBlock: `reasons = settings.posting.reasons.slice()` -> `[]`. Test failed."
+    },
+    {
+      "id": "RT-M18",
+      "test": "a Posting block corrects neither history, a voice proposal, nor an unblocked account",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "withoutFriction: `postingBlockSentences: []` -> a non-empty sentence. Test failed on the VOICE-proposal-while-blocked case, so the 'a voice proposal claims nothing about posting' rule is measured."
+    },
+    {
+      "id": "RT-M19",
+      "test": "the settings page and the Proposal card render the same sentence for judge_disabled",
+      "file": "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx",
+      "outcome": "killed",
+      "reason": "AutoApprovalClient.tsx:712: replaced the POSTING_BLOCK_COPY lookup with a hardcoded sentence. Test failed, so the shared-copy-owner claim is enforced on the settings page and not only on the card."
+    },
+    {
+      "id": "RT-M20",
+      "test": "proposals.test.ts + ProposalCard.test.tsx + RestoreWorkflow.test.tsx + apply.test.ts (56 tests, whole-suite sweep)",
+      "file": "src/lib/agents/operator/proposals.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-02",
+      "reason": "restoreCardFacts (proposals.ts:498) was mutated to pass `{ ...context, posting: { blocked: false, reasons: [] } }` into policyCardFacts, neutering the Posting block on the RESTORE-card branch only. All 56 tests in the four suites that touch restore cards PASSED. No runnable test asserts postingBlockSentences on a restore card, and neither live-DB case in reads.integration.test.ts covers one either — this is an uncovered production hunk, not a demonstrated survivor, because no candidate test exercises the assertion at all."
+    },
+    {
+      "id": "RT-M21",
+      "test": "a pending armed proposal in the conversation transcript renders the current Posting block sentences",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "infra",
+      "reason": "Live-DB suite. No validated localhost TEST_DATABASE_POOL_URL was available, so the red-team environment set REPWORTH_DISABLE_LIVE_DB_SUITES=1 and the case never ran. Promised test #23; it is the only test covering the transcript reader (listProposalsForTurns) end to end."
+    },
+    {
+      "id": "RT-M22",
+      "test": "rereading the same pending proposal adds and removes Posting block sentences as current settings change",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "infra",
+      "reason": "Live-DB suite, same reason as RT-M21. Promised test #24; it is the only test proving the read-time derivation actually re-reads (frozen expansionBlockedBy vs moving sentences)."
+    },
+    {
+      "id": "RT-M23",
+      "test": "the prompt names the operations it may propose and the fields it must emit",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Covers the OWNER_OPERATOR_PROMPT_VERSION bump to '2026-09-20.1'. Not mutated: the assertion is a byte equality on the mutated constant itself, so the measurement would be circular. Left unexecuted rather than reported as measured."
+    },
+    {
+      "id": "RT-M24",
+      "test": "src/lib/auto-approval/readiness.ts and src/lib/auto-approval/posting-status.ts hunks",
+      "file": "src/lib/auto-approval/readiness.ts",
+      "outcome": "excluded",
+      "reason": "Both hunks on this branch are docblock/comment-only (verified by diff: no executable line changed in either file). Nothing to mutate."
+    },
+    {
+      "id": "RT-M25",
+      "test": "OPERATOR_SNAPSHOT posting fixture",
+      "file": "tests/llm-eval/structured-runner.ts",
+      "outcome": "excluded",
+      "reason": "LLM-eval harness fixture, added only to satisfy the widened Snapshot type. Not a production hunk and not a Vitest candidate."
+    },
+    {
+      "id": "RT-M26",
+      "test": "OPERATOR_FRONTEND_ASSERTION_SITES pin refresh (D7)",
+      "file": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+      "outcome": "killed",
+      "reason": "Not a Vitest mutation but a direct measurement, recorded here so the D7 claim has an inventory row. Parsed both versions of the array and compared field by field: 14 records, same ids, same order, 13 changed, and in every changed record ONLY `testSha256` and `line` differ (8 records moved line; sourceLine, test, file, target, originalOid, mutantSha256, family, header, messagePrefix all byte-identical). Freshness replay: old pins 14/14 fresh at the merge base, 1/14 at HEAD, new pins 14/14 at HEAD. mutation-runner.mjs:626 confirmed to be the SHA-256 + pinned-line guard. D7 is accurate in every checkable particular."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "title": "The Proposal card's Posting block render gate is unverified at the single-sentence arity, which is the modal case and #1352's own headline scenario",
+      "at": "src/app/(authenticated)/dashboard/operator/ProposalCard.tsx:206",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Mutation `proposal.postingBlockSentences.length > 0` -> `length > 1` survives BOTH card tests that supply a Posting block (RT-M10, RT-M11). It is NOT an equivalent mutation: behaviour differs for exactly one sentence — the mutant renders nothing where HEAD renders the correction. It is NOT an unexecuted branch: both tests execute the gate, one at n=2 and one at n=1. The n=2 test asserts the sentences render; the n=1 test asserts only that Apply stays enabled, so nothing observes the n=1 render. A single-reason Posting block is the common production shape (JUDGE_ENABLED=false alone, or Copilot alone) and is precisely the scenario #1352 was filed for. The owner's recorded decision is 'card guaranteed, chat guided' — this is the guaranteed half, and its guarantee is unmeasured at its most likely arity. Production code at HEAD is CORRECT; the defect is in the test that claims this coverage. Fix is one line: assert the sentence renders in the existing single-sentence test, or render one sentence in the rendering test."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "title": "The restore-card branch of the Posting block fix has no covering test, and its own comment names that risk",
+      "at": "src/lib/agents/operator/proposals.ts:498",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "restoreCardFacts threads the read context into policyCardFacts so a restore that re-arms auto-posting carries the correction; the code comment above it says 'a fix applied to only one branch leaves restore cards silent'. Neutering exactly that branch (passing an unblocked posting status) left all 56 tests in proposals.test.ts, ProposalCard.test.tsx, RestoreWorkflow.test.tsx and apply.test.ts green. No test in the repo asserts postingBlockSentences on a restore card — neither the mocked suites nor the two live-DB cases in reads.integration.test.ts. Recorded as an uncovered change (P1) rather than a confirmed survivor, because no candidate test exercises the behaviour at all."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "title": "The directory page's prompt.ts row states a universal that is false: one of the five added rules is neither about the Posting block nor gated on correctionOwed",
+      "at": "docs/directory/lib-owner-operator.md:26",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The row reads 'Five rules state the **Posting block**, every one of them gated on `snapshot.posting.correctionOwed`' and then enumerates only FOUR. Machine check of prompt.ts at HEAD: five bullets were added; four contain the literal 'Posting block' and 'correctionOwed'; the fifth — 'Say \"set to post\", never \"posts\". A configured rule is a setting, not a guarantee...' — contains neither. It is an unconditional phrasing rule, not a gated one. The branch's own test encodes the correct scope (it filters to rules containing 'Posting block' before asserting correctionOwed), so the doc is out of step with the test beside it. Either the count is wrong or the universal is."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "title": "A comment and fixture added on this branch assert a readiness behaviour that this branch's own ADR 0034 removed, and the fixture now models a state unreachable at HEAD",
+      "at": "src/lib/agents/operator/__tests__/context.test.ts:356",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The comment says 'readiness carries autopilot_unavailable (it folds in autopilotPurchasable(), which the runtime never reads)'. ADR 0034, landed on this branch, deleted that fold: buildReadiness now passes autopilotAvailable = tierGrantsAutopilot(tier) alone (settings.ts:1218). The branch corrected the same sentence in posting-status.ts, context.ts and the glossary but not here. The fixture is worse than stale: settings() pins readiness.blockReasons = ['autopilot_unavailable'] alongside posting = { blocked: false, reasons: [] }, and at HEAD autopilot_unavailable implies !tierGrantsAutopilot, which forces autopilot_tier_required into posting.reasons and blocked = true. No account can produce that response. The test still passes and still checks a valid structural property, but its stated discriminator no longer exists; posting-status.ts itself now names provider_moderation_not_validated as the surviving one."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P2",
+      "title": "Absence-of-one-literal proxy stands in for 'no reason code leaks to the owner'",
+      "at": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:220",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "`expect(screen.queryByText('judge_disabled')).not.toBeInTheDocument()` is commented as 'no reason code leaking to the owner', but it only excludes one of five literals, and it passes trivially because the card is handed owner sentences and never a reason code — the card has no reason value to leak. Behavioural replacement: assert the rendered list equals the supplied sentence array exactly (which also catches an extra or reordered line), or iterate every AutoApprovalPostingBlockReason key. Recorded, not blocking."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 26,
+    "killed": 15,
+    "survived_confirmed_p0": 2,
+    "equivalent": 3,
+    "inconclusive": 3,
+    "skipped_budget": 1,
+    "excluded": 2,
+    "findings_total": 5,
+    "p0_open": 1,
+    "p1_open": 3,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

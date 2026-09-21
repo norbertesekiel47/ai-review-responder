@@ -23,6 +23,15 @@ import {
 } from './wording';
 import './operator.css';
 
+/**
+ * The lead-in for an APPLIED armed rule on a blocked account (#1352). Present
+ * tense, and it concedes the save first: the owner's rule really is stored, and
+ * what follows is the account as it stands now — not a warning about a change
+ * they have yet to make.
+ */
+const POSTING_BLOCK_NOW_LEAD =
+  'This rule is saved, but your account is not set up to post replies automatically right now:';
+
 const POLICY_TITLES: Readonly<Record<string, string>> = {
   set_auto_reply_scope: 'Change auto-reply scope',
   set_veto_window: 'Change the time to stop a reply',
@@ -181,6 +190,9 @@ function ProposalState({
   reasonId: string;
 }) {
   const pending = proposal.status === 'pending';
+  // The view marks this one optional (`proposals.ts`): a payload built before
+  // the field existed carries no notice rather than no card.
+  const postingBlockNow = proposal.postingBlockNowSentences ?? [];
   const refreshable =
     proposal.failureReason !== null && OFFERS_REFRESH_PLAN.has(proposal.failureReason);
 
@@ -205,6 +217,20 @@ function ProposalState({
           their own, unchanged. */}
       {proposal.postingBlockSentences.length > 0 && (
         <ul className="op-readiness">{proposal.postingBlockSentences.map((sentence) => <li key={sentence}>{sentence}</li>)}</ul>
+      )}
+
+      {/* THE SAME ACCOUNT, AFTER APPLY. The label above now reads "Active rule"
+          and the receipt says "Effective now", so a saved rule with nothing
+          behind it is #1352 again one step later. Present tense on purpose and
+          led by a line that says the rule IS saved, so this cannot be misread
+          as the pending card's pre-Apply warning; the receipt beside it still
+          records only what happened. The server makes the two lists mutually
+          exclusive, so a card shows at most one of them. */}
+      {postingBlockNow.length > 0 && (
+        <>
+          <p className="op-note">{POSTING_BLOCK_NOW_LEAD}</p>
+          <ul className="op-readiness">{postingBlockNow.map((sentence) => <li key={sentence}>{sentence}</li>)}</ul>
+        </>
       )}
 
       {pending && <PendingProposalActions proposal={proposal} reasonId={reasonId}

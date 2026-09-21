@@ -18,7 +18,6 @@ import {
 } from '@/lib/auto-approval/flags';
 import { resolveEffectivePolicy } from '@/lib/auto-approval/policy';
 import { buildAutoApprovalReadiness } from '@/lib/auto-approval/readiness';
-import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type {
   AccountContext,
@@ -181,11 +180,15 @@ function buildAutoApprovalDiagnostics({
   // Admin diagnostics are observational, not a settings gate, so readiness is derived
   // without an `impersonated` input — it reflects environment/account state, not the
   // admin's view-as session (which is always blocked from expanding by the owner route).
+  // ADR 0034: tier entitlement ONLY, matching `buildReadiness`
+  // (`src/lib/auto-approval/settings.ts`). This was readiness' second feed of
+  // `autopilotAvailable`, and folding `autopilotPurchasable()` in here made the
+  // admin diagnostic report `autopilot_unavailable` for an account the owner
+  // route lets expand. `autopilot_unavailable` now means one thing in every
+  // lane: this account is not on the Autopilot tier.
   const readiness = buildAutoApprovalReadiness({
     runtimeEnabled,
-    autopilotAvailable:
-      tierGrantsAutopilot(accountRow?.subscription_tier)
-      && autopilotPurchasable(),
+    autopilotAvailable: tierGrantsAutopilot(accountRow?.subscription_tier),
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok,

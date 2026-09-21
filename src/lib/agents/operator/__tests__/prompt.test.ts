@@ -76,7 +76,7 @@ describe('operator prompt', () => {
     }]);
     expect(example.segments).toEqual([{ type: 'proposal_ref', index: 0 }]);
     expect(example.unsupported).toEqual([]);
-    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-20.1');
+    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-20.2');
     expect(operatorSystemPromptHash()).not.toBe('3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a');
   });
 
@@ -109,16 +109,28 @@ describe('operator prompt', () => {
     expect(phrasing).toMatch(/safety checks and service availability/);
   });
 
-  it('system prompt gates every Posting block mention on correctionOwed while preserving supported proposals', () => {
+  it('system prompt gates UNSOLICITED Posting block mention on correctionOwed while allowing a direct answer and preserving supported proposals', () => {
     const { system } = buildOperatorPrompt(snapshot, 'Turn automatic replies off for all locations.');
     const rules = outputRules(system);
 
-    // Silence when nothing is owed, even for a blocked account: the server has
-    // already decided, and the model never re-derives it.
+    // Nothing owed means nothing VOLUNTEERED, even for a blocked account: the
+    // server has already decided, and the model never re-derives it.
     const silence = rules.find((rule) => rule.includes('snapshot.posting.correctionOwed is false'));
     expect(silence).toBeDefined();
-    expect(silence).toMatch(/say nothing about a Posting block/);
+    expect(silence).toMatch(/never volunteer a Posting block/);
+    expect(silence).toMatch(/no unprompted warning/);
     expect(silence).toMatch(/snapshot\.posting\.blocked is true/);
+    expect(silence).toMatch(/never re-derive account-wide armed state/);
+
+    // But it is NOT a gag. An owner who asks directly — "apart from my rule
+    // being off, is anything stopping automatic posting?" — is answered from
+    // the snapshot, verbatim, inventing nothing. Concealing a known fact from a
+    // direct question is #1352 wearing the opposite sign, and no card is
+    // involved in that exchange, so the deterministic half protects nobody.
+    expect(silence).toMatch(/asks directly/);
+    expect(silence).toMatch(/answer from snapshot\.posting\.sentences/);
+    expect(silence).toMatch(/verbatim/);
+    expect(silence).not.toMatch(/say nothing about a Posting block/);
 
     // Rules 4 and 5 are subordinate to correctionOwed: EVERY rule that names
     // the Posting block defers the decision to mention it back to that field.
@@ -127,6 +139,16 @@ describe('operator prompt', () => {
     for (const rule of postingRules) {
       expect(rule, rule).toContain('correctionOwed');
     }
+
+    // What is gated is the MENTION, not every wording rule. The always-on
+    // "set to post" rule is about promise level — it applies to any reply about
+    // any rule, block or none — so it names neither concept and is gated on
+    // nothing. "Every rule is gated" would be the overstatement this title used
+    // to make.
+    const phrasing = rules.find((rule) => rule.includes('"set to post"'));
+    expect(phrasing).toBeDefined();
+    expect(phrasing).not.toContain('correctionOwed');
+    expect(postingRules).not.toContain(phrasing);
 
     const proposals = rules.find((rule) => rule.includes('never withholds a proposal'));
     expect(proposals).toBeDefined();
