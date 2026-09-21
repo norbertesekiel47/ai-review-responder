@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "Changes a worker job handler (worker/jobs/account-offboarding/PurgeWorker.ts).",
+    "The signal it changes is the only page for a terminally failed offboarding purge, which is a deletion obligation. A wrong fingerprint or rule row fails silent: the rule looks correct and alerts on the wrong event (RT-08)."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "A terminally failed offboarding purge raises a Sentry issue of its own, separate from the retry issue, and docs/runbooks/beta-launch-alerting.md holds a complete rule that routes that terminal issue to the Discord alerts channel. The csv_ingest lock-key guard also scans the offboarding purge lane (#612 remainder).",
+  "non_goals": [
+    "The terminal path does NOT throw. It keeps markPurgeTerminalFailure + markOutboxFailed + return, so attachJobFailureSink stays silent for it (owner decision 2026-09-21: no double report).",
+    "No change to HealthAlertPoller or its topic allowlist.",
+    "No change to the captureMessage text account_offboarding_purge_failed, its tags, its levels, or its extra fields.",
+    "No change to purge stage order, outbox transitions, or retry counts.",
+    "The Sentry rule is NOT created in the Sentry UI by this run. That is an owner action after merge, from the runbook click-path.",
+    "#612 finding 1 (the batch-build race) is NOT in scope: PR #637 closed it (purge-stages.ts takes acquireSolicitationBatchLock; offboarding-lifecycle.integration.test.ts proves it).",
+    "No change to the lock-key regular expression or to the solicitation_batch guard in batch-builder.test.ts."
+  ],
+  "user_visible_behavior": [
+    "Operator: EACH terminally failed offboarding is its own Sentry issue, fingerprint [account_offboarding_purge_failed, terminal, <account_offboarding_id>] at level error, so the per-issue action throttle cannot suppress a second account's page (owner decision 2026-09-21 on review finding Codex A1; supersedes the two-member terminal fingerprint first locked here). Retry failures group under the shared [account_offboarding_purge_failed, retry] at level warning. A rule on a terminal issue can no longer be consumed by an earlier retry event.",
+    "Operator: beta-launch-alerting.md has a rule row account-offboarding-purge-terminal -> discord with all six facets (signal identity, filter, level, grouping, threshold and cadence, destination action), plus its entry in the section 1a-do click-path.",
+    "Developer: a respelled csv_ingest lock key anywhere under src/lib or worker, including worker/jobs/account-offboarding, turns the single-owner guard red."
+  ],
+  "invariants": [
+    "The terminal fingerprint and the retry fingerprint are never equal, on the catch-block path and on the validation-error path.",
+    "Both alert sites (validation failure, stage failure) call the one alertPurgeFailure function. No second emitter.",
+    "The fingerprint values in the runbook row are byte-identical to the constants the worker sends. A test pins them.",
+    "Sentry extra keeps only account_offboarding_id, account_id and the scrubbed error. No PII is added.",
+    "The terminal branch still returns without a throw after markPurgeTerminalFailure and markOutboxFailed.",
+    "acquireCsvIngestLock stays the only file that constructs the csv_ingest key."
+  ],
+  "edge_cases": [
+    "Validation failure on the terminal attempt (PurgeWorker.ts:61-71) uses the terminal fingerprint, the same as a stage failure.",
+    "A stale outbox attempt (isStaleOutboxAttemptError) raises no alert. Unchanged.",
+    "The terminal test stays isTerminalAttempt(job), the catch-block form. The failed-event form in worker/job-failure-sink.ts is a different predicate and is not unified.",
+    "A warning-level captureMessage does not reliably classify as high priority in Sentry (runbook CONFIG-1). The rule therefore filters on tag terminal equals true and level error, and does not depend on priority.",
+    "purge-stages.ts:261 has a comment that spells the key form ('csv_ingest_' || id). The widened scan matches it. The scan therefore ignores comment lines (the regex itself stays unchanged), and that production comment stays as it was (review finding Std S5, 2026-09-21; supersedes the first resolution, which reworded the comment).",
+    "Threshold and cadence follow the every-event precedent: every event, action throttle 60 minutes per issue, the existing Discord alerts channel through integration 443670."
+  ],
+  "existing_patterns_to_follow": [
+    "docs/runbooks/beta-launch-alerting.md — the operator-retained-veto-invariant and safety-review-failed-closed rule rows (six facets in one table row) and their section 1a-do entries.",
+    "src/lib/refusals/__tests__/write.test.ts — a test that reads beta-launch-alerting.md and pins a doc claim to code.",
+    "src/lib/solicitation/__tests__/batch-builder.test.ts:841 — LOCK_LANE_ROOTS = ['src/lib', 'worker'], the scan width to match.",
+    "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts — mockCaptureMessage and the terminal-attempt fixtures (line 690)."
+  ],
+  "test_seams": [
+    "handleAccountOffboardingPurge(sql, supabaseServer, job) with @sentry/node mocked (mockCaptureMessage).",
+    "The exported fingerprint constants of PurgeWorker.ts, read against the runbook file.",
+    "The lane-source walk in src/lib/solicitation/__tests__/ingest.test.ts."
+  ],
+  "allowed_edit_surface": [
+    "worker/jobs/account-offboarding/PurgeWorker.ts",
+    "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
+    "worker/jobs/account-offboarding/purge-stages.ts",
+    "docs/runbooks/beta-launch-alerting.md",
+    "src/lib/solicitation/__tests__/ingest.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "docs/superpowers/plans/fix-1016-612-purge-terminal-alert-*",
+    "docs/reviews/fix/1016-612-purge-terminal-alert/*",
+    "docs/reviews/red-team/*1016*/*"
+  ],
+  "tests_to_add": [
+    "alerts a terminal stage failure with the terminal fingerprint at error level",
+    "alerts a retryable stage failure with the retry fingerprint at warning level",
+    "alerts a terminal validation failure with the terminal fingerprint",
+    "the terminal and retry purge alerts never share a fingerprint",
+    "the terminal purge path marks the outbox failed and does not throw",
+    "the alerting runbook routes the terminal purge fingerprint the worker sends",
+    "the csv_ingest lock-key scan covers the offboarding purge lane"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 25,
+  "estimated_test_lines": 130,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single squash commit. Sentry then groups terminal and retry events into one issue again. If the Sentry rule already exists, disable it in the Sentry UI after the revert, because its fingerprint filter then matches nothing. No schema, flag, or data change.",
+  "observability": [
+    "Sentry: two separate issues for account_offboarding_purge_failed, split by fingerprint (terminal, retry).",
+    "After the owner creates the rule: the staging drill for a forced terminal purge failure posts to the Discord alerts channel one time."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

@@ -81,3 +81,8 @@ pre-push:
     # Diff-based, like merge-ledger: skipped when `origin/main` is unfetched.
     weakened-checks:
       run: pnpm ci:weakened-checks
+    # gitleaks over the commits this push adds (origin/main..HEAD), never the
+    # working tree — fails closed on an absent binary or an unresolvable
+    # origin/main (#1374).
+    secret-scan:
+      run: pnpm ci:secret-scan

@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1016-612-purge-terminal-alert-e8cee7",
+  "branch": "fix/1016-612-purge-terminal-alert",
+  "fork_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "merge_base_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "head_sha": "fac1246a7e583e35703400d879d88d0df149e7dd",
+  "intake_sha256": "6b31067516e217aad0846e55eb926161a5a8d33068b58030a7a135f7420a6c7a",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-21T18:05:00Z",
+  "inventory": [
+    {
+      "id": "RT-A1",
+      "test": "alerts a terminal stage failure with the terminal fingerprint at error level",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:777",
+      "outcome": "killed",
+      "reason": "Round-2 kill carried on measured grounds, not on trust: `git diff 4070fad8b fac1246a7 -- worker/jobs/account-offboarding/PurgeWorker.ts worker/jobs/account-offboarding/purge-stages.ts` is EMPTY (no production code changed in round 3), and the only two hunks in PurgeWorker.test.ts this round are at lines 302-337 (new table-cell helpers) and 957-1017 (the runbook pin test), both outside this test body. Both changed test files were re-run green at fac1246 (27/27). Round-2 evidence: M19 purgeTerminalFingerprint(payload.account_offboarding_id) -> (payload.account_id) at PurgeWorker.ts:173 failed the test."
+    },
+    {
+      "id": "RT-A2",
+      "test": "alerts a retryable stage failure with the retry fingerprint at warning level",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:798",
+      "outcome": "killed",
+      "reason": "Carried on the same measured grounds as RT-A1 (production byte-identical at fac1246, test body untouched by the round-3 hunks, 27/27 green). Round-2 evidence: M10 made the retry arm per-offboarding at PurgeWorker.ts:175 and the test failed."
+    },
+    {
+      "id": "RT-A3",
+      "test": "alerts a terminal validation failure with the terminal fingerprint",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:817",
+      "outcome": "killed",
+      "reason": "Carried on the same measured grounds as RT-A1. Round-2 evidence: M18 dropped purgeTerminalFingerprint's third member at PurgeWorker.ts:59-61 and the test failed."
+    },
+    {
+      "id": "RT-A4",
+      "test": "the terminal and retry purge alerts never share a fingerprint",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:837",
+      "outcome": "killed",
+      "reason": "Carried on the same measured grounds as RT-A1. Round-2 evidence: M16 collapsed the ternary so both arms emit the retry fingerprint (the literal pre-#1016 defect) and the test failed."
+    },
+    {
+      "id": "RT-A10",
+      "test": "two offboardings' terminal alerts never share a fingerprint",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:861",
+      "outcome": "killed",
+      "reason": "Carried on the same measured grounds as RT-A1. Round-2 evidence: three independent kills (M7 third member dropped, M8 account_id substituted for account_offboarding_id, M9b shared-prefix aliasing)."
+    },
+    {
+      "id": "RT-A5",
+      "test": "the terminal purge path marks the outbox failed and does not throw",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:896",
+      "outcome": "killed",
+      "reason": "Carried on the same measured grounds as RT-A1. Round-2 evidence: M17 dropped the third fingerprint member at PurgeWorker.ts:59-61 and the test failed."
+    },
+    {
+      "id": "RT-A6",
+      "test": "the alerting runbook routes the terminal purge fingerprint the worker sends",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:958",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT16-11",
+      "reason": "24 single-change mutations of rule 16's block at fac1246, each against a green baseline, each restored and verified. SEVENTEEN KILLED, including round-2's own survivor. M1 (the round-2 P0: the two fingerprint spellings SWAPPED inside the row) is now KILLED - RT16-02 is measured closed. Also killed: M2 (retry-arm sentence moved ahead of the terminal grouping), M3 (terminal fingerprint duplicated into the retry half while kept in the head), M4 (table header row deleted), M5 (columns reordered in the HEADER only - the derived index then points at the wrong cell), M6a (a second, corrupted row with the same rule name ABOVE the real one), M7 (escaped pipe plus `terminal` equals `false` in one cell), M7c (escaped pipe in the filter cell AND Every-event -> First-seen in the trigger cell - proof the unescaped-pipe split does not shift column indices), M8 (<account_offboarding_id> -> <account_id>), M9 (rule renamed in the row only), M10 (the pristine row moved under rule 15 while rule 16's is corrupted), M12 (the round-2 P2: grouping cell's opening level error -> warning - RT16-10 is measured closed), M13 (throttle 60 -> 10 minutes), M14 (integration 443670 -> 443671), M15 (Every event -> First seen), M16 (environment scoping dropped), M17 (the **Rule 16 heading renamed). SEVEN SURVIVED, in three classes. (a) THE P0, RT16-11 - prose NEGATION, measured three times in three different cells (M11 filter cell, M18 trigger cell, M19 grouping cell); all three keep every pinned substring present and all three read GREEN. (b) PROVEN EQUIVALENT, raising no finding: M20 replaced escapeRegExp's body with `return literal` - every member fingerprintPattern actually receives is PURGE_ALERT_MESSAGE ('account_offboarding_purge_failed', PurgeWorker.ts:34), 'terminal', 'retry' or the literal '<account_offboarding_id>', none of which contains a regex metacharacter, so the mutant builds byte-identical regexes; and M7b added an escaped pipe to the filter cell without changing any configured value, which the row's own stated contract permits and which M7c proves does not blind the neighbouring cells. (c) M6b - a second, CORRUPTED row with the same rule name BELOW the real one survives, because rule16TableRow uses .find() and pins only the FIRST match; recorded as P2 RT16-13."
+    },
+    {
+      "id": "RT-A7",
+      "test": "the csv_ingest lock-key scan covers the offboarding purge lane",
+      "file": "src/lib/solicitation/__tests__/ingest.test.ts:178",
+      "outcome": "killed",
+      "reason": "Re-measured at fac1246, not carried: N10 narrowed LANE_ROOTS back to ['src/lib/solicitation','worker/jobs/csv-ingest'] at ingest.test.ts:83 and the test FAILED. The round-1 P2 (RT16-07) stays addressed - the assertion is the directory predicate path.startsWith('worker/jobs/account-offboarding/'), not a hard-coded filename - and this test does not call stripComments, so the round-3 hunk cannot have weakened it."
+    },
+    {
+      "id": "RT-A8",
+      "test": "acquireCsvIngestLock is the single owner of the csv_ingest advisory-lock key",
+      "file": "src/lib/solicitation/__tests__/ingest.test.ts:158",
+      "outcome": "killed",
+      "reason": "Nine single-change probes of the new stripComments against worker/jobs/account-offboarding/purge-stages.ts at fac1246. FIVE KILLED: N8 (control - the key on an ordinary code line), N1 (THE ROUND-2 SURVIVOR: the respelled key on a `*`-leading multiplication continuation line - now read, so RT16-09 is measured closed), N3 (the key after a closing block comment on the same line - the other hole the old line filter opened), N4 (the key beside a template literal containing an opening block-comment sequence with no later close), N6 (an UNTERMINATED block-comment opener at EOF followed by the key - the non-greedy block pattern requires a close, so it does NOT blank the rest of the file and hides nothing; the feared false negative does not exist). FOUR SURVIVED, one blind-spot class, recorded as P2 RT16-12: N2 (a line-comment marker inside a STRING earlier on the line), N5 (a regex literal containing the same two characters earlier on the line), N7 (an https URL earlier on the line) - all three are the imprecision the new docblock declares - and N9, which is NOT declared: a string containing an opening block-comment sequence near the top of the file opens a span that runs to the next real close and blanks every line in between, including the respelled key. The docblock states the line-comment case 'can only ever hide text AFTER the `//` on that line' and is silent on the block-comment-in-a-literal case, whose blast radius is a multi-line SPAN."
+    },
+    {
+      "id": "RT-A9",
+      "test": "(no covering test) ledger paragraph rewrite",
+      "file": ".claude/reference/arch-review-log.md:3",
+      "outcome": "excluded",
+      "reason": "Prose-only hunk in a durable doc with no executable oracle. Measured instead under Duty 3 by re-resolving each clause the round-3 rewrite changed against fac1246 (see findings.md, Duty 3 table): the 'splits its table ROW into cells / finds each cell by its column header' clause and the 'blanks COMMENT TEXT (not whole comment LINES, which hid code after a close-comment and on `*`-leading continuations)' clause both resolve TRUE by measurement (M1-M20, N1/N3). Its trailing 'and nothing else in the row' repeats the runbook's over-claim and is recorded as RT16-14. The three GitHub issue numbers stay UNVERIFIABLE-EXTERNAL (no network in this pass)."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT16-01",
+      "severity": "P0",
+      "title": "Rule 16's operator action prescribes a re-drive of a terminally failed purge that no code path can perform",
+      "at": "docs/runbooks/beta-launch-alerting.md:586",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Round 3 re-resolved the clause this round CHANGED. The paragraph replaced 'no admin route mutates purge state' with a named exception: the teardown retry path is scoped to failed_step='teardown' - both AccountOffboardingTeardownRetryPoller and shouldTransitionToPurgeScheduled, the predicate behind the admin provider-disposition route (recordProviderDisposition); it is the one admin path that writes status/failed_step at all; on a failed_step='purge' row the predicate is false, so it records the disposition and leaves both untouched. All three halves resolve TRUE at fac1246: shouldTransitionToPurgeScheduled (src/lib/account-offboarding/provider-disposition.ts:277-295) returns false unless row.status='failed' (:281) AND row.failed_step='teardown' (:282); recordProviderDisposition's UPDATE (:183-191) sets status and failed_step to row.status and row.failed_step verbatim when the predicate is false (:179-180), so the stored values are unchanged; and src/app/api/admin/** contains exactly one route touching those columns - admin/offboardings/[offboardingId]/provider-disposition/route.ts. The other two library writers are OWNER routes, not admin: retry-billing.ts:67-82 (reachable only from /api/account/offboarding/retry-billing and scoped to mode='cancel_only' AND failed_step='billing') and keep-my-data.ts:181. The round-2 verification of the rest of the paragraph still holds; every production file it cites is byte-identical at fac1246. 'tracked in #1411' stays UNVERIFIABLE-EXTERNAL."
+    },
+    {
+      "id": "RT16-02",
+      "severity": "P0",
+      "title": "The runbook doc-pin still passes when the rule row's two fingerprint spellings are SWAPPED: the assertions are regexes over the whole row, not over the cell that owns the value",
+      "at": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:985",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "MEASURED CLOSED at fac1246. M1 re-applied round 2's exact survivor - the terminal spelling and the retry spelling swapped inside the same row - and the test FAILED. The fix is position-scoping: tableCells() splits the row on unescaped pipes, rule16ColumnIndex() derives 'Level and grouping' from the block's own header row, the cell is cut at its 'The retry arm' sentence, and each fingerprint is asserted present in its own half AND absent from the other (PurgeWorker.test.ts:983-993). Three further probes confirm the split is load-bearing rather than incidental: M2 (retry sentence moved ahead of the terminal grouping) KILLED, M3 (terminal fingerprint duplicated into the retry half) KILLED, M7c (an escaped pipe inserted in an earlier cell does not shift the derived index) KILLED. The mechanism is sound; what survives it is a different class, recorded as RT16-11."
+    },
+    {
+      "id": "RT16-03",
+      "severity": "P1",
+      "title": "The arch-review ledger asserts present-tense rule-1 coverage for a rule that is not configured and whose trigger is first-seen",
+      "at": ".claude/reference/arch-review-log.md:3",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "The clauses this finding covers are byte-identical between 4070fad and fac1246 (the round-3 rewrite of that paragraph touched only the pin description and the stripComments description). Re-resolved again at fac1246: rule 1's section-1 checklist box is unchecked at beta-launch-alerting.md:56; its table row at :435 reads 'issue is first seen'; health-alert/emit.ts:12 calls Sentry.captureMessage with tags and extra and NO fingerprint; checks.ts:132-133 builds a count-bearing title and a detail of {topic, count, window_s} that never carries the offboarding id."
+    },
+    {
+      "id": "RT16-04",
+      "severity": "P1",
+      "title": "Missed sibling: alertTeardownFailure has the identical RT-08 shape (constant message, no fingerprint, returning terminal branch)",
+      "at": "worker/jobs/account-offboarding/TeardownWorker.ts:333",
+      "duty": 4,
+      "disposition": "accepted-risk",
+      "authorization": "owner-accepted-risk-siblings-2026-09-21",
+      "arbiter_reasoning": "RE-VERIFIED STILL FACTUALLY TRUE AT fac1246 before recording the owner's adjudication: `git diff 75c8d54cb fac1246a7 -- worker/jobs/account-offboarding/TeardownWorker.ts` is EMPTY (byte-identical to the merge base), and a search for the word 'fingerprint' in that file returns ZERO matches - so alertTeardownFailure (:333, called from :88 and :123 on every failed attempt) still collapses the retry warning and the terminal error into one Sentry issue, exactly the RT-08 shape #1016 fixed in PurgeWorker. The branch does not fix it by owner decision; the runbook names the deferral at beta-launch-alerting.md:584 and #1412 remains UNVERIFIABLE-EXTERNAL from this pass. Disposition moved from open to accepted-risk on the strength of the owner's verbatim adjudication recorded as owner-accepted-risk-siblings-2026-09-21."
+    },
+    {
+      "id": "RT16-05",
+      "severity": "P1",
+      "title": "Missed sibling: alertBillingScheduleFailure has the identical RT-08 shape",
+      "at": "worker/jobs/account-offboarding/BillingScheduleWorker.ts:159",
+      "duty": 4,
+      "disposition": "accepted-risk",
+      "authorization": "owner-accepted-risk-siblings-2026-09-21",
+      "arbiter_reasoning": "RE-VERIFIED STILL FACTUALLY TRUE AT fac1246: `git diff 75c8d54cb fac1246a7 -- worker/jobs/account-offboarding/BillingScheduleWorker.ts` is EMPTY, and the word 'fingerprint' does not occur anywhere in that file, so alertBillingScheduleFailure (:159, called from :69) still gives the retry warning and the terminal error one shared issue. Same deferral (#1412, UNVERIFIABLE-EXTERNAL) and the same owner adjudication as RT16-04."
+    },
+    {
+      "id": "RT16-06",
+      "severity": "P2",
+      "title": "The terminal account_offboarding_not_found path raises no Sentry signal at all",
+      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:82",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "owner-accepted-risk-siblings-2026-09-21",
+      "arbiter_reasoning": "RE-VERIFIED STILL FACTUALLY TRUE AT fac1246: PurgeWorker.ts:81-84 marks the outbox row failed with reason account_offboarding_not_found and returns, with no captureMessage anywhere in the branch, and the whole file is byte-identical to the round-2 reviewed HEAD. The runbook names this gap and its two siblings explicitly under 'Paths this rule does NOT cover (#1413)' at beta-launch-alerting.md:584. Documenting the gap is the half the diff could deliver; P2 never blocks, and the owner has now adjudicated it out of scope for this branch."
+    },
+    {
+      "id": "RT16-07",
+      "severity": "P2",
+      "title": "The new #612 guard is an absence-of-gap proxy on one hard-coded path",
+      "at": "src/lib/solicitation/__tests__/ingest.test.ts:178",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "Re-measured at fac1246 rather than carried: N10 narrowed LANE_ROOTS back to the pre-fix pair and the lane-coverage test FAILED (inventory RT-A7). The assertion is still the DIRECTORY predicate laneSourceFiles().some((f) => f.path.startsWith('worker/jobs/account-offboarding/')), so a file split inside the lane does not turn it red while a respelling in a sibling file stays visible. purge-stages.ts remains byte-identical to the merge base at fac1246, so no production comment was reworded to appease the guard."
+    },
+    {
+      "id": "RT16-08",
+      "severity": "P2",
+      "title": "Rule-16 prose gives the weaker of two reasons why rule 11 cannot cover this signal",
+      "at": "docs/runbooks/beta-launch-alerting.md:580",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Byte-identical between 4070fad and fac1246 and re-resolved again: the prose states that rule 11's filter is subsystem equals worker_job AND queue equals agent_turn, so it matches neither this handler's captureMessage nor any captureException from this queue - and rule 11's own table row at beta-launch-alerting.md:446 carries exactly that conjunctive _If_ filter."
+    },
+    {
+      "id": "RT16-09",
+      "severity": "P2",
+      "title": "stripCommentLines opened a false-negative hole: a CODE line whose trimmed form starts with `*` is stripped, so a key respelling there is invisible to the guard",
+      "at": "src/lib/solicitation/__tests__/ingest.test.ts:97",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "MEASURED CLOSED at fac1246. N1 re-applied round 2's exact survivor - the respelled key on a `*`-leading multiplication continuation line inside purge-stages.ts - and the single-owner test FAILED. stripCommentLines is gone; stripComments (ingest.test.ts:115-119) blanks block-comment spans and line-comment tails space-for-space and keeps every other character, so N3 (a key after a closing block comment on the same line) is caught too, and N6 proves an unterminated opener at EOF does not blank the remainder of the file. The replacement has its own, narrower blind spot, raised separately as RT16-12 rather than folded in here."
+    },
+    {
+      "id": "RT16-10",
+      "severity": "P2",
+      "title": "Rule 16's row states the event level twice and the pin covers only one of them",
+      "at": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:978",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "MEASURED CLOSED at fac1246. M12 re-applied round 2's exact survivor - the grouping cell's leading level token inverted from error to warning - and the test FAILED, on the new anchored assertion expect(groupingCell).toMatch(/^`error`/) at PurgeWorker.test.ts:978. The trigger cell's two further facets named in this finding's remedy are pinned too: M13 (throttle 60 -> 10 minutes) and M14 (integration 443670 -> 443671) both KILLED, alongside M15 (Every event -> First seen)."
+    },
+    {
+      "id": "RT16-11",
+      "severity": "P0",
+      "title": "The cell pins assert PRESENCE, not polarity: prefixing a facet with a negation leaves every assertion green while the row instructs the operator to do the opposite",
+      "at": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:970",
+      "duty": 1,
+      "disposition": "accepted-risk",
+      "authorization": "owner-accepted-risk-rt16-11-2026-09-21",
+      "arbiter_reasoning": "Measured three times, in three different cells of the same row, each as a single change against a green baseline, each SURVIVING. M11: the filter cell's 'filter tag terminal equals true AND level equals error' became 'do **not** filter tag terminal equals true AND level equals error'. M18: the trigger cell's 'Every event, action throttle 60 minutes per issue;' became 'Do **not** use Every event, and do **not** set the action throttle 60 minutes per issue;'. M19: the grouping cell's 'which is the whole grouping:' became 'which is NOT the grouping to configure:'. NOT EQUIVALENT: after M11 an operator following the row builds a Sentry rule with no terminal, level, subsystem or step filter at all, so every retry warning from alertPurgeFailure pages the Discord channel - the retry/terminal conflation this whole change exists to undo, one level further out, plus the loss of the environment and subsystem scoping. After M18 the rule is saved first-seen with no throttle, which is literally the RT-08 defect. NOT AN UNEXECUTED BRANCH: the mutated cells are the ones read at PurgeWorker.test.ts:967-969 and every assertion over them runs (M7, M12, M13, M14, M15 all kill inside these same cells). NOT CONTRIVED: the filter cell ALREADY contains a negated instruction in production prose - 'Do **not** filter on Sentry priority - CONFIG-1 established ...' - so prefixing a facet with 'do **not**' is a shape this cell natively takes, not an invented one. The pin is 17-for-24 against value corruption and 0-for-3 against polarity. Behavioural replacement, cheap: pin each facet as the whole clause it lives in rather than as a substring - require the filter cell to match a pattern anchored on the clause opener (start of cell, or a preceding '; ' / ', ') and to NOT match /do \\*\\*not\\*\\* filter tag/, and require the trigger cell to START with /^Every event, action throttle/. NOTE FOR THE ARBITER: this is a P0 by the skill's survivor rule and by operator impact, but it is NOT a claim that the test is worthless - it kills every VALUE corruption, including both the round-1 and the round-2 survivor. The owner may reasonably adjudicate it to accepted-risk on the ground that a regex pin over English prose cannot be made negation-proof without pinning whole sentences, which the row's own contract ('Nothing else in the row is pinned') deliberately refuses. That call is the owner's, not this pass's."
+    },
+    {
+      "id": "RT16-12",
+      "severity": "P2",
+      "title": "stripComments treats comment markers inside string and regex literals as comments; the block-comment case blanks a multi-line SPAN and is not in the docblock's disclosure",
+      "at": "src/lib/solicitation/__tests__/ingest.test.ts:115",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "Four measured survivors of the single-owner test, all in one class. N2, N5 and N7 put a line-comment marker inside a string, inside a regex literal, and inside an https URL respectively, earlier on the same line as a respelled key, and the guard went blind to the key - exactly the imprecision ingest.test.ts:110-113 declares ('a `//` inside a string or regex literal is treated as a comment. That can only ever hide text AFTER the `//` on that line'). N9 is the one the docblock does NOT cover: a string holding an opening block-comment sequence, placed near the top of purge-stages.ts, opens a span that the non-greedy block pattern consumes all the way to the file's next real closing sequence, blanking every line in between - including the respelled key - so the blast radius is a multi-line SPAN, not a line tail. P2, and this is the same deliberate deviation from the skill's survivor-to-P0 mapping that round 2 declared for RT16-09, stated so it can be overruled: none of these four shapes is one production key construction takes, the change is a net INCREASE in guard strength over both the merge base and round 2 (N1, N3, N4, N6 and N8 all kill, and N1/N3 are the holes round 2 found), and the test's own comment already declares the guard is 'a regex over source text, not a dataflow analysis ... not a proof of single ownership'. Cheap hardening, if wanted: extend the docblock's disclosure to the block-comment-in-a-literal span case, which is the only part of this finding that is a documentation gap rather than an accepted scanner limit."
+    },
+    {
+      "id": "RT16-13",
+      "severity": "P2",
+      "title": "rule16TableRow pins only the FIRST row matching the rule name, so a contradictory duplicate row below it is invisible",
+      "at": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:297",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured: M6a inserted a corrupted copy of the rule-16 row (terminal equals false, First seen) ABOVE the real one and the test FAILED; M6b inserted the same corrupted copy BELOW the real one and the test stayed GREEN, because rule16TableRow (PurgeWorker.test.ts:297-303) uses Array.prototype.find and stops at the first line in rule 16's block that starts with a pipe and contains the rule name. The runbook then carries two rows under one rule name giving opposite instructions, and the pin is silent about it. P2 rather than P0, declared as a deviation: unlike RT16-11 the configured row an operator would copy is still correct and still fully pinned, the mutation ADDS a contradictory row rather than inverting the authoritative one, and a duplicated rule-name row is not a shape an ordinary edit produces. Cheap hardening: filter instead of find and assert exactly one matching row, which also future-proofs rule16ColumnIndex's identical .find over the header row."
+    },
+    {
+      "id": "RT16-14",
+      "severity": "P2",
+      "title": "'Nothing else in the row is pinned' is false in the safe direction: the rule-name cell and the table's three column headers are pinned too",
+      "at": "docs/runbooks/beta-launch-alerting.md:578",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty-3 re-resolution of a sentence this round ADDED. The runbook's rule-16 paragraph ends 'Nothing else in the row is pinned.' and .claude/reference/arch-review-log.md:3 repeats it as 'and nothing else in the row'. Measured counter-examples: M9 renamed the rule inside the row only and the test FAILED, because RULE_16_ROW_NAME (PurgeWorker.test.ts:276) is how rule16TableRow locates the row; M4 deleted the table header row and M5 reordered its columns, and both FAILED, because rule16ColumnIndex requires a header row carrying the exact strings 'Rule name', 'Emitted identity and filter', 'Level and grouping' and 'Trigger and destination'. Every facet-by-facet claim in the same sentence is EXACT (verified one by one against PurgeWorker.test.ts:970-1013: filter cell - terminal true, never false, level, subsystem, step, environment scoping; grouping cell - opening level plus both fingerprints position-scoped; trigger cell - every event, never first-seen, 60-minutes-per-issue throttle, integration 443670). P2, not P0: the statement UNDER-states what is pinned, so it can surprise an editor but can never give an operator false confidence that a value is protected when it is not - the direction a P0 doc claim fails in. Fix is one clause: '... and nothing else in the row, beyond the rule name and the column headers the cells are found by.'"
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "owner-third-round-2026-09-21",
+      "date": "2026-09-21",
+      "finding_ids": ["RT16-02", "RT16-09", "RT16-10"],
+      "text": "Owner authorization for a third round. Asked on 2026-09-21: \"Runs A and B: do you authorize a THIRD red-team round for each, scoped only to the round-3 fix hunks? Without it, neither run can reach 'reviewed' unless known defects stay unfixed.\" The owner selected, verbatim: \"Authorize both (Recommended)\". Scope: the round-3 fix hunks only. This grant authorizes verification work; it accepts no finding."
+    },
+    {
+      "id": "owner-accepted-risk-siblings-2026-09-21",
+      "date": "2026-09-21",
+      "finding_ids": ["RT16-04", "RT16-05", "RT16-06"],
+      "text": "Owner adjudication of the open high-risk P1s. Asked on 2026-09-21 whether RT16-04 and RT16-05 (TeardownWorker and BillingScheduleWorker carry the same alert defect) and RT16-06 (the not-found path is silent), which this branch does not fix, are accepted as out of scope. The owner selected, verbatim: \"Accept risk, tracked (Recommended)\" — the option text read: \"Owner accepts RT16-04, RT16-05, RT16-06 as out of scope for this branch; tracked in #1412 and #1413, 2026-09-21\". Earlier the same day the owner chose to file them as GitHub issues (#1412, #1413) rather than widen this branch."
+    },
+    {
+      "id": "owner-accepted-risk-rt16-11-2026-09-21",
+      "date": "2026-09-21",
+      "finding_ids": ["RT16-11"],
+      "text": "Owner adjudication of the open P0 at the round cap. Asked on 2026-09-21: \"Run B, RT16-11 (P0 at the round cap): a negation before a facet in rule 16's row (for example 'do not filter on…') keeps the doc-pin test green. How do you adjudicate it?\" The owner selected, verbatim: \"Accept risk + follow-up issue (Recommended)\" — the option text read: \"I record your acceptance verbatim in the sidecar for RT16-11. The tree does not move, so the checker can pass and run B becomes review-ready. I file one issue: a machine-readable alert-rule record that the runbook row is checked against, plus the red team's 3-line hardening and the three open P2 items. The PR body lists RT16-11 under accepted risk.\" Follow-up issue filed: #1414. Recorded by the root session after the round-3 pass returned; no tracked file outside this run's two artifacts changed."
+    }
+  ],
+  "counts": {
+    "inventory_total": 10,
+    "killed": 8,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 14,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 3,
+    "accepted_risk": 4,
+    "fixed": 7,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}

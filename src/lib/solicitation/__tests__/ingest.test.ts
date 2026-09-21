@@ -69,17 +69,52 @@ describe('resolveContactMatch', () => {
   });
 });
 
-// The csv_ingest lane's two source directories. The advisory-lock KEY may be
-// built in exactly one of their files; every other writer goes through
-// acquireCsvIngestLock (which also owns the hashtext wrapping and the
-// first-statement rule).
-const LANE_ROOTS = ['src/lib/solicitation', 'worker/jobs/csv-ingest'];
+// The csv_ingest lane's source roots. The advisory-lock KEY may be built in
+// exactly one file; every other writer goes through acquireCsvIngestLock
+// (which also owns the hashtext wrapping and the first-statement rule).
+//
+// WIDE, not the lane's two obvious directories (#612): holders of this lock
+// live outside them — the offboarding purge takes it per business before
+// deleting `contact_csv_uploads`. Same width as `LOCK_LANE_ROOTS` in
+// batch-builder.test.ts, for the same reason.
+const LANE_ROOTS = ['src/lib', 'worker'];
 // Any reconstruction of the key, not just the template-literal form: the
 // prefix either terminates a string literal (`'csv_ingest_' || businessId`) or
-// is followed by an interpolation (`csv_ingest_${businessId}`). Prose mentions
-// (`csv_ingest_<business>`) and the unrelated `csv_ingest_exhausted` outbox
-// reason are deliberately outside the pattern.
+// is followed by an interpolation (`csv_ingest_${businessId}`). The unrelated
+// `csv_ingest_exhausted` outbox reason is outside the pattern.
+//
+// Exactly what this guard sees, stated plainly. COMMENT TEXT is stripped
+// before the pattern runs (`stripComments` below), so prose that spells the
+// key — `hashtext('csv_ingest_' || id)` in purge-stages.ts, for one — is not a
+// finding, and production comments are never reworded to appease this test. And
+// a key assembled by other string means (`['csv_ingest', id].join('_')`,
+// concatenating the prefix a character at a time) is NOT detected: this is a
+// regex over source text, not a dataflow analysis. It catches the respelling
+// people actually write; it is not a proof of single ownership.
 const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
+
+/**
+ * Source with its COMMENT PARTS blanked out and every other character kept, so
+ * the scan reads code — including code that shares a line with a comment.
+ *
+ * Deliberately NOT line-granular. Dropping whole lines that open with `*` or
+ * `/*` also drops real code: the second line of a wrapped expression, code
+ * following a closing block comment on the same line, and a leading inline
+ * pragma such as `/* c8 ignore next *\/ const key = ...`. The red team walked
+ * straight through that hole (RT16-09) — a guard whose only job is catching a
+ * respelling must not go blind on a line because of how it starts.
+ *
+ * Documented imprecision: this is a scanner, not a tokenizer, so a `//` inside
+ * a string or regex literal is treated as a comment. That can only ever hide
+ * text AFTER the `//` on that line; it never drops code that follows a `*\/`
+ * or a line that opens with `*`, which is the failure mode that mattered.
+ * Comments are replaced space-for-space so line and column positions survive.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) =>
+    comment.replace(/[^\n]/g, ' '),
+  );
+}
 
 function* walkLaneSources(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -92,16 +127,30 @@ function* walkLaneSources(dir: string): Generator<string> {
   }
 }
 
-function laneFilesBuildingTheLockKey(): string[] {
-  const files: string[] = [];
+/**
+ * Every source file the scan visits: `path` is the repo-relative name the
+ * assertions speak, `absolutePath` is what it is read from — carried alongside
+ * rather than reconstructed from `path`.
+ */
+function laneSourceFiles(): { path: string; absolutePath: string }[] {
+  const files: { path: string; absolutePath: string }[] = [];
   for (const root of LANE_ROOTS) {
-    for (const filePath of walkLaneSources(join(process.cwd(), root))) {
-      if (LOCK_KEY_CONSTRUCTION.test(readFileSync(filePath, 'utf-8'))) {
-        files.push(relative(process.cwd(), filePath).split('\\').join('/'));
-      }
+    for (const absolutePath of walkLaneSources(join(process.cwd(), root))) {
+      files.push({
+        path: relative(process.cwd(), absolutePath).split('\\').join('/'),
+        absolutePath,
+      });
     }
   }
-  return files.sort();
+  return files;
+}
+
+function laneFilesBuildingTheLockKey(): string[] {
+  return laneSourceFiles()
+    .filter((file) =>
+      LOCK_KEY_CONSTRUCTION.test(stripComments(readFileSync(file.absolutePath, 'utf-8'))))
+    .map((file) => file.path)
+    .sort();
 }
 
 let harness: MockSqlHarness;
@@ -124,6 +173,20 @@ describe('csv_ingest terminal-write owners', () => {
     // in-flight ingests that still hold the old key.
     expect(harness.sqlCalls[0]!.values).toEqual(['csv_ingest_business-1']);
     expect(laneFilesBuildingTheLockKey()).toEqual(['src/lib/solicitation/ingest.ts']);
+  });
+
+  it('the csv_ingest lock-key scan covers the offboarding purge lane', () => {
+    // #612: the two narrow roots left the widest non-ingest holder of this lock
+    // outside the scan entirely — the offboarding purge takes it per business
+    // before deleting `contact_csv_uploads`, so a key respelled there would
+    // silently stop contending while the single-owner assertion above stayed
+    // green. Same width as `LOCK_LANE_ROOTS` in batch-builder.test.ts.
+    //
+    // The DIRECTORY, not one filename: what has to stay inside the scan is the
+    // lane, and pinning `purge-stages.ts` would turn a routine file split into
+    // a red test while a respelling in a sibling file stayed invisible.
+    const lane = 'worker/jobs/account-offboarding/';
+    expect(laneSourceFiles().some((file) => file.path.startsWith(lane))).toBe(true);
   });
 
   it('writeTerminalUploadState guards the terminal write with the pending predicate', async () => {
