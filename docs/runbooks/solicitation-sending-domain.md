@@ -83,14 +83,16 @@ the table in §2 is the *shape*, not the values.
 ## 2. Cloudflare DNS
 
 DNS for `repworth.net` is on Cloudflare (`wally.ns.cloudflare.com`,
-`zahir.ns.cloudflare.com`). All five record groups go there.
+`zahir.ns.cloudflare.com`). All seven record groups go there.
 
 | Record | Name | Type | Value |
 |---|---|---|---|
 | SPF (return-path) | `bounce.feedback` | MX | `feedback-smtp.us-east-1.amazonses.com` (priority 10) |
 | SPF (return-path) | `bounce.feedback` | TXT | `"v=spf1 include:amazonses.com ~all"` |
+| SPF (return-path) | `rbounce.feedback` | CNAME | `send.forge.rmta.net` — see the note below |
 | DKIM | `resend._domainkey.feedback` | TXT | `p=<key>` — **one TXT record**, from the create response |
 | DMARC | `_dmarc.feedback` | TXT | see §3 |
+| Receiving | `feedback` | MX | `smtp.google.com` (priority 1) — see §4 |
 | Tracking | — | — | **deliberately absent** (§1) |
 
 > Shape corrected at #633 (staging run, evidence D-3): Resend now returns a
@@ -98,8 +100,27 @@ DNS for `repworth.net` is on Cloudflare (`wally.ns.cloudflare.com`,
 > `<selector>.dkim.amazonses.com` CNAMEs this table showed. The create
 > response stays authoritative either way.
 
+> **`rbounce.feedback` did not exist when staging was created.** Resend added
+> the fourth record between 2026-08-24 (staging) and 2026-09-20 (production).
+> Staging runs on three Resend records and verifies; production was created
+> with four. **Do not derive the record set from staging** — read it from the
+> create response, which is the only authority. Expect more drift here.
+
+> **The `feedback` MX row is the one that gets forgotten.** It has nothing to do
+> with Resend and it sits in the table next to four records that do, so it reads
+> like someone else's leftover. It is what lets `reviews@` and `unsubscribe@`
+> receive mail at all — §4's whole obligation rests on it. Delete it and both
+> mailboxes go dark with no error anywhere.
+
 For staging, every name gains the `staging` label (`bounce.feedback.staging`,
-`<selector>._domainkey.feedback.staging`, `_dmarc.feedback.staging`).
+`resend._domainkey.feedback.staging`, `_dmarc.feedback.staging`).
+
+**Production was provisioned 2026-09-20.** Resend domain
+`feedback.repworth.net`, region `us-east-1`, custom return path `bounce`,
+`status: verified` on all four Resend records. DMARC, the Google MX, the
+Workspace secondary domain and both Groups are live; external mail to
+`reviews@` and `unsubscribe@` delivers with no bounce. Sending stays off until
+§5's warm-up ramp runs.
 
 > **Cloudflare proxy must be OFF — grey cloud — on every record above.** Proxying
 > a CNAME breaks DKIM resolution **silently**: the domain still verifies in some
@@ -211,9 +232,13 @@ out to several readers. Cloudflare Email Routing still does not fit this zone
 > question. `reviews@` keeps `MODERATE`, where a held message is a delayed
 > answer and nothing worse.
 
-**Production is not provisioned.** As of 2026-09-20, `feedback.repworth.net` has
-no MX, no DKIM, no DMARC and no `bounce.feedback` records — only staging was
-ever stood up. §2's table is the checklist for the production flip.
+**Production was provisioned later the same day, 2026-09-20**, in the same
+shape: `feedback.repworth.net` is a Workspace secondary domain, MX →
+`smtp.google.com` priority `1`, with `reviews@` and `unsubscribe@` as Google
+Groups carrying the same settings as staging. Both accept external mail —
+verified by probe, no bounce. **The servicing obligations below are therefore
+live in production as of that date**, dormant only while
+`SOLICITATION_SEND_ENABLED` is off.
 
 Three reasons, and the third is the one that bites:
 
