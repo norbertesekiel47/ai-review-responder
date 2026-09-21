@@ -1,184 +1,210 @@
-# Red team — #1361 owner-gate fault status — ROUND 2 (supersedes round 1)
+# Red team — #1361 owner-gate fault status — ROUND 3 (supersedes rounds 1 and 2)
 
 - **Branch:** `fix/1361-locations-route-fault-status`
-- **Mode:** feature · **Risk:** high · **Round:** 2
+- **Mode:** feature · **Risk:** high · **Round:** 3 (owner-authorized, `owner-1361-third-round`)
 - **Fork / merge-base:** `10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9`
 - **Round-1 head:** `e1db9ecbcb8555d3bb115d61ac800777f2bfedfa`
-- **Head under test:** `322aeaa5d6e8919767482b73733f21fc805190ff`
-- **Generated:** 2026-09-20T23:40:38Z
-- **Status:** `OPEN_P1` (11 findings: 0 P0, 3 open P1, 4 open P2, 4 fixed)
+- **Round-2 head:** `322aeaa5d6e8919767482b73733f21fc805190ff`
+- **Head under test:** `702d99ceedec4a33e1f3a24dd0c311b8da22170b`
+- **Intake SHA-256:** `b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1`
+- **Generated:** 2026-09-21T00:11:46Z
+- **Status:** `OPEN_P1` (14 findings: 0 P0, 3 open P1, 0 open P2, 9 fixed, 2 accepted-risk)
 
-This round is SCOPED. It verifies round 1's three P1s and two P2s, red-teams the
-production code round 1 never saw (`src/lib/auth/resolve-owner-scope.ts`), and
-audits the doc and runbook hunks added since `e1db9ecbc`. It opens no front
-against code unchanged since that SHA; the one measurement that touched a
-directly affected caller is recorded as P2 and as an `excluded` inventory row,
-not scored as a survivor.
+This round is SCOPED by the owner's authorization. `git diff 322aeaa5d..702d99cee`
+touches **no production file** — five files, all documentation or this run's own
+artifacts — so round 3's target is the CORRECTIONS the orchestrator made to fix
+round 2's three P1s, plus the documentation and PR body that carry them. It opens
+no front against code unchanged since `322aeaa5d`.
 
 ## Budget and hygiene
 
-- 17 launches, **15 s** of 1200 s round budget. No `skipped-budget` row.
-- Mutants were applied **one layer at a time**: every `mutate` was followed by
-  `finalize` before the next `mutate` on that path, and each restore was
-  verified by `git hash-object <path>` against `git rev-parse HEAD:<path>`
-  before the path was touched again. All four verified equal
-  (`resolve-owner-scope.ts` e5cbabece697…, `http-routes.ts` bbe7a7afa4af…,
-  `owner-route.ts` 9189c8950e79…, `edit-reply-request.ts` 495e542210109cb…).
-- Environment: `mutation-runner.mjs env --tmp-home` allowlist plus
-  `dotenv-swap` for every mutation phase; `REPWORTH_DISABLE_LIVE_DB_SUITES=1`
-  (no validated local database). Re-swapped after each `finalize`, and the
-  final `finalize` left `.env.local` restored with no backup.
-- `watchers`: none. `git status --porcelain --untracked-files=no` is empty at
-  the end of the pass.
+- **0 mutations applied.** The production surface did not move since round 2 and
+  the owner authorization scopes this round to the documentation. Rounds 1 and 2
+  killed 13 of 13 scored mutants (7 + 6) between them.
+- 10 measurement launches, well inside the 1200 s round budget. No
+  `skipped-budget` row.
+- Blob identity verified anyway, before and after the pass:
+  `git hash-object <path>` equals `git rev-parse HEAD:<path>` for
+  `src/lib/approval/http-routes.ts` (`bbe7a7afa4af…`),
+  `src/lib/auth/resolve-owner-scope.ts` (`e5cbabece697…`) and
+  `src/lib/locations/owner-route.ts` (`9189c8950e79…`).
+- Environment: `mutation-runner.mjs env --tmp-home` allowlist plus `dotenv-swap`;
+  `REPWORTH_DISABLE_LIVE_DB_SUITES=1` (no validated local database).
+  `finalize` restored 0 mutated files and 1 dotenv file; the journal is closed.
+- `watchers`: none. `git status --porcelain --untracked-files=no` is empty at the
+  end of the pass.
 - `prevalidate-plan.py` was NOT used; every doc citation below was hand-checked
-  against HEAD `322aeaa5d` and the command that checked it is quoted.
+  against HEAD `702d99cee` and the command that checked it is named.
 
-## Round-1 verdicts
+## Round-2 verdicts
 
-| Round-1 finding | Verdict | Evidence |
+| Round-2 finding | Verdict | Evidence |
 |---|---|---|
-| **P1-1** `resolveOwnerScope` catch-all 401 | **FIXED** | 4 killed mutants + 5 consumer catch sites read |
-| **P1-2** D4's "187 across 12 suites" | **FIXED** (number) | 166/13 reproduces exactly; label residue → P2-5 |
-| **P1-3** no alerting-runbook row | **FIXED** (row exists) | Rule at `beta-launch-alerting.md:497`; two new defects in it → P1-5, P1-6 |
-| **P2-1** `instanceof` vs `name` | open, **not worsened** | mutant M6 survived — identical to round 1, positive arm untouched |
-| **P2-2** "signs the owner out" | **FIXED** | withdrawn in intake, test comment and arch-review-log |
+| **P1-4** affected-route count 18 -> 20 | **FIXED, and the enumeration is correct** | Counted from the code. 4 + 8 + 8 = 20; every named path resolves to a real `route.ts` with that spelling; no production consumer of any of the three gates is missing; all 20 reach the gate outside every `try`. |
+| **P1-5** rule-number collision | **FIXED** | Rule headings in the file are 5, 6, 9, 10, 11, 12, 13, 14, 15 — one each. 15 is the next free number. Rule 13's "Rule 12 filters Apply POST" resolves unambiguously to the Run C rule at line 436. No other cross-reference broke. |
+| **P1-6** the rule could not be configured | **FIXED in shape, one facet WRONG** | The four-column table matches Rules 12/13/14 column for column; integration 443670 is the file's standard destination; the 10-in-1-hour threshold and its rationale against Rule 14's 20 are coherent. But the `transaction` facet misdescribes the emitted value — **P1-7**. |
+| **P2-4** D5 line citation | **FIXED** | D5 now cites `src/lib/auth/resolve-owner-scope.ts` with no line number. |
+| **P2-5** D4's label | **FIXED as to the label** | D4 now names it a directory count and records the corrected sets. A different figure in the same sentence is stale — **P1-8**. |
 
-## Duty 1 — mutation
+## The route enumeration, recounted from the code
 
-Six mutants, all **killed**. Three `excluded` measurements recorded for
-completeness.
+| Gate | Routes | Verified |
+|---|---|---|
+| `readOwnerForMultiLocationRoute` (`src/lib/locations/owner-route.ts`) | `/api/locations/{add,archive,promote-primary,reactivate}` | `add` calls it directly; the other three reach it through `readLocationActionRequest`. The two other dirs under `src/app/api/locations` are correctly ABSENT: `display-label` makes no such call, `existing-place-ids` uses `requireOwnerWithAccount`. |
+| `requireDashboardReviewOwner` (`src/lib/approval/http-routes.ts`) | the six `/api/dashboard/reviews/[reviewId]/{approve,edit,generate,regenerate,draft-status,timeline}` + the two `/api/dashboard/escalations/[escalationId]/{acknowledge,resolve}` | `runEscalationTransitionRoute` (`src/lib/escalations/http-routes.ts:29`) is the only other production caller, and exactly two routes use it. |
+| `resolveOwnerScope` (`src/lib/auth/resolve-owner-scope.ts`) | `/api/settings/postal-address`, `/api/dashboard/import-offer`, `/api/dashboard/past-replies/draft-status` + the five that reach it through `_shared/edit-reply-request.ts` | The five are `past-replies/{publish,draft}`, `past-replies/draft/[responseId]`, `past-replies/[responseId]/{retry,restore-original}` — exactly the consumers of `resolveEditReplyScope`/`Context`/`Request`. |
 
-| Mutant | File:line | Test | Outcome |
-|---|---|---|---|
-| M1 — revert fix to `throw new ScopeError('unauthorized', 401)` | `resolve-owner-scope.ts:113` | re-throws a non-AuthError rejection … | killed |
-| M1 | `resolve-owner-scope.ts:113` | re-throws a non-Error rejection value unchanged | killed |
-| M3 — `if (err instanceof AuthError)` → `if (true)` | `resolve-owner-scope.ts:103` | re-throws a non-AuthError rejection … | killed |
-| M3 | `resolve-owner-scope.ts:103` | re-throws a non-Error rejection value unchanged | killed |
-| M4 — guard → `if (false)` | `resolve-owner-scope.ts:103` | requireRole throws AuthError → throws ScopeError … | killed |
-| M5 — revert to pre-fix 401 return | `http-routes.ts:156` | **(new test)** re-throws a non-Error rejection value unchanged | killed |
-| M6 — guard → `name === 'AuthError'` | `resolve-owner-scope.ts:103` | both AuthError and re-throw tests | excluded — survived, unchanged line |
-| M7 — both consumer `throw err` → catch-all 401 | `edit-reply-request.ts:82,189` | whole `past-replies` directory (123 tests) | excluded — survived, unchanged line → P2-3 |
+**Reachability.** In all twenty the gate call sits outside every `try` in the
+handler, and `withSameOrigin` (`src/lib/auth/route-helpers.ts:54-65`) re-throws
+anything that is not a `SameOriginError`, so the re-thrown fault escapes to
+`onRequestError`. The three direct `resolveOwnerScope` consumers
+(`postal-address:93`, `import-offer:135`, `draft-status:65`) each end their catch
+with a bare re-throw after an `instanceof ScopeError` guard.
 
-M5's mutant blob OID `8837aad99ebe` is the merge-base blob OID round 1 recorded
-for `http-routes.ts`, so the mutant is the pre-fix file byte-for-byte.
+## Findings opened this round
 
-**No assertion class was lost** when the old 401 test was replaced. The deleted
-test asserted three things: `ScopeError` class, message `unauthorized`, status
-401. Class + message + status are still asserted for the AuthError arm
-(`resolve-owner-scope.test.ts:124-133`) and for `no_business`
-(`:159-171`, `:248`), and mutant M4 proves the AuthError arm is live rather than
-vestigial. `rejects.toBe(boom)` is strictly stronger than the deleted
-`toMatchObject` for the branch it replaced: it pins error IDENTITY, which is
-precisely what the old code discarded.
+### P1-7 — Rule 15's `transaction` filter does not describe the emitted value
 
-## The raw re-throw is safe for every consumer — verified, not taken on trust
+`docs/runbooks/beta-launch-alerting.md:504`
 
-The fix's justification is "all four consumers already end their catch with a
-bare `throw error`". Checked at HEAD; there are FIVE call sites across those
-four files, and every one matches:
+The row says to filter on "`transaction` (Next's route path) matching any of the
+twenty routes enumerated below". The installed `@sentry/nextjs` 10.55.0
+`captureRequestError`
+(`node_modules/@sentry/nextjs/build/cjs/common/captureRequestError.js`) does:
 
-| File:line | Shape |
+    scope.setTransactionName(`${request.method} ${errorContext.routePath}`);
+
+so the event's `transaction` is `POST /api/locations/add`, not
+`/api/locations/add`. `beforeSend` -> `scrubSentryEvent` passes it through
+unchanged (none of the twenty paths contains `/approve/`, `/u/` or `?`).
+
+**Failure scenario.** An operator follows the row and builds twenty
+`transaction equals <path>` conditions. None matches any event. The rule never
+fires through a full Postgres pool outage — the exact silence it exists to
+remove, and by its own design it has no tag and no constant message to fall back
+on.
+
+The dynamic segments are NOT the problem: `routePath` is the bracketed App Router
+path, so `[reviewId]`, `[escalationId]` and `[responseId]` appear verbatim in the
+transaction and match as written. The fix is one clause — state that the value is
+the HTTP method, a space, then the bracketed route path, and name the match
+operator to use.
+
+### P1-8 — D4's "37 tests" is 38 at HEAD
+
+`docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:84`
+
+Measured at HEAD under the scrubbed environment: `owner-route.test.ts` +
+`http-routes.test.ts` = **2 files, 38 tests, 38 passed**. The "37" was written in
+`e1db9ecbc` (round-1 HEAD) and went stale when the round-2 work added
+`requireDashboardReviewOwner > re-throws a non-Error rejection value unchanged`
+to `http-routes.test.ts` — the round-2 sidecar records that test as "ADDED since
+round 1" (`mutant-M5`), and the file went from 20 `it(` at the merge-base to 22
+at HEAD.
+
+This is the **same sentence** commit `0197bd4bc` rewrote to fix P1-2/P2-5: the
+clause after the comma was corrected to "166 across the 13 test FILES" and the
+"37" immediately before it was left untouched. Same defect class as round-1
+P1-2, in the same paragraph, surviving the correction pass for it. D7 in this
+same file sets the standard the figure violates.
+
+### P1-9 — the PR body's test figure names no measurable set
+
+PR #1391 body, "Tests" section: *"1054 tests pass across the 86 affected suites."*
+
+The repo defines "affected" as `vitest run --changed <since>`
+(`package.json` `test:changed`, `lefthook.yml` `test-changed`,
+`scripts/verify-gate.sh:376`). Measured at HEAD under the scrubbed environment:
+
+| Set | Files | Tests |
+|---|---|---|
+| `--changed origin/main` | 26 | 368 |
+| `--changed 10377aa9b` (merge-base) | 26 | 368 |
+| `src/lib/{approval,auth,locations}` | 48 | 582 |
+| `src/app/api/{dashboard,locations,settings}` | 51 | 595 |
+| the above minus `src/lib/auth` | 84 | 961 |
+| routes + all three lib dirs | 99 | 1177 |
+| `src/app/api` + all three lib dirs | 194 | 2230 |
+| **claimed** | **86** | **1054** |
+
+The gate's own artifact `.feature/logs/test.log` records the full suite at 1206
+files / 16687 tests; no `.feature` log records 86 files or 1054 tests.
+
+I **cannot prove the number false** — a path set between the 84/961 and 99/1177
+measurements could produce it. That is precisely the defect: the claim names no
+set, so it is unfalsifiable and unreproducible in the durable record a reviewer
+reads. This branch has already had two findings of exactly this class (round-1
+P1-2, round-2 P2-5), and D7 sets the standard that a figure must name the set it
+was measured over. Remedy: name the exact command, or replace the figure with one
+recorded in `.feature/logs/`.
+
+## PR #1391 body — claims verified TRUE
+
+| Claim | Verdict |
 |---|---|
-| `src/app/api/settings/postal-address/route.ts:90-93` | `if (error instanceof ScopeError) return jsonResponse(…); throw error;` |
-| `src/app/api/dashboard/import-offer/route.ts:129-135` | `if (err instanceof ScopeError) return {ok:false,…}; throw err;` |
-| `src/app/api/dashboard/past-replies/draft-status/route.ts:59-65` | same shape |
-| `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:76-82` | same shape |
-| `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:183-189` | same shape |
+| "Routes covered — 20", 4 / 8 / 8 | TRUE — recounted from code |
+| "30 lines of production code across 3 files" | TRUE — `git numstat` 7+1, 8+1, 6+7 = 30 |
+| "0 of 13 scored mutants survived across both rounds" | TRUE — round-1 sidecar `counts.killed` 7, round-2 6 |
+| "zero remaining sites … three Zernio routes plus `connect/_shared/finalize/authorize.ts`" | TRUE — independent sweep found 8 `instanceof AuthError` sites; the four Zernio ones answer 500 via `zernioRouteErrorResponse` or re-throw |
+| "Rule 15" | TRUE |
+| "Red team raised 6 P1s. All 6 are fixed" | TRUE as of round 2's list |
+| Both accepted-risk P2s and their authorization | TRUE — match the sidecar verbatim |
+| "1054 tests pass across the 86 affected suites" | **NOT VERIFIED — P1-9** |
 
-None swallows, none returns 200, none reads `.statusCode` off an unguarded
-error. Three further checks:
+## Sidecar self-audit
 
-1. **No route handler wraps the preamble in a swallowing `try`.** All 20 route
-   files call their gate/preamble helper OUTSIDE the handler's own `try`
-   (`import-offer/route.ts:140,160`; `past-replies/{draft,publish}/route.ts:69,73`;
-   `past-replies/draft/[responseId]/route.ts:62,154`;
-   `past-replies/[responseId]/{retry,restore-original}/route.ts:56,58`), and the
-   only wrapper in the chain, `withSameOrigin` (`route-helpers.ts:54-64`),
-   re-throws anything that is not a `SameOriginError`.
-2. **The contract is not newly widened.** `resolveOwnerScope` could already
-   throw a raw non-`ScopeError` before this change — lines 143 and 148 re-throw
-   `Promise.allSettled` rejection reasons — so consumers were already obliged to
-   handle it.
-3. **`ScopeError` is constructed or caught in exactly 6 files** (`rg ScopeError
-   src/ worker/`): the owner module, the four consumers above, and two test
-   files. Nothing else is affected by the change.
-
-## Duty 3 — docs vs reality at `322aeaa5d`
-
-Resolved by hand. Correct, each re-checked at HEAD:
-
-- `src/instrumentation.ts:9` — `export const onRequestError = Sentry.captureRequestError` ✓
-- `src/lib/db/admission.ts` exists ✓
-- the three gate symbols and their files ✓
-- Rule 12's `safety-review-failed-closed` cross-reference resolves to Rule 14 at
-  line 460, which is genuinely ABOVE it ✓
-- "30 lines across three files" — `git diff --numstat 10377aa9b..322aeaa5d` over
-  the three production files is 21 added + 9 removed = **30** ✓
-- the Rule 10 precedent for shipping a runbook REQUIREMENT with no Sentry rule
-  installed, and for carrying no §1/§1a checklist entry, both hold ✓
-
-Wrong:
-
-- **"eighteen consuming routes" / "Affected routes — 18"** — the measured count
-  is **20** (see P1-4). Appears at `beta-launch-alerting.md:515`,
-  `arch-review-log.md:37` (twice) and deviations D6.
-- **`resolve-owner-scope.ts:106`** in deviations D5 — at HEAD that line is a
-  comment (see P2-4).
-- **"the 13 consuming route suites"** — the number is right, the label is not
-  (see P2-5).
+- Round-2 counts recompute exactly from the rows as written: 12 inventory rows
+  (6 `killed`, 6 `excluded`), 11 findings (9 `fixed`, 2 `accepted-risk`, 0 open),
+  `status: CLEAR` by the stated precedence.
+- Every `arbiter_reasoning` note on **P1-4, P1-5, P1-6, P2-4, P2-5** describes a
+  change that genuinely landed. Each was re-resolved against the file it names,
+  not against the note. **No disposition claims a fix that did not land.**
+- **Provenance untampered.** `head_sha` was `322aeaa5d` (the round-2 HEAD) and
+  `intake_sha256` was `null`, exactly as the `owner-1361-third-round`
+  authorization states they were deliberately left. The only edits to those
+  fields in branch history are the legitimate round-1 -> round-2 update in
+  `1d89ba41b`. Both authorizations are preserved in this round's sidecar.
 
 ## Duty 4 — sibling sweep, re-run at HEAD
 
-`rg 'instanceof AuthError' -A 8` over `src/` and `worker/`, excluding
-`__tests__`. Seven sites: the three fixed gates, the reference
-`requireRoleOr401` (`route-helpers.ts:120`, already the correct contract), and
-four Zernio routes — `connect/start`, `connect/cancel`, `disconnect`, and
-`connect/_shared/finalize/authorize.ts`. All four Zernio sites fall through to
-`zernioRouteErrorResponse` (`src/app/api/zernio/_shared/error-response.ts`),
-which reports through `reportCaughtError` and answers **500 `internal_error`**,
-or re-throw. **Zero remaining catch-all-401 siblings** — a sound search that
-found nothing. The class is closed.
-
-## Duty 5 — operational completeness
-
-The rule row exists and is largely right, but three of the six facets are
-missing and the rule number collides. See P1-5 and P1-6.
-
-## Findings
-
-| ID | Severity | At | Disposition | Finding |
-|---|---|---|---|---|
-| P1-1 | P1 | `src/lib/auth/resolve-owner-scope.ts:113` | **fixed** | third catch-all-401 site — now `throw err;`, 4 mutants killed |
-| P1-2 | P1 | deviations `:86` | **fixed** | test count now reproduces exactly (166 / 13 files) |
-| P1-3 | P1 | `beta-launch-alerting.md:497` | **fixed** | alerting rule row now exists |
-| P1-4 | P1 | `beta-launch-alerting.md:515` | open | affected-route count is 18 in three docs; measured 20 |
-| P1-5 | P1 | `beta-launch-alerting.md:497` | open | duplicate "Rule 12" — collides with the Run C rule at `:436`, and Rule 13 cites "Rule 12" at `:454` |
-| P1-6 | P1 | `beta-launch-alerting.md:521` | open | the rule has no name, level, threshold value, window, throttle or destination — it cannot be built |
-| P2-1 | P2 | `src/lib/auth/resolve-owner-scope.ts:103` | open | `instanceof` vs `name` unpinned — measured, NOT worsened by this diff |
-| P2-2 | P2 | `owner-route.test.ts:160` | **fixed** | "signs the owner out" withdrawn in all three checkable places |
-| P2-3 | P2 | `edit-reply-request.ts:82` | open | the consumer-layer re-throw the fix depends on is unpinned (M7 survived, 123/123 green) |
-| P2-4 | P2 | deviations `:90` | open | D5 cites `resolve-owner-scope.ts:106`, which is a comment at HEAD |
-| P2-5 | P2 | deviations `:86` | open | "13 consuming route suites" — 3 of the 13 consume nothing; 8 newly-consuming routes are outside the set |
-
-Full reasoning for each finding is in `findings.json`; it is the authoritative
-copy and this table is rendered from it.
+`rg 'instanceof AuthError'` over `src/` and `worker/` excluding tests returns
+eight sites: the three fixed gates, the reference `requireRoleOr401`
+(`route-helpers.ts:120`), and four Zernio sites (`connect/start:68`,
+`connect/cancel:76`, `disconnect:70`, `connect/_shared/finalize/authorize.ts:69`).
+The first three fall through to `errorToResponse` = `zernioRouteErrorResponse`
+(`src/app/api/zernio/_shared/error-response.ts:15-27`), which reports via
+`reportCaughtError` and answers 500; `authorize.ts` re-throws unchanged.
+**Zero remaining catch-all-401 siblings** — a sound search that found nothing.
 
 ## Authorizations
 
-None.
+Rendered from `findings.json`.
 
-## Operational note — not a finding
+- **`owner-1361-p2-accepted-risk`** (2026-09-20) — P2-1, P2-3. Owner authorized
+  accepting both P2 findings as risk, asked directly with each finding, its
+  failure scenario and the cost of fixing it in front of them. Both lines are
+  byte-identical at merge-base `10377aa9b`; closing either needs a THIRD surface
+  amendment, past the two the abort criteria allow. Both to be filed as follow-up
+  issues at step 8.
+- **`owner-1361-third-round`** (2026-09-20) — verification scope, no finding
+  accepted. Owner authorized a THIRD ROUND, answered "Go for round 3 yes",
+  because round 2's three P1s were all documentation defects written by this run
+  and because fixing them made the round-2 sidecar stale by construction.
 
-`.feature/intake.json` was renamed to `.feature/intake.parked.json` at 16:35
-during this pass (it was present at 16:31 when `round-start` ran; nothing in the
-red-team tooling performs that rename). `red-team-status.mjs` consequently fails
-with `feature mode requires .feature/intake.json as the locked contract` and
-`cannot derive risk`, independently of this sidecar's contents. The orchestrator
-must restore the intake before the `reviewed` transition can pass, and this
-sidecar records `intake_sha256: null` because the file is absent.
+### One schema repair to the committed grant (recorded, not silent)
 
-## Appendix — untriaged, outside this round's scope
+As committed in `702d99cee`, `owner-1361-third-round` carried
+`finding_ids: []`. `red-team-status.mjs` rejects an empty `finding_ids` on every
+authorization except the pinned Run C fourth-round grant, so the sidecar could
+not validate at all. The grant's verbatim `text` is UNTOUCHED; its `finding_ids`
+are now linked to the three round-2 findings its own text names — P1-4, P1-5,
+P1-6 — which is the linkage the schema asks for and changes no substance. Both
+authorizations are preserved.
 
-Nothing was found against code unchanged since `e1db9ecbc` other than the two
-measurements already recorded above as P2-1 and P2-3, both of which are
-deliberately graded P2 because their lines are byte-identical at the merge-base.
+## Checker result
+
+`node .agents/skills/feature/scripts/red-team-status.mjs` — FAILED with exactly
+four issues, all of them the intended consequence of this round's findings:
+`status is OPEN_P1`, plus one high-risk adjudication block each for P1-7, P1-8
+and P1-9. Schema, counts, derived status, `head_sha`, `intake_sha256`, the
+round-3 authorization and the unmoved-tree check all pass.

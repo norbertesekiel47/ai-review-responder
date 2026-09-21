@@ -5,95 +5,84 @@
   "branch": "fix/1361-locations-route-fault-status",
   "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
   "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "head_sha": "322aeaa5d6e8919767482b73733f21fc805190ff",
-  "intake_sha256": null,
+  "head_sha": "702d99ceedec4a33e1f3a24dd0c311b8da22170b",
+  "intake_sha256": "b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-20T23:40:38Z",
+  "round": 3,
+  "generated_at": "2026-09-21T00:11:46Z",
   "inventory": [
     {
-      "id": "mutant-M1/resolve-owner-scope.ts:113#re-throws-non-AuthError",
-      "test": "resolveOwnerScope > re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401",
-      "file": "src/lib/auth/resolve-owner-scope.ts",
-      "outcome": "killed",
-      "reason": "Mutant M1 reverted the fix exactly as the orchestrator specified: `throw err;` -> `throw new ScopeError('unauthorized', 401);`. Runner recorded e5cbabece697 -> aa3569d7b2a3. Baseline at HEAD green (exit 0, exactly one test). Mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-M1/resolve-owner-scope.ts:113#re-throws-non-Error-value",
-      "test": "resolveOwnerScope > re-throws a non-Error rejection value unchanged",
-      "file": "src/lib/auth/resolve-owner-scope.ts",
-      "outcome": "killed",
-      "reason": "Same M1 reversion, second test. Baseline green; mutant run exit 1, test failed. `rejects.toBe('pool exhausted')` cannot be satisfied by a ScopeError, so the identity assertion is real."
-    },
-    {
-      "id": "mutant-M3/resolve-owner-scope.ts:103#guard-true",
-      "test": "resolveOwnerScope > re-throws a non-AuthError rejection instead of wrapping it as ScopeError 401",
-      "file": "src/lib/auth/resolve-owner-scope.ts",
-      "outcome": "killed",
-      "reason": "Mutant M3 forced `if (err instanceof AuthError)` to `if (true)` (e5cbabece697 -> 1bc18723741d), so a plain Error is wrapped as ScopeError(message, undefined) instead of re-thrown. Baseline green; mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-M3/resolve-owner-scope.ts:103#guard-true-non-Error",
-      "test": "resolveOwnerScope > re-throws a non-Error rejection value unchanged",
-      "file": "src/lib/auth/resolve-owner-scope.ts",
-      "outcome": "killed",
-      "reason": "Same M3 guard-true mutant, second test. Baseline green; mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-M4/resolve-owner-scope.ts:103#guard-false",
-      "test": "resolveOwnerScope > requireRole throws AuthError → throws ScopeError with same message + statusCode",
-      "file": "src/lib/auth/resolve-owner-scope.ts",
-      "outcome": "killed",
-      "reason": "Mutant M4 forced the guard to `if (false)` (e5cbabece697 -> 2e9973b3ce89), so an AuthError is re-thrown raw instead of mapped to ScopeError. Baseline green; mutant run exit 1, test failed. Proves the untouched AuthError branch is still asserted after the catch-all was removed — no assertion class was lost with the deleted 401 test."
-    },
-    {
-      "id": "mutant-M5/http-routes.ts:156#new-non-Error-test",
-      "test": "requireDashboardReviewOwner > re-throws a non-Error rejection value unchanged",
-      "file": "src/lib/approval/http-routes.ts",
-      "outcome": "killed",
-      "reason": "The test ADDED since round 1. Mutant M5 reverted `throw err;` to the pre-fix `return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });`. Runner recorded bbe7a7afa4af -> 8837aad99ebe, which is the merge-base blob OID round 1 recorded for this file, so the mutant is the pre-fix file byte-for-byte. Baseline green; mutant run exit 1, test failed."
-    },
-    {
-      "id": "mutant-M6/resolve-owner-scope.ts:103#guard-name-check",
-      "test": "resolveOwnerScope > (requireRole throws AuthError …; re-throws a non-AuthError …)",
+      "id": "round3/production-surface-unchanged-since-round-2",
+      "test": "no mutation candidate: the production surface did not move",
       "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "excluded",
-      "reason": "Out of scope for scoring: `if (err instanceof AuthError)` is byte-identical at the merge-base in this file too, so it probes unchanged code. Measured anyway to answer whether the #1361 change worsens round-1 finding P2-1: substituting `(err as { name?: string })?.name === 'AuthError'` SURVIVED both tests (run exit 0 on each, e5cbabece697 -> f28a90874a9b). Identical result to round 1's mutants D and H on the other two gates — the property is unchanged by this diff, not worsened, because the mutated branch is the POSITIVE (AuthError) arm, which the fix did not touch."
+      "reason": "git diff 322aeaa5d..702d99cee touches five files, none under src/ or worker/: .claude/reference/arch-review-log.md, docs/runbooks/beta-launch-alerting.md, the deviations plan and this run's own two report artifacts. Blob OIDs of all three changed production files are byte-identical to HEAD: http-routes.ts bbe7a7afa4af, resolve-owner-scope.ts e5cbabece697, owner-route.ts 9189c8950e79 — verified by git hash-object against git rev-parse HEAD:<path> before and after the round. 13 of 13 scored mutants were killed across rounds 1 (7) and 2 (6); owner authorization owner-1361-third-round scopes round 3 to the documentation corrections, so no production line was re-mutated."
     },
     {
-      "id": "mutant-M7/edit-reply-request.ts:82,189#consumer-swallow",
-      "test": "whole directory: src/app/api/dashboard/past-replies (123 tests)",
-      "file": "src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts",
-      "outcome": "excluded",
-      "reason": "Directly affected caller, but the mutated lines are unchanged since the merge-base, so this is not scored as a survivor. Measured because the fix's stated design rationale is that every consumer re-throws: replacing BOTH bare `throw err;` sites (495e542210109cb -> c019053cfa44) with `return { ok:false, response: NextResponse.json({ error:'unauthorized' }, { status:401 }) }` left all 123 past-replies tests GREEN (run exit 0). Recorded as finding P2-3."
-    },
-    {
-      "id": "direction-a/three-changed-helper-suites",
+      "id": "round3/baseline-three-changed-helper-suites",
       "test": "whole suites: owner-route.test.ts, http-routes.test.ts, resolve-owner-scope.test.ts",
       "file": "src/lib/auth/__tests__/resolve-owner-scope.test.ts",
       "outcome": "excluded",
-      "reason": "Whole-suite green baseline at HEAD 322aeaa5d: 51 tests, 51 passed, 0 failed. The individual cases in these files are scored in the killed rows above; this row records the baseline, not a separate candidate."
+      "reason": "Green baseline re-taken at HEAD 702d99cee under the scrubbed environment (tmp HOME, NODE_ENV=test, CI=true, MOCK_EXTERNAL_APIS=true, REPWORTH_DISABLE_LIVE_DB_SUITES=1, .env.local swapped for a scrubbed copy): 3 files, 51 tests, 51 passed, 0 failed. Confirms the round-2 oracle is still live at current HEAD and corroborates the deviations D4 figure of 51 for the three changed helper suites."
     },
     {
-      "id": "direction-b/resolve-owner-scope-consumer-suites",
-      "test": "whole suites: import-offer, past-replies, settings/postal-address, resolve-owner-scope",
-      "file": "src/app/api/dashboard/import-offer/__tests__/route.test.ts",
+      "id": "round3/direction-a-no-new-tests",
+      "test": "git diff 322aeaa5d..702d99cee -- '*test*'",
+      "file": "src/lib/approval/__tests__/http-routes.test.ts",
       "outcome": "excluded",
-      "reason": "Reverse-import candidates for the new production hunk. Ran green at HEAD (13 files, 171 tests, 164 passed, 0 failed, 7 skipped by their own flag guards). No consumer suite asserts the pre-fix 401, so nothing in the consumer layer pinned the defect and nothing broke when it was removed. Per-test mutation budget was not spent here because the hunk's behaviour is directly pinned by the six killed mutants; the one consumer-layer measurement that mattered is mutant-M7 above."
+      "reason": "Empty. No test file was added, modified or deleted since the round-2 HEAD, so Direction A contributes no new candidate to round 3 and no changed assertion to review for fragility."
     },
     {
-      "id": "direction-b/thirteen-route-suites-doc-claim",
-      "test": "whole suites: src/app/api/{locations,dashboard/reviews,dashboard/escalations}",
+      "id": "round3/duty5-route-enumeration-recount",
+      "test": "static recount of the twenty routes Rule 15 enumerates",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "Counted from the code, not the prose. readOwnerForMultiLocationRoute: 4 (add calls it directly; archive/promote-primary/reactivate reach it through readLocationActionRequest). The other two dirs under src/app/api/locations are not behind it (display-label has no such call; existing-place-ids uses requireOwnerWithAccount) and are correctly absent. requireDashboardReviewOwner: 6 review routes plus the 2 escalation routes via runEscalationTransitionRoute = 8. resolveOwnerScope: 3 direct (settings/postal-address, dashboard/import-offer, past-replies/draft-status) plus exactly 5 through _shared/edit-reply-request.ts (publish, draft, draft/[responseId], [responseId]/retry, [responseId]/restore-original) = 8. Total 20. Every enumerated path resolves to a real route.ts with the spelling the runbook uses, and no production consumer of any of the three gates is missing from the list. Reachability also checked: in all 20 the gate call sits OUTSIDE every try block in the handler, and the withSameOrigin wrapper (src/lib/auth/route-helpers.ts:54-65) re-throws anything that is not a SameOriginError, so the fault escapes to onRequestError."
+    },
+    {
+      "id": "round3/duty5-rule-15-configuration-row",
+      "test": "static facet comparison of Rule 15's table against Rules 12, 13 and 14",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "Shape matches the file standard exactly (same four columns, same order, name/filter/level+grouping/trigger+destination all present); integration 443670 is the destination Rules 11, 12, 13 and 14 all use; the 10-in-1-hour ACROSS-the-filter threshold with a 60-minute action throttle is coherent with the stated rationale and with Rule 14's precedent, and the row states why it is lower than Rule 14's 20. One facet does not match the emitted signal and is filed as P1-7.",
+      "finding_id": "P1-7"
+    },
+    {
+      "id": "round3/duty5-rule-numbering",
+      "test": "static: duplicate rule numbers and broken cross-references in beta-launch-alerting.md",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "Every 'Rule N' occurrence in the file enumerated: 5, 6, 9, 10, 11, 12, 13, 14, 15. Exactly one heading per number; 15 is the next free number after 14. Rule 13's cross-reference 'Rule 12 filters Apply POST' resolves unambiguously to the Run C rule at line 436, whose filter is the api/operator/proposals/[id]/apply POST endpoint tag. No other prose in the file points at a renumbered rule; the Run E checklist item at line 395 still says 'Rule 13 below', which is correct. P1-5's fix landed cleanly."
+    },
+    {
+      "id": "round3/duty3-deviations-and-ledger-reresolution",
+      "test": "re-resolve every path and factual claim in the deviations plan and the arch-review ledger at HEAD",
       "file": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md",
       "outcome": "excluded",
-      "reason": "Run to re-measure round-1 finding P1-2 rather than to score a mutant. Reproduces the corrected figure EXACTLY: 13 files, 166 tests, 165 passed, 1 skipped. The label attached to the number is wrong, which is finding P2-5."
+      "reason": "Measured, not read. D4's '166 across the 13 test FILES under those route directories' reproduces exactly (13 files, 166 tests, 165 passed, 1 skipped); '13 files / 171 tests' for the corrected consumer set reproduces exactly (13 files, 171 tests); '51' for the three changed helper suites reproduces exactly. D5's five call sites across four files all resolve at HEAD to a bare re-throw (postal-address:93, import-offer:135, draft-status:65, edit-reply-request:82 and :189). D6's '20 owner routes' and 'Rule 15' are correct. The ledger entry's 'twenty consuming routes', 'Rule 15' and 'Production diff 30 lines across three files' (7+1, 8+1, 6+7 = 30 by git numstat) are correct. One figure in D4 does not reproduce and is filed as P1-8.",
+      "finding_id": "P1-8"
     },
     {
-      "id": "duty-4/catch-all-401-sibling-sweep",
-      "test": "static sweep, no mutation",
-      "file": "src/lib/auth/route-helpers.ts",
+      "id": "round3/duty3-pr-1391-body-claims",
+      "test": "re-resolve every factual claim in the PR #1391 body",
+      "file": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md",
       "outcome": "excluded",
-      "reason": "Re-ran round 1's Duty-4 sweep at HEAD to confirm the third site closed the class. `rg 'instanceof AuthError' -A 8` over src/ and worker/ (excluding __tests__) returns seven sites: the three fixed gates, the reference `requireRoleOr401`, and four Zernio routes (`connect/{start,cancel}`, `disconnect`, `connect/_shared/finalize/authorize.ts`). All four Zernio sites fall through to `zernioRouteErrorResponse`/`throw err`, which reports and answers 500 — not 401. Zero remaining siblings; a sound search that found nothing."
+      "reason": "Verified true: 'Routes covered - 20' with the 4/8/8 split; '30 lines of production code across 3 files' (git numstat total); '0 of 13 scored mutants survived across both rounds' (round-1 sidecar counts.killed = 7, round-2 = 6); 'A fresh sweep at HEAD now finds zero remaining sites' plus the named four Zernio sites; 'Rule 15'; 'Red team raised 6 P1s. All 6 are fixed'; both accepted-risk P2s and their authorization. Not verified: the test figure, filed as P1-9.",
+      "finding_id": "P1-9"
+    },
+    {
+      "id": "round3/duty4-catch-all-401-resweep",
+      "test": "static sweep, no mutation",
+      "file": "src/app/api/zernio/_shared/error-response.ts",
+      "outcome": "excluded",
+      "reason": "Re-ran the Duty-4 sweep independently at HEAD 702d99cee. rg 'instanceof AuthError' over src/ and worker/ excluding tests returns eight sites: the three fixed gates, the reference requireRoleOr401 (route-helpers.ts:120), and four Zernio sites (connect/start:68, connect/cancel:76, disconnect:70, connect/_shared/finalize/authorize.ts:69). The first three Zernio sites fall through to errorToResponse, which is zernioRouteErrorResponse (src/app/api/zernio/_shared/error-response.ts:15-27): a ZernioRouteError keeps its own status, anything else is reported through reportCaughtError and answered 500. authorize.ts re-throws the non-AuthError unchanged. Zero remaining catch-all-401 siblings; a sound search that found nothing."
+    },
+    {
+      "id": "round3/sidecar-self-audit",
+      "test": "static audit of the hand-edited round-2 sidecar",
+      "file": "docs/reviews/red-team/fix-1361-locations-route-fault-status-5d679e/findings.json",
+      "outcome": "excluded",
+      "reason": "Counts recompute from the rows as written: 12 inventory rows (6 killed, 6 excluded), 11 findings (9 fixed, 2 accepted-risk, 0 open), status CLEAR follows the precedence. Every arbiter_reasoning note on P1-4, P1-5, P1-6, P2-4 and P2-5 describes a change that genuinely landed in the tree at 702d99cee - each was re-resolved against the file it names, not against the note. No disposition claims a fix that did not land. Provenance untampered: head_sha was 322aeaa5d (the round-2 HEAD) and intake_sha256 was null, exactly as the owner-1361-third-round authorization states they were deliberately left; the only edits to those fields in the branch history are the legitimate round-1 to round-2 update in 1d89ba41b. Both authorizations preserved."
     }
   ],
   "findings": [
@@ -197,6 +186,33 @@
       "duty": 3,
       "disposition": "fixed",
       "arbiter_reasoning": "FIXED in 0197bd4bc. D4 relabelled: 166 across 13 test FILES under those route directories, named explicitly as a directory count, with the round-2 corrected set (13 files / 171 tests) and the three changed helper suites (51) recorded alongside."
+    },
+    {
+      "id": "P1-7",
+      "severity": "P1",
+      "title": "Rule 15's filter facet misdescribes the emitted `transaction`: Sentry sets it to `<METHOD> <routePath>`, not the route path, so an equals-filter on any enumerated route never fires",
+      "at": "docs/runbooks/beta-launch-alerting.md:504",
+      "duty": 5,
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED. The Rule 15 filter facet now states the emitted value exactly: Sentry.captureRequestError sets transaction to `${request.method} ${routePath}` (verified at node_modules/@sentry/nextjs/build/cjs/common/captureRequestError.js:20), i.e. the HTTP method, one space, then the BRACKETED App Router path. The row gives the worked example POST /api/dashboard/reviews/[reviewId]/approve against the bare path, tells the operator to use a CONTAINS (or ends-with) match on each bracketed route path and never an equals match on the path alone, and states the consequence of getting it wrong: the rule matches nothing and stays silent through the outage it exists to report. It also records that the dynamic segments are NOT the hazard, because routePath is already the bracketed pattern."
+    },
+    {
+      "id": "P1-8",
+      "severity": "P1",
+      "title": "Deviations D4 still says '37 tests across owner-route.test.ts and http-routes.test.ts'; the measured figure at HEAD is 38",
+      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:84",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED. Deviations D4 no longer carries a bare figure. The sentence now names the exact command (pnpm vitest run over the two helper suite paths), states the measured result at HEAD as 2 files / 38 tests, and records that it read 37 when first written, before the round-2 work added `re-throws a non-Error rejection value unchanged` to the approval suite. Re-measured by the orchestrator: 38."
+    },
+    {
+      "id": "P1-9",
+      "severity": "P1",
+      "title": "PR #1391's '1054 tests pass across the 86 affected suites' names no measurable set and does not reproduce under the repo's own affected-set definition",
+      "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:84",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "FIXED. PR #1391 no longer claims \"1054 tests pass across the 86 affected suites\". It now names the repo's own definition of the affected set and its command — pnpm vitest run --changed 10377aa9b, per package.json test:changed, lefthook.yml and scripts/verify-gate.sh — and reports the reproducible 26 files / 368 tests, plus the two helper suites at 2 files / 38 tests and resolve-owner-scope.test.ts at 13. The unfalsifiable figure is gone rather than relabelled."
     }
   ],
   "authorizations": [
@@ -212,24 +228,28 @@
     {
       "id": "owner-1361-third-round",
       "date": "2026-09-20",
-      "finding_ids": [],
+      "finding_ids": [
+        "P1-4",
+        "P1-5",
+        "P1-6"
+      ],
       "text": "Owner authorized a THIRD ROUND of the red-team pass on 2026-09-20, asked directly and answered \"Go for round 3 yes\". Reason stated when asking: round 2 found three real P1s in the runbook row this branch adds (wrong affected-route count, a rule-number collision with an existing Rule 12, and a rule that could not be configured for lack of a name, level, threshold, window, throttle and destination). All three were documentation defects written by this run, so the third round exists to adversarially verify those corrections at current HEAD rather than to re-verify the code, which two clean mutation rounds and a Codex APPROVED already cover. The third round is additionally needed because the round-2 sidecar is stale by construction: fixing its own findings moved HEAD and amending the estimate changed the intake, so intake_sha256 and head_sha no longer match. Those freshness fields were deliberately NOT edited by hand; a fresh round is the honest way to make them current."
     }
   ],
   "counts": {
-    "inventory_total": 12,
-    "killed": 6,
+    "inventory_total": 10,
+    "killed": 0,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 6,
-    "findings_total": 11,
+    "excluded": 10,
+    "findings_total": 14,
     "p0_open": 0,
     "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 2,
-    "fixed": 9,
+    "fixed": 12,
     "rejected": 0
   },
   "status": "CLEAR"

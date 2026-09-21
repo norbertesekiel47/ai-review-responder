@@ -82,8 +82,12 @@ it, but the `build` row keeps the gate RED regardless, so a re-run changes no
 decision.
 
 **Verdict:** ACCEPT — an unrelated timing flake, reproduced green in isolation.
-Both suites this change actually touches pass: 37 tests across
-`owner-route.test.ts` and `http-routes.test.ts`, plus 166 across the 13 test
+Both suites this change actually touches pass: `pnpm vitest run
+src/lib/locations/__tests__/owner-route.test.ts
+src/lib/approval/__tests__/http-routes.test.ts` reports 2 files / 38 tests at
+HEAD (it was 37 when this entry was first written, before the round-2 work added
+`re-throws a non-Error rejection value unchanged` to the approval suite), plus
+166 across the 13 test
 FILES under those route directories. That is a directory count, not a
 gate-consumer count: three of those files consume no changed gate, and the set
 predates D5 so it excludes the eight routes `resolveOwnerScope` fronts. The
@@ -216,3 +220,52 @@ Each is fixed, not waived.
 stated reason. The lesson for step 8: a rule defined by an enumeration has no
 fallback filter, so the enumeration is load-bearing and must be counted, not
 estimated.
+
+## D9 — round 3 found three more P1s, and all three were mine again
+
+Round 3 ran at HEAD `702d99cee` under the owner's explicit third-round
+authorization, aimed at the DOCUMENTATION rather than the code: rounds 1 and 2
+had killed 13 of 13 scored mutants, while round 2's three P1s were all defects
+in prose this run wrote. That aim was correct. Round 3 found three more, all
+mine, none in code.
+
+1. **P1-7 — the runbook rule would never have fired.** Rule 15 told the operator
+   to filter on `transaction` "(Next's route path)". `Sentry.captureRequestError`
+   sets it to `` `${request.method} ${routePath}` `` — verified in the installed
+   `@sentry/nextjs` at `build/cjs/common/captureRequestError.js:20`. The value is
+   `POST /api/locations/add`, not `/api/locations/add`. An operator building
+   twenty equals-filters from the enumeration would match nothing, and the rule
+   would stay silent through a full pool outage — the exact silence it exists to
+   remove, with no tag or message fallback by its own design. The row now states
+   the method-space-path shape, gives a worked example, and says to use a
+   CONTAINS match, never equals. **This is the worst defect this branch
+   produced**, and it was in the fix for a previous finding.
+2. **P1-8 — a stale figure INSIDE the sentence that a previous fix corrected.**
+   D4 said "37 tests". Measured at HEAD: 38. The round-2 work added
+   `re-throws a non-Error rejection value unchanged` to the approval suite.
+   Commit `0197bd4bc` rewrote the clause after the comma to fix P1-2/P2-5 and
+   left the `37` immediately before it untouched. Same defect class, same
+   paragraph, surviving the correction pass for it.
+3. **P1-9 — an unfalsifiable figure in the PR body.** "1054 tests pass across the
+   86 affected suites" names no measurable set. This repo defines "affected" as
+   `vitest run --changed <since>` (package.json `test:changed`, `lefthook.yml`,
+   `scripts/verify-gate.sh`), which gives 26 files / 368 tests. Round 3 measured
+   six candidate reconstructions and none matched. It could not prove the number
+   false — which IS the defect: a figure that names no set cannot be checked.
+   The PR body now names the exact command.
+
+**The pattern, stated plainly because it is the lesson.** Three rounds produced
+three findings of one class: `187 across the 12 consuming route suites`
+(round 1), `166` with the wrong label (round 2), `37` and `1054/86` (round 3).
+Every one came from quoting a figure produced by an ad-hoc `vitest` invocation
+and then describing the file set in prose that did not match what was run. D7
+set the standard after the first; it was violated twice more.
+
+**The rule this run should have followed from the start:** never write a
+measurement without the command that produces it, in the same sentence. A number
+whose command is not stated is not evidence, and the reviewer who tries to check
+it will find a different one.
+
+**Verdict:** ACCEPT — all three fixed at the source. The third round the owner
+authorized paid for itself: the P1-7 defect would have shipped a runbook rule
+that could not fire, and no code-focused review would have caught it.
