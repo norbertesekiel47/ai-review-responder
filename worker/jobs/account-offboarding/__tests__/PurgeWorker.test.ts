@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { AccountOffboardingPurgePayload } from '../../../../src/lib/shared/worker-types';
@@ -261,7 +263,10 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   }),
 }));
 
-import { handleAccountOffboardingPurge } from '../PurgeWorker';
+import { handleAccountOffboardingPurge, PURGE_TERMINAL_FINGERPRINT } from '../PurgeWorker';
+
+/** The runbook that owns the Sentry rule routing this worker's terminal alert. */
+const ALERTING_RUNBOOK = 'docs/runbooks/beta-launch-alerting.md';
 
 describe('AccountOffboarding PurgeWorker', () => {
   beforeEach(() => {
@@ -713,6 +718,143 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(mockState.offboarding?.status).toBe('failed');
     expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  // ── The purge-failure alert splits terminal from retry (#1016) ─────────
+  //
+  // One constant message with no fingerprint grouped a retry `warning` and the
+  // terminal `error` into ONE Sentry issue, so a first-seen rule fired on an
+  // early retry and never on the terminal event (red-team RT-08). The
+  // fingerprints are spelled out here rather than imported from PurgeWorker on
+  // purpose: they are an operator-facing contract with a configured Sentry
+  // rule, and importing them would let a rename pass on both sides while every
+  // rule stopped matching. The doc pin below reads the exported constants —
+  // that comparison is between two artifacts and must not be hand-copied.
+  describe('purge-failure alert fingerprints', () => {
+    it('alerts a terminal stage failure with the terminal fingerprint at error level', async () => {
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({ attemptsMade: 2, attempts: 3 }),
+      );
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+          tags: expect.objectContaining({ terminal: 'true' }),
+        }),
+      );
+    });
+
+    it('alerts a retryable stage failure with the retry fingerprint at warning level', async () => {
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await expect(
+        handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 })),
+      ).rejects.toThrow('stripe connection error');
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'warning',
+          fingerprint: ['account_offboarding_purge_failed', 'retry'],
+          tags: expect.objectContaining({ terminal: 'false' }),
+        }),
+      );
+    });
+
+    it('alerts a terminal validation failure with the terminal fingerprint', async () => {
+      // The OTHER call site: validation rejects before the stage loop opens, and
+      // it takes the same fingerprint a terminal stage failure does.
+      mockState.offboarding = { ...mockState.offboarding!, teardown_completed_at: null };
+
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({ attemptsMade: 2, attempts: 3 }),
+      );
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+        }),
+      );
+    });
+
+    it('the terminal and retry purge alerts never share a fingerprint', async () => {
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await expect(
+        handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 })),
+      ).rejects.toThrow('stripe connection error');
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({ attemptsMade: 2, attempts: 3 }),
+      );
+
+      const fingerprints = mockCaptureMessage.mock.calls.map(
+        ([, context]) => (context as { fingerprint?: string[] } | undefined)?.fingerprint,
+      );
+      expect(fingerprints).toHaveLength(2);
+      // Two absent fingerprints compare EQUAL, which is the #1016 defect itself;
+      // assert presence so the inequality below cannot pass vacuously.
+      expect(fingerprints.every((fingerprint) => Array.isArray(fingerprint))).toBe(true);
+      expect(fingerprints[0]).not.toEqual(fingerprints[1]);
+    });
+
+    it('the terminal purge path marks the outbox failed and does not throw', async () => {
+      // No double report: the terminal branch returns after the two marks, so
+      // `attachJobFailureSink` never fires for it and this ONE capture is the
+      // whole page. A throw here would add a second Sentry event for one failure.
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await expect(
+        handleAccountOffboardingPurge(
+          mockSql,
+          mockSupabaseServer,
+          makeJob({ attemptsMade: 2, attempts: 3 }),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        OUTBOX_ID,
+        'stripe connection error',
+        2,
+      );
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage.mock.calls[0]![1]).toMatchObject({
+        fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+      });
+    });
+
+    it('the alerting runbook routes the terminal purge fingerprint the worker sends', () => {
+      // A fingerprint nobody routes is worth nothing: before #1016 the signal
+      // had no rule at all (red-team RT-05). Read off the exported constants
+      // rather than hand-copied, because "the runbook and the worker agree" is
+      // a claim about two artifacts and a copy only ever proves the copy.
+      const runbook = readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8');
+
+      expect(runbook).toContain('account-offboarding-purge-terminal → discord');
+      expect(runbook).toContain(PURGE_TERMINAL_FINGERPRINT[0]);
+      expect(runbook).toContain(`[${PURGE_TERMINAL_FINGERPRINT.join(', ')}]`);
+    });
   });
 
   // ── D5 INVERTED: the redaction stage runs FIRST ────────────────────────

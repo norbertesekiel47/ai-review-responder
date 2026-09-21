@@ -258,9 +258,12 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     //
     // The lock is per-BUSINESS and this stage is per-ACCOUNT, so it takes one
     // per business under the account. Via acquireCsvIngestLock rather than a
-    // hand-spelled `hashtext('csv_ingest_' || id)` on purpose: two derivations
-    // of one key is how a lock silently stops contending while still looking
-    // taken. `businesses` (not DISTINCT business_id from the uploads table) is
+    // hand-spelled `hashtext()` over the same per-business key on purpose: two
+    // derivations of one key is how a lock silently stops contending while
+    // still looking taken. That key is deliberately not respelled in this
+    // comment either — ingest.test.ts scans this lane for any reconstruction of
+    // it, and prose that looks like one is a false positive on the guard.
+    // `businesses` (not DISTINCT business_id from the uploads table) is
     // the source so a business with no upload row yet is still covered, and so
     // this does not itself become the pre-lock peek ingest.ts warns about.
     //

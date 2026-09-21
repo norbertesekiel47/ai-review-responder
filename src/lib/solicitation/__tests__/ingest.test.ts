@@ -69,11 +69,15 @@ describe('resolveContactMatch', () => {
   });
 });
 
-// The csv_ingest lane's two source directories. The advisory-lock KEY may be
-// built in exactly one of their files; every other writer goes through
-// acquireCsvIngestLock (which also owns the hashtext wrapping and the
-// first-statement rule).
-const LANE_ROOTS = ['src/lib/solicitation', 'worker/jobs/csv-ingest'];
+// The csv_ingest lane's source roots. The advisory-lock KEY may be built in
+// exactly one file; every other writer goes through acquireCsvIngestLock
+// (which also owns the hashtext wrapping and the first-statement rule).
+//
+// WIDE, not the lane's two obvious directories (#612): holders of this lock
+// live outside them — the offboarding purge takes it per business before
+// deleting `contact_csv_uploads`. Same width as `LOCK_LANE_ROOTS` in
+// batch-builder.test.ts, for the same reason.
+const LANE_ROOTS = ['src/lib', 'worker'];
 // Any reconstruction of the key, not just the template-literal form: the
 // prefix either terminates a string literal (`'csv_ingest_' || businessId`) or
 // is followed by an interpolation (`csv_ingest_${businessId}`). Prose mentions
@@ -92,16 +96,21 @@ function* walkLaneSources(dir: string): Generator<string> {
   }
 }
 
-function laneFilesBuildingTheLockKey(): string[] {
+/** Every source file the scan visits, as repo-relative paths. */
+function laneSourceFiles(): string[] {
   const files: string[] = [];
   for (const root of LANE_ROOTS) {
     for (const filePath of walkLaneSources(join(process.cwd(), root))) {
-      if (LOCK_KEY_CONSTRUCTION.test(readFileSync(filePath, 'utf-8'))) {
-        files.push(relative(process.cwd(), filePath).split('\\').join('/'));
-      }
+      files.push(relative(process.cwd(), filePath).split('\\').join('/'));
     }
   }
-  return files.sort();
+  return files;
+}
+
+function laneFilesBuildingTheLockKey(): string[] {
+  return laneSourceFiles()
+    .filter((file) => LOCK_KEY_CONSTRUCTION.test(readFileSync(join(process.cwd(), file), 'utf-8')))
+    .sort();
 }
 
 let harness: MockSqlHarness;
@@ -124,6 +133,15 @@ describe('csv_ingest terminal-write owners', () => {
     // in-flight ingests that still hold the old key.
     expect(harness.sqlCalls[0]!.values).toEqual(['csv_ingest_business-1']);
     expect(laneFilesBuildingTheLockKey()).toEqual(['src/lib/solicitation/ingest.ts']);
+  });
+
+  it('the csv_ingest lock-key scan covers the offboarding purge lane', () => {
+    // #612: the two narrow roots left the widest non-ingest holder of this lock
+    // outside the scan entirely — the offboarding purge takes it per business
+    // before deleting `contact_csv_uploads`, so a key respelled there would
+    // silently stop contending while the single-owner assertion above stayed
+    // green. Same width as `LOCK_LANE_ROOTS` in batch-builder.test.ts.
+    expect(laneSourceFiles()).toContain('worker/jobs/account-offboarding/purge-stages.ts');
   });
 
   it('writeTerminalUploadState guards the terminal write with the pending predicate', async () => {

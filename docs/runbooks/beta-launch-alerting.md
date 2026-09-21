@@ -359,6 +359,31 @@ email shares the Resend provider with the product.
   the expected end state; a non-terminal turn beside a terminal outbox row is
   the stranded-turn case and the owner must start a new conversation.
 
+- [ ] **Account-offboarding purge terminal failure routed to Discord (#1016)** —
+  issues carrying the custom fingerprint
+  `[account_offboarding_purge_failed, terminal]` at level `error`, tagged
+  `subsystem:account_offboarding`, `step:purge` and `terminal:true`. Emitted by
+  `alertPurgeFailure` in `worker/jobs/account-offboarding/PurgeWorker.ts` — one
+  function, called from both failure sites (validation and stage). A terminal
+  purge failure is an **unmet deletion obligation**: the offboarding lands
+  `status='failed'`, `failed_step='purge'` and nothing retries it.
+  **The fingerprint is what makes the rule possible.** The message is a
+  constant and, before #1016, no fingerprint was set, so a retry `warning` and
+  the terminal `error` grouped into ONE Sentry issue — a first-seen rule fired
+  on an early retry and never on the terminal event (red-team RT-08). The two
+  fingerprints split them; both spellings are exported constants that a test
+  pins against this file.
+  **The job-failure sink does NOT cover this.** The terminal branch marks the
+  offboarding and the outbox row and then RETURNS rather than throwing, so
+  BullMQ emits no `failed` event and `attachJobFailureSink` never fires for it
+  (owner decision: one failure, one report).
+  **Rule 1 is the aggregate half, and it is not a substitute.** `markOutboxFailed`
+  leaves a `job_outbox` row at `status='failed'`, which
+  `checkFailedOutboxByTopic` reports as `outbox_failed:account_offboarding_purge`
+  carrying `subsystem:health_alert` — but that finding names a topic and a
+  count, never the offboarding. Rule 16 below carries the per-offboarding handle
+  and owns the exact configuration and response procedure.
+
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
 > **CONFIG-1 (billing reconcile drift routing) — verified 2026-06-24.**
@@ -556,6 +581,22 @@ the incident record; the event carries the rejection only, never a request body.
 **Scope.** This is a runbook requirement only. No Sentry rule, grouping
 override, destination integration or delivery drill was installed or executed
 here. Configure staging first and read the saved rule and destination back.
+
+**Rule 16 — Account-offboarding purge terminal failure (#1016). REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE.**
+
+| Rule name | Emitted identity and filter | Level and grouping | Trigger and destination |
+|---|---|---|---|
+| `account-offboarding-purge-terminal → discord` | Worker `captureMessage` with the constant message `account_offboarding_purge_failed`, emitted by `alertPurgeFailure` (`worker/jobs/account-offboarding/PurgeWorker.ts`); filter tag `terminal` equals `true` **AND** level equals `error`, together with `subsystem` equals `account_offboarding` and `step` equals `purge`; scope to the deployment environment. Do **not** filter on Sentry priority — CONFIG-1 established that a level alone does not reliably classify, and the retry twin of this signal is a `warning` | `error`; custom fingerprint `[account_offboarding_purge_failed, terminal]`, which is the whole grouping — the message is constant and the retry arm takes `[account_offboarding_purge_failed, retry]` at `warning`, so the two are separate issues by construction. Default title (the message). The event carries `account_offboarding_id`, `account_id` and the scrubbed error only — never an owner name, email, address or review text | Every event, action throttle 60 minutes per issue; the environment's existing Discord alerts channel via integration 443670 |
+
+**Why every event rather than first-seen, and why the fingerprint is load-bearing** (red-team RT-08). Both facets answer one defect. `alertPurgeFailure` is called on every failed attempt with a constant message; before #1016 it set no fingerprint, so Sentry grouped the retry `warning` and the terminal `error` into a single issue. A first-seen rule on that issue fires once — on whichever early retry arrives first — and is then permanently silent for the terminal event it exists to report. Splitting the fingerprint gives the terminal event an issue of its own; every-event delivery with the per-issue throttle keeps a second terminal failure from being swallowed by the first one's first-seen. The two spellings are exported from `PurgeWorker.ts` and a test pins them against this file, so renaming either side turns red rather than silently unmatching the rule.
+
+**The generic job-failure sink does not cover this, by design.** On the terminal attempt the handler calls `markPurgeTerminalFailure` and `markOutboxFailed` and then RETURNS; it does not throw. BullMQ therefore emits no `failed` event for it, and `attachJobFailureSink` (`worker/job-failure-sink.ts`), which is attached to this queue's Worker like every other, never fires. That is the owner's decision — one failure, one report — and it is exactly why this rule has to exist: rule 11's `subsystem:worker_job` filter matches the sink's `captureException`, not this handler's `captureMessage`, and nothing else was routing the signal (red-team RT-05).
+
+**What rule 1 covers, and why it is not enough.** `markOutboxFailed` leaves the `job_outbox` row at `status='failed'`, and `checkFailedOutboxByTopic` (`worker/background/pollers/health-alert/checks.ts`) reports every failed topic above `HEALTH_ALERT_FAILED_THRESHOLD` inside `HEALTH_ALERT_FAILED_WINDOW_S` — the topic list is open since #1378, so `outbox_failed:account_offboarding_purge` does ride rule 1 with `subsystem:health_alert`. That finding names a topic and a count and nothing else. This rule carries the `account_offboarding_id` the operator needs to find the half-purged account, so the two are complements, not substitutes — and rule 1's own box is still unchecked.
+
+Operator action: read `account_offboardings` for the captured `account_offboarding_id` — `status='failed'`, `failed_step='purge'` and `last_error` (already scrubbed) say which stage stopped. The purge is idempotent and strictly ordered with the Stripe Customer redaction first, so a re-run resumes rather than double-destroys; re-drive it only after the underlying cause is fixed, and never by hand-editing `terminal_at` or the outbox row. Treat the account as holding live PII until a re-run completes — a terminal failure before `runParentTombstonePurgeStage` leaves names, emails and addresses in place. Keep owner text and the account's contact details out of the incident record.
+
+**Scope.** This is a runbook requirement only. No Sentry rule, grouping override, destination integration or delivery drill was installed or executed here. Configure staging first, read the saved rule and its destination back, then repeat for production. A delivery drill is a separate requirement (§4's standard: a rule is unproven until it has been seen to deliver).
 
 **Rule 11 — Owner Operator `agent_turn` retry exhaustion (Run B).** The event is
 whatever `worker/job-failure-sink.ts` captures after BullMQ exhausts the job's
