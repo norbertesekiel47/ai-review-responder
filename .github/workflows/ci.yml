@@ -240,10 +240,15 @@ jobs:
       # for the reviewer and never fail (scripts/ci/weakened-checks-audit.ts).
       - name: Run weakened-checks audit (focused/disabled tests, lowered coverage floor)
         run: pnpm ci:weakened-checks
-      # #1374. Pinned to the same gitleaks release installed locally
-      # (docs/runbooks/secrets-rotation-api-keys.md "Secret scan"); the sha256
-      # is verified BEFORE the archive is extracted or used, so a corrupted or
-      # substituted download fails the job instead of silently running.
+      # #1374. CI is the ONLY pinned install: this step fixes the version
+      # below and verifies its sha256 BEFORE the archive is extracted or used,
+      # so a corrupted or substituted download fails the job instead of
+      # silently running. A developer machine runs whatever `brew install
+      # gitleaks` put there — Homebrew is unpinned, there is no local pin, and
+      # the two CAN drift. `pnpm ci:secret-scan` prints the local version next
+      # to this pin on its first line, in the hook and here, which is how a
+      # drift becomes visible (docs/runbooks/secrets-rotation-api-keys.md
+      # "Secret scan").
       # Asset selected by runner.arch — the checksums are per-arch and come
       # from gitleaks' own published release checksums file, never invented.
       - name: Install gitleaks (pinned, checksum-verified)
@@ -273,7 +278,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/gitleaks/gitleaks"
           echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
       # Scans the commits THIS PR adds (origin/main..HEAD), never the working
-      # tree — fails closed on an absent binary or an unresolvable origin/main.
+      # tree — fails closed on an absent binary, an unresolvable base ref, an
+      # unreadable commit count, and on an empty report whose scanned-commit
+      # count does not match the range (gitleaks exits 0 with `[]` when its
+      # own `git log` errors). On a PR the base ref comes from GITHUB_BASE_REF.
       - name: Run secret scan
         run: pnpm ci:secret-scan
       # Informational only: Dependabot owns dependency updates; this surfaces

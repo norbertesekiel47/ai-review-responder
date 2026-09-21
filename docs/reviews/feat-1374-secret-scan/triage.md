@@ -23,3 +23,18 @@ signed-off intake is normal risk and `red-team-status.mjs` records the waiver. W
 | Spec false-claim 7 — `.gitleaks.toml` "this allowlist cannot hide a real leak" | — | ACCEPT | True once the path block carries `targetRules`; reword to cover both blocks. |
 | Spec F10 — the wiring test title says "lint CI", the check is ci.yml-wide | P3 | REJECT | Follows the `ci:admin-contract` precedent three lines above it; the reviewer verified the assertion reddens on all three removals. The title is locked by the intake. |
 | Std F6 — the file name breaks the `*-audit.ts` convention | P3 | REJECT | The reviewer confirmed zero mechanical cost. A rename changes two locked surface entries — a second surface amendment, which is an abort criterion — for a naming gain. Named debt in the change ledger. |
+
+# Round 2 (verification-only) — fix commit `8092131a4456e4620becf60d0f65a730c127b139` (superseded, see N1)
+
+One Claude verification agent (`round-2-verification.md`): 12/12 accepted findings ADDRESSED, the round-1 P1 is
+closed against its own reproduction, 31 doc claims checked (29 TRUE, 2 FALSE). 24 false-pass / false-fail
+experiments in scratch repositories. REVISE on defects the fixes introduced.
+
+| Finding | Sev | Verdict | Reason |
+|---|---|---|---|
+| N1 — the branch fails its own gate: the drill paragraph writes a literal PEM `BEGIN`/`END` pair and gitleaks reports `private-key` in commit `8092131a4` | P1 | ACCEPT | A false positive, and proof the scan is live. Reword the recipe so neither marker is a literal. Because the scan reads COMMITS, a later commit cannot clear it: the unpushed fix commit is rewritten so the pair never enters the branch history. |
+| N2 · N3 — false FAIL on a line-deletion-only commit and on a revert; the test locks the wrong model in | P1/P2 | ACCEPT (owner decision 2026-09-21: lower bound) | The exact count match was wrong twice and blocks honest pushes. New rule: FAIL when gitleaks scanned FEWER commits than the number of commits that add text lines — gitleaks always counts those and may count more. The stderr git-error check stays the first defense. |
+| N4 — a file marked `-diff`/`binary` in `.gitattributes` is invisible to gitleaks, so a key in it passes | P2 | ACCEPT as a documented limit | A gitleaks limitation, not fixable in the script without modelling attributes. Stated in the script header and the runbook. |
+| N5 — the false "gitleaks counts only commits that ADD a line" measurement is recorded in three durable places | P3 | ACCEPT | Corrected together: script header, ledger paragraph, deviations file. |
+
+Round 3 is this branch's last branch round (cap three): one verification agent on the round-3 fix hunks.

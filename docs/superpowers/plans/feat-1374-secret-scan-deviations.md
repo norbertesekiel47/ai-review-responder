@@ -283,3 +283,85 @@ counted (surfaceAmendments=1), one ledger line added by the root.
 
 **Verdict:** ACCEPT — process-ledger path required by a CI audit;
 owner-approved; no locked decision changes.
+
+## 2026-09-21 — Review round 1 fixes (triage: `docs/reviews/feat-1374-secret-scan/triage.md`)
+
+The spec axis REPRODUCED a green pass over a real finding: gitleaks 8.30.1
+exits 0 with `[]` on stdout when its internal `git log` fails (`ERR [git]
+fatal: …`, `INF 0 commits scanned.`), and the first implementation trusted the
+empty report. That broke the intake invariant "a gate that cannot see never
+passes". The pass condition is now a conjunction: exit 0, stdout `[]`, no
+`ERR`/`FTL`/`fatal:` marker on stderr, and gitleaks' OWN `N commits scanned.`
+count equal to the scannable-commit count git reports for the same range.
+
+[CORRECTED 2026-09-21 by review round 2 — the first version of this paragraph
+recorded a FALSE measurement: "gitleaks counts only commits whose diff ADDS at
+least one line". Measured properly in round 2: gitleaks runs `git log -p -U0`
+and counts a commit when it yields a hunk on a SURVIVING file — added OR removed
+lines. Whole-file deletions, renames, mode-only and binary-only commits are not
+counted. See the round-2 entry below for the design consequence.] The expected
+count is read from `git log --numstat` rather than `rev-list --count` (which
+would fail every push containing a rename-only or whole-file-deletion commit). `--diff-merges=remerge` is passed to both sides, which also
+closes spec F6: a secret that exists only in a merge resolution is now scanned
+(`-m` double-reports; `--cc`/`-c` find nothing; `--first-parent -m` drops
+side-branch commits — each tried in a scratch repository). Each new fail-closed
+branch was neutered once to prove its test reddens.
+
+Also: `targetRules = ["generic-api-key"]` on the path allowlist (a runtime-built
+fake private-key block at an allowlisted path is now reported); the base ref
+comes from `merge-ledger-audit.ts` `baseRefFor()`; the Rotation Log names the
+real variables and no longer claims "still-live"; audit C1 step 3 is PARTIAL and
+the box is unticked; the drill is reproducible from a construction recipe, never
+a literal.
+
+Named risk: the cross-check parses a human-readable gitleaks log line and
+depends on what gitleaks chooses to count. A gitleaks release that changes
+either FAILS the scan (never passes it) — CI is pinned to 8.30.1 by sha256, a
+developer machine is not, so a Homebrew upgrade can block pushes until the
+parser is updated (`git push --no-verify` is the escape; CI stays the backstop).
+
+**Verdict:** ACCEPT — the P1 is closed with a reproduction, the design fails in
+the safe direction, and its fragility is named.
+
+## 2026-09-21 — `reclassify` WARN after the review fixes: production 656, test 313
+
+Both buckets are over 2x the intake estimate (110 / 120). The branch was already
+re-classified `standard` / `normal` before review; these numbers do not move it
+again (one seam, one script, a tight surface, no new risk domain). Roughly 480 of
+the 656 "production" lines are runbook, audit and config prose plus comments; the
+script itself is about 370 lines, most of the growth being the fail-closed
+cross-check and its explanation.
+
+**Verdict:** ACCEPT — review-driven growth; classification unchanged since the
+first re-run of step 0.
+
+## 2026-09-21 — Review round 2: the branch failed its own scan, and the count model was wrong a second time
+
+**N1 — the scan caught this branch.** The round-1 fix commit (`8092131a4`) added
+a drill recipe to the runbook that wrote the literal PEM begin marker and end
+marker a few words apart; gitleaks' default `private-key` rule matches across
+that prose, so `ci:secret-scan` exited 1 on the post-commit gate. A false
+positive — and the first proof the scan is live on a real commit. Because the
+scan reads COMMITS, a later commit cannot clear it. The fix commit was never
+pushed, so the root undid it with `git reset --soft 6ac36114c` (work kept,
+staged) and the recipe is reworded so neither full marker is ever a literal; the
+fix lands as one new commit. Lesson for the runbook's own audience: a doc that
+EXPLAINS a secret shape must describe it, never spell it.
+
+**N2/N3 — exact count parity was the wrong design.** Round 1's model
+(`rev-list --count`) and round 2's ("commits that add a line") were both wrong
+about what gitleaks counts, and each error produces a false FAIL that blocks an
+honest push — on a line-deletion-only commit, and on a revert. A developer
+blocked for no reason learns `--no-verify`, which is worse than no gate. Owner
+decision 2026-09-21: a LOWER BOUND. Fail when gitleaks scanned FEWER commits
+than the number of commits that add text lines — every measured case agrees
+gitleaks always counts those; it may count more. The stderr git-error check
+stays the first defense, and it alone catches the round-1 reproduction.
+
+**N4 — a documented limit, not a fix.** A file marked `-diff`/`binary` in
+`.gitattributes` yields no text hunk, so gitleaks never reads it and a key
+inside it passes. No count can see that. Stated in the script header and the
+runbook; the header no longer implies that matching counts prove coverage.
+
+**Verdict:** ACCEPT — owner-decided design; both P1s traced to their cause; the
+history rewrite touched only an unpushed local commit.

@@ -21,12 +21,21 @@ useDefault = true
 # (client_turn_key, api_cost_id, attempt_token, auth_id, clientTurnKey) in
 # docs/runbooks/evidence/** run logs and migration/test fixtures — a v4 UUID
 # is never a real credential, the rule's regex just cannot tell a UUID from a
-# high-entropy secret. Scoped to `generic-api-key` only (`targetRules`), so a
-# vendor-specific rule (aws-access-token, stripe-access-token, openai-api-key,
-# anthropic-api-key, jwt, private-key, gcp-api-key, telegram-bot-api-token)
-# still fires on a UUID-shaped value — those rules match a distinct token
-# SHAPE, not "looks random", so this allowlist cannot hide a real leak under
-# them.
+# high-entropy secret.
+#
+# EVERY allowlist in this file is scoped with `targetRules` to
+# `generic-api-key`, the one catch-all rule that false-positives here — the
+# path block below included, after the round-1 review found that an unscoped
+# path entry silently disables ALL ~200 rules for the files it names. With
+# that scoping, a vendor-specific rule (aws-access-token,
+# stripe-access-token, openai-api-key, anthropic-api-key, jwt, private-key,
+# gcp-api-key, telegram-bot-api-token) still fires anywhere in the repo,
+# including inside an allowlisted path: those rules match a distinct token
+# SHAPE, not "looks random", so neither allowlist in this file can hide a real
+# leak under them. Verified in a scratch repo against gitleaks 8.30.1: a
+# runtime-built fake private key planted in one of the six paths below is
+# reported under this config, and all 16 `generic-api-key` fixture hits in
+# those same files stay suppressed.
 [[allowlists]]
 description = "UUID-shaped Postgres identifiers mistaken for generic-api-key secrets"
 targetRules = ["generic-api-key"]
@@ -40,6 +49,7 @@ regexes = [
 # behavior around token/key-shaped literals, never to ship one.
 [[allowlists]]
 description = "Test fixtures whose whole purpose is token/key-shaped literals"
+targetRules = ["generic-api-key"]
 paths = [
   '''^worker/ingress/__tests__/unsubscribe(?:-rate-limit|-single-flight)?\.test\.ts$''',
   '''^src/lib/notifications/email/__tests__/(?:send-email|solicitation-client)\.test\.ts$''',

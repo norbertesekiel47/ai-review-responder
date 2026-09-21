@@ -19,9 +19,9 @@ Mature, well-engineered codebase with genuinely strong security and reliability 
 
 ## 🔴 CRITICAL
 
-### [x] C1 — Live provider API keys exposed in git history · **Verified** · Effort: M
+### [ ] C1 — Live provider API keys exposed in git history · **Verified** · Effort: M
 
-**Status as of 2026-09-21 (#1374): every fix step below is either DONE or explicitly DECIDED — see the per-step note.**
+**Status as of 2026-09-21 (#1374): steps 1, 2 and 4 are DONE or explicitly DECIDED; step 3 is PARTIAL — see the per-step notes.** The box stays **unticked** deliberately. The tick rule for this tracker is that *every* step is done or explicitly decided, and a partial step is neither; ticking C1 would report five missing rotation procedures as finished work.
 
 **What:** A root-level `keys.md` was committed in `24353cf1` ("Sprint 1: scaffolding", 2026-04-06) containing the full credential set, then deleted from the tree. The current working tree is clean (`.env*` is correctly gitignored; only `.env.example` is tracked) — but **git history is permanent**. Hash-comparison of the leaked values against the current `.env.local` (no secret values printed):
 
@@ -41,8 +41,8 @@ Mature, well-engineered codebase with genuinely strong security and reliability 
 **Fix (in order) — final disposition:**
 1. **Rotate now** (OpenAI, Anthropic, SerpAPI, Supabase anon, both Upstash tokens, Stripe test key): **DONE**, 2026-09-20 (Anthropic done earlier, 2026-09-16, fingerprint-verified). The other five are owner-reported, not independently verified, no fingerprint recorded — see the Rotation Log in `docs/runbooks/secrets-rotation-api-keys.md`.
 2. **Scrub history** with `git filter-repo`/BFG + force-push: **DECIDED — NO SCRUB**, 2026-09-21, by the owner. Reason and revisit trigger: `docs/runbooks/secrets-rotation-api-keys.md` § "History scrub decision". All six exposed values are rotated and dead; a rewrite + force-push breaks every clone/worktree/open PR for low remaining value.
-3. **Update the rotation runbook**: **DONE** — `docs/runbooks/secrets-rotation-api-keys.md` now covers provider/infra keys (it already covered ENCRYPTION_KEY/SESSION_COOKIE_SECRET/CSRF_SECRET), the six 2026-09-20 rows are in the Rotation Log, and it carries the History scrub decision and Secret scan sections.
-4. **Add a pre-commit/CI secret scan**: **DONE** — gitleaks (`pnpm ci:secret-scan`, `scripts/ci/secret-scan.ts`) runs in lefthook's `pre-push` hook and in `.github/workflows/ci.yml`'s `lint` job, scanning `origin/main..HEAD` with `--redact`, fail-closed on an absent binary, an unresolvable `origin/main`, or a non-finding gitleaks error. Detail: `docs/runbooks/secrets-rotation-api-keys.md` § "Secret scan".
+3. **Update the rotation runbook**: **PARTIAL.** *Landed* (`docs/runbooks/secrets-rotation-api-keys.md`): the six 2026-09-20 rows in the Rotation Log, the "History scrub decision" section, and the "Secret scan" section. *Not landed*: the `## Scope` list is unchanged — it still names only `ENCRYPTION_KEY`, `SESSION_COOKIE_SECRET` and `CSRF_SECRET` — and of the six keys rotated on 2026-09-20 only the LLM provider keys have a rotation **procedure** (the `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` section, added 2026-09-16). The other five — SerpAPI, Supabase anon, the Upstash cache credential, the retired `REDIS_QUEUE_TOKEN`, the Stripe test key — have a log row and no steps, so the next rotation of any of them starts from nothing. Writing those five procedures was out of scope for #1374 and is what remains of this step.
+4. **Add a pre-commit/CI secret scan**: **DONE** — gitleaks (`pnpm ci:secret-scan`, `scripts/ci/secret-scan.ts`) runs in lefthook's `pre-push` hook and in `.github/workflows/ci.yml`'s `lint` job, scanning `<base ref>..HEAD` (`origin/main` by default, `origin/$GITHUB_BASE_REF` on a PR) with `--redact`. Fail-closed on an absent binary, an unresolvable base ref, an unreadable commit count, a non-finding gitleaks error, and on an empty report whose scanned-commit count does not match the range — gitleaks exits 0 with `[]` whenever its own `git log` writes to stderr. Detail: `docs/runbooks/secrets-rotation-api-keys.md` § "Secret scan".
 
 ---
 
@@ -190,7 +190,7 @@ All 6 architecture invariants hold; zero circular deps. No exploitable security 
 
 ## Suggested fix order
 
-1. ~~**C1** — rotate still-live keys + scrub history (the one critical).~~ **DONE (#1374, 2026-09-21):** keys rotated 2026-09-20, history scrub explicitly decided against (see the checklist item), CI/pre-push secret scan added.
+1. **C1** — rotate still-live keys + scrub history (the one critical). **MOSTLY DONE (#1374, 2026-09-21):** keys rotated 2026-09-20, history scrub explicitly decided against, CI/pre-push secret scan added. **Still open:** the runbook's `## Scope` and a rotation procedure for the five non-LLM keys (step 3, PARTIAL — see the checklist item). The item stays unticked until those land.
 2. **H0** — guard the ingest `failed`-hook + enable `no-floating-promises` for `worker/**` (smallest diff, largest blast-radius reduction).
 3. **H1** — one-line `WHERE` + `idx_jo_failed_created` + per-status counts (trivial; kills two 30s full scans).
 4. Verified mediums: **M-A** (one `sql.begin`) → **M-B** (UUID guards, 8 routes) → **M-C** → **M-D** → **H6** → **H7** → **M-E**.
