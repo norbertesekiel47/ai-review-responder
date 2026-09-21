@@ -14,7 +14,7 @@ import {
   buildPartnerLowEngagementAlertHtml,
   buildPartnerSatisfactionAlertHtml,
 } from '../../src/lib/notifications/email';
-import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
+import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
@@ -195,12 +195,85 @@ async function handleOwnerNudge(
 
   const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
 
-  const { messageId } = await sendInternalEmail({
-    to: business.owner_email,
-    subject,
-    bodyHtml,
-    category: 'marketing',
-  });
+  // MARK-BEFORE-SEND, and NO provider idempotency key (#1363).
+  //
+  // The nudge builds a fresh approval link per pending review, and
+  // `createApprovalLink` mints a new randomUUID token on every call, so attempt
+  // 2 renders different HTML by construction. A stable key would therefore draw
+  // Resend's 409 `invalid_idempotent_request` rather than a replay of the
+  // original response, and the delivery row would carry a synthetic message id.
+  // `worker/ingress/resend.ts` correlates bounced/delivered/complained events
+  // ONLY on the real Resend id, so a hard bounce on this nudge would match no
+  // row and never set `businesses.owner_email_bounced`.
+  //
+  // Completing the outbox row first is the same crash-safe shape
+  // `handleSatisfactionAlert` below already uses: a crash between here and
+  // Resend accepting loses ONE nudge, which beats sending two and beats
+  // silently disabling bounce suppression.
+  //
+  // `handleSatisfactionAlert` is the precedent, NOT WeeklySummaryWorker — that
+  // one completes its outbox row AFTER the send and can therefore still call
+  // `markOutboxFailed` in its catch (`summary-report-helpers.ts:114-119`). This
+  // path cannot, which is why its catch writes a failed DELIVERY row instead
+  // (#1363 review round 2 corrected an earlier comment here that cited the
+  // wrong precedent).
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+
+  let messageId: string;
+  try {
+    ({ messageId } = await sendInternalEmail({
+      to: business.owner_email,
+      subject,
+      bodyHtml,
+      category: 'marketing',
+    }));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // Do NOT rethrow. The outbox row is already completed, but a throw still
+    // fails the BullMQ JOB, and BullMQ retries on its own clock — the handler
+    // would re-enter, find no delivery row (the cooldown probe's only record),
+    // mint fresh approval links and send a SECOND nudge. That is the duplicate
+    // this ordering exists to prevent, so the error stops here.
+    //
+    // `markOutboxFailed` is NOT the right record: the row is already
+    // 'completed', so the attempt-guarded UPDATE would no-op silently. Write a
+    // FAILED DELIVERY instead. It is durable, it names the reason, and because
+    // the cooldown probe keys on `sent_at IS NOT NULL` a failed row does not
+    // block the next legitimate nudge — which is the behaviour we want, since
+    // this owner never received one. (An earlier comment here claimed the
+    // re-nudge waits out the 3-day cooldown; review round 2 disproved that —
+    // the probe requires `sent_at IS NOT NULL`, so a failed row does not delay
+    // it. Rider from round 3: repeated failures append unbounded failed_at-only
+    // rows, which neither dedupe nor throttle.)
+    //
+    // Without it a Resend outage would drop every nudge while the job ledger
+    // reported success (#1363 review round 2).
+    logger.error(`Owner nudge send failed for business ${businessId}: ${reason}`);
+    // Best-effort, and it MUST carry its own try/catch
+    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
+    // primary side effect"). An unguarded rejection here escapes the handler
+    // despite the comment above saying the error stops here: BullMQ would retry
+    // the job, the cooldown probe would miss (this row has no `sent_at`), fresh
+    // approval links would be minted and a SECOND nudge would go out — exactly
+    // the duplicate the mark-first ordering exists to prevent.
+    try {
+      await insertFailedDelivery(
+        sql,
+        business.account_id,
+        businessId,
+        null,
+        'email',
+        business.owner_email,
+        reason,
+        'owner_nudge',
+      );
+    } catch (recordErr) {
+      logger.error(
+        `Owner nudge could not record the send failure for business ${businessId}: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
+      );
+    }
+    return;
+  }
 
   await recordNotificationDelivery(sql, {
     accountId: business.account_id,
@@ -211,7 +284,7 @@ async function handleOwnerNudge(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+  // No markOutboxCompleted here — it ran BEFORE the send, above.
   logger.log(`Owner nudge sent for business ${businessId} (${totalPending} pending reviews)`);
 }
 
@@ -279,12 +352,50 @@ async function handlePartnerAlert(
     }
   }
 
-  const { messageId } = await sendInternalEmail({
+  // Domain-scoped key (#1363): (alert_type, business_id), matching the
+  // notification_deliveries.template written below and the MAJORITY of the
+  // pre-existing house keys. (Not all of them: `NotificationFailoverPoller`
+  // scopes three to a per-attempt claim id, and
+  // `src/lib/account-offboarding/email-dedup.ts` is a named key-builder helper.
+  // An earlier draft of this change claimed no such precedent existed; it was
+  // wrong, and the claim is corrected here rather than repeated.)
+  //
+  // NOT outbox-scoped — an earlier draft of this change used the outbox
+  // id on the theory that a recurring alert has no domain identity and a
+  // business-scoped key might suppress a legitimate later alert. Review proved
+  // that false: EngagementMonitorPoller's cooldowns are 7 days for engagement
+  // and low_engagement and 14 for escalation (`EngagementMonitorPoller.ts:30-35`),
+  // all far beyond Resend's 24-hour key lifetime, so no legitimate second alert
+  // can ever collide.
+  //
+  // The domain scope is also strictly stronger. A crash between the send and
+  // the delivery row below leaves no cooldown record, so once the watchdog
+  // terminalizes this outbox row the poller can mint a NEW one and alert again.
+  // Two rows carry two ids; only a business-scoped key dedupes that.
+  //
+  // This alert's body is byte-stable across RETRIES of one job: its metrics are
+  // frozen in the payload. It is NOT byte-stable across a poller re-mint —
+  // `days_since_approval` feeds the subject and is recomputed each cycle, and
+  // `business.name`/`owner_email`/`owner_phone` come from a per-attempt DB read
+  // — so a re-mint inside the 24h key window can still draw a 409. Bounded, and
+  // accepted: the recipient is the admin inbox and `isOwnerDirectedTemplate`
+  // excludes every `partner_*` template from bounce flagging, so a synthetic id
+  // here cannot suppress an owner's hard bounce (#1363 review round 2). Resend therefore replays the ORIGINAL
+  // response — real message id included — and the bounce/delivery webhook
+  // correlation in worker/ingress/resend.ts keeps working. That stability is
+  // the precondition for carrying a key at all; the owner nudge above mints
+  // fresh approval tokens per attempt and so cannot.
+  const { messageId, idempotentReplay } = await sendInternalEmail({
     to: adminEmail,
     subject,
     bodyHtml,
     category: 'internal',
+    idempotencyKey: `${alertType}:${businessId}`,
   });
+
+  if (idempotentReplay) {
+    logger.log(`${alertType} already delivered under its idempotency key for business ${businessId}`);
+  }
 
   await recordNotificationDelivery(sql, {
     accountId: business.account_id,
