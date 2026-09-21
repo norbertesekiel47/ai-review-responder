@@ -414,3 +414,20 @@ the artifact, independent of enforcement.
 Raising it while flagging that it might be rejected is what made the
 adjudication possible. The tension was recorded rather than hidden, which is the
 behaviour that earns a reviewer its next hearing.
+
+---
+
+## Evidence re-pointed after taking `main` for the staging ride
+
+`main` advanced five commits between the round-2 pass and the staging push, so
+`head_sha` was re-pointed to the merge commit. The mutation evidence was NOT
+re-gathered, and that is a claim with a proof rather than a convenience:
+
+The five commits (#1363 ×2, #1361 ×2, one solicitation doc) touch 38 files.
+Intersected against this branch's own changed-file set, the overlap is exactly
+one path — `.claude/reference/arch-review-log.md`, where both branches append a
+ledger row. **No source file this pass mutated, measured or cited was touched.**
+The merge conflicted only on that ledger and was resolved by keeping both rows
+unedited.
+
+The gate was re-run at the merge commit and is GREEN with a current fingerprint.
