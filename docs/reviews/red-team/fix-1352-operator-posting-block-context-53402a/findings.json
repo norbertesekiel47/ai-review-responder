@@ -5,7 +5,7 @@
   "branch": "fix/1352-operator-posting-block-context",
   "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
   "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
-  "head_sha": "324d94b65",
+  "head_sha": "56ca27abbaa12cdaacc6147f64ddaddcaea91719",
   "intake_sha256": "f01c796c90d76796b6992afd6e0b507e97dda033e974ddd8c63a2791f7b12d5d",
   "risk": "high",
   "round": 2,
@@ -193,12 +193,11 @@
     "excluded": 3,
     "findings_total": 7,
     "p0_open": 0,
-    "p1_open": 2,
+    "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 5,
-    "rejected": 0,
-    "open": 0
+    "fixed": 7,
+    "rejected": 0
   },
-  "status": "CLEARED"
+  "status": "CLEAR"
 }
