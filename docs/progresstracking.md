@@ -765,3 +765,179 @@ type-only annotation can never pass step 7.5).
 unrelated pre-existing case (`red-team-mutation-runner.test.ts`, #1334): 1 failed,
 15,162 passed, 33 of 34 gate rows green. It passes in CI — confirmed on this PR's own
 `test` job. CI was the authority for that row.
+
+## 2026-09-21 — #1374 secret scan merged (PR #1415, squash `e39ff8a7a`)
+
+Ran inside one `/feature-swarm` sitting with #1016+#612 (three parallel runs, one
+owner). Lane `/feature`, size reclassified `small` → `standard` at step 0 once the
+real numbers were in (397 production / 136 test lines against a 110/120 estimate —
+the estimate was wrong, not the scope), RISK normal, 3 review rounds, red team
+WAIVED at normal risk and recorded by `red-team-status.mjs`. Records:
+`docs/reviews/feat-1374-secret-scan/` (triage.md carries every verdict) and
+`docs/superpowers/plans/feat-1374-secret-scan-deviations.md`.
+
+**What shipped.** A new CI audit, `ci:secret-scan`
+(`scripts/ci/secret-scan.ts`), wired three ways under
+`src/__tests__/ci-audit-wiring.test.ts`: `package.json`, `lefthook.yml` pre-push,
+and ci.yml's `lint` job. It runs gitleaks over the **commits** in
+`<base ref>..HEAD` — `baseRefFor()` from `merge-ledger-audit.ts`, `origin/main` by
+default and `GITHUB_BASE_REF` on a PR — with `--redact` and
+`--diff-merges=remerge`. Never the working tree. A secret one commit adds and a
+later commit removes is still caught, and so is one pasted into a merge
+resolution. `.gitleaks.toml` is new. `docs/runbooks/secrets-rotation-api-keys.md`
+is new and records six owner-reported rotations of 2026-09-20 plus the decision
+**not** to scrub history; audit item C1 in
+`docs/audits/2026-07-06-codebase-audit-findings.md` now carries its true status
+and stays deliberately unticked, because step 3 is PARTIAL — five non-LLM keys
+still have no rotation procedure.
+
+**The architectural consequence, which is the part to remember.** This is a **new
+external tool dependency on every developer machine and every gate run**:
+`brew install gitleaks`, and the audit fails closed without it by owner decision.
+`scripts/verify-gate.sh` builds its audit set from package.json's `ci:*` keys
+(excluding `ci:fallow*`), so the row joined every local gate with no gate edit at
+all. No npm dependency, flag, env var, migration or schema change.
+
+**Three measurement defects the review found, all in the gate's own logic.**
+
+1. **Round 1's P1 — the gate could not see and passed anyway.** gitleaks 8.30.1
+   exits **0** with `[]` on stdout whenever its own `git log` writes anything to
+   stderr (an uninstalled `.gitattributes` textconv driver, a partial clone that
+   cannot fetch a blob, a `warning:` from a damaged commit-graph). It prints
+   `ERR error="stderr is not empty"` and `INF 0 commits scanned.` and exits 0. The
+   reviewer reproduced a real private key in the range shipping green. A pass is
+   now a conjunction: exit 0 AND `[]` AND gitleaks' own scanned-commit count at or
+   above the commits that add a text line AND no `ERR`/`FTL`/`fatal:` marker on
+   stderr.
+2. **The count model was wrong twice.** Measured with a `git` shim on PATH:
+   gitleaks counts a commit when it yields a hunk on a file that **survives** the
+   commit — added *or removed* lines — and does not count empty commits,
+   whole-file deletions, 100%-similarity renames, mode-only or binary-only
+   changes. So `git rev-list --count` is systematically too high a comparand,
+   while an equality against the added-line count is too low and false-fails an
+   honest revert or delete-only push. Owner decision at round 2: the check is a
+   **lower bound**. Only a shortfall proves the scan stopped short.
+3. **`--diff-merges=remerge` is the only variant that works.** `git log -p` shows
+   no diff for a merge at all. Against a scratch repo whose merge resolution
+   introduced a fake private key present in neither parent: `-m` finds it but
+   double-reports it (once per parent), `--cc` and `-c` find nothing,
+   `--first-parent -m` finds it but drops every side-branch commit. Needs git
+   ≥ 2.35; an older git fails closed rather than silently skipping.
+
+**Two more things worth carrying.** A `[[allowlists]]` block with no `targetRules`
+disables **every** rule for what it matches — the fixture-path block shipped that
+way in round 1 and silently switched off all ~200 default rules, `private-key`
+included, across six live test suites. And **the branch failed its own scan**
+(round 2, finding N1): the rotation-drill paragraph wrote a literal PEM marker
+pair, gitleaks' `private-key` rule matches from an opening marker to the next
+closing one across ordinary prose, and because the scan reads commits a later
+commit could not clear it — the unpushed commit was undone with
+`git reset --soft` and rewritten so the pair never entered the branch history. A
+doc that explains the shape must **describe** the markers, never spell them.
+
+**Known limits, stated rather than implied.** A sufficient count does not prove
+the range was fully read: a file `.gitattributes` marks `-diff` or `binary` is
+invisible to both sides, so the minimum does not rise either (script header +
+runbook "Known limit"). An inline `gitleaks:allow` comment and a committed
+`.gitleaksignore` entry each pass a complete fake key — pre-existing gitleaks
+behaviour, measured at round 3, explicitly out of scope. And the version pin is
+**CI-only**: Homebrew is unpinned locally, so the script prints the local version
+beside the CI pin on its first line, making drift visible rather than prevented.
+
+## 2026-09-21 — #1016 + #612 remainder merged (PR #1417, squash `3b894b22c`)
+
+The other half of the same `/feature-swarm` sitting. Lane `/feature`, size
+reclassified `small` → `standard` after the review fixes (the growth was almost
+entirely test strength — the rule-scoped doc pin, the per-offboarding fingerprint
+tests and the comment-skipping scan), RISK high, lead `claude/opus`, 3 review
+rounds (spec-correctness + async/operations lens, standards-maintainability,
+Codex `gpt-6-astra` adversarial) plus **3 red-team rounds**, the third
+owner-authorized. Records: `docs/reviews/fix-1016-612-purge-terminal-alert/`,
+`docs/reviews/red-team/fix-1016-612-purge-terminal-alert-e8cee7/`, and
+`docs/superpowers/plans/fix-1016-612-purge-terminal-alert-deviations.md`.
+
+**What shipped.** `alertPurgeFailure`
+(`worker/jobs/account-offboarding/PurgeWorker.ts`) now sets a fingerprint. The
+retry arm takes the shared `[account_offboarding_purge_failed, retry]` at
+`warning`; the terminal arm takes
+`[account_offboarding_purge_failed, terminal, <account_offboarding_id>]` at
+`error`. Both spellings are exported —
+`PURGE_TERMINAL_FINGERPRINT_PREFIX` and `PURGE_RETRY_FINGERPRINT` — because the
+runbook names them and the test reads them back. `docs/runbooks/beta-launch-alerting.md`
+gains a §1 checklist entry and **rule 16**. One production file, one new
+production behaviour; no migration, flag, env var, dependency or module.
+
+**Two locked intake decisions were reversed by review round 1, both owner-decided.**
+
+- **Codex A1.** The intake locked a two-member terminal fingerprint, which would
+  have put every terminal failure in ONE Sentry issue — and Sentry's action
+  throttle is per issue, so a second account's page would be suppressed for the
+  rest of the hour. The terminal fingerprint gained the offboarding id: **one
+  issue per terminally failed offboarding**. The guarantee is cross-offboarding
+  only; repeats on the same offboarding stay throttled. The cost is storm mode —
+  N systemic failures, N issues, N pages, no aggregate ceiling — accepted so a
+  second account is never suppressed, and written into the rule rather than
+  hidden.
+- **RT16-01 / spec F1 (P0).** The runbook's operator action prescribed a re-drive
+  that **no code path can perform**. `validatePurgeableOffboarding` rejects the
+  row, `AccountOffboardingPurgePoller` claims only
+  `status='purge_scheduled' AND purge_started_at IS NULL`, the teardown retry path
+  is scoped to `failed_step='teardown'`, and the one admin route that writes
+  `status`/`failed_step` — the provider-disposition route behind
+  `shouldTransitionToPurgeScheduled` — leaves both untouched on a
+  `failed_step='purge'` row. The runbook now says so plainly, tells the operator
+  to treat the account as holding **live PII** (the purge is Stripe-redaction-first
+  with no per-stage checkpoint, so a terminal failure before the parent tombstone
+  stage leaves names, emails, phones and addresses in place while the auth user is
+  already deleted), and a P1 ticket **#1411** owns the recovery mechanism.
+
+**The prose pin was beaten three rounds running, and the third defeat is
+structural.** Round 1: a file-wide `toContain` matched the same string in a
+different section, so rule 16's row could be corrupted to `terminal equals false`
+at `warning` on the retry fingerprint and the test stayed green (RT-A6). Round 2:
+row-scoped regexes each found themselves in the *other* cell's sentence, so
+SWAPPING the two fingerprint spellings inside the row survived (RT16-02, P0 for a
+second consecutive round). The fix asserts **position** — which cell, which
+sentence — by slicing the file to rule 16's block, splitting the row into cells,
+finding each cell by its column header, and pinning every facet inside the cell
+that carries it: the filter cell's tag, level, `subsystem`, `step` and environment
+scoping; the grouping cell's opening level plus both constants position-scoped
+(terminal only ahead of the retry-arm sentence, retry only inside it); the trigger
+cell's every-event delivery, 60-minute per-issue throttle and integration 443670.
+Nothing else in the row. Round 3 then found **RT16-11**, which position-scoping
+cannot close: every pinned substring stays present under a `do **not**` prefix.
+Measured three times in three different cells, each surviving — the pin is
+**17-for-24 against value corruption and 0-for-3 against polarity**, and the cell
+already contains a negated instruction in production prose, so the mutation is
+native to the shape, not contrived. The owner accepted it; the durable fix is a
+machine-readable record the prose row is checked against cell by cell, filed as
+**#1414**.
+
+**What rule 16 is, and is not.** It is **REQUIRED, NOT CONFIGURED, and not
+delivery-proven**. Nothing pages from it until an operator builds it in Sentry —
+staging first, read the saved rule and destination back, then production. A
+delivery drill is a separate §4 requirement. The generic job-failure sink does not
+cover this path by design: on the terminal attempt the handler calls
+`markPurgeTerminalFailure` and `markOutboxFailed` and then **returns** without
+throwing (owner decision: one failure, one report), so BullMQ emits no `failed`
+event and `attachJobFailureSink` never fires — and rule 11's filter is
+`subsystem=worker_job` AND `queue=agent_turn`, matching neither. Rule 1 is not a
+fallback either: its §1 box is unchecked, and once built it triggers on first-seen
+over a finding whose message embeds a count and whose payload never carries the
+offboarding id, so it would fire once per distinct count value.
+
+**Deferred with the owner's authorization, all filed.** **#1412** — `TeardownWorker`
+and `BillingScheduleWorker` carry the identical one-shared-issue shape,
+re-verified byte-identical to the merge base before the deferral was recorded.
+**#1413** — three terminal paths in the same lane raise no `terminal:true` event:
+`account_offboarding_not_found` returns with no alert, a `loadPurgeOffboarding`
+throw happens outside the handler's try, and a watchdog terminalization carries no
+offboarding id. Both are named in the runbook.
+
+**#612 remainder.** The `csv_ingest` advisory-lock-key single-owner scan in
+`src/lib/solicitation/__tests__/ingest.test.ts` widens to `src/lib` + `worker` —
+the same width as the `solicitation_batch` scan — so the offboarding purge lane is
+inside the guard. It blanks **comment text**, not whole comment lines (whole-line
+stripping hid code after a `*/` and on `*`-leading continuations, RT16-09), which
+is why `purge-stages.ts` leaves the diff entirely: no production prose was
+reworded to dodge a regex. The race half of #612 was closed by #637.

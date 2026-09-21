@@ -18,6 +18,7 @@ paths:
 ## Traps
 
 - No trap clauses were moved from `.claude/CLAUDE.md` for this area; the mechanics and traps are in the lab-notes topic page above.
+- **A terminally failed purge has NO recovery path and is an unmet deletion obligation (#1016 / #1411).** `validatePurgeableOffboarding`, `AccountOffboardingPurgePoller` and `shouldTransitionToPurgeScheduled` all disqualify a `status='failed'` / `failed_step='purge'` row, and there is no per-stage checkpoint — the account holds live PII. `alertPurgeFailure` fingerprints terminal failures per offboarding (`PURGE_TERMINAL_FINGERPRINT_PREFIX`) so one account never suppresses another's page, but **runbook rule 16 is written, not configured** and the terminal path deliberately returns without throwing, so `attachJobFailureSink` never fires for it. Three sibling paths raise no `terminal:true` event (#1413) and two sibling workers keep the old shared-issue shape (#1412). Details: `docs/runbooks/beta-launch-alerting.md` rule 16.
 - Invariant #11 (subscription guard; Stripe is the source of truth via `worker/ingress/stripe/apply-subscription-state.ts`) and the audit-write rule (`writeAccountAuditLog` in the SAME transaction) stay in `.claude/CLAUDE.md`.
 
 ## Rules
