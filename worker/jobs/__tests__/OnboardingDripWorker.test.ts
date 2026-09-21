@@ -577,16 +577,47 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     sqlReturnQueue.push([]);                       // 9. UPDATE sent_at (pre-send)
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
 
-    await expect(handleOnboardingDrip(makeJob({ drip_type: 'day_7' }))).resolves.toBeUndefined();
+    // outbox_attempt is a real number, not the fixture default of undefined, so
+    // dropping the attempt guard fails this test. The error text is asserted in
+    // FULL: `expect.stringContaining('send failed after mark')` alone let the
+    // provider reason be dropped and stayed green (red-team round 3).
+    await expect(
+      handleOnboardingDrip({
+        data: { business_id: 'biz-drip-1', drip_type: 'day_7', outbox_attempt: 3 },
+        id: 'outbox-drip-1',
+      } as unknown as Job<OnboardingDripPayload>),
+    ).resolves.toBeUndefined();
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       mockSql,
       'outbox-drip-1',
-      expect.stringContaining('send failed after mark'),
-      undefined,
+      'send failed after mark: Resend 503',
+      3,
     );
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('a failure while recording the day_7 failure never escapes the handler', async () => {
+    // `.claude/rules/worker-layout.md`: best-effort work after a primary side
+    // effect needs its own try/catch. Unguarded, this rejection escapes, BullMQ
+    // retries, and the retry's step-4 skip branch marks the row COMPLETED —
+    // re-opening the defect this catch exists to close.
+    sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
+    sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
+    sqlReturnQueue.push([{ reviews_handled: 1 }]); // 4. reviews handled
+    sqlReturnQueue.push([]);                       // 5. no highlight
+    sqlReturnQueue.push([]);                       // 6. no edits
+    sqlReturnQueue.push([]);                       // 7. no pending reviews
+    sqlReturnQueue.push([{ total: 2 }]);           // 8. total reviews
+    sqlReturnQueue.push([]);                       // 9. UPDATE sent_at (pre-send)
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+    mockMarkOutboxFailed.mockRejectedValueOnce(new Error('pool exhausted'));
+
+    await expect(handleOnboardingDrip(makeJob({ drip_type: 'day_7' }))).resolves.toBeUndefined();
+
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('a keyed drip send failure still rethrows so BullMQ can retry and deliver', async () => {

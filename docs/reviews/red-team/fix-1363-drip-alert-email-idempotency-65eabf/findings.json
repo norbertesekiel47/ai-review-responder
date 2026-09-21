@@ -5,109 +5,152 @@
   "branch": "fix/1363-drip-alert-email-idempotency",
   "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
   "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "head_sha": "bb2e468af3e7fc738abd9e90e6e803df0552b15c",
+  "head_sha": "3b6795d8ffd818e59ae75bbcdda58b949bf79082",
   "intake_sha256": "7074d432d4b186209831cfc0af74ecfdf69d8d06b06a83275216f8c84a324a0f",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-21T00:18:38Z",
+  "round": 3,
+  "generated_at": "2026-09-21T00:40:00Z",
   "inventory": [
     {
-      "id": "INV-R2-01",
-      "test": "dripBodyVariesPerAttempt inverted",
-      "file": "worker/jobs/OnboardingDripWorker.ts:130",
+      "id": "INV-R3-01",
+      "test": "drip catch: `if (!bodyVaries) throw err` inverted to `if (bodyVaries)`",
+      "file": "worker/jobs/OnboardingDripWorker.ts:355",
       "outcome": "killed",
-      "reason": "day_7 ordering test fails."
+      "reason": "Both new drip tests fail: the keyed test no longer rejects, and the day_7 test no longer resolves."
     },
     {
-      "id": "INV-R2-02",
-      "test": "dripBodyVariesPerAttempt 'day_7' -> 'day_1'",
-      "file": "worker/jobs/OnboardingDripWorker.ts:130",
+      "id": "INV-R3-02",
+      "test": "drip catch: `throw err;` deleted so every drip swallows",
+      "file": "worker/jobs/OnboardingDripWorker.ts:358",
       "outcome": "killed",
-      "reason": "day_7 ordering test fails."
+      "reason": "'a keyed drip send failure still rethrows so BullMQ can retry and deliver' fails."
     },
     {
-      "id": "INV-R2-03",
-      "test": "dripBodyVariesPerAttempt always false",
-      "file": "worker/jobs/OnboardingDripWorker.ts:130",
+      "id": "INV-R3-03",
+      "test": "drip catch: the `markOutboxFailed` call deleted",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365",
       "outcome": "killed",
-      "reason": "day_7 ordering test fails."
+      "reason": "'a day_7 send failure records a durable outbox failure...' fails."
     },
     {
-      "id": "INV-R2-04",
-      "test": "conditional spread arms swapped",
-      "file": "worker/jobs/OnboardingDripWorker.ts:336",
+      "id": "INV-R3-04",
+      "test": "drip catch: error text `send failed after mark:` -> `send failed:`",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365",
       "outcome": "killed",
-      "reason": "day_1/day_7 key assertions fail."
+      "reason": "The test's expect.stringContaining('send failed after mark') fails."
     },
     {
-      "id": "INV-R2-05",
-      "test": "day_7 mark moved back after the send",
+      "id": "INV-R3-05",
+      "test": "drip catch: durable record loses the provider reason (`send failed after mark: ${reason}` -> 'send failed after mark')",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R3-04",
+      "reason": "SURVIVED, 1/1 green. Not equivalent (job_outbox.last_error loses the provider reason) and the line executes. Not escalated to P0: the tested behaviour named in the test title — a durable FAILURE rather than a silent completion — is still produced, so the oracle is weak about the payload, not fake about the behaviour."
+    },
+    {
+      "id": "INV-R3-06",
+      "test": "drip catch: attempt guard dropped (`outboxAttempt` -> `undefined`)",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R3-05",
+      "reason": "SURVIVED, 1/1 green. The fixture never sets outbox_attempt, so the assertion pins `undefined` and cannot distinguish a dropped guard. Pre-existing fixture convention (no test in either worker suite sets an attempt) inherited by a new call site, which is why it is P2."
+    },
+    {
+      "id": "INV-R3-07",
+      "test": "drip catch: `markOutboxFailed` swapped for `markOutboxCompleted`",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365",
+      "outcome": "killed",
+      "reason": "The day_7 test asserts markOutboxFailed called AND markOutboxCompleted not called."
+    },
+    {
+      "id": "INV-R3-08",
+      "test": "drip catch: the trailing `return;` deleted so the handler falls through to steps 8-10",
+      "file": "worker/jobs/OnboardingDripWorker.ts:366",
+      "outcome": "killed",
+      "reason": "recordNotificationDelivery / markOutboxCompleted negative assertions fail."
+    },
+    {
+      "id": "INV-R3-09",
+      "test": "nudge catch: the `insertFailedDelivery` call deleted",
+      "file": "worker/jobs/EngagementAlertWorker.ts:250",
+      "outcome": "killed",
+      "reason": "'records a failed delivery when an owner-nudge send fails' fails."
+    },
+    {
+      "id": "INV-R3-10",
+      "test": "nudge catch: `recipient` and `failureReason` arguments swapped",
+      "file": "worker/jobs/EngagementAlertWorker.ts:255-256",
+      "outcome": "killed",
+      "reason": "Positional assertion binds both distinct values; the order IS bound."
+    },
+    {
+      "id": "INV-R3-11",
+      "test": "nudge catch: `business.account_id` -> `undefined` (a dropped/misspelled column)",
+      "file": "worker/jobs/EngagementAlertWorker.ts:252",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R3-03",
+      "reason": "SURVIVED, 1/1 green. `mockBusinessRow()` has no account_id, so the new assertion pins `undefined` at that position — the exact value a dropped field produces. Not equivalent: production selects `a.id AS account_id` (EngagementAlertWorker.ts:43) and the column is NULLABLE (migration 039), so the failure row would silently lose tenant scoping rather than error."
+    },
+    {
+      "id": "INV-R3-12",
+      "test": "nudge catch: the `'owner_nudge'` template argument dropped (helper default 'approval_request')",
+      "file": "worker/jobs/EngagementAlertWorker.ts:257",
+      "outcome": "killed",
+      "reason": "Template assertion fails."
+    },
+    {
+      "id": "INV-R3-13",
+      "test": "nudge catch: accountId / businessId / responseId positions rotated",
+      "file": "worker/jobs/EngagementAlertWorker.ts:252-254",
+      "outcome": "killed",
+      "reason": "`null` at the accountId position is not equal to the expected `undefined`; order bound."
+    },
+    {
+      "id": "INV-R3-14",
+      "test": "partner-alert replay `logger.log` deleted",
+      "file": "worker/jobs/EngagementAlertWorker.ts:382",
+      "outcome": "killed",
+      "reason": "The new partner-replay log test fails. Round 2's surviving mutant is now bound."
+    },
+    {
+      "id": "INV-R3-15",
+      "test": "`internal.ts` replay `console.log` deleted",
+      "file": "src/lib/notifications/email/templates/internal.ts:126",
+      "outcome": "killed",
+      "reason": "The new internal.test.ts log test fails. Round 1's F1 / round 2's third survivor is now bound."
+    },
+    {
+      "id": "INV-R3-16",
+      "test": "`internal.ts` replay log drops `key=${params.idempotencyKey}`",
+      "file": "src/lib/notifications/email/templates/internal.ts:126",
+      "outcome": "killed",
+      "reason": "The test asserts the line contains the key, not merely the phrase."
+    },
+    {
+      "id": "INV-R3-17",
+      "test": "mark-before-send applied to EVERY drip (`if (bodyVaries)` -> `if (true)`)",
       "file": "worker/jobs/OnboardingDripWorker.ts:317",
       "outcome": "killed",
-      "reason": "day_7 ordering test fails."
+      "reason": "'a keyed drip marks sent_at AFTER the send, not before' fails. Round 2's headline survivor is now bound."
     },
     {
-      "id": "INV-R2-06",
-      "test": "nudge markOutboxCompleted moved after the send",
-      "file": "worker/jobs/EngagementAlertWorker.ts:215",
+      "id": "INV-R3-18",
+      "test": "post-send mark for keyed drips disabled (step 8 `if (!bodyVaries)` -> `if (false)`)",
+      "file": "worker/jobs/OnboardingDripWorker.ts:379",
       "outcome": "killed",
-      "reason": "nudge ordering test fails."
+      "reason": "The same ordering test's positive half fails, so it is not a one-sided assertion."
     },
     {
-      "id": "INV-R2-07",
-      "test": "nudge catch re-adds throw err",
-      "file": "worker/jobs/EngagementAlertWorker.ts:232",
-      "outcome": "killed",
-      "reason": "Pre-existing rewritten test binds."
-    },
-    {
-      "id": "INV-R2-08",
-      "test": "drip key businessId -> outboxId",
-      "file": "worker/jobs/OnboardingDripWorker.ts:336",
-      "outcome": "killed",
-      "reason": "Key assertions fail."
-    },
-    {
-      "id": "INV-R2-09",
-      "test": "partner-alert key businessId -> outboxId",
-      "file": "worker/jobs/EngagementAlertWorker.ts:366",
-      "outcome": "killed",
-      "reason": "Three partner key assertions fail."
-    },
-    {
-      "id": "INV-R2-10",
-      "test": "drip replay log text retargeted",
-      "file": "worker/jobs/OnboardingDripWorker.ts:349",
-      "outcome": "killed",
-      "reason": "Drip replay-log test fails."
-    },
-    {
-      "id": "INV-R2-11",
-      "test": "if (bodyVaries) -> if (true)",
-      "file": "worker/jobs/OnboardingDripWorker.ts:311",
-      "outcome": "killed",
-      "reason": "CLOSED THIS ROUND. Survived as INV-R2-11 on arrival (22/22 green); new test 'a keyed drip marks sent_at AFTER the send, not before' now fails on it. Re-verified by the orchestrator: 1 of 25 fails."
-    },
-    {
-      "id": "INV-R2-12",
-      "test": "partner-alert replay log deleted",
-      "file": "worker/jobs/EngagementAlertWorker.ts:377",
-      "outcome": "killed",
-      "reason": "CLOSED THIS ROUND. Survived on arrival (32/32 green); new test 'a partner alert replay logs that the email was already delivered' now fails on it. Re-verified: 1 of 34 fails."
-    },
-    {
-      "id": "INV-R2-13",
-      "test": "internal.ts replay console.log deleted",
-      "file": "src/lib/notifications/email/templates/internal.ts:121",
-      "outcome": "killed",
-      "reason": "CLOSED THIS ROUND. Survived on arrival (7/7 green); new test 'logs the idempotent replay so an operator can see it live' covers it."
-    },
-    {
-      "id": "INV-R2-14",
-      "test": "revokeMode 'never' suite",
-      "file": "src/lib/approval/create-link.ts",
-      "outcome": "excluded",
-      "reason": "Not lost coverage: create-link.ts and its test file are byte-identical to the merge-base, so the deleted lines are exactly the ones this branch added and the mode they covered no longer exists."
+      "id": "INV-R3-19",
+      "test": "the rejection path of the two new durable writes (markOutboxFailed / insertFailedDelivery throwing inside the catch)",
+      "file": "worker/jobs/OnboardingDripWorker.ts:365 · worker/jobs/EngagementAlertWorker.ts:250",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R3-01",
+      "reason": "Not mutation-measurable: no test drives either helper to reject (`grep mockMarkOutboxFailed.mockRejected|mockInsertFailedDelivery.mockRejected` over both suites returns nothing), so the diff's newest failure path has no covering candidate. See R3-01 and R3-02."
     }
   ],
   "findings": [
@@ -257,6 +300,66 @@
       "duty": 1,
       "disposition": "fixed",
       "reason": "Refreshed by the orchestrator at step 7.5 before the reviewed transition."
+    },
+    {
+      "id": "R3-01",
+      "severity": "P1",
+      "duty": 1,
+      "title": "The nudge catch's new `await insertFailedDelivery(...)` is unguarded, so a rejection propagates out of the handler and BullMQ retries — sending the SECOND nudge the catch's own comment says it prevents",
+      "at": "worker/jobs/EngagementAlertWorker.ts:250",
+      "disposition": "fixed",
+      "reason": "FIXED. insertFailedDelivery is now wrapped in its own try/catch that logs and swallows, per .claude/rules/worker-layout.md 'Best-effort work after a worker's primary side effect'. Mutation-verified by the orchestrator: removing the guard fails exactly one test, the new 'a failure while recording the nudge failure never escapes the handler'.",
+      "arbiter_reasoning": "Held at P1, not P0: the duplicate requires the durable write to ALSO fail, so the branch's headline claim survives for the ordinary Resend-error case. What is unambiguously false today is the comment's unconditional 'the error stops here'. High-risk lane (worker), so an open P1 routes to owner adjudication rather than silent acceptance."
+    },
+    {
+      "id": "R3-02",
+      "severity": "P1",
+      "duty": 1,
+      "title": "Symmetric hazard in the drip catch: an unguarded `await markOutboxFailed(...)` re-opens R2-01's false-success path when the durable write itself fails",
+      "at": "worker/jobs/OnboardingDripWorker.ts:365",
+      "disposition": "fixed",
+      "reason": "FIXED. Same guard on markOutboxFailed in the drip catch. Mutation-verified: removing it fails exactly one test, the new 'a failure while recording the day_7 failure never escapes the handler'.",
+      "arbiter_reasoning": "Same reasoning as R3-01. The DB-error window is narrow but is precisely correlated with the outages that make the send fail in the first place (#773 admission saturation, PgBouncer statement timeout)."
+    },
+    {
+      "id": "R3-03",
+      "severity": "P1",
+      "duty": 2,
+      "title": "The new nudge test pins `insertFailedDelivery`'s accountId argument to `undefined`, codifying a fixture omission as the contract",
+      "at": "worker/jobs/__tests__/EngagementAlertWorker.test.ts:754",
+      "disposition": "fixed",
+      "reason": "FIXED. The test now seeds account_id explicitly ('acct-nudge-1') instead of inheriting the fixture's omission, so the accountId argument is bound to a real value and a dropped business.account_id fails it.",
+      "arbiter_reasoning": "Duty-2 fragile assertion rather than a production defect: production selects `a.id AS account_id` (EngagementAlertWorker.ts:43), so the shipped call is correct. The assertion cannot tell a correct call from a broken one."
+    },
+    {
+      "id": "R3-04",
+      "severity": "P1",
+      "duty": 2,
+      "title": "`expect.stringContaining('send failed after mark')` under-binds the durable record: dropping the provider reason leaves the test green",
+      "at": "worker/jobs/__tests__/OnboardingDripWorker.test.ts:585",
+      "disposition": "fixed",
+      "reason": "FIXED. The assertion now pins job_outbox.last_error in full ('send failed after mark: Resend 503') rather than expect.stringContaining, so dropping the provider reason fails it.",
+      "arbiter_reasoning": "P1 not P0: the test's titled behaviour (durable failure instead of silent completion) is genuinely bound by the markOutboxFailed/markOutboxCompleted pair; only the payload is loose."
+    },
+    {
+      "id": "R3-05",
+      "severity": "P2",
+      "duty": 2,
+      "title": "The same assertion pins the attempt argument to `undefined`, so dropping the outbox attempt guard survives",
+      "at": "worker/jobs/__tests__/OnboardingDripWorker.test.ts:586",
+      "disposition": "fixed",
+      "reason": "FIXED. The same test now dispatches a job carrying outbox_attempt: 3 and asserts that value, so dropping the attempt guard fails it.",
+      "arbiter_reasoning": "Recorded so the convention is on the record; fixing it is a suite-wide fixture change, not a one-line edit to this diff."
+    },
+    {
+      "id": "R3-06",
+      "severity": "P2",
+      "duty": 3,
+      "title": "Two lines of the new nudge comment sit at 2-space indent inside a 4-space block",
+      "at": "worker/jobs/EngagementAlertWorker.ts:244",
+      "disposition": "fixed",
+      "reason": "FIXED. Indentation corrected, and the comment now also carries round 3's rider that repeated failures append unbounded failed_at-only rows.",
+      "arbiter_reasoning": "No behavioural consequence; recorded at P2 so it is fixed opportunistically rather than adjudicated."
     }
   ],
   "authorizations": [
@@ -269,22 +372,31 @@
       ],
       "text": "User was shown the AdminExceptionWorker sibling with its dead guard, the resend.ts:284 ingress sibling, and the pre-existing mutation-runner flake, and chose 'File a separate issue (Recommended)' over fixing them in this branch. Filed as RepWorth/ai-review-responder#1393 with reproduction, the dead-guard evidence, and the precondition the fix must respect. Recorded as intake non-goals.",
       "date": "2026-09-20"
+    },
+    {
+      "id": "AUTH-1363-ROUND3",
+      "finding_ids": [
+        "R2-01",
+        "R2-02"
+      ],
+      "text": "Owner explicitly authorized a THIRD ROUND of red team, capped and narrowly scoped to `git diff bb2e468af..HEAD` plus the direct callers of anything it changes. The round exists because round 2's own P1s (R2-01 day_7 send-failure silence, R2-02 owner-nudge swallow with no durable record) were fixed in commit 3b6795d8f, which no red-team round has seen; the round-2 sidecar is therefore stale by construction and the `reviewed` transition refuses. Rounds 1 and 2 cleared everything else and are not re-run; new fronts against already-cleared code are recorded in an appendix, not the findings table.",
+      "date": "2026-09-20"
     }
   ],
   "counts": {
-    "inventory_total": 14,
-    "killed": 13,
+    "inventory_total": 19,
+    "killed": 15,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 0,
+    "inconclusive": 4,
     "skipped_budget": 0,
-    "excluded": 1,
-    "findings_total": 16,
+    "excluded": 0,
+    "findings_total": 22,
     "p0_open": 0,
     "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 3,
-    "fixed": 13,
+    "fixed": 19,
     "rejected": 0
   },
   "status": "CLEAR"

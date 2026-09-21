@@ -362,7 +362,19 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     // marks the row COMPLETED — the job ledger would then record a success for
     // a mail that never went out. Record the failure durably instead.
     logger.error(`${drip_type} send failed after sent_at was committed: ${reason}`);
-    await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+    // Best-effort, and it MUST carry its own try/catch
+    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
+    // primary side effect"). An unguarded rejection here escapes the handler,
+    // BullMQ retries the job, and the retry reaches the step-4 skip branch
+    // which marks the row COMPLETED — re-opening the very defect this catch
+    // closes. Observability must never poison the path it observes.
+    try {
+      await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+    } catch (recordErr) {
+      logger.error(
+        `${drip_type} could not record the send failure: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
+      );
+    }
     return;
   }
 

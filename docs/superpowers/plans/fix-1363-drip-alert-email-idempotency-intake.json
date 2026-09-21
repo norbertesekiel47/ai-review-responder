@@ -38,7 +38,8 @@
     "Hard-bounce suppression keeps working: no send that can vary its body between attempts carries a key, so no delivery row on such a path holds a synthetic message id.",
     "A handler that completes its Outbox job BEFORE sending must not rethrow a send failure — BullMQ would retry the job and re-send. The owner nudge swallows and logs, as WeeklySummaryWorker does.",
     "Every provider key in this change is domain-scoped. That matches the MAJORITY of pre-existing house keys, not all of them: NotificationFailoverPoller scopes three to a per-attempt claim id and src/lib/account-offboarding/email-dedup.ts is a named key-builder helper. An earlier version of this invariant claimed all seven were domain-scoped and that no helper precedent existed; review disproved both.",
-    "A send that commits its dedupe marker BEFORE calling Resend must leave a durable failure record when the send throws — otherwise the job ledger reports success for mail that never went out. day_7 writes markOutboxFailed; the owner nudge writes insertFailedDelivery, because its outbox row is already completed and markOutboxFailed would no-op."
+    "A send that commits its dedupe marker BEFORE calling Resend must leave a durable failure record when the send throws — otherwise the job ledger reports success for mail that never went out. day_7 writes markOutboxFailed; the owner nudge writes insertFailedDelivery, because its outbox row is already completed and markOutboxFailed would no-op.",
+    "Both new failure-record writes are best-effort and carry their own try/catch, per .claude/rules/worker-layout.md. An unguarded rejection would escape the handler, BullMQ would retry, and the retry would re-open the exact duplicate each catch exists to close. Both guards are mutation-verified."
   ],
   "edge_cases": [
     "A send whose body can DIFFER between attempts must never carry a provider key. Resend answers 409 instead of replaying the original response, so the delivery row would hold a synthetic id, and worker/ingress/resend.ts correlates bounce/delivered/complained ONLY on the real Resend id — a hard bounce would match no row and leave businesses.owner_email_bounced unset. The day_7 drip and the owner nudge are exactly this case (createApprovalLink mints a fresh token per call), so they mark before sending and carry no key. Found by three review axes independently; an earlier cut of this branch shipped the key on both and introduced that regression.",
@@ -114,7 +115,9 @@
     "a keyed drip send failure still rethrows so BullMQ can retry and deliver",
     "a partner alert replay logs that the email was already delivered",
     "records a failed delivery when an owner-nudge send fails",
-    "logs the idempotent replay so an operator can see it live"
+    "logs the idempotent replay so an operator can see it live",
+    "a failure while recording the nudge failure never escapes the handler",
+    "a failure while recording the day_7 failure never escapes the handler"
   ],
   "verification_commands": [
     "pnpm vitest run worker/jobs/__tests__/OnboardingDripWorker.test.ts worker/jobs/__tests__/EngagementAlertWorker.test.ts src/lib/approval/__tests__/create-link.test.ts src/lib/notifications/email/templates/__tests__/internal.test.ts",

@@ -241,22 +241,37 @@ async function handleOwnerNudge(
     // the cooldown probe keys on `sent_at IS NOT NULL` a failed row does not
     // block the next legitimate nudge — which is the behaviour we want, since
     // this owner never received one. (An earlier comment here claimed the
-  // re-nudge waits out the 3-day cooldown; review round 2 disproved that — the
-  // probe requires `sent_at IS NOT NULL`, so a failed row does not delay it.)
+    // re-nudge waits out the 3-day cooldown; review round 2 disproved that —
+    // the probe requires `sent_at IS NOT NULL`, so a failed row does not delay
+    // it. Rider from round 3: repeated failures append unbounded failed_at-only
+    // rows, which neither dedupe nor throttle.)
     //
     // Without it a Resend outage would drop every nudge while the job ledger
     // reported success (#1363 review round 2).
     logger.error(`Owner nudge send failed for business ${businessId}: ${reason}`);
-    await insertFailedDelivery(
-      sql,
-      business.account_id,
-      businessId,
-      null,
-      'email',
-      business.owner_email,
-      reason,
-      'owner_nudge',
-    );
+    // Best-effort, and it MUST carry its own try/catch
+    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
+    // primary side effect"). An unguarded rejection here escapes the handler
+    // despite the comment above saying the error stops here: BullMQ would retry
+    // the job, the cooldown probe would miss (this row has no `sent_at`), fresh
+    // approval links would be minted and a SECOND nudge would go out — exactly
+    // the duplicate the mark-first ordering exists to prevent.
+    try {
+      await insertFailedDelivery(
+        sql,
+        business.account_id,
+        businessId,
+        null,
+        'email',
+        business.owner_email,
+        reason,
+        'owner_nudge',
+      );
+    } catch (recordErr) {
+      logger.error(
+        `Owner nudge could not record the send failure for business ${businessId}: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
+      );
+    }
     return;
   }
 

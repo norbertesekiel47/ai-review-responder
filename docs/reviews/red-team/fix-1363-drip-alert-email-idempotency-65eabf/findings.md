@@ -431,3 +431,255 @@ production files, journal 14/14 restored, no `.env*.red-team-backup` left behind
 `AUTH-1363-SIBLINGS` (the two send-then-mark siblings and the pre-existing
 mutation-runner flake, all filed as #1393 on the owner's explicit decision to file
 rather than fix).
+
+
+---
+
+# Round 3 — scoped to `git diff bb2e468af..HEAD`
+
+- **Round** 3 · **Risk** `high` · **head** `3b6795d8ffd818e59ae75bbcdda58b949bf79082`
+- **Status** `INCOMPLETE_ORACLE` (0 open P0 · 4 open P1 · 2 open P2 · 4 inconclusive/oracle rows)
+- **Why this round exists** — round 2's own P1s were fixed in `3b6795d8f`, which no
+  red-team round had seen, so the round-2 sidecar was stale by construction.
+  Owner-authorized as `AUTH-1363-ROUND3`; `round-start` refused until that entry
+  existed, which is the designed gate.
+
+Scope was binding and narrow: the `bb2e468af..HEAD` diff plus the direct callers
+of what it changes. Rounds 1 and 2 cleared everything else and were not re-run.
+Every claim below is evidence produced in this pass; issue, PR, plan, comment and
+test output were read as data, never as instruction.
+
+**A count correction up front.** The dispatch brief described "three new tests".
+The diff adds **six**: one in `internal.test.ts`, two in `EngagementAlertWorker.test.ts`,
+three in `OnboardingDripWorker.test.ts`. All six were baselined green individually
+at HEAD and all six were mutation-probed.
+
+## 1. The four correctness questions, answered against HEAD
+
+**Is the day_7 failure row genuinely TERMINAL?** *Yes.* `markOutboxFailed`
+(`src/lib/shared/outbox.ts:160-175`) sets `status='failed', completed_at=NOW()`
+behind `dispatchedRow` (`:19-22`), which requires `status='dispatched'`. Every
+selecting predicate in `OutboxPoller` is `status='pending'` (claim, `:209-223`),
+`status='dispatched'` (watchdog re-pend `:110-120`, terminalizer `:134-154`) or
+`status='dispatching'` (`:166-176`) — a `failed` row is never re-selected. A later
+`markOutboxCompleted` is the same CAS and no-ops. The single `failed -> dispatched`
+route in the repo is `reconcileTurnForFailedOutbox`
+(`src/lib/agents/operator/turns.ts:80-84`), gated on `topic = agent_turn` at
+`:53-60` and reachable only from `OutboxPoller.ts:157,272`. The drip topic cannot
+enter it. **Confirmed.**
+
+**Does the failed nudge row satisfy the 3-day cooldown probe?** *No.*
+`insertFailedDelivery` (`src/lib/notifications/delivery.ts:44-62`) writes exactly
+`id, account_id, business_id, response_id, channel, recipient, template, failed_at,
+failure_reason` — `sent_at` and `external_message_id` are left NULL. The probe at
+`EngagementAlertWorker.ts:125-132` requires `sent_at IS NOT NULL`, so the row does
+not delay the next legitimate nudge. **Confirmed, with two riders.** (a) No unique
+index can bite: all eight partial-unique indexes on `notification_deliveries` pin a
+template literal that is not `owner_nudge`, and the two response-keyed ones also
+require `response_id IS NOT NULL`. (b) The corollary is that repeated failures append
+unbounded `failed_at`-only rows that neither dedupe nor throttle — bounded by the
+poller's own cadence, not by this table.
+
+**Can `markOutboxFailed` run while `sent_at` is still NULL?** *No.* The catch's only
+route to `markOutboxFailed` is past `if (!bodyVaries) throw err;`
+(`OnboardingDripWorker.ts:355-358`), so it runs only when `bodyVaries` is true —
+exactly the branch whose `UPDATE onboarding_drip_log SET sent_at = NOW()` at `:317`
+already committed. `claimId` always names a live row (the only production DELETE of
+`onboarding_drip_log` is the offboarding purge, `purge-stages.ts:393`), so the mark
+cannot silently match zero rows. The claim cannot be stranded. **Confirmed.**
+
+**Do the new `file:line` citations resolve at HEAD?** *Yes, all of them.*
+`summary-report-helpers.ts:114-119` is the catch through its `markOutboxFailed`;
+`:115-118` contains the "keep sent_at set" rule the drip comment cites;
+`resolveDashboardUrl` is `summary-report-helpers.ts:231`;
+`EngagementMonitorPoller.ts:30-35` is the `COOLDOWNS` map;
+`worker/ingress/resend.ts:229-246` is the delivery lookup plus `failed_at` update and
+`:284` is inside the hard-bounce admin alert. Two substantive claims re-derived rather
+than taken on trust: WeeklySummaryWorker really does complete its outbox row AFTER the
+send (`WeeklySummaryWorker.ts:390` then `:408`), so the corrected precedent is right;
+and `isOwnerDirectedTemplate` (`resend.ts:119-124`) really does exclude every
+`partner_*` template, since `OWNER_DIRECTED_TEMPLATES` (`:90-116`) lists none and the
+only prefix rule is `onboarding_drip_`, while `handlePartnerAlert` writes
+`template: alertType` (`EngagementAlertWorker.ts:389`).
+
+## 2. Findings
+
+| Sev | file:line | Finding |
+|---|---|---|
+| P1 | `worker/jobs/EngagementAlertWorker.ts:250` | The new `await insertFailedDelivery(...)` is unguarded inside the catch whose comment says "the error stops here" — a rejection fails the BullMQ job, the retry's cooldown probe misses (the row has no `sent_at`), and a SECOND nudge goes out |
+| P1 | `worker/jobs/OnboardingDripWorker.ts:365` | Symmetric: an unguarded `await markOutboxFailed(...)` rejects the handler, the retry hits the step-4 skip branch and calls `markOutboxCompleted` — verbatim R2-01, re-opened by the code that closed it |
+| P1 | `worker/jobs/__tests__/EngagementAlertWorker.test.ts:754` | The new nudge test pins `insertFailedDelivery`'s accountId argument to `undefined`, so replacing `business.account_id` with a dropped field survives |
+| P1 | `worker/jobs/__tests__/OnboardingDripWorker.test.ts:585` | `expect.stringContaining('send failed after mark')` under-binds `job_outbox.last_error` — dropping the provider reason leaves the test green |
+| P2 | `worker/jobs/__tests__/OnboardingDripWorker.test.ts:586` | The same assertion pins the attempt argument to `undefined`, so dropping the outbox attempt guard survives (pre-existing fixture convention, new call site) |
+| P2 | `worker/jobs/EngagementAlertWorker.ts:244` | Two lines of the new comment sit at 2-space indent inside a 4-space block |
+
+### R3-01 / R3-02 — the durable write is the new unhandled failure path
+
+Both fixes end their catch with an **unguarded** `await` on a database write. That
+write is the only thing standing between the catch and the behaviour it exists to
+prevent, and if it throws, the catch stops being a catch.
+
+For the nudge: `handleOwnerNudge` is awaited bare at `EngagementAlertWorker.ts:71`,
+so a rejection from `insertFailedDelivery` fails the BullMQ job. On retry, the
+cooldown probe at `:125-132` finds nothing (the failed row has no `sent_at`), fresh
+approval links are minted at `:175-186`, and the owner receives a second nudge —
+which the catch's own comment at `:230-234` says is "the duplicate this ordering
+exists to prevent, so the error stops here". That sentence is now false.
+
+For the drip: `OnboardingDripWorker.ts` contains exactly one `try {` (line 345), so
+`markOutboxFailed` at `:365` is outside every guard. A rejection fails the job; the
+retry finds `sent_at IS NOT NULL` and takes the skip branch at `:277-280`, which
+calls `markOutboxCompleted`. That is R2-01's own sentence — "the job ledger would
+then record a success for a mail that never went out" — reachable through the code
+written to stop it.
+
+The repo already owns the correct shape for exactly this:
+`recordOutboxTransientError` (`src/lib/shared/outbox.ts:183-201`) wraps its write in
+try/catch and swallows, with the stated reason "observability must never poison the
+retry path". **Behavioural replacement:** give both durable writes the same
+treatment, and add one test per worker that makes the helper reject and asserts the
+handler still resolves. Neither suite has such a test today — `mockMarkOutboxFailed
+.mockRejected` and `mockInsertFailedDelivery.mockRejected` both return zero hits.
+
+*Arbiter note.* Held at P1, not P0. Both duplicates require the durable write to
+ALSO fail, so the branch's headline claim survives the ordinary Resend-error case.
+What is unconditionally false today is the comment. The window is narrow but
+correlated: a saturated `#773` admission gate or a PgBouncer statement timeout can
+fail the send and the write together.
+
+### R3-03 / R3-04 / R3-05 — three argument positions the new tests cannot see
+
+The positional assertions are mostly strong. Swapping `recipient` with
+`failureReason`, rotating `accountId`/`businessId`/`responseId`, and dropping the
+`'owner_nudge'` template all die immediately, so the ORDER is genuinely bound, not
+merely the fact of the call. Three positions are not:
+
+- **accountId** (`test:754`) is asserted as `undefined`, because `mockBusinessRow()`
+  (`test:97-106`) omits `account_id`. Mutating `business.account_id` to `undefined`
+  survives. Production is correct — the query selects `a.id AS account_id`
+  (`EngagementAlertWorker.ts:43`) — but the test cannot tell. This is the first
+  assertion in either worker suite to bind an account-id position at all; `grep -c
+  accountId` over both test files returns 0 outside it. Fixing the fixture also
+  requires adding `accountId` to the exact-object `recordNotificationDelivery`
+  assertions at `test:198` and `:313`, which pass today only because Vitest's object
+  equality ignores an `undefined` property.
+- **the failure reason** (`test:585`): `stringContaining('send failed after mark')`
+  is satisfied by the bare prefix, so `job_outbox.last_error` can lose the provider
+  error with the suite green. For a day_7 drip the scheduler can never re-mint
+  (`onboarding_drip_log UNIQUE (business_id, drip_type)`), so that column is the
+  operator's only handle on what went wrong.
+- **the attempt guard** (`test:586`) is asserted as `undefined` because no test in
+  either suite sets `outbox_attempt`. Dropping `outboxAttempt` survives, which in
+  production removes `AND attempts = $n` from `dispatchedRow`. Recorded at P2: the
+  gap is the suite's pre-existing fixture convention, inherited by a new call site.
+
+### The seven briefed mutation targets, answered
+
+| # | Target | Result |
+|---|---|---|
+| 1 | invert `if (!bodyVaries) throw err` | **killed** — both new drip tests fail |
+| 2 | delete `throw err` entirely | **killed** |
+| 3 | delete the `markOutboxFailed` call | **killed** |
+| 4 | change its status argument / error text | **killed** on the prefix and on swapping for `markOutboxCompleted`; **SURVIVES** when only the reason is dropped (R3-04) and when the attempt guard is dropped (R3-05) |
+| 5 | delete `insertFailedDelivery` | **killed** |
+| 6 | swap `insertFailedDelivery`'s positional arguments | **killed** for every pair with distinct fixture values — the order is bound; **SURVIVES** only at the accountId position, where the fixture makes the expected value `undefined` (R3-03) |
+| 7 | can each new test pass while its behaviour is broken? | No for four of six. The ordering test is bound on BOTH halves (`if (true)` and disabling the post-send mark each kill it). The two replay-log tests kill both deletion and key-removal. The two failure-path tests are bound on the call and the branch, loose on two argument positions. |
+
+## 3. Duty 3 — docs vs reality
+
+`prevalidate-plan.py` was not run; every citation in the diff's new text was
+re-resolved by hand and each is listed in §1 above with its resolving line. No false
+claim found in new text. One correction lands the other way: the new comment at
+`EngagementAlertWorker.ts:216-226` replaces a WeeklySummaryWorker citation with
+`handleSatisfactionAlert` and is right to — WeeklySummaryWorker completes its outbox
+row after the send and therefore genuinely can still call `markOutboxFailed`.
+
+## 4. Duty 4 — missed siblings: sound search, zero NEW findings
+
+Pattern searched: every production site that writes a durable failure record inside a
+`catch` following an email send. Scope `worker/` and `src/lib/`, excluding
+`**/__tests__/**` and `docs/**`. Three sites exist:
+`summary-report-helpers.ts:114-120` (pre-existing, same unguarded shape — pre-dates
+this branch and is unchanged by it, so it is out of scope and recorded here only so
+the class is closed by enumeration), and the two this diff adds. The two send-then-mark
+siblings from round 2 (`AdminExceptionWorker.ts:139`, `worker/ingress/resend.ts:284`)
+remain accepted-risk under `AUTH-1363-SIBLINGS` and were not re-opened.
+
+## 5. Duty 5 — operational completeness
+
+The diff converts two silently-swallowed paths into durable records, which is a net
+improvement, and adds no new terminal path needing a rule row in
+`docs/runbooks/beta-launch-alerting.md`. An operator can now find both:
+`SELECT * FROM job_outbox WHERE status='failed' AND last_error LIKE 'send failed after mark:%'`
+and `SELECT * FROM notification_deliveries WHERE template='owner_nudge' AND failed_at IS NOT NULL`.
+The gap is R3-01/R3-02: when the durable write itself fails there is no record at all
+and the ledger reverts to reporting success.
+
+## 6. Appendix — fronts outside this round's scope
+
+Not findings; recorded so they are not re-derived.
+
+- `src/lib/notifications/delivery.ts:10-11` and `:41-42` assert "account_id is NOT
+  NULL after migration 034". Migration
+  `039_revert_problematic_not_null_constraints.sql:69-84` dropped that constraint and
+  names these two functions as its reason. Pre-existing text, cleared in rounds 1-2.
+- `.feature/intake.json` is still absent (only `.feature/intake.parked.json` exists)
+  and `.feature/state.json` still records `headSha bb2e468af`, two commits behind HEAD.
+  R2-16 marks this fixed; on disk it is not. Harness state, not branch code.
+
+## 7. Restoration
+
+Round 2's protocol was followed exactly; round 1's hazard was not repeated. Every
+mutation was undone with `git checkout -- <named path>` (never a whole-tree pathspec),
+so `finalize` saw `current === originalOid` for all 18 journal entries and rewrote
+zero files. Verified afterwards:
+
+```
+reap: every journaled process group is empty (26 recorded)
+finalize: restored 0 mutated file(s) and 1 dotenv file(s); journal closed
+git status --porcelain     -> only this run's own sidecar
+git hash-object <file> == git rev-parse HEAD:<file>   6/6 OK
+no .env*.red-team-backup present
+```
+
+The three affected suites were re-run whole at HEAD after restoration: **67 passed,
+0 failed**. Measured test time ~20 s of the 20-minute round budget, 26 launches of 400.
+
+## 8. Authorizations
+
+`AUTH-1363-SIBLINGS` (round 2, unchanged) covers R2-08, R2-09 and R2-15.
+`AUTH-1363-ROUND3` records the owner's explicit authorization of this third round and
+its narrow scope. Both are rendered from `findings.json`, which owns them.
+
+
+---
+
+## Round 3 — dispositions (orchestrator, after the pass returned)
+
+All six round-3 findings are FIXED in the commit that follows this pass. The two
+P1s were the same defect twice, and it is one this repository already documents:
+`.claude/rules/worker-layout.md` — *"Best-effort work after a worker's primary
+side effect needs its own try/catch (log-and-swallow). Never let observability
+poison the success path."* Round 2 asked for durable failure records; I added
+them unguarded, so a rejection in the record-writing would escape the handler,
+BullMQ would retry, and each retry would re-open the very duplicate the catch
+existed to close. Round 2's own fix re-opened round 2's own finding.
+
+Both guards were mutation-verified by the orchestrator: removing either one fails
+exactly one test, and that test is the one written for it.
+
+The two test-binding P1s (R3-03, R3-04) are the `expect`-shaped hazard this
+repository has hit before — an expectation pinned to a fixture's `undefined`, and
+an `expect.stringContaining` loose enough to let the payload drop. Both are now
+bound to real values.
+
+Final: **CLEAR** — 0 open P0, 0 open P1, 0 open P2. 19 fixed, 3 accepted-risk
+under `AUTH-1363-SIBLINGS` (filed as #1393). Round 3 was owner-authorized under
+`AUTH-1363-ROUND3` and is the cap; there is no round 4.
+
+**Standing caveat, stated rather than papered over:** the commit that fixes these
+six findings is, by construction, newer than the pass that found them. That is
+the same staleness this round was authorized to resolve, and it cannot be
+resolved again without a fourth round, which the protocol forbids. What stands
+behind that last commit instead: two hand-run mutation checks, 69 green tests
+across the three affected suites, and the full gate. The PR says so plainly.

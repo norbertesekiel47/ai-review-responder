@@ -742,7 +742,10 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     // Red-team round 2: the swallow left NO durable record — outbox already
     // completed, so markOutboxFailed no-ops. A Resend outage would drop every
     // nudge while the job ledger reported success.
-    sqlReturnQueue.push([mockBusinessRow()]);
+    // account_id is set explicitly: the shared fixture omits it, which would
+    // pin the expectation to `undefined` and let a dropped `business.account_id`
+    // survive (red-team round 3).
+    sqlReturnQueue.push([mockBusinessRow({ account_id: 'acct-nudge-1' })]);
     sqlReturnQueue.push([]);
     pushPendingReviewRows(1);
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
@@ -751,7 +754,7 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
       mockSql,
-      undefined,
+      'acct-nudge-1',
       'biz-1',
       null,
       'email',
@@ -760,6 +763,20 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
       'owner_nudge',
     );
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('a failure while recording the nudge failure never escapes the handler', async () => {
+    // `.claude/rules/worker-layout.md`: best-effort work after a primary side
+    // effect needs its own try/catch. Unguarded, this rejection escapes, BullMQ
+    // retries, the cooldown probe misses (no sent_at on a failed row) and a
+    // SECOND nudge goes out.
+    sqlReturnQueue.push([mockBusinessRow({ account_id: 'acct-nudge-1' })]);
+    sqlReturnQueue.push([]);
+    pushPendingReviewRows(1);
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+    mockInsertFailedDelivery.mockRejectedValueOnce(new Error('pool exhausted'));
+
+    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).resolves.toBeUndefined();
   });
 
   it('a partner alert replay completes the outbox row instead of failing it', async () => {
