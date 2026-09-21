@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1016-612-purge-terminal-alert-e8cee7",
+  "branch": "fix/1016-612-purge-terminal-alert",
+  "fork_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "merge_base_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "head_sha": "6df3c95dfbabad6046b5dfbd455730233bc6e58c",
+  "intake_sha256": "643e03d921a6c9a7224520cbe16aa696a6aa136ed4b7d7ac57534dca8412f1cd",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-21T16:25:00Z",
+  "inventory": [
+    {
+      "id": "RT-A1",
+      "test": "alerts a terminal stage failure with the terminal fingerprint at error level",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:734",
+      "outcome": "killed",
+      "reason": "PurgeWorker.ts:158 fingerprint ternary swapped (terminal -> RETRY); test failed. Also killed by deleting the fingerprint key."
+    },
+    {
+      "id": "RT-A2",
+      "test": "alerts a retryable stage failure with the retry fingerprint at warning level",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:755",
+      "outcome": "killed",
+      "reason": "PurgeWorker.ts:157 level ternary swapped to terminal ? 'warning' : 'error'; test failed. Also killed by making both fingerprint constants equal."
+    },
+    {
+      "id": "RT-A3",
+      "test": "alerts a terminal validation failure with the terminal fingerprint",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:774",
+      "outcome": "killed",
+      "reason": "PurgeWorker.ts:79 validation call site forced to pass terminal=false; test failed."
+    },
+    {
+      "id": "RT-A4",
+      "test": "the terminal and retry purge alerts never share a fingerprint",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:794",
+      "outcome": "killed",
+      "reason": "PurgeWorker.ts:158 fingerprint key deleted entirely (the literal pre-#1016 defect); test failed. Also killed by PURGE_RETRY_FINGERPRINT set to the terminal spelling."
+    },
+    {
+      "id": "RT-A5",
+      "test": "the terminal purge path marks the outbox failed and does not throw",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:818",
+      "outcome": "killed",
+      "reason": "PurgeWorker.ts:147 markOutboxFailed replaced with markOutboxCompleted; test failed."
+    },
+    {
+      "id": "RT-A6",
+      "test": "the alerting runbook routes the terminal purge fingerprint the worker sends",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:847",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT16-02",
+      "reason": "Rule 16's row at beta-launch-alerting.md:589 corrupted to filter 'terminal equals false' at level 'warning' and group on [account_offboarding_purge_failed, retry]; the test stayed green because the identical fingerprint string also appears at :364 in the section-1 checklist prose and the assertion is a file-wide toContain. The opposite-direction mutation (respelling PURGE_TERMINAL_FINGERPRINT's member to 'terminated' at PurgeWorker.ts:46) DID kill it, so the pin is one-directional."
+    },
+    {
+      "id": "RT-A7",
+      "test": "the csv_ingest lock-key scan covers the offboarding purge lane",
+      "file": "src/lib/solicitation/__tests__/ingest.test.ts:138",
+      "outcome": "killed",
+      "reason": "ingest.test.ts:80 LANE_ROOTS narrowed back to ['src/lib/solicitation','worker/jobs/csv-ingest']; test failed while the single-owner assertion stayed green, reproducing the #612 defect exactly."
+    },
+    {
+      "id": "RT-A8",
+      "test": "acquireCsvIngestLock is the single owner of the csv_ingest advisory-lock key",
+      "file": "src/lib/solicitation/__tests__/ingest.test.ts:126",
+      "outcome": "killed",
+      "reason": "purge-stages.ts:295 acquireCsvIngestLock(tx, business.id) replaced in CODE with a hand-spelled pg_advisory_xact_lock over the same per-business key; test failed, proving the widened scan detects a respelled key in the offboarding purge lane."
+    },
+    {
+      "id": "RT-A9",
+      "test": "(no covering test) comment-only hunk",
+      "file": "worker/jobs/account-offboarding/purge-stages.ts:258-266",
+      "outcome": "excluded",
+      "reason": "Comment-only diff hunk with no covered production line. The same file's code surface is measured by RT-A8, which confirms the widened guard fires on a real key reconstruction there."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT16-01",
+      "severity": "P0",
+      "title": "Rule 16's operator action prescribes a re-drive of a terminally failed purge that no code path can perform",
+      "at": "docs/runbooks/beta-launch-alerting.md:597",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "markPurgeTerminalFailure (purge-stages.ts:1238-1248) writes status='failed', failed_step='purge' and never sets terminal_at. validatePurgeableOffboarding (purge-stages.ts:92-94) rejects any status other than 'purge_scheduled', so re-enqueuing the outbox row cannot resume - it re-enters validation, fails non-terminally, burns its retries and terminalizes again. AccountOffboardingPurgePoller (:103,:155) selects only 'purge_scheduled'. The one writer that can return a row to 'purge_scheduled', shouldTransitionToPurgeScheduled (provider-disposition.ts:281-282), refuses unless failed_step === 'teardown'. There is no admin retry route. The sentence also forbids the only two manual levers it names while naming no working one, and its terminal_at half describes a field this path never writes."
+    },
+    {
+      "id": "RT16-02",
+      "severity": "P0",
+      "title": "The runbook doc-pin test pins the FILE, not the rule row: rule 16's fingerprint, tag filter and level can all be inverted and the test stays green",
+      "at": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts:852",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured survivor RT-A6. Not an equivalent mutation: the mutant makes the documented rule route the retry issue and stay silent for the terminal one, which is the exact RT-08 failure this change exists to close. Not an unexecuted branch: the test reads the whole runbook at :850 and asserts on it. It survives only because expect(runbook).toContain('[account_offboarding_purge_failed, terminal]') is a file-wide substring check and the same string occurs at beta-launch-alerting.md:364 in the section-1 prose. The intake invariant 'the fingerprint values in the runbook row are byte-identical to the constants the worker sends; a test pins them' is therefore unenforced."
+    },
+    {
+      "id": "RT16-03",
+      "severity": "P1",
+      "title": "The arch-review ledger asserts present-tense rule-1 coverage for a rule that is not configured and whose trigger is first-seen",
+      "at": ".claude/reference/arch-review-log.md:3",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The ledger says the failed outbox row 'rides rule 1 as an aggregate count' and uses that to argue the ticket's premise was already half-closed. Rule 1 (health-alert -> discord) is unconfigured: its section-1 box at beta-launch-alerting.md:56 is unchecked. Its trigger is 'issue is first seen' (:449) and checks.ts:132 embeds the count in the title, so a repeat failure at the same count is not a new issue and does not re-fire - the same first-seen trap rule 16's own prose diagnoses. The runbook self-corrects in the same sentence; the durable ledger does not."
+    },
+    {
+      "id": "RT16-04",
+      "severity": "P1",
+      "title": "Missed sibling: alertTeardownFailure has the identical RT-08 shape (constant message, no fingerprint, returning terminal branch)",
+      "at": "worker/jobs/account-offboarding/TeardownWorker.ts:338",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "Constant message account_offboarding_teardown_failed with level terminal ? 'error' : 'warning' and no fingerprint; terminal branches at :88-93 and :123-129 markOutboxFailed and return without throwing, so attachJobFailureSink never fires. Retry warnings and the terminal error collapse into one Sentry issue exactly as the purge alert did before this change. Reported for follow-up, not fixed - out of this change's boundary."
+    },
+    {
+      "id": "RT16-05",
+      "severity": "P1",
+      "title": "Missed sibling: alertBillingScheduleFailure has the identical RT-08 shape",
+      "at": "worker/jobs/account-offboarding/BillingScheduleWorker.ts:164",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "Constant message account_offboarding_billing_schedule_failed, no fingerprint, terminal branches at :69-74 and :129-135 markOutboxFailed and return. Same grouping collapse on the cancel_only offboarding lane. Reported for follow-up, not fixed."
+    },
+    {
+      "id": "RT16-06",
+      "severity": "P2",
+      "title": "The terminal account_offboarding_not_found path raises no Sentry signal at all",
+      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:66",
+      "duty": 5,
+      "disposition": "open",
+      "arbiter_reasoning": "Marks the outbox failed and returns with no captureMessage. Covered only by rule 1's aggregate count, which is unconfigured. Same shape at TeardownWorker.ts:76 and BillingScheduleWorker.ts:57. Pre-existing, not added by this diff; recorded because rule 16 now claims to be the page for a terminal purge failure and this terminal path sits outside it."
+    },
+    {
+      "id": "RT16-07",
+      "severity": "P2",
+      "title": "The new #612 guard is an absence-of-gap proxy on one hard-coded path",
+      "at": "src/lib/solicitation/__tests__/ingest.test.ts:146",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "expect(laneSourceFiles()).toContain('worker/jobs/account-offboarding/purge-stages.ts') proves one known holder is inside the scan, not that the scan covers every holder. A future csv_ingest lock holder outside src/lib or worker leaves both this test and the single-owner assertion green. Inherited from batch-builder.test.ts:841; the ledger's own Next-pass line already flags the consolidation."
+    },
+    {
+      "id": "RT16-08",
+      "severity": "P2",
+      "title": "Rule-16 prose gives the weaker of two reasons why rule 11 cannot cover this signal",
+      "at": "docs/runbooks/beta-launch-alerting.md:593",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The prose says rule 11's subsystem:worker_job filter matches captureException rather than this handler's captureMessage. True, but rule 11 (:459) also filters queue equals agent_turn, so it could never match the offboarding queue for any event type. Incomplete rather than false."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 9,
+    "killed": 7,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 8,
+    "p0_open": 2,
+    "p1_open": 3,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
