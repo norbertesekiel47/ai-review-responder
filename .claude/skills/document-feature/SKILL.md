@@ -1,6 +1,6 @@
 ---
 name: document-feature
-description: Post-feature documentation sweep — updates currents.md, progresstracking.md, the .claude/reference inventories, and CLAUDE.md from the branch diff. Use after finishing or merging a feature, when the user says "document this feature" / "update the docs for what we did", or types /document-feature.
+description: Post-feature documentation sweep — updates currents.md, progresstracking.md, the .claude/reference inventories, the architecture review log (with a measured entropy counter), the change ledger, and CLAUDE.md from the branch diff. Use after finishing or merging a feature, when the user says "document this feature" / "update the docs for what we did", or types /document-feature.
 ---
 
 # Document Feature
@@ -31,8 +31,8 @@ skip the file and say so in the final table — do not invent content.
 
 | File | Trigger (skip if false) | Where it goes |
 |---|---|---|
-| [docs/currents.md](../../../docs/currents.md) | Always (every feature changes current state) | **Prepend a new `## Quick summary — <feature> (date, PR#)` at the TOP**, just under the `Last updated:` line. Plain English + a "the new shape" file map. **Bump the `Last updated:` line.** Live file capped at **12,000 words**: when it goes over, move the OLDEST `## ` sections **verbatim, in order** to a new `docs/progress-archive/currents-history-<range>.md` (header convention: `# currents.md — archived history <range>`, one pointer line back to the live file, blank line, then the sections) and add that file to the live header's archive list. Never trim or summarise an entry. |
-| [docs/progresstracking.md](../../../docs/progresstracking.md) | Always | **Append** a detailed entry at the **BOTTOM** under the current sprint/era heading. Versions, file lists, decisions, gotchas. This is the human changelog. Same **12,000-word** cap and archive rule as currents.md: oldest sections verbatim to a new `docs/progress-archive/progresstracking-<range>.md` (header `# progresstracking.md — archived history <range>`, one pointer line back, blank line, sections), added to the header's archive list. `docs/progress-archive/*.md` is frozen history — never edit or summarise it. |
+| [docs/currents.md](../../../docs/currents.md) | **The state a reader relies on changed**: a capability, persona behavior, route, screen, flag, env var, migration, tier or price, or an architecture shape was added, removed or redefined. A fix that restores intended behavior and adds no new shape does NOT trigger it — its arch-log row and lab notes carry it. See "When a fix skips the two logs" below. | **Prepend a new `## Quick summary — <feature> (date, PR#)` at the TOP**, just under the `Last updated:` line. Plain English + a "the new shape" file map. **Bump the `Last updated:` line.** Live file capped at **12,000 words**: when it goes over, move the OLDEST `## ` sections **verbatim, in order** to a new `docs/progress-archive/currents-history-<range>.md` (header convention: `# currents.md — archived history <range>`, one pointer line back to the live file, blank line, then the sections) and add that file to the live header's archive list. Never trim or summarise an entry. |
+| [docs/progresstracking.md](../../../docs/progresstracking.md) | Same trigger as currents.md — the two are written together or skipped together | **Append** a detailed entry at the **BOTTOM** under the current sprint/era heading. Versions, file lists, decisions, gotchas. This is the human changelog. Same **12,000-word** cap and archive rule as currents.md: oldest sections verbatim to a new `docs/progress-archive/progresstracking-<range>.md` (header `# progresstracking.md — archived history <range>`, one pointer line back, blank line, sections), added to the header's archive list. `docs/progress-archive/*.md` is frozen history — never edit or summarise it. |
 | [.claude/reference/env-vars.md](../../../.claude/reference/env-vars.md) | An env var or feature flag was added/changed | Add/update the var's row + its semantics |
 | [.claude/reference/migrations-log.md](../../../.claude/reference/migrations-log.md) | A migration was added | New migration entry + bump the "current head / next number" |
 | [.claude/reference/review-ingestion.md](../../../.claude/reference/review-ingestion.md) | A ReviewSource or the ingest path changed | Update the relevant section |
@@ -41,7 +41,8 @@ skip the file and say so in the final table — do not invent content.
 | [.claude/CLAUDE.md](../../../.claude/CLAUDE.md) | An architecture invariant, a file location, or a "Where things live" row changed | Edit minimally — invariants list, the routing table, or a global gotcha only. Shape-guarded (`src/__tests__/claude-md-shape.test.ts`): rows ≤ 80 words, gotchas ≤ 60 — the WHY goes to `docs/directory/<page>.md` § folder / the owning `docs/context/<context>.md` / `.claude/reference/lab-notes/<topic>.md`, an area trap to `.claude/rules/<area>.md`, not here |
 | [docs/directory.md](../../../docs/directory.md) + `docs/directory/<page>.md` | A production file under `worker/` or `src/lib/` was added, moved, renamed or deleted | Add / move / delete its **row** (first-cell code span under the folder's `###` section) on the **page that inventories its folder** — the index's `## Pages` table maps folders to pages; a new folder gets a Pages-table row too. `pnpm ci:directory-map` must pass — it reads the index plus every `docs/directory/*.md` and fails on a file with no row and on a row with no file. |
 | [CONTEXT-MAP.md](../../../CONTEXT-MAP.md) + `docs/context/<context>.md` | A domain term was coined, sharpened, or locked | Add / edit the `- **Term**: …` line in the `docs/context/<context>.md` that owns it AND add the term's name to that context's row in `CONTEXT-MAP.md` (a new context = a new file + a map row). A term defined in two files fails the shape test. The root `CONTEXT.md` is a redirect stub — never add to it. |
-| [.claude/reference/arch-review-log.md](../../../.claude/reference/arch-review-log.md) | **Always, on a MERGED feature** (skip only if this sweep is running pre-merge) | **Increment the "Merges since last architecture pass: N" counter**, then add a `- **PR #<n>** — <feature> (<date>, squash \`<sha>\`)` entry at the TOP of the list. Say what it did to the *architecture*: migrations, env vars, flags, dependencies, new single owners, deleted concepts, allowlist baselines moved — and name what the next pass should look at. At **≥ 5**, tell the user a pass is due (their call — never start one automatically). |
+| [.claude/reference/arch-review-log.md](../../../.claude/reference/arch-review-log.md) | **Always, on a MERGED feature** (skip only if this sweep is running pre-merge) | **Append one row to the table at the BOTTOM of the file** (columns: Date, Trigger, Scope reviewed, Outcome) — the bottom table is the one owner of merge entries (#1383); do not also add a dated paragraph or a `- **PR #<n>**` bullet at the top. Say what the merge did to the *architecture*: migrations, env vars, flags, dependencies, new single owners, deleted concepts, allowlist baselines moved — and name what the next pass should look at. Escape every literal pipe inside a cell with a backslash, or the row loses every cell after it (the #1363 row did). **Then MEASURE the counter and state it in that row — never add 1 to the "Merges since last architecture pass" line.** Procedure: "Measure the entropy counter" below. At **≥ 5**, tell the user a pass is due (their call — never start one automatically). |
+| [docs/agents/change-ledger.md](../../../docs/agents/change-ledger.md) | **On a MERGED change that ran a `/feature`, `/feature-small` or `$feature` lane** (skip for a docs-only or out-of-lane PR, and pre-merge) | The lane's ship step owns the row; this sweep **checks it exists** (search the `PR` column for the number) and adds it when it is missing. The file's header defines the columns. `Minutes` and `Repairs` come from the run's `.feature/` state and review record, `Named debt` from the review record — write `unknown` rather than estimate one. Set `Found later` to `pending — check <merge+7d> and <merge+30d>`. While here, fill any earlier row whose check date has passed. |
 
 ### currents.md vs progresstracking.md — the boundary
 
@@ -50,11 +51,51 @@ They are NOT the same doc. Keep them in their lanes:
 - **currents.md = state.** "What is true now." Newest at top, plain English, reader-friendly. Capped — see its archive pointer.
 - **progresstracking.md = history.** "What we did, when." Newest at bottom, exhaustive detail. Human changelog; agents read currents.md + `.claude/reference/` instead.
 
+### When a fix skips the two logs
+
+Both logs were "Always" until 2026-09-21. Seven consecutive sweeps (#1301,
+#1352, #1359, #1360, #1361, #1363, #1378) skipped them anyway, so the rule now
+says what the sweeps do. The test is one question: **after this merge, would a
+reader of currents.md believe something false?** If yes, write both. If the
+merge only made the code match what currents.md already says, skip both and
+say so in the final table — the arch-log row records the merge, the lab notes
+record the lesson. When unsure, write the entry: a redundant summary costs
+words, a missing one costs a wrong belief.
+
+### Measure the entropy counter
+
+A merge **counts** when its diff touches a non-test file under `src/`,
+`worker/` or `supabase/` — `isProductionFile` in
+`scripts/ci/merge-ledger-audit.ts`, the single owner of the rule. The
+hand-incremented number was wrong at eight consecutive architecture passes
+(measured 19 against a stated 5 on 2026-09-20), so the sweep measures it.
+
+1. Find the window base: the end SHA of the newest **Architecture pass** entry
+   in the log (the 2026-09-20 pass closed its window at `cf053acfa`).
+2. Run this from an up-to-date checkout (`git fetch origin main` first):
+
+```bash
+BASE=<window-base-sha>
+for c in $(git rev-list --first-parent "$BASE"..origin/main); do
+  n=$(git show --name-only --pretty=format: "$c" \
+    | grep -E '^(src|worker|supabase)/' \
+    | grep -vE '(__tests__/|\.(test|spec)\.[cm]?[jt]sx?$)' | wc -l | tr -d ' ')
+  echo "$n $(git log -1 --format='%h %s' "$c")"
+done
+```
+
+3. Every line with a non-zero count is a counting merge. In the arch-log row,
+   state the total, the window (`<base>..origin/main`), the number of commits
+   examined, and each counting merge with its SHA and file count.
+4. Do not edit the "Merges since last architecture pass: N" headline line. It
+   is a claim, not a measurement; #1383 replaces it with a SHA-keyed column.
+   When #1383 lands, this section and the row above change with it.
+
 ### Size caps — every page above is guarded
 
 `src/__tests__/reference-shape.test.ts` enforces the caps (lab-notes topic pages 3,000 words, history files 15,000, `docs/directory/*.md` and `docs/context/*.md` 3,000, `CONTEXT-MAP.md` 1,500, currents.md and progresstracking.md 12,000, `.claude/rules/*.md` 800) and the structure (a rule starts with `paths:` frontmatter, no term in two context files, the map links every context, the Pages table links every directory page, the lab-notes README links every topic page and history file). When a page goes over: split it, archive its oldest sections, or move the WHY to the page the pointer already names — never delete or summarise. Full layout: [docs/agents/context-layout.md](../../../docs/agents/context-layout.md).
 
-## Cross-reference hygiene (project rule — repworth.md)
+## Cross-reference hygiene (project rule — CLAUDE.md § Working rules)
 
 After editing, grep the feature name and every **new filename** you documented and
 fix stale ticks / dangling refs in the same pass:
@@ -72,8 +113,10 @@ End your run with this table so the user has a review surface:
 | File | Changed? | Why / why skipped |
 |---|---|---|
 | currents.md | ✅ | added trial summary + bumped Last updated |
+| progresstracking.md | ✅ | written with currents.md |
 | migrations-log.md | ⛔ | no migration in this diff |
-| arch-review-log.md | ✅ | counter 3 → 4, entry for PR #NNN |
+| arch-review-log.md | ✅ | bottom-table row for PR #NNN; counter MEASURED at 4 in `<base>..origin/main` |
+| change-ledger.md | ✅ | row present from the ship step; filled the 7-day check on #MMM |
 | … | | |
 
 Do **not** claim a file was updated unless you actually edited it.
@@ -94,3 +137,11 @@ checklist rather than by this skill).
 
 That is the whole argument for the row: an instruction that lives only in a
 runbook depends on someone remembering to read the runbook. Keep it in the table.
+
+The row alone was not enough. With the row in place the number was still wrong
+at the 2026-09-12 pass (stated 21, measured 83) and the 2026-09-20 pass (stated
+5, measured 19), because merges that never ran this sweep never incremented
+it. A count that depends on every merge remembering is wrong by construction,
+so the sweep now derives it from `git` each time. `ci:merge-ledger` guards the
+other half on the merging PR: a production or governance diff must add a line
+to the log.
