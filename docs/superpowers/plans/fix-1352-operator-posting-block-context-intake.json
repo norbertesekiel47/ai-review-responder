@@ -94,6 +94,7 @@
     "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
     "src/app/(authenticated)/settings/auto-approval/__tests__/AutoApprovalClient.test.tsx",
     "docs/reviews/fix-1352-operator-posting-block-context/plan-round-1.md",
+    ".claude/reference/arch-review-log.md",
     "docs/adr/0034-readiness-autopilot-entitlement-is-tier-only.md",
     "docs/context/core-reviews-responses.md",
     "docs/context/owner-operator.md",
@@ -131,7 +132,7 @@
     "rereading the same pending proposal adds and removes Posting block sentences as current settings change"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 240,
+  "estimated_prod_lines": 520,
   "estimated_test_lines": 520,
   "dependencies_added": [],
   "rollback_plan": "Revert the merge commit. There is no migration, no new flag and no new env var, so revert restores both the Operator wording and the previous readiness entitlement in one step. AUTOPILOT_PURCHASABLE keeps its own meaning throughout and needs no change either way.",
