@@ -74,6 +74,12 @@ describe('ci:* audit wiring', () => {
     expect(inCi.has('ci:admin-contract')).toBe(true);
     expect(inLefthook.has('ci:admin-contract')).toBe(true);
   });
+
+  it('includes the secret scan in package, lint CI and local pre-push', () => {
+    expect(declared).toContain('ci:secret-scan');
+    expect(inCi.has('ci:secret-scan')).toBe(true);
+    expect(inLefthook.has('ci:secret-scan')).toBe(true);
+  });
   it('finds the audits it is meant to check', () => {
     expect(declared.length).toBeGreaterThan(10);
     expect(inCi.size).toBeGreaterThan(10);
