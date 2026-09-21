@@ -97,11 +97,21 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
 // generation drops a paid draft, and terminal solicitation batch construction
 // leaves the batch owner-hidden. Not transient blips.
 //
-// This is a CLOSED allowlist, so a new owner-impacting topic stays invisible
-// until it is added here. `generate_solicitation_asks` shipped without it
+// This was a CLOSED allowlist of 7 topics, and it is now OPEN (#1378). A
+// closed list means a new owner-impacting topic stays invisible until someone
+// remembers to add it; `generate_solicitation_asks` shipped without it
 // (#628 round 5), which silently voided that lane's dead-letter rationale:
 // its terminal handler concedes the batch to "an operator will see the failed
 // row", and nothing was watching the row.
+//
+// #1378 forced the question. Widening the Watchdog's terminal arm to every
+// topic means ~30 topics gained a terminal path, and those rows previously
+// raised `outbox_stale_dispatching` forever — a wrong alert, but the only one
+// they had. Terminalizing them correctly REMOVES that signal, and a
+// watchdog-terminated row fires no BullMQ `failed` event, so the Job-failure
+// sink never sees it either. Keeping the allowlist closed would have traded a
+// misleading alert for silence. `failedThreshold` still applies PER TOPIC, so
+// opening the list does not lower the bar for the original seven.
 export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
   // Window on completed_at: markOutboxFailed sets completed_at = NOW() when a row
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
@@ -111,15 +121,6 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
-      AND topic IN (
-        ${QUEUE_NAMES.PUBLISH_RESPONSE},
-        ${QUEUE_NAMES.SEND_NOTIFICATION},
-        ${QUEUE_NAMES.GENERATE_RESPONSE},
-        ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH},
-        ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS},
-        ${QUEUE_NAMES.SOLICITATION_VETO_NOTICE},
-        ${QUEUE_NAMES.AGENT_TURN}
-      )
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic
   `;

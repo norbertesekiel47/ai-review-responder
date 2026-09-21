@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "Touches worker/background/pollers/OutboxPoller.ts — the dispatch path every async workflow in RepWorth depends on",
+    "Changes a terminal state transition on job_outbox, governed by invariant #2 (transactional outbox)",
+    "A false-positive terminalization would mark genuinely in-flight work 'failed'"
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "The Watchdog terminalizes a stale 'dispatching' Outbox job that has exhausted its attempts on every topic, not only agent_turn, so a crash between the claim and runOutboxDispatchFailure can no longer strand a row in a state no arm and no claim can select.",
+  "non_goals": [
+    "Changing arm 3's 2-minute re-pend window, or the OUTBOX_WATCHDOG_STALE_MS default itself",
+    "Making reconcileTurnForFailedOutbox topic-agnostic — it stays Operator-specific, guarded by its own `AND topic = AGENT_TURN` re-select at turns.ts:58",
+    "Removing the array_agg(...) FILTER — it is a redundant pre-filter, kept as an optimization, but it is NOT the safety boundary (see deviations D6)",
+    "Any migration or schema change",
+    "Changing claimPendingBatch, markDispatched, or the dispatch path",
+    "Backfilling existing orphans — production and staging were both queried at 2026-09-20 and hold zero matching rows",
+    "Lowering HEALTH_ALERT_FAILED_THRESHOLD — opening the topic allowlist does not change the per-topic bar"
+  ],
+  "user_visible_behavior": [
+    "A 'dispatching' job_outbox row at attempts >= max_attempts whose dispatched_at is NULL or older than watchdogStaleSecs (15 min) becomes status='failed' with completed_at set, on any topic, within one watchdog cycle.",
+    "A 'dispatching' row at max_attempts aged between 2 and 15 minutes is left alone — arm 3's re-pend window does not terminalize.",
+    "The '[OutboxPoller] Watchdog recovered stale entries' log line's `failed` count now includes such rows on non-agent_turn topics.",
+    "The outbox_stale_dispatching finding, which an orphan otherwise raises forever under the misleading title 'OutboxPoller watchdog may be down', now clears on the next cycle.",
+    "checkFailedOutboxByTopic now raises outbox_failed:<topic> for EVERY topic over threshold, not only the previous seven — so the terminal path the watchdog opened has an alert half."
+  ],
+  "invariants": [
+    "Invariant #2: the in-flight status set ('pending','dispatching','dispatched') owned by src/lib/shared/job-outbox-status.ts is not referenced or re-spelled by this change; ci:outbox-status stays green.",
+    "reconcileTurnForFailedOutbox acts only on rows whose topic is QUEUE_NAMES.AGENT_TURN, enforced by its own re-select at turns.ts:58.",
+    "A row claimed less than watchdogStaleSecs (15 min) ago is never terminalized, whatever its attempts — the window must stay strictly greater than the worst-case claim-to-dispatched gap of (topics x OUTBOX_DISPATCH_TIMEOUT_MS).",
+    "The #736 last_error preservation (COALESCE(NULLIF(last_error, ''), ...)) holds for both the dispatched and the dispatching branch.",
+    "Arm 2 (terminalize) and arm 3 (re-pend) stay mutually exclusive by the attempts predicate, so no row is both terminalized and re-pended in one transaction.",
+    "Every topic with a terminal outbox path has an alert that can fire for it."
+  ],
+  "edge_cases": [
+    "dispatched_at IS NULL is treated as stale by BOTH dispatching arms, though they pair that disjunct with different intervals.",
+    "A row at attempts >= max_attempts aged between arm 3's 2 minutes and the terminal arm's 15 minutes matches NEITHER arm and is deliberately left in 'dispatching' — that gap is where a live serial dispatch cycle sits.",
+    "An agent_turn row keeps its existing route through reconcileTurnForFailedOutbox, including the 'deferred' outcome that rolls the row back to 'dispatched' and subtracts from terminatedCount.",
+    "A terminalized dispatching row with NULL or empty last_error receives 'Stale dispatching entry exceeded max_attempts'; one carrying a bounded error class keeps it.",
+    "A dispatching row on a topic the queue registry does not know is still terminalized — the watchdog is deliberately topic-blind.",
+    "Opening the alert allowlist cannot lower the bar for the original seven topics: failedThreshold is applied per topic after the GROUP BY."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/background/pollers/OutboxPoller.ts — arm 3's topic-agnostic dispatching predicate is the shape the terminal disjunct copies, minus its interval",
+    "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts — the live-DB seam, PROBE_TOPIC fixture, seedRow/rowState helpers and interval-based ageing",
+    "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts — the agent_turn terminalizer's live-DB coverage that must stay green"
+  ],
+  "test_seams": [
+    "runOutboxWatchdogRecovery(db, watchdogStaleSecs, logger) — worker/background/pollers/OutboxPoller.ts"
+  ],
+  "allowed_edit_surface": [
+    "worker/background/pollers/OutboxPoller.ts",
+    "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+    "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+    "docs/context/core-platform-runtime.md",
+    ".claude/reference/arch-review-log.md",
+    "worker/background/pollers/health-alert/checks.ts",
+    "worker/background/pollers/health-alert/__tests__/checks.test.ts"
+  ],
+  "tests_to_add": [
+    "terminalizes a stale dispatching row at max_attempts on a non-agent_turn topic",
+    "terminalizes a stale dispatching row whose dispatched_at is NULL",
+    "writes the dispatching reclaim text when a terminalized dispatching row recorded no error",
+    "keeps a per-job last_error when terminalizing a stale dispatching row",
+    "re-pends a stale dispatching row that still has attempts left",
+    "leaves a freshly claimed dispatching row at max_attempts alone",
+    "leaves a dispatching row at max_attempts alone in the gap between the two windows",
+    "reports terminalized dispatching rows in the watchdog failed count",
+    "covers every topic — the query binds no topic allowlist",
+    "raises a finding for a topic that the old allowlist never covered"
+  ],
+  "verification_commands": [
+    "pnpm ci:outbox-status",
+    "pnpm ci:live-db-suites"
+  ],
+  "estimated_prod_lines": 6,
+  "estimated_test_lines": 150,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch's commits. No schema or data migration is involved, so the revert is complete. Rows the widened arm already terminalized stay 'failed'; they were permanently unrecoverable before the change, so leaving them terminal is the desired end state and needs no compensating write. Reverting also restores the seven-topic alert allowlist, which is safe because the terminal path those ~30 topics gained disappears with it.",
+  "observability": [
+    "Structured log '[OutboxPoller] Watchdog recovered stale entries' — the `failed` field counts the new terminalizations; covered by a test.",
+    "HealthAlertPoller finding outbox_stale_dispatching (HEALTH_ALERT_STALE_DISPATCHING_S, default 600s) clears instead of firing permanently.",
+    "HealthAlertPoller finding outbox_failed:<topic> now covers every topic, closing the gap the first draft of this change would have opened — a watchdog-terminated row fires no BullMQ 'failed' event, so the Job-failure sink never sees it and this alert is the only signal."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}
