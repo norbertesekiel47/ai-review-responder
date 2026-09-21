@@ -168,7 +168,8 @@ export interface SnapshotPosting {
    *
    * It governs UNSOLICITED correction only, and is not a gag: an owner who
    * asks directly whether anything stops automatic posting is answered from
-   * `sentences` whatever this says (prompt rule 2, version 2026-09-20.2).
+   * `sentences` whatever this says — see the `correctionOwed` rules in
+   * `OWNER_OPERATOR_SYSTEM_PROMPT` (`prompt.ts`), which own that contract.
    * Concealing a known fact from a direct question was #1352's own failure
    * wearing the opposite sign. `blocked`, `reasons` and `sentences` stay
    * complete regardless.

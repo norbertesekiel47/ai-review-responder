@@ -76,7 +76,7 @@ describe('operator prompt', () => {
     }]);
     expect(example.segments).toEqual([{ type: 'proposal_ref', index: 0 }]);
     expect(example.unsupported).toEqual([]);
-    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-20.2');
+    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-20.3');
     expect(operatorSystemPromptHash()).not.toBe('3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a');
   });
 
@@ -154,12 +154,31 @@ describe('operator prompt', () => {
     expect(proposals).toBeDefined();
     expect(proposals).toMatch(/including a contraction/);
     const suspension = rules.find((rule) => rule.includes('suspended'));
+    expect(suspension).toBeDefined();
     expect(suspension).toMatch(/state the suspension first/);
-    expect(suspension).toMatch(/only when snapshot\.posting\.correctionOwed is true/);
+    // RT-07: the suspension rule carries the SAME two-branch contract as the
+    // rule above, never a stricter one. `correctionOwed` gates the UNPROMPTED
+    // sentence; a direct question is still answered verbatim. A bare "only when
+    // correctionOwed is true" here would forbid, for a suspended account,
+    // precisely what the rule above permits — and the model cannot obey both.
+    expect(suspension).toMatch(/unprompted only when snapshot\.posting\.correctionOwed is true/);
+    expect(suspension).toMatch(/otherwise only as the answer to a direct question/);
+    expect(suspension).toMatch(/verbatim from snapshot\.posting\.sentences/);
+    // Stated first, then at most once — the ordering and the de-duplication are
+    // what this rule adds on top of the two branches.
+    expect(suspension).toMatch(/at most once/);
 
     // No Posting block rule may make the model hold back the requested work.
     for (const rule of postingRules) {
       expect(rule, rule).not.toMatch(/do not propose|withhold the proposal|refuse the proposal|ask the owner to wait/i);
+    }
+
+    // ONE contract, not two. Wherever a rule makes `correctionOwed is true` a
+    // NECESSARY condition, it must scope that gate to the unprompted branch; a
+    // bare "only when" reads as a gate on every mention and contradicts the
+    // direct answer the rule above permits (RT-07).
+    for (const rule of postingRules) {
+      expect(rule, rule).not.toMatch(/(?<!unprompted )only when snapshot\.posting\.correctionOwed is true/);
     }
 
     // They sit with the other block concept, not scattered through the list.
