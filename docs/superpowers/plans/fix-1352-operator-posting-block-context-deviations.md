@@ -247,3 +247,76 @@ file the test controls, or give `mutation-runner.mjs` a refresh subcommand —
 there is none today, which is why this was done by hand.
 
 **Verdict:** ACCEPT
+
+---
+
+> **Numbering note.** D8 and D9 record surface amendments 4 and 5, which happened
+> between D6 and D7 in time. They are appended rather than inserted because D1-D7
+> are already cited by SHA in commit messages and in the plan's review appendix.
+
+---
+
+## D8 — Surface amendment 4: four more `ProposalView` fixture sites
+
+**When:** step 4, when T5 returned BLOCKED. `surfaceAmendments=4`.
+
+**What.** Four paths joined `allowed_edit_surface`:
+
+- `src/lib/agents/operator/__tests__/apply.test.ts`
+- `src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx`
+- `src/app/(authenticated)/dashboard/operator/__tests__/RestoreWorkflow.test.tsx`
+- `src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx`
+
+**Why.** `ProposalView` gained a required `postingBlockSentences` field and
+`settings.ts` gained `getAutoApprovalPostingStatus`, which `apply.test.ts` mocks
+as a whole module. Three files needed one fixture key; one needed the mock
+factory extended with a stub that issues no statement, because that suite makes
+positional `sqlCalls[n]` assertions and a querying stub would shift every index.
+
+Zero production files. Applied under the owner's amendment-3 waiver rather than
+re-asked: same root cause, same class, found in the same wave, and the owner's
+stated reasoning covered it. Surfaced in the turn report, not buried.
+
+**Consequence nobody predicted at the time.** Editing `OperatorClient.test.tsx`
+and `RestoreWorkflow.test.tsx` is what later invalidated 13 red-team assertion
+pins. See D7.
+
+**Verdict:** ACCEPT
+
+---
+
+## D9 — Surface amendment 5: the merge ledger row
+
+**When:** step 5, first gate. `surfaceAmendments=5`.
+
+**What.** `.claude/reference/arch-review-log.md` joined `allowed_edit_surface`.
+
+**Why.** `ci:merge-ledger` FAILS any PR that changes production files and adds no
+line to that log. By design (#896, #849, #905): nothing outside `/feature` step 8
+increments it, so a merge that skips the workflow would be invisible. Not
+optional and not scope growth. The counter number was left alone — the audit's
+own message says the counter belongs to the architecture pass.
+
+The file is in the gate's `reclassify_bucket` skip list, so it does not affect
+the production line count.
+
+**Verdict:** ACCEPT
+
+---
+
+## Read-back record — step 6
+
+Read end to end at `b1150df4a`, gate GREEN, fingerprint
+`88f64ba0ce6de681c654e90480f1444066dd83eb042612cd54196e57ef5f0d7d`.
+
+Nine entries, nine ACCEPT, zero RE-PLAN. Two were verified against the code
+rather than taken on the writer's word:
+
+- **D6** — `projectPostingBlock`'s docblock (`context.ts:191`) now states the
+  purchasability divergence in the PAST tense and keeps the rule. Confirmed.
+- **D7** — the pin refresh changed `line` and `testSha256` only, proven by a
+  field-by-field comparison of the 14 parsed records.
+
+**The entry the review wave should attack first is D7.** It rewrites red-team
+freshness pins on a branch that is about to be red-teamed, and the underlying
+claim ("this mutant still kills this assertion") is inferred, not re-run.
