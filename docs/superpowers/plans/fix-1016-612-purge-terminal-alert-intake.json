@@ -19,7 +19,7 @@
     "No change to the lock-key regular expression or to the solicitation_batch guard in batch-builder.test.ts."
   ],
   "user_visible_behavior": [
-    "Operator: a terminal purge failure is a Sentry issue with fingerprint [account_offboarding_purge_failed, terminal] at level error. Retry failures group under [account_offboarding_purge_failed, retry] at level warning. A first-seen rule on the terminal issue can no longer be consumed by an earlier retry event.",
+    "Operator: EACH terminally failed offboarding is its own Sentry issue, fingerprint [account_offboarding_purge_failed, terminal, <account_offboarding_id>] at level error, so the per-issue action throttle cannot suppress a second account's page (owner decision 2026-09-21 on review finding Codex A1; supersedes the two-member terminal fingerprint first locked here). Retry failures group under the shared [account_offboarding_purge_failed, retry] at level warning. A rule on a terminal issue can no longer be consumed by an earlier retry event.",
     "Operator: beta-launch-alerting.md has a rule row account-offboarding-purge-terminal -> discord with all six facets (signal identity, filter, level, grouping, threshold and cadence, destination action), plus its entry in the section 1a-do click-path.",
     "Developer: a respelled csv_ingest lock key anywhere under src/lib or worker, including worker/jobs/account-offboarding, turns the single-owner guard red."
   ],
@@ -36,7 +36,7 @@
     "A stale outbox attempt (isStaleOutboxAttemptError) raises no alert. Unchanged.",
     "The terminal test stays isTerminalAttempt(job), the catch-block form. The failed-event form in worker/job-failure-sink.ts is a different predicate and is not unified.",
     "A warning-level captureMessage does not reliably classify as high priority in Sentry (runbook CONFIG-1). The rule therefore filters on tag terminal equals true and level error, and does not depend on priority.",
-    "purge-stages.ts:261 has a comment that spells the key form ('csv_ingest_' || id). The widened scan matches it. Reword that comment so that prose does not trip the guard. This is a comment-only edit.",
+    "purge-stages.ts:261 has a comment that spells the key form ('csv_ingest_' || id). The widened scan matches it. The scan therefore ignores comment lines (the regex itself stays unchanged), and that production comment stays as it was (review finding Std S5, 2026-09-21; supersedes the first resolution, which reworded the comment).",
     "Threshold and cadence follow the every-event precedent: every event, action throttle 60 minutes per issue, the existing Discord alerts channel through integration 443670."
   ],
   "existing_patterns_to_follow": [

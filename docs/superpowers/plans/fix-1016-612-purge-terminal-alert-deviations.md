@@ -106,3 +106,59 @@ counted (surfaceAmendments=1), one ledger line added.
 
 **Verdict:** ACCEPT — process-ledger path required by a CI audit;
 owner-approved; no locked decision changes.
+
+## 2026-09-21 — Review round 1 changed two locked intake decisions (owner-decided)
+
+**What.** (1) Codex A1: the intake locked a two-member terminal fingerprint, so
+every terminal failure shared ONE Sentry issue and the rule's per-issue
+60-minute throttle would suppress a second account's page. (2) Red team
+RT16-01 (P0) and spec F1: the runbook's operator action prescribed a re-drive
+that no code path can perform — a terminally failed purge has no recovery path
+in the product at all.
+
+**What the root did.** Took both to the owner (RISK = high). Decisions of
+2026-09-21: the terminal fingerprint becomes
+`[account_offboarding_purge_failed, terminal, <account_offboarding_id>]`
+(retry stays shared); the runbook says the truth (no supported re-run; live
+PII until fixed) and the recovery mechanism is issue #1411. Both intake copies
+corrected (behavior text only — not a surface amendment). Pre-existing sibling
+gaps went to issues #1412 and #1413 instead of into this branch.
+
+**Verdict:** ACCEPT — owner-decided; the alert ships with a true procedure, and
+the missing recovery path is tracked rather than papered over.
+
+## 2026-09-21 — Review round 1 fixes (triage: `docs/reviews/fix-1016-612-purge-terminal-alert/triage.md`)
+
+**What.** The doc pin now slices the runbook to rule 16's block and asserts on
+the rule's own table row (filter, level, trigger, both fingerprints) — proved
+against the red-team survivor's exact corruption (RED at
+`PurgeWorker.test.ts:941`). The §1 bullet is cut to identity + pointer (one
+owner per fact); three false or overstated runbook claims are corrected; the
+paths rule 16 does not cover are named. The #612 scan now skips comment lines
+(the regex is unchanged), so the intake's first resolution — rewording the
+`purge-stages.ts` comment — is superseded and that file is back to its
+merge-base content, out of the diff; proved by a temporary CODE respelling of
+the key inside `purge-stages.ts` (RED at `ingest.test.ts:167`). The guard's
+comment now states its real limit: a key built by other string means is not
+detected.
+
+**Verdict:** ACCEPT — every change traces to an accepted finding; both
+test-strength fixes carry mutation proof.
+
+## 2026-09-21 — `reclassify` WARN after the review fixes: production 64, test 339
+
+**What.** Test bucket 339 against an estimate of 130 (over 2x); production 64
+against 25 (34 lines of code, 30 of runbook prose).
+
+**Why.** The review's accepted findings were almost all TEST-STRENGTH findings:
+the rule-scoped doc pin, the per-offboarding fingerprint tests and the
+comment-skipping scan account for the growth. Lab notes already record this
+shape: "`reclassify` fires on exactly the branches whose review worked".
+
+**What the root did.** Re-ran step 0 with the real numbers: size moves from
+`small` to `standard` (about 400 changed lines with tests); risk stays `high`;
+surface unchanged; no second amendment. The heavier lane's extra control is the
+review wave, and this branch already ran the full high-risk wave (four axes
+plus red team) and owes the scoped round 2.
+
+**Verdict:** ACCEPT — growth is review-driven test rigor, not scope drift.

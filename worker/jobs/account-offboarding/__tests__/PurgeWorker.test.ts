@@ -263,10 +263,49 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   }),
 }));
 
-import { handleAccountOffboardingPurge, PURGE_TERMINAL_FINGERPRINT } from '../PurgeWorker';
+import {
+  handleAccountOffboardingPurge,
+  PURGE_RETRY_FINGERPRINT,
+  PURGE_TERMINAL_FINGERPRINT_PREFIX,
+} from '../PurgeWorker';
 
 /** The runbook that owns the Sentry rule routing this worker's terminal alert. */
 const ALERTING_RUNBOOK = 'docs/runbooks/beta-launch-alerting.md';
+
+/** The alert rule's name, and the first cell of the table row that configures it. */
+const RULE_16_ROW_NAME = 'account-offboarding-purge-terminal → discord';
+
+/**
+ * Rule 16's own block: from its `**Rule 16` header to the next `**Rule ` header
+ * or `## ` section heading.
+ *
+ * Slicing is the whole point. A file-wide `toContain` let the red team corrupt
+ * this rule's row to `terminal equals false` at `warning` grouping on the RETRY
+ * fingerprint and keep the test green, because §1's checklist bullet carries
+ * the same strings (red-team RT-A6). The operator configures Sentry from the
+ * ROW, so the row is what has to be pinned.
+ */
+function rule16Block(runbook: string): string {
+  const start = runbook.indexOf('**Rule 16');
+  expect(start, 'the runbook has no **Rule 16 block').toBeGreaterThan(-1);
+  const rest = runbook.slice(start + '**Rule 16'.length);
+  const ends = [rest.indexOf('\n**Rule '), rest.indexOf('\n## ')].filter((index) => index >= 0);
+  return ends.length > 0 ? rest.slice(0, Math.min(...ends)) : rest;
+}
+
+/** The one table row inside rule 16's block that names the alert rule. */
+function rule16TableRow(block: string): string {
+  const row = block
+    .split('\n')
+    .find((line) => line.startsWith('|') && line.includes(RULE_16_ROW_NAME));
+  expect(row, `rule 16 has no table row for ${RULE_16_ROW_NAME}`).toBeDefined();
+  return row!;
+}
+
+/** `[a, b, …]` as the runbook spells a fingerprint, from the constants themselves. */
+function fingerprintPattern(members: readonly string[]): RegExp {
+  return new RegExp(`\\[\\s*${members.join(',\\s*')}\\s*\\]`);
+}
 
 describe('AccountOffboarding PurgeWorker', () => {
   beforeEach(() => {
@@ -730,6 +769,10 @@ describe('AccountOffboarding PurgeWorker', () => {
   // rule, and importing them would let a rename pass on both sides while every
   // rule stopped matching. The doc pin below reads the exported constants —
   // that comparison is between two artifacts and must not be hand-copied.
+  //
+  // The terminal arm carries a THIRD member, the offboarding id: Sentry's
+  // action throttle is per issue, so one shared terminal issue swallowed a
+  // second account's page inside the 60-minute window (Codex A1).
   describe('purge-failure alert fingerprints', () => {
     it('alerts a terminal stage failure with the terminal fingerprint at error level', async () => {
       mockRedactionStage.mockImplementation(async () => {
@@ -746,7 +789,7 @@ describe('AccountOffboarding PurgeWorker', () => {
         'account_offboarding_purge_failed',
         expect.objectContaining({
           level: 'error',
-          fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+          fingerprint: ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
           tags: expect.objectContaining({ terminal: 'true' }),
         }),
       );
@@ -786,7 +829,7 @@ describe('AccountOffboarding PurgeWorker', () => {
         'account_offboarding_purge_failed',
         expect.objectContaining({
           level: 'error',
-          fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+          fingerprint: ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
         }),
       );
     });
@@ -815,6 +858,41 @@ describe('AccountOffboarding PurgeWorker', () => {
       expect(fingerprints[0]).not.toEqual(fingerprints[1]);
     });
 
+    it("two offboardings' terminal alerts never share a fingerprint", async () => {
+      // Sentry's action throttle is PER ISSUE. With one shared terminal issue a
+      // second account's terminal failure inside the rule's 60-minute window
+      // pages nobody — an unmet deletion obligation that no one is told about
+      // (Codex A1). The offboarding id in the fingerprint is what separates them.
+      const OTHER_OFFBOARDING_ID = '00000000-0000-7000-8000-0000000000f1';
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({ attemptsMade: 2, attempts: 3 }),
+      );
+      mockState.offboarding = { ...mockState.offboarding!, status: 'purge_scheduled' };
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({
+          attemptsMade: 2,
+          attempts: 3,
+          accountOffboardingId: OTHER_OFFBOARDING_ID,
+        }),
+      );
+
+      const fingerprints = mockCaptureMessage.mock.calls.map(
+        ([, context]) => (context as { fingerprint?: string[] } | undefined)?.fingerprint,
+      );
+      expect(fingerprints).toEqual([
+        ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
+        ['account_offboarding_purge_failed', 'terminal', OTHER_OFFBOARDING_ID],
+      ]);
+    });
+
     it('the terminal purge path marks the outbox failed and does not throw', async () => {
       // No double report: the terminal branch returns after the two marks, so
       // `attachJobFailureSink` never fires for it and this ONE capture is the
@@ -840,7 +918,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
       expect(mockCaptureMessage).toHaveBeenCalledOnce();
       expect(mockCaptureMessage.mock.calls[0]![1]).toMatchObject({
-        fingerprint: ['account_offboarding_purge_failed', 'terminal'],
+        fingerprint: ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
       });
     });
 
@@ -849,11 +927,35 @@ describe('AccountOffboarding PurgeWorker', () => {
       // had no rule at all (red-team RT-05). Read off the exported constants
       // rather than hand-copied, because "the runbook and the worker agree" is
       // a claim about two artifacts and a copy only ever proves the copy.
-      const runbook = readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8');
+      //
+      // Every assertion is scoped to rule 16's own TABLE ROW — the cells the
+      // operator copies into the Sentry form. A file-wide `toContain` passed
+      // with that row corrupted to `terminal equals false` at `warning` on the
+      // retry fingerprint (red-team RT-A6), because §1's bullet carries the
+      // same strings. Patterns, not literals: the prose around each cell is
+      // free to change, the configured VALUES are not.
+      const block = rule16Block(readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8'));
+      const row = rule16TableRow(block);
 
-      expect(runbook).toContain('account-offboarding-purge-terminal → discord');
-      expect(runbook).toContain(PURGE_TERMINAL_FINGERPRINT[0]);
-      expect(runbook).toContain(`[${PURGE_TERMINAL_FINGERPRINT.join(', ')}]`);
+      // Filter: the four facets that decide WHICH events reach Discord.
+      expect(row).toMatch(/`terminal`\s+equals\s+`true`/);
+      expect(row).not.toMatch(/`terminal`\s+equals\s+`false`/);
+      expect(row).toMatch(/level\s+equals\s+`error`/);
+      expect(row).toMatch(/`subsystem`\s+equals\s+`account_offboarding`/);
+      expect(row).toMatch(/`step`\s+equals\s+`purge`/);
+
+      // Grouping: the terminal fingerprint's constant members, then the
+      // per-offboarding member that keeps one account's issue off another's.
+      expect(row).toMatch(
+        fingerprintPattern([...PURGE_TERMINAL_FINGERPRINT_PREFIX, '<account_offboarding_id>']),
+      );
+      // The retry spelling is pinned too — renaming it silently unmatches the
+      // rule's own explanation of why the two arms are separate issues.
+      expect(block).toMatch(fingerprintPattern(PURGE_RETRY_FINGERPRINT));
+
+      // Trigger: first-seen is the RT-08 defect this whole rule exists to undo.
+      expect(row).toMatch(/every event/i);
+      expect(row).not.toMatch(/first[\s-]seen/i);
     });
   });
 
@@ -905,14 +1007,18 @@ describe('AccountOffboarding PurgeWorker', () => {
 });
 
 function makeJob(
-  overrides: { attemptsMade?: number; attempts?: number } = {},
+  overrides: {
+    attemptsMade?: number;
+    attempts?: number;
+    accountOffboardingId?: string;
+  } = {},
 ): Job<AccountOffboardingPurgePayload> {
   return {
     id: OUTBOX_ID,
     attemptsMade: overrides.attemptsMade ?? 0,
     opts: { attempts: overrides.attempts ?? 3 },
     data: {
-      account_offboarding_id: OFFBOARDING_ID,
+      account_offboarding_id: overrides.accountOffboardingId ?? OFFBOARDING_ID,
       account_id: ACCOUNT_ID,
       correlation_id: 'correlation-1',
       outbox_id: OUTBOX_ID,

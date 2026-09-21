@@ -80,10 +80,33 @@ describe('resolveContactMatch', () => {
 const LANE_ROOTS = ['src/lib', 'worker'];
 // Any reconstruction of the key, not just the template-literal form: the
 // prefix either terminates a string literal (`'csv_ingest_' || businessId`) or
-// is followed by an interpolation (`csv_ingest_${businessId}`). Prose mentions
-// (`csv_ingest_<business>`) and the unrelated `csv_ingest_exhausted` outbox
-// reason are deliberately outside the pattern.
+// is followed by an interpolation (`csv_ingest_${businessId}`). The unrelated
+// `csv_ingest_exhausted` outbox reason is outside the pattern.
+//
+// Exactly what this guard sees, stated plainly. COMMENT lines are stripped
+// before the pattern runs (`stripCommentLines` below), so prose that spells the
+// key — `hashtext('csv_ingest_' || id)` in purge-stages.ts, for one — is not a
+// finding, and production comments are never reworded to appease this test. And
+// a key assembled by other string means (`['csv_ingest', id].join('_')`,
+// concatenating the prefix a character at a time) is NOT detected: this is a
+// regex over source text, not a dataflow analysis. It catches the respelling
+// people actually write; it is not a proof of single ownership.
 const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
+
+/**
+ * Source with `//`, `*` and `/*` lines removed, so the scan reads CODE only.
+ * Line-granular on purpose: a trailing comment on a code line stays, which
+ * errs toward a false positive rather than a missed respelling.
+ */
+function stripCommentLines(source: string): string {
+  return source
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trimStart();
+      return !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*');
+    })
+    .join('\n');
+}
 
 function* walkLaneSources(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -96,12 +119,19 @@ function* walkLaneSources(dir: string): Generator<string> {
   }
 }
 
-/** Every source file the scan visits, as repo-relative paths. */
-function laneSourceFiles(): string[] {
-  const files: string[] = [];
+/**
+ * Every source file the scan visits: `path` is the repo-relative name the
+ * assertions speak, `absolutePath` is what it is read from — carried alongside
+ * rather than reconstructed from `path`.
+ */
+function laneSourceFiles(): { path: string; absolutePath: string }[] {
+  const files: { path: string; absolutePath: string }[] = [];
   for (const root of LANE_ROOTS) {
-    for (const filePath of walkLaneSources(join(process.cwd(), root))) {
-      files.push(relative(process.cwd(), filePath).split('\\').join('/'));
+    for (const absolutePath of walkLaneSources(join(process.cwd(), root))) {
+      files.push({
+        path: relative(process.cwd(), absolutePath).split('\\').join('/'),
+        absolutePath,
+      });
     }
   }
   return files;
@@ -109,7 +139,9 @@ function laneSourceFiles(): string[] {
 
 function laneFilesBuildingTheLockKey(): string[] {
   return laneSourceFiles()
-    .filter((file) => LOCK_KEY_CONSTRUCTION.test(readFileSync(join(process.cwd(), file), 'utf-8')))
+    .filter((file) =>
+      LOCK_KEY_CONSTRUCTION.test(stripCommentLines(readFileSync(file.absolutePath, 'utf-8'))))
+    .map((file) => file.path)
     .sort();
 }
 
@@ -141,7 +173,12 @@ describe('csv_ingest terminal-write owners', () => {
     // before deleting `contact_csv_uploads`, so a key respelled there would
     // silently stop contending while the single-owner assertion above stayed
     // green. Same width as `LOCK_LANE_ROOTS` in batch-builder.test.ts.
-    expect(laneSourceFiles()).toContain('worker/jobs/account-offboarding/purge-stages.ts');
+    //
+    // The DIRECTORY, not one filename: what has to stay inside the scan is the
+    // lane, and pinning `purge-stages.ts` would turn a routine file split into
+    // a red test while a respelling in a sibling file stayed invisible.
+    const lane = 'worker/jobs/account-offboarding/';
+    expect(laneSourceFiles().some((file) => file.path.startsWith(lane))).toBe(true);
   });
 
   it('writeTerminalUploadState guards the terminal write with the pending predicate', async () => {

@@ -39,12 +39,27 @@ const PURGE_ALERT_MESSAGE = 'account_offboarding_purge_failed';
  * Without them the constant message and absent fingerprint put a retry
  * `warning` and the terminal `error` in ONE issue, so a first-seen rule fired
  * on an early retry and stayed silent for the terminal event that actually
- * means an unmet deletion obligation (#1016, red-team RT-08). Exported because
- * `docs/runbooks/beta-launch-alerting.md` rule 16 configures a Sentry filter
- * against these exact members, and a test pins the two spellings together.
+ * means an unmet deletion obligation (#1016, red-team RT-08).
+ *
+ * The terminal arm carries a THIRD member — the offboarding id — so each
+ * terminally failed offboarding is its own issue. Sentry's action throttle is
+ * PER ISSUE, so one shared terminal issue would swallow a second account's
+ * page inside the rule's 60-minute window (review finding Codex A1,
+ * 2026-09-21). The retry arm stays shared: a retry is noise until it
+ * terminalizes, and grouping it is the point.
+ *
+ * Both constants are exported because `docs/runbooks/beta-launch-alerting.md`
+ * rule 16 names these exact members as its grouping (the rule itself filters
+ * on tags and level, not on the fingerprint), and `PurgeWorker.test.ts` reads
+ * both of them back out of that rule's own block — so renaming either member
+ * turns the pin red.
  */
-export const PURGE_TERMINAL_FINGERPRINT = [PURGE_ALERT_MESSAGE, 'terminal'] as const;
+export const PURGE_TERMINAL_FINGERPRINT_PREFIX = [PURGE_ALERT_MESSAGE, 'terminal'] as const;
 export const PURGE_RETRY_FINGERPRINT = [PURGE_ALERT_MESSAGE, 'retry'] as const;
+
+function purgeTerminalFingerprint(accountOffboardingId: string): string[] {
+  return [...PURGE_TERMINAL_FINGERPRINT_PREFIX, accountOffboardingId];
+}
 
 export async function handleAccountOffboardingPurge(
   sql: postgres.Sql,
@@ -155,7 +170,9 @@ function alertPurgeFailure(
 ): void {
   Sentry.captureMessage(PURGE_ALERT_MESSAGE, {
     level: terminal ? 'error' : 'warning',
-    fingerprint: [...(terminal ? PURGE_TERMINAL_FINGERPRINT : PURGE_RETRY_FINGERPRINT)],
+    fingerprint: terminal
+      ? purgeTerminalFingerprint(payload.account_offboarding_id)
+      : [...PURGE_RETRY_FINGERPRINT],
     tags: {
       subsystem: 'account_offboarding',
       step: 'purge',
