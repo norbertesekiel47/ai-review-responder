@@ -44,7 +44,7 @@ Counted with `wc -w`.
 - **A new term** → a `- **Term**: …` line in the `docs/context/<context>.md` that owns it, and the term's name added to that context's row in `CONTEXT-MAP.md`. A new context is a new file plus a map row. A term defined in two files fails the test.
 - **A new production file** under `worker/` or `src/lib/` → a row on the `docs/directory/<page>.md` that inventories its folder (`ci:directory-map` fails without one). A new folder gets its row in the Pages table of `docs/directory.md`; a folder moved to a sibling page to stay under the cap is recorded there too.
 - **A root cause** → a dated entry in the newest `.claude/reference/lab-notes/history/` file, format `[DATE] WHAT FAILED → WHY → CORRECT APPROACH`. If it changes a current rule, edit the topic page's Summary bullet or Canonical section — the history entry keeps the story, the topic page keeps the rule.
-- **A shipped feature** → a Quick summary at the top of `docs/currents.md` and an entry at the bottom of `docs/progresstracking.md`. When either passes 12,000 words, move its oldest sections verbatim to a new `docs/progress-archive/` file and add that file to the header list.
+- **A shipped feature** → a Quick summary at the top of `docs/currents.md` and an entry at the bottom of `docs/progresstracking.md`, when the merge changed the state a reader relies on. A fix that only makes the code match what `currents.md` already says skips both; its row in `.claude/reference/arch-review-log.md` and its lab notes carry it (the `document-feature` skill owns the test). When either passes 12,000 words, move its oldest sections verbatim to a new `docs/progress-archive/` file and add that file to the header list.
 
 ## Tool policy
 
