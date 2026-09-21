@@ -10,7 +10,37 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 > - [progress-archive/currents-history-2026-08-16-to-18.md](progress-archive/currents-history-2026-08-16-to-18.md) — 2026-08-16 → 2026-08-18 (the executed Architecture pass through the admin Halt latch surface).
 
-Last updated: 2026-09-19 (the two long-standing complexity hotspots are decomposed; the logger's `emit` and the onboarding-demo worker root are now assembly over named helpers).
+Last updated: 2026-09-21 (a terminal offboarding purge failure now pages per offboarding — but rule 16 is not configured yet and there is still no recovery path; every machine now needs the `gitleaks` binary to push).
+
+## Quick summary — a failed offboarding purge is now its own alert, and there is still no way to re-run one (2026-09-21, PR #1417)
+
+Deleting an account's data can fail terminally. Until this merge that failure told nobody: `alertPurgeFailure` sent one Sentry message with no fingerprint, so an early retry `warning` and the final `error` landed in the **same Sentry issue**, and a first-seen rule could only ever fire on the retry — then stay silent for the event that actually means an unmet deletion obligation.
+
+**What is true now.**
+
+- The terminal arm carries the fingerprint `[account_offboarding_purge_failed, terminal, <account_offboarding_id>]` at `error`; the retry arm carries the shared `[account_offboarding_purge_failed, retry]` at `warning`. **One Sentry issue per terminally failed offboarding** — Sentry's action throttle is per issue, so a shared terminal issue would have swallowed a second account's page for the rest of the hour.
+- The cost of that choice is deliberate and stated: N offboardings failing systemically open N issues and send N pages, with no aggregate ceiling. Repeats on the *same* offboarding are still throttled for 60 minutes.
+- `docs/runbooks/beta-launch-alerting.md` gains **rule 16** — and it is **REQUIRED, NOT CONFIGURED, and not delivery-proven**. Nothing pages from it until an operator builds it in Sentry (staging first, read the saved rule and destination back). It joins rule 1 and rule 11 on the list of written-but-unbuilt rules.
+- **There is no supported way to re-run a terminally failed purge.** `validatePurgeableOffboarding`, `AccountOffboardingPurgePoller` and `shouldTransitionToPurgeScheduled` all disqualify a `status='failed'` / `failed_step='purge'` row, and the one admin route that writes those columns leaves them untouched for it. Recovery is deliberate engineering work, tracked in **#1411**. Until it lands, treat such an account as holding **live PII**: the purge runs Stripe-redaction-first with no per-stage checkpoint, so a terminal failure before the parent tombstone stage leaves names, emails, phones and addresses in place while the auth user is already deleted.
+- Three paths in the same lane still raise no `terminal:true` event (**#1413**), and the sibling `TeardownWorker` / `BillingScheduleWorker` alerts carry the identical one-shared-issue shape (**#1412**). Both are owner-accepted deferrals, named in the runbook.
+- `#612` remainder: the `csv_ingest` advisory-lock-key single-owner scan now walks `src/lib` + `worker`, so the offboarding purge lane is inside the guard.
+
+**The new shape.** `worker/jobs/account-offboarding/PurgeWorker.ts` (two exported fingerprint constants) · `worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts` · `src/lib/solicitation/__tests__/ingest.test.ts` · `docs/runbooks/beta-launch-alerting.md` §1 + rule 16. No migration, flag, env var, dependency or new module.
+
+## Quick summary — every machine now needs `gitleaks` installed to push (2026-09-21, PR #1415)
+
+A full credential set was committed at the repo root in `24353cf1` on 2026-04-06, deleted from the tree, and is permanent in git history (audit item C1). Nothing stopped a second one. Now something does — and it changes what a working developer machine is.
+
+**What is true now.**
+
+- **`gitleaks` is a required external tool.** `brew install gitleaks`. The new audit `ci:secret-scan` **fails closed** when the binary is absent, so the pre-push hook and every `scripts/verify-gate.sh` run hard-fail without it. `verify-gate.sh` derives its audit set from package.json's `ci:*` keys, so the row appeared in every local gate with no gate edit.
+- The scan reads **commits**, not the working tree: `<base ref>..HEAD` (`origin/main` by default, `GITHUB_BASE_REF` on a PR) with `--redact` and `--diff-merges=remerge`. A secret one commit adds and a later commit removes is still caught — and so is one pasted into a merge resolution. Because it reads commits, **a later commit cannot clear a finding**; the fix is to rewrite the commit that introduced it.
+- A pass is a four-way conjunction, not "the report was empty": exit 0, `[]` on stdout, gitleaks' own scanned-commit count at or above the commits that add a text line, and no git error marker on stderr. gitleaks 8.30.1 exits **0 with `[]` when its own `git log` fails**, so an empty report alone proves nothing.
+- CI installs **gitleaks 8.30.1 pinned by sha256 per `runner.arch`** in the `lint` job. The local install is unpinned Homebrew — the two can drift, and the script prints both versions on its first line so the drift is visible.
+- `.gitleaks.toml` adds two allowlists, both scoped `targetRules = ["generic-api-key"]`. An unscoped `[[allowlists]]` block disables **every** rule for what it matches.
+- `docs/runbooks/secrets-rotation-api-keys.md` is new: it records six owner-reported rotations of 2026-09-20 and the decision **not** to scrub history. Audit C1 stays unticked — step 3 is partial, five non-LLM keys have no rotation procedure yet.
+
+**The new shape.** `scripts/ci/secret-scan.ts` + its test (new) · `.gitleaks.toml` (new) · `package.json` `ci:secret-scan` · `lefthook.yml` pre-push · `.github/workflows/ci.yml` `lint` · `docs/runbooks/secrets-rotation-api-keys.md` (new). No npm dependency, flag, env var, migration or schema change.
 
 ## Quick summary — the two complexity hotspots are gone, by decomposition not suppression (2026-09-19, PR #1340)
 
