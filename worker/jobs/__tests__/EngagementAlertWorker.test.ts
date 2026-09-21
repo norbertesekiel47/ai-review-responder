@@ -15,6 +15,7 @@ const {
   mockBuildPartnerLowEngagementAlertHtml,
   mockBuildPartnerSatisfactionAlertHtml,
   mockRecordNotificationDelivery,
+  mockInsertFailedDelivery,
   mockCreateApprovalLink,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -40,6 +41,7 @@ const {
     mockBuildPartnerLowEngagementAlertHtml: vi.fn(() => '<html>low-engagement</html>'),
     mockBuildPartnerSatisfactionAlertHtml: vi.fn(() => '<html>satisfaction</html>'),
     mockRecordNotificationDelivery: vi.fn(),
+    mockInsertFailedDelivery: vi.fn(),
     mockCreateApprovalLink: vi.fn().mockImplementation(() => {
       linkCounter++;
       return Promise.resolve({ rawToken: `token-${linkCounter}`, tokenHash: `hash-${linkCounter}` });
@@ -63,6 +65,7 @@ vi.mock('../../../src/lib/notifications/email', () => ({
 }));
 vi.mock('../../../src/lib/notifications/delivery', () => ({
   recordNotificationDelivery: mockRecordNotificationDelivery,
+  insertFailedDelivery: mockInsertFailedDelivery,
 }));
 vi.mock('../../../src/lib/approval/create-link', () => ({
   createApprovalLink: mockCreateApprovalLink,
@@ -709,6 +712,54 @@ describe('EngagementAlertWorker – Send idempotency key', () => {
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: 'partner_low_engagement:biz-1' }),
     );
+  });
+
+  it('a partner alert replay logs that the email was already delivered', async () => {
+    // Red-team round 2: round 1's log-oracle P1 was closed for the drip only.
+    // Deleting the partner-alert replay log left 32/32 green.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockSendInternalEmail.mockResolvedValueOnce({
+        messageId: 'idempotent-replay:partner_engagement_alert:biz-1',
+        idempotentReplay: true,
+      });
+      sqlReturnQueue.push([mockBusinessRow()]);
+
+      await handleEngagementAlert(
+        makeJob({ alert_type: 'partner_engagement_alert', metrics: METRICS }),
+      );
+
+      const lines = logSpy.mock.calls.map((call) => String(call[0]));
+      expect(lines.some((line) => /already delivered under its idempotency key/.test(line))).toBe(
+        true,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('records a failed delivery when an owner-nudge send fails', async () => {
+    // Red-team round 2: the swallow left NO durable record — outbox already
+    // completed, so markOutboxFailed no-ops. A Resend outage would drop every
+    // nudge while the job ledger reported success.
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    pushPendingReviewRows(1);
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      mockSql,
+      undefined,
+      'biz-1',
+      null,
+      'email',
+      'owner@test.com',
+      'Resend 503',
+      'owner_nudge',
+    );
+    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });
 
   it('a partner alert replay completes the outbox row instead of failing it', async () => {

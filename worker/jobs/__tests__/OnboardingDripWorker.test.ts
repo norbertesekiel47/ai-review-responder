@@ -504,9 +504,10 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 });
 
 // ── Send idempotency key (#1363) ───────────────────────────────────────────
-// The handler sends, THEN marks sent_at. A crash in that gap leaves
-// sent_at NULL, and the takeover branch re-enters and sends a second welcome
-// email. The key is scoped to (business_id, drip_type) — matching
+// The keyed drips (day_1, day_30) send THEN mark sent_at; day_7 marks first and
+// carries no key, because its body varies per attempt. A crash in the keyed gap
+// leaves sent_at NULL, and the takeover branch re-enters and sends a second
+// welcome email — which the key suppresses at the provider. The key is scoped to (business_id, drip_type) — matching
 // onboarding_drip_log's UNIQUE constraint — precisely BECAUSE the takeover
 // admits a SECOND outbox row, which an outbox-scoped key could not dedupe.
 
@@ -534,6 +535,71 @@ describe('OnboardingDripWorker – Send idempotency key', () => {
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: 'onboarding_drip_day_1:biz-drip-1' }),
     );
+  });
+
+  it('a keyed drip marks sent_at AFTER the send, not before', async () => {
+    // The NEGATIVE half of dripBodyVariesPerAttempt. Red-team round 2 found
+    // that mutating `if (bodyVaries)` to `if (true)` left all 22 drip tests
+    // green: only day_7's ordering had an oracle, so nothing stopped day_1 and
+    // day_30 from silently adopting the lossy mark-before-send path.
+    queueDay1();
+
+    const sqlTextsBeforeSend: string[] = [];
+    mockSendInternalEmail.mockImplementation(() => {
+      for (const call of mockSql.mock.calls as unknown[][]) {
+        sqlTextsBeforeSend.push((call[0] as string[]).join(''));
+      }
+      return Promise.resolve({ messageId: 'msg-drip-1' });
+    });
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
+
+    expect(
+      sqlTextsBeforeSend.some((text) => /UPDATE onboarding_drip_log SET sent_at/i.test(text)),
+    ).toBe(false);
+    const allTexts = (mockSql.mock.calls as unknown[][]).map((call) =>
+      (call[0] as string[]).join(''),
+    );
+    expect(allTexts.some((text) => /UPDATE onboarding_drip_log SET sent_at/i.test(text))).toBe(true);
+  });
+
+  it('a day_7 send failure records a durable outbox failure instead of a silent completion', async () => {
+    // sent_at is already committed, so no retry can deliver this drip. Marking
+    // the outbox COMPLETED would record a success for mail that never went out.
+    sqlReturnQueue.push([mockBusinessRow()]);      // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);  // 2. claim
+    sqlReturnQueue.push([{ id: 'user-1' }]);       // 3. owner auth
+    sqlReturnQueue.push([{ reviews_handled: 1 }]); // 4. reviews handled
+    sqlReturnQueue.push([]);                       // 5. no highlight
+    sqlReturnQueue.push([]);                       // 6. no edits
+    sqlReturnQueue.push([]);                       // 7. no pending reviews
+    sqlReturnQueue.push([{ total: 2 }]);           // 8. total reviews
+    sqlReturnQueue.push([]);                       // 9. UPDATE sent_at (pre-send)
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+
+    await expect(handleOnboardingDrip(makeJob({ drip_type: 'day_7' }))).resolves.toBeUndefined();
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
+      'outbox-drip-1',
+      expect.stringContaining('send failed after mark'),
+      undefined,
+    );
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('a keyed drip send failure still rethrows so BullMQ can retry and deliver', async () => {
+    // sent_at is still NULL on the keyed path, so a retry CAN legitimately
+    // deliver under the same key. Swallowing here would lose the drip for no
+    // reason.
+    queueDay1();
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+
+    await expect(handleOnboardingDrip(makeJob({ drip_type: 'day_1' }))).rejects.toThrow('Resend 503');
+
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('day_7 drip marks sent_at before sending and passes no idempotency key', async () => {

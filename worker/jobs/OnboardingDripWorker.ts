@@ -113,12 +113,17 @@ function isDripTooStale(
  * `WeeklySummaryWorker`: losing one email to a crash beats sending two, and
  * beats silently disabling bounce suppression.
  *
- * `day_1` and `day_30` render from stable inputs, so Resend replays the
- * ORIGINAL response — original message id included — and correlation survives.
- * They keep the key and lose no email. Named residual: day_30's stats are read
- * per attempt, so a review landing mid-retry would change its body and put it
- * on the 409 path; that needs a crash AND a same-window stats change, and is
- * accepted rather than defended.
+ * `day_1` and `day_30` render from inputs that are stable in the ordinary case,
+ * so Resend replays the ORIGINAL response — original message id included — and
+ * correlation survives. They keep the key and lose no email.
+ *
+ * Two named residuals, both requiring a crash AND a same-window change, both
+ * accepted rather than defended: day_30 re-reads its stats per attempt, so a
+ * review landing mid-retry changes the body; and day_1 carries `dashboardUrl`,
+ * derived per attempt from a live owner-`auth_id` probe
+ * (`summary-report-helpers.ts` `resolveDashboardUrl`), so an owner completing
+ * signup mid-retry changes it from null to a URL. An earlier version of this
+ * comment named day_30 as the only residual — review round 2 corrected that.
  */
 function dripBodyVariesPerAttempt(dripType: OnboardingDripPayload['drip_type']): boolean {
   return dripType === 'day_7';
@@ -309,11 +314,18 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   const bodyVaries = dripBodyVariesPerAttempt(drip_type);
 
   if (bodyVaries) {
-    // MARK-BEFORE-SEND. A crash here loses this drip: the retry re-enters,
-    // finds sent_at NOT NULL, and takes the "already claimed/sent" branch.
-    // That is the accepted trade and it matches WeeklySummaryWorker — losing
-    // one email beats sending two, and a provider key cannot help a body that
-    // is different on every attempt.
+    // MARK-BEFORE-SEND. The mark is NOT rolled back on a send error, and that
+    // is deliberate: `EmailSendTimeoutError` fires at 10s while the orphaned
+    // fetch may still reach Resend, so a rollback would re-send a mail the
+    // provider already accepted — the duplicate this whole change exists to
+    // stop. WeeklySummaryWorker states the same rule
+    // (`summary-report-helpers.ts:115-118`).
+    //
+    // The COST is wider than a crash, and the catch below is what makes it
+    // honest: ANY send error — a transient Resend 5xx, a timeout — loses this
+    // drip permanently, because `onboarding_drip_log UNIQUE (business_id,
+    // drip_type)` means the scheduler can never re-mint the pair. At the
+    // merge-base that error retried and delivered. #1363 review round 2.
     await sql`
       UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
     `;
@@ -328,13 +340,31 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // that already bounds one drip per pair. It is spelled to match the
   // notification_deliveries.template written at step 9, so one grep ties the
   // provider key to the delivery record.
-  const { messageId, idempotentReplay } = await sendInternalEmail({
-    to: business.owner_email,
-    subject,
-    bodyHtml: html,
-    category: 'marketing',
-    ...(bodyVaries ? {} : { idempotencyKey: `onboarding_drip_${drip_type}:${businessId}` }),
-  });
+  let messageId: string;
+  let idempotentReplay: boolean | undefined;
+  try {
+    ({ messageId, idempotentReplay } = await sendInternalEmail({
+      to: business.owner_email,
+      subject,
+      bodyHtml: html,
+      category: 'marketing',
+      ...(bodyVaries ? {} : { idempotencyKey: `onboarding_drip_${drip_type}:${businessId}` }),
+    }));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (!bodyVaries) {
+      // sent_at is still NULL, so a retry can legitimately re-send under the
+      // same key. Rethrow and let BullMQ do exactly that.
+      throw err;
+    }
+    // sent_at is already committed, so no retry can ever deliver this drip.
+    // Rethrowing would only churn BullMQ into the step-4 skip branch, which
+    // marks the row COMPLETED — the job ledger would then record a success for
+    // a mail that never went out. Record the failure durably instead.
+    logger.error(`${drip_type} send failed after sent_at was committed: ${reason}`);
+    await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+    return;
+  }
 
   if (idempotentReplay) {
     // Resend refused a second send under this key, which proves the first

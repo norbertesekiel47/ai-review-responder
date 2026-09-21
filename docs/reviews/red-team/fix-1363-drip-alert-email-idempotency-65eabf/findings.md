@@ -352,3 +352,82 @@ No production file differs from HEAD. Measured test time: ~5 minutes of the
 ## 7. Authorizations
 
 None. No authorization was sought or granted in this round.
+
+
+---
+
+# Round 2 — scoped to the fix hunks
+
+Reviewed `bb2e468af` against round 1's `1b9fe88de`. The machine-readable record
+is `findings.json` in this directory, which is the single owner of the per-finding
+dispositions and counts; this section is the narrative.
+
+**Artifact note.** The round-2 subagent could not write these files — its Write
+tool was blocked for report paths — so it returned the content and the
+orchestrator materialized it. The mutation work, the inventory and the findings
+are the subagent's; the dispositions are the orchestrator's.
+
+## P0 hunt: NO
+
+The question round 2 existed to answer was whether day_7's new mark-before-send
+can be re-entered and send a second email. It cannot. `AND sent_at IS NULL` at
+`OnboardingDripWorker.ts:261` sits outside the parenthesised `OR`, so it is
+conjunctive with the `claimed_by_outbox_id` arm — the same outbox row retrying is
+excluded once the pre-send mark lands, and every path falls through to the skip
+branch at `:272-277` before any build or send. The verification axis reached the
+same conclusion independently.
+
+## Mutation
+
+All 7 briefed targets killed on arrival: `dripBodyVariesPerAttempt` inverted /
+retargeted / always-false, the conditional-spread arms swapped, the day_7 mark
+moved back after the send, both key cross-wires, the drip replay-log retarget,
+the nudge `markOutboxCompleted` move, and re-adding `throw err` to the nudge
+catch (which the rewritten pre-existing test binds).
+
+Three mutants SURVIVED on arrival and are now killed by tests added in response:
+
+| Mutant | Was | Now |
+|---|---|---|
+| `if (bodyVaries)` → `if (true)` | 22/22 green | 1 of 25 fails |
+| partner-alert replay log deleted | 32/32 green | 1 of 34 fails |
+| `internal.ts` replay `console.log` deleted | 7/7 green | covered |
+
+The orchestrator independently re-ran the first two after adding the tests and
+restored both mutations.
+
+The deleted `revokeMode 'never'` suite is EXCLUDED rather than counted as lost
+coverage: `create-link.ts` and its test file are byte-identical to the merge-base,
+so the deleted lines are exactly the ones this branch added, and the mode they
+covered no longer exists.
+
+## The finding that mattered
+
+R2-01. day_7 commits `sent_at` before sending and the marker is never rolled
+back. That is deliberate — `EmailSendTimeoutError` fires at 10 s while the
+orphaned fetch may still reach Resend, so a rollback would re-send what the
+provider already accepted. But the COST is wider than the "crash" every document
+claimed: any transient Resend error loses the drip permanently, because
+`onboarding_drip_log UNIQUE (business_id, drip_type)` stops the scheduler ever
+re-minting. Worse, attempt 2 no-opped to `completed`, so the job ledger recorded
+a success for mail that never went out.
+
+The fix is a durable record rather than a behaviour change: `markOutboxFailed`
+with `send failed after mark: <reason>`. The owner nudge got the same treatment
+with `insertFailedDelivery`, since its outbox row is already completed and
+`markOutboxFailed` would silently no-op there.
+
+## Restoration
+
+Round 1's hazard was not repeated. Every mutation was undone with
+`git checkout -- <named path>`, so `finalize` saw `current === originalOid` for
+all 14 journal entries and rewrote zero files. Verified afterwards: porcelain
+empty, `git hash-object` equal to `git rev-parse HEAD:<file>` for all four touched
+production files, journal 14/14 restored, no `.env*.red-team-backup` left behind.
+
+## Status
+
+`CLEAR` — 0 open P0, 0 open P1, 0 open P2. 13 fixed, 3 accepted-risk under
+`AUTH-1363-SIBLINGS` (the two send-then-mark siblings and the pre-existing
+mutation-runner flake, all filed as #1393 on the owner's explicit decision to file
+rather than fix).

@@ -7,8 +7,11 @@ dispatch. Intake:
 ## REVISED after the step-7 review wave — read this before the tracers below
 
 The wave (5 axes) disproved three claims this plan was built on. The tracers
-below are kept as the historical record of what was built first; **the as-built
-design is this section.** Findings and dispositions:
+below, AND the Design record and Facts sections that follow them, are kept as the
+historical record of what was built first; **the as-built design is this section
+only.** Anything below this banner that disagrees with it is superseded, including
+the `createApprovalLink` design row, Fact #4 ("the 409 path is their NORMAL retry
+path" — inverted by the fix) and Fact #5. Findings and dispositions:
 `docs/reviews/fix-1363-drip-alert-email-idempotency/` and
 `docs/reviews/red-team/fix-1363-drip-alert-email-idempotency-65eabf/`.
 
@@ -36,17 +39,28 @@ As-built, per send:
 
 | Send | Body across attempts | Defence |
 |---|---|---|
-| day_1, day_30 | stable | key `onboarding_drip_<type>:<business_id>` |
-| day_7 | varies (fresh tokens) | mark `sent_at` before send, no key |
-| owner nudge | varies (fresh tokens) | complete outbox before send, no key, **no rethrow** |
+| day_1, day_30 | stable in the ordinary case (two named residuals) | key `onboarding_drip_<type>:<business_id>` |
+| day_7 | varies (fresh tokens) | mark `sent_at` before send, no key, `markOutboxFailed` on error |
+| owner nudge | varies (fresh tokens) | complete outbox before send, no key, **no rethrow**, failed-delivery row on error |
 | partner ×3 | stable (payload metrics) | key `<alert_type>:<business_id>` |
 | satisfaction | — | unchanged, already marks first |
 
 One further defect the rework introduced and a pre-existing test caught: with the
 outbox row completed first, rethrowing a send failure lets BullMQ retry the JOB
-and send a second nudge. The owner nudge now swallows and logs, as
-`WeeklySummaryWorker`'s `sendSummaryReportEmail` does. The drip does not need
+and send a second nudge. The owner nudge now swallows. The drip does not need
 this — its dedupe record is `sent_at`, re-checked at the top of the handler.
+
+**Round 2 then found that both mark-first paths failed SILENTLY**, and that the
+cost was wider than "a crash": ANY send error (a transient Resend 5xx, a timeout)
+loses the mail, because the marker is deliberately never rolled back —
+`EmailSendTimeoutError` fires at 10 s while the orphaned fetch may still deliver,
+so a rollback would re-send what Resend already accepted. Both paths now leave a
+durable record: day_7 writes `markOutboxFailed` (the outbox row would otherwise
+read `completed` for mail that never went out), and the owner nudge writes
+`insertFailedDelivery` (its outbox row is already completed, so `markOutboxFailed`
+would no-op). Round 2 also corrected the precedent cited above: it is
+`handleSatisfactionAlert`, not `WeeklySummaryWorker` — the latter completes its
+outbox row AFTER the send and so can still call `markOutboxFailed` in its catch.
 
 ## Design record
 
@@ -61,7 +75,9 @@ Two modules deepen; nothing new is created.
 
 ## Facts this plan rests on
 
-Verified against HEAD `650f625e7` on 2026-09-20.
+Verified against HEAD `650f625e7` on 2026-09-20 — the merge-base at the time this
+plan was written. The branch was later rebased onto `10377aa9b`, and facts #4 and
+#5 no longer describe the as-built code. See the REVISED banner above.
 
 1. `node_modules/resend/dist/index.mjs:1130` maps `options.idempotencyKey` to the
    `Idempotency-Key` header. `src/lib/notifications/email/send-email.ts:51` is the

@@ -104,9 +104,14 @@ export async function sendInternalEmail(
     // it would either loop until the outbox row terminalizes, or (once the
     // 24h key window lapses) actually send the duplicate this guards against.
     //
-    // It is the NORMAL retry path for the day_7 drip and the owner nudge:
-    // `createApprovalLink` mints a fresh token per attempt, so their bodies
-    // differ every time.
+    // A caller only reaches this branch if its body CHANGED between attempts,
+    // so a caller whose body varies by construction must not pass a key at all
+    // — the synthetic messageId below would break the hard-bounce correlation
+    // in `worker/ingress/resend.ts`, which matches on the real Resend id. The
+    // day_7 drip and the owner nudge are exactly that case and therefore pass
+    // NO key; this branch is unreachable for them. Its live callers are the
+    // stable-bodied sends, where a 409 means an incidental body change (a
+    // statistic moving mid-retry) rather than the norm.
     //
     // The two neighbouring codes deliberately fall through to the throw:
     //   `concurrent_idempotent_requests` — the first request is still in

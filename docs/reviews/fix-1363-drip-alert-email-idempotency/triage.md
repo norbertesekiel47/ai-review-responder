@@ -52,3 +52,64 @@ spec & correctness appendix: the branch assumes a 409 proves the first request
 was *accepted*, which is uncited for the case where the first request itself
 errored. With F1 fixed, the only sends that can reach a 409 are stable-body ones
 where a replay is rare, so the exposure is much smaller than when it was raised.
+
+---
+
+# Review wave round 2 — verification-only
+
+Round 1 reviewed `1b9fe88de`; round 2 reviewed the fix commit `bb2e468af`. Two
+agents: a consolidated fix-verification axis and red-team round 2. Round 2's
+red-team sidecar could not be written by the subagent (its Write tool was blocked
+for report paths), so the orchestrator materialized it from the returned content.
+
+## The crux question, answered
+
+Both agents were asked independently whether the day_7 mark-before-send can be
+re-entered and send twice. **Both say no, with the same evidence:**
+`AND sent_at IS NULL` at `OnboardingDripWorker.ts:261` sits OUTSIDE the
+parenthesised `OR`, so it is conjunctive with the `claimed_by_outbox_id` arm.
+Once the pre-send mark lands, every re-entry path falls to the skip branch before
+any build or send. **No P0.**
+
+## Round 1 findings re-verified
+
+F2, F3, F4 and F7 confirmed FIXED. F1 confirmed fixed for the drip but only for
+1 of its 2 live log sites — see R2-07.
+
+## Round 2 findings
+
+All 16 are in
+`docs/reviews/red-team/fix-1363-drip-alert-email-idempotency-65eabf/findings.json`.
+13 fixed, 3 accepted-risk under `AUTH-1363-SIBLINGS`, 0 open. Headlines:
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| R2-01 | P1 | day_7 loses the drip on ANY send error, not just a crash, and records nothing | FIXED — `markOutboxFailed`; the keyed path still rethrows |
+| R2-02 | P1 | Nudge swallow left no durable record at all | FIXED — `insertFailedDelivery` |
+| R2-03 | P1 | A claim round 1 disproved was re-asserted in NEW code and in the intake | FIXED |
+| R2-06 | P1 | `if (bodyVaries)` to `if (true)` survived: the negative half had no oracle | FIXED, mutation re-verified by the orchestrator |
+| R2-07 | P1 | Round-1 F1 was closed for only 1 of 2 live log sites | FIXED, both now covered |
+| R2-08 | P1 | `AdminExceptionWorker` sibling | ACCEPTED-RISK — filed as #1393 on the owner's decision |
+
+**Why R2-01 was fixed by adding a record rather than by rolling back the mark:**
+`EmailSendTimeoutError` fires at 10 s while the orphaned fetch may still reach
+Resend, so rolling back `sent_at` would re-send mail the provider already
+accepted — the exact duplicate this branch exists to prevent.
+`WeeklySummaryWorker` states the same rule at `summary-report-helpers.ts:115-118`.
+The loss is real and is now described honestly everywhere; the silence was the
+defect.
+
+## Mutation result
+
+All 7 briefed targets were killed on arrival. Three further mutants survived and
+are now killed by new tests; the orchestrator independently re-ran two of them
+(`if (true)` gives 1 of 25 failing; the partner-alert log gives 1 of 34) and
+restored both. `ci:weakened-checks`: zero REVIEW rows in both rounds.
+
+Restoration was clean this round — round 1's `mutate`-instead-of-`finalize`
+hazard was not repeated, and the orchestrator verified porcelain and blob OIDs
+afterwards.
+
+## Round budget
+
+Round 2 of 3 used. No round 3 is planned: zero open P0 and zero open P1 remain.

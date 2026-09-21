@@ -62,6 +62,23 @@ describe('sendInternalEmail idempotency classification', () => {
     });
   });
 
+  it('logs the idempotent replay so an operator can see it live', async () => {
+    // Red-team round 2: deleting this log line left all 7 tests green. The
+    // durable record is the delivery row the CALLER writes, so nothing in this
+    // module held its own log in place.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockSend.mockResolvedValue(resendError('invalid_idempotent_request', 409));
+
+      await sendInternalEmail({ ...PARAMS, idempotencyKey: KEY });
+
+      const lines = logSpy.mock.calls.map((call) => String(call[0]));
+      expect(lines.some((line) => /Idempotent replay/.test(line) && line.includes(KEY))).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('rethrows concurrent_idempotent_requests so the job retries instead of dropping the email', async () => {
     // The first request is still in flight. That is NOT proof of acceptance, so
     // swallowing it would drop a real email.

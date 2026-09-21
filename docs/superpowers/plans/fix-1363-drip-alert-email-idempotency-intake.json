@@ -37,7 +37,8 @@
     "#11 The subscription guard ordering in both workers is untouched.",
     "Hard-bounce suppression keeps working: no send that can vary its body between attempts carries a key, so no delivery row on such a path holds a synthetic message id.",
     "A handler that completes its Outbox job BEFORE sending must not rethrow a send failure — BullMQ would retry the job and re-send. The owner nudge swallows and logs, as WeeklySummaryWorker does.",
-    "Every provider key in this change is domain-scoped, matching the seven pre-existing house keys."
+    "Every provider key in this change is domain-scoped. That matches the MAJORITY of pre-existing house keys, not all of them: NotificationFailoverPoller scopes three to a per-attempt claim id and src/lib/account-offboarding/email-dedup.ts is a named key-builder helper. An earlier version of this invariant claimed all seven were domain-scoped and that no helper precedent existed; review disproved both.",
+    "A send that commits its dedupe marker BEFORE calling Resend must leave a durable failure record when the send throws — otherwise the job ledger reports success for mail that never went out. day_7 writes markOutboxFailed; the owner nudge writes insertFailedDelivery, because its outbox row is already completed and markOutboxFailed would no-op."
   ],
   "edge_cases": [
     "A send whose body can DIFFER between attempts must never carry a provider key. Resend answers 409 instead of replaying the original response, so the delivery row would hold a synthetic id, and worker/ingress/resend.ts correlates bounce/delivered/complained ONLY on the real Resend id — a hard bounce would match no row and leave businesses.owner_email_bounced unset. The day_7 drip and the owner nudge are exactly this case (createApprovalLink mints a fresh token per call), so they mark before sending and carry no key. Found by three review axes independently; an earlier cut of this branch shipped the key on both and introduced that regression.",
@@ -107,7 +108,13 @@
     "partner escalation alert sends with an idempotency key scoped to the business",
     "partner low engagement alert sends with an idempotency key scoped to the business",
     "a partner alert replay completes the outbox row instead of failing it",
-    "the partner satisfaction alert still marks the outbox completed before sending and passes no key"
+    "the partner satisfaction alert still marks the outbox completed before sending and passes no key",
+    "a keyed drip marks sent_at AFTER the send, not before",
+    "a day_7 send failure records a durable outbox failure instead of a silent completion",
+    "a keyed drip send failure still rethrows so BullMQ can retry and deliver",
+    "a partner alert replay logs that the email was already delivered",
+    "records a failed delivery when an owner-nudge send fails",
+    "logs the idempotent replay so an operator can see it live"
   ],
   "verification_commands": [
     "pnpm vitest run worker/jobs/__tests__/OnboardingDripWorker.test.ts worker/jobs/__tests__/EngagementAlertWorker.test.ts src/lib/approval/__tests__/create-link.test.ts src/lib/notifications/email/templates/__tests__/internal.test.ts",
@@ -119,9 +126,10 @@
   "rollback_plan": "Revert the single squash-merged commit. No migration, no schema change, no feature flag, no env var. Reverting restores the pre-change send order and the orphaned_only revoke behaviour at both approval-link call sites; the only lasting trace is the 'idempotent-replay:' prefix on any notification_deliveries rows written while the change was live, which is inert data.",
   "observability": [
     "notification_deliveries.external_message_id LIKE 'idempotent-replay:%' counts suppressed duplicates whose body differed. It is a FLOOR, not a total: an identical-body replay returns Resend's original 2xx and is indistinguishable from a first send.",
-    "The drip and partner-alert handlers each log a line naming the business on a replay; a test asserts the drip line and a mutation of it was verified to fail that test.",
-    "A rise in terminal failures on the onboarding_drip or engagement_alert topics after release would indicate the 409 classification is wrong; the Job-failure sink raises those to Sentry already.",
-    "A day_7 drip or owner nudge lost to a crash is visible as an onboarding_drip_log row with sent_at set but no matching notification_deliveries row."
+    "The drip and partner-alert handlers each log a line naming the business on a replay. Both lines have a test, and both mutants were verified to fail their test.",
+    "A day_7 send that fails after its mark leaves job_outbox.status='failed' with last_error prefixed 'send failed after mark:'. That is the signal for the permanently-lost case, and it exists BECAUSE the handler no longer completes the row. The Job-failure sink does NOT fire on this path — the handler returns rather than rethrowing — so the outbox row is the record.",
+    "An owner-nudge send failure leaves a notification_deliveries row with failed_at set, template 'owner_nudge' and failure_reason carrying the provider error. The cooldown probe keys on sent_at IS NOT NULL, so this row does not delay the next nudge.",
+    "A day_7 drip lost to a crash (as opposed to a send error) is visible as an onboarding_drip_log row with sent_at set and no matching notification_deliveries row. This table is drip-only; the nudge's equivalent is the failed delivery row above."
   ],
   "required_approvals": [
     "commit",
