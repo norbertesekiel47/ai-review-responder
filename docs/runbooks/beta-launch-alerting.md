@@ -915,6 +915,26 @@ reports its real lane.
   inbox a human actually watches — it is the *secondary* route for
   admin-exception / failover / engagement alerts.
 
+> **`alerts@repworth.net` is a Google Group, and it accepts worker mail even
+> though it rejects outside senders.** Verified 2026-09-20. The Group runs
+> `whoCanPostMessage: ALL_IN_DOMAIN_CAN_POST`, so a post from a non-`repworth.net`
+> sender bounces. A worker alert is sent by **Resend**, which reaches Google
+> from outside Google — so the obvious reading is that alerts bounce too. They
+> do not. Google authenticates the message by Resend's DKIM signature
+> (`d=repworth.net`, selector `resend`), which makes the in-domain `From`
+> legitimate and satisfies the posting rule.
+>
+> Evidence: one Resend send, `notifications@repworth.net` →
+> `alerts@repworth.net`, `last_event: delivered`. The control — the same
+> address posted to from a `gmail.com` sender — bounced with *"you may not have
+> permission to post messages to the group"*.
+>
+> **The dependency to remember is the DKIM record.** If
+> `resend._domainkey.repworth.net` is ever removed or Resend's signing domain
+> changes, worker alerts stop reaching `alerts@` — silently, as a bounce to
+> Resend's return path rather than to anyone who reads mail. Do not "fix" that
+> by widening the Group to `ANYONE_CAN_POST`; fix the DKIM record.
+
 ## 4. Acceptance drills (run on staging before launch)
 
 Each must produce a page on the **Discord** route (the non-email sink). The
