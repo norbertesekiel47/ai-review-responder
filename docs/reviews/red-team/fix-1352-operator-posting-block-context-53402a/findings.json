@@ -4,7 +4,7 @@
   "run_id": "feature-fix-1352-operator-posting-block-context-53402a",
   "branch": "fix/1352-operator-posting-block-context",
   "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
-  "merge_base_sha": "d6d92ef075e91d53b6cc0589afaf2ae34f098d33",
+  "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
   "head_sha": "b731c8e7073f3c773beac69999c7b5efccc46517",
   "intake_sha256": "f01c796c90d76796b6992afd6e0b507e97dda033e974ddd8c63a2791f7b12d5d",
   "risk": "high",
