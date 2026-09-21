@@ -1,0 +1,47 @@
+# RepWorth gitleaks configuration (#1374).
+#
+# Extends gitleaks' built-in default ruleset — including the "jwt" rule, which
+# must stay ON: the Supabase anon key (NEXT_PUBLIC_SUPABASE_ANON_KEY) is a JWT,
+# and the default rule already covers it. Do not disable it.
+#
+# scripts/ci/secret-scan.ts scans only `origin/main..HEAD` (the commits a push
+# adds), never the working tree, so this file does not need an entry for
+# commit 24353cf1's root `keys.md` — that commit is outside every future
+# range.
+title = "RepWorth gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# Global allowlist, scoped to the one false-positive class the 2026-09-21
+# advisory full-tree pass found at volume (`gitleaks dir --redact` against the
+# worktree; see docs/superpowers/plans/feat-1374-secret-scan-deviations.md for
+# the full counts). 284 of 312 tracked-file findings under the catch-all
+# "generic-api-key" rule were Postgres `uuid` primary/foreign-key columns
+# (client_turn_key, api_cost_id, attempt_token, auth_id, clientTurnKey) in
+# docs/runbooks/evidence/** run logs and migration/test fixtures — a v4 UUID
+# is never a real credential, the rule's regex just cannot tell a UUID from a
+# high-entropy secret. Scoped to `generic-api-key` only (`targetRules`), so a
+# vendor-specific rule (aws-access-token, stripe-access-token, openai-api-key,
+# anthropic-api-key, jwt, private-key, gcp-api-key, telegram-bot-api-token)
+# still fires on a UUID-shaped value — those rules match a distinct token
+# SHAPE, not "looks random", so this allowlist cannot hide a real leak under
+# them.
+[[allowlists]]
+description = "UUID-shaped Postgres identifiers mistaken for generic-api-key secrets"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}''',
+]
+
+# Path entries: reserved for a file that exists SOLELY as a fixture (the
+# locked decision's own wording) — these test suites exist only to assert
+# behavior around token/key-shaped literals, never to ship one.
+[[allowlists]]
+description = "Test fixtures whose whole purpose is token/key-shaped literals"
+paths = [
+  '''^worker/ingress/__tests__/unsubscribe(?:-rate-limit|-single-flight)?\.test\.ts$''',
+  '''^src/lib/notifications/email/__tests__/(?:send-email|solicitation-client)\.test\.ts$''',
+  '''^src/lib/shared/__tests__/migration-096-solicitation-suppressions\.integration\.test\.ts$''',
+]
