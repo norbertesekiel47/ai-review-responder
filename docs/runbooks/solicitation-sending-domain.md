@@ -182,11 +182,38 @@ alone — retuning it is spec follow-up FU-2 and touches the approval-email lane
 
 `reviews@feedback.<env>.repworth.net` **must accept and route mail.** A forward
 to a monitored destination is sufficient — this needs a destination, not a
-staffed desk. Use the org's actual mail provider: the apex runs on **Zoho**, so
-the staging run (#633) added the subdomain to the Zoho org (auto-verified as a
-child of verified `repworth.net`) with `reviews@`/`unsubscribe@` as user
-aliases; Cloudflare Email Routing does not fit this zone (apex MX is Zoho's,
-and subdomain routing is plan-gated).
+staffed desk. Use the org's actual mail provider.
+
+> **The provider changed on 2026-09-20. This section previously said "the apex
+> runs on Zoho" and that is no longer true.** The org moved from Zoho Mail to
+> Google Workspace; apex MX is now `smtp.google.com`. The staging run (#633)
+> originally added `feedback.staging.repworth.net` to the Zoho org with
+> `reviews@`/`unsubscribe@` as user aliases. That arrangement is gone.
+
+**Current arrangement (staging, 2026-09-20).**
+`feedback.staging.repworth.net` is a **secondary domain** in Google Workspace
+(auto-verified as a child of verified `repworth.net`). Its MX is a single record
+→ `smtp.google.com` priority `1`. `reviews@` and `unsubscribe@` are **Google
+Groups** on that domain, not user aliases — a Group costs no licence and fans
+out to several readers. Cloudflare Email Routing still does not fit this zone
+(subdomain routing is plan-gated).
+
+> **TRAP — the MX records on `feedback.<env>.repworth.net` are load-bearing.**
+> They look like leftovers from whatever mail provider the org used last, and
+> they sit next to the Resend records for the same name. Deleting them silently
+> kills both servicing obligations below. The return path
+> (`bounce.feedback.<env>`) is a **different** name and is Resend's; do not
+> confuse the two.
+
+> **`unsubscribe@` runs with `spamModerationLevel: ALLOW`, deliberately.** Every
+> other Group in the org holds suspicious mail in a moderation queue. This one
+> does not: a queued opt-out is a CAN-SPAM failure, not an inbox-hygiene
+> question. `reviews@` keeps `MODERATE`, where a held message is a delayed
+> answer and nothing worse.
+
+**Production is not provisioned.** As of 2026-09-20, `feedback.repworth.net` has
+no MX, no DKIM, no DMARC and no `bounce.feedback` records — only staging was
+ever stood up. §2's table is the checklist for the production flip.
 
 Three reasons, and the third is the one that bites:
 

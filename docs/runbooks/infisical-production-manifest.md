@@ -28,12 +28,16 @@
 3. Boot gates were read directly from `worker/config/startup-assert.ts`,
    `worker/index.ts`, `src/lib/config/{server,client,worker}.ts` and
    `src/instrumentation.ts`.
-4. Current platform state is a **name-only** live read taken 2026-08-30:
-   `railway variables --json | jq -r 'keys[]'` and `vercel env ls production`.
-   No value was read or printed.
+4. Current platform state is a **name-only** live read. The original was taken
+   2026-08-30 via `railway variables --json | jq -r 'keys[]'` and
+   `vercel env ls production`. §1's table was **re-read on 2026-09-20** through
+   the Railway MCP (`list-variables`, which returns `valuesRedacted: true`).
+   No value has ever been read or printed by either pass.
 
-**Cross-check.** The derivation independently reproduces the recorded count of
-**6 missing hard boot gates** on the Railway production worker. See §7.
+**Cross-check.** On 2026-08-30 the derivation independently reproduced the
+recorded count of **6 missing hard boot gates** on the Railway production
+worker. **That count is now zero** — see §1's table and the 2026-09-20 note
+under it. The derivation logic is unchanged; only the platform state moved.
 
 ---
 
@@ -46,14 +50,14 @@ Missing any one of these throws at boot. The worker then exhausts
 `assertWorkerConfig()` and `assertUnsubscribeIngressConfigured()` separately, at
 lines 583 and 596. All are unconditional on a deployed lane.
 
-| # | Variable | Gate | Value source | Platforms | Today (Railway) |
+| # | Variable | Gate | Value source | Platforms | Railway, 2026-09-20 |
 |---|---|---|---|---|---|
 | 1 | `DATABASE_POOL_URL` | `assertCoreInfraEnv` | ROTATE — roll the Supabase DB password | Railway + Vercel | set |
 | 2 | `SUPABASE_URL` | `assertCoreInfraEnv` | CARRY | Railway + Vercel | set |
 | 3 | `SUPABASE_SERVICE_KEY` | `assertCoreInfraEnv` | ROTATE at Supabase | Railway + Vercel | set |
-| 4 | `REDIS_QUEUE_URL` | `assertCoreInfraEnv` | Phase A.2 | Railway only | **missing** |
+| 4 | `REDIS_QUEUE_URL` | `assertCoreInfraEnv` | Phase A.2 | Railway only | set |
 | 5 | `STRIPE_SECRET_KEY` | `assertStripeWorkerEnv` | ROTATE at Stripe (live) | Railway + Vercel | set |
-| 6 | `STRIPE_WEBHOOK_SECRET` | `assertStripeWorkerEnv` | Phase D.3 | Railway only | **missing** |
+| 6 | `STRIPE_WEBHOOK_SECRET` | `assertStripeWorkerEnv` | Phase D.3 | Railway only | set |
 | 7 | `STRIPE_PRICE_COPILOT_LIST` | `assertStripeWorkerEnv` | CARRY (live ID) | Railway + Vercel | set |
 | 8 | `STRIPE_PRICE_COPILOT_FOUNDING` | `assertStripeWorkerEnv` | CARRY | Railway + Vercel | set |
 | 9 | `STRIPE_PRICE_AUTOPILOT_LIST` | `assertStripeWorkerEnv` | CARRY | Railway + Vercel | set |
@@ -62,12 +66,21 @@ lines 583 and 596. All are unconditional on a deployed lane.
 | 12 | `STRIPE_PRICE_AUTOPILOT_OVERAGE` | `assertStripeWorkerEnv` | CARRY | Railway + Vercel | set |
 | 13 | `DAILY_COST_LIMIT_CENTS_COPILOT` | `assertTierDailyCostLimitsConfigured` | CARRY `500` | Railway + Vercel | set |
 | 14 | `DAILY_COST_LIMIT_CENTS_AUTOPILOT` | `assertTierDailyCostLimitsConfigured` | CARRY `1500` | Railway + Vercel | set |
-| 15 | `ADMIN_NOTIFICATION_EMAIL` | `assertAdminNotificationEmail` | FIXED `alerts@repworth.net` | Railway only | **missing** |
-| 16 | `SENTRY_DSN` | `assertAlertSinkEnv` | Phase A.1 | Railway + Vercel | **missing** |
-| 17 | `SESSION_COOKIE_SECRET` | `assertUnsubscribeIngressConfigured` | MINT `openssl rand -hex 32` | Railway + Vercel | **missing** |
-| 18 | `NEXT_PUBLIC_APP_URL` | `assertUnsubscribeIngressConfigured` | FIXED `https://repworth.net` | Railway + Vercel | **missing** |
+| 15 | `ADMIN_NOTIFICATION_EMAIL` | `assertAdminNotificationEmail` | FIXED `alerts@repworth.net` | Railway only | set |
+| 16 | `SENTRY_DSN` | `assertAlertSinkEnv` | Phase A.1 | Railway + Vercel | set |
+| 17 | `SESSION_COOKIE_SECRET` | `assertUnsubscribeIngressConfigured` | MINT `openssl rand -hex 32` | Railway + Vercel | set |
+| 18 | `NEXT_PUBLIC_APP_URL` | `assertUnsubscribeIngressConfigured` | FIXED `https://repworth.net` | Railway + Vercel | set |
 
-Six gates are missing on Railway today: rows 4, 6, 15, 16, 17, 18.
+**All eighteen are set on Railway as of 2026-09-20.** The six that this table
+recorded as missing on 2026-08-30 — rows 4, 6, 15, 16, 17, 18 — have since been
+provisioned.
+
+> **"set" means the NAME exists, nothing more.** Both the 2026-08-30 and the
+> 2026-09-20 reads are name-only; no value was read, compared, or printed. A
+> boot gate throws on an absent or blank variable, so a name-only read proves
+> the gate passes. It does not prove the value is the right one. Row 15's
+> `alerts@repworth.net` and row 18's `https://repworth.net` are still
+> unverified against the live variable.
 
 ### Gate details that decide a value
 
