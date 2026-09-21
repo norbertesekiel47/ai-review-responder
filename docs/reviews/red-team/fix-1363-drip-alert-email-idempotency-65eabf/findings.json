@@ -43,19 +43,17 @@
       "id": "INV-R3-05",
       "test": "drip catch: durable record loses the provider reason (`send failed after mark: ${reason}` -> 'send failed after mark')",
       "file": "worker/jobs/OnboardingDripWorker.ts:365",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
+      "outcome": "killed",
       "finding_id": "R3-04",
-      "reason": "SURVIVED, 1/1 green. Not equivalent (job_outbox.last_error loses the provider reason) and the line executes. Not escalated to P0: the tested behaviour named in the test title — a durable FAILURE rather than a silent completion — is still produced, so the oracle is weak about the payload, not fake about the behaviour."
+      "reason": "KILLED after the round-3 fix. The assertion now pins job_outbox.last_error in full ('send failed after mark: Resend 503'). Orchestrator re-ran the mutant (reason dropped AND attempt dropped in one edit): 1 of 26 fails, and it is the day_7 failure test."
     },
     {
       "id": "INV-R3-06",
       "test": "drip catch: attempt guard dropped (`outboxAttempt` -> `undefined`)",
       "file": "worker/jobs/OnboardingDripWorker.ts:365",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
+      "outcome": "killed",
       "finding_id": "R3-05",
-      "reason": "SURVIVED, 1/1 green. The fixture never sets outbox_attempt, so the assertion pins `undefined` and cannot distinguish a dropped guard. Pre-existing fixture convention (no test in either worker suite sets an attempt) inherited by a new call site, which is why it is P2."
+      "reason": "KILLED after the round-3 fix. The test now dispatches outbox_attempt: 3 and asserts that value, so the fixture no longer pins `undefined`. Covered by the same re-run as INV-R3-05."
     },
     {
       "id": "INV-R3-07",
@@ -89,10 +87,9 @@
       "id": "INV-R3-11",
       "test": "nudge catch: `business.account_id` -> `undefined` (a dropped/misspelled column)",
       "file": "worker/jobs/EngagementAlertWorker.ts:252",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
+      "outcome": "killed",
       "finding_id": "R3-03",
-      "reason": "SURVIVED, 1/1 green. `mockBusinessRow()` has no account_id, so the new assertion pins `undefined` at that position — the exact value a dropped field produces. Not equivalent: production selects `a.id AS account_id` (EngagementAlertWorker.ts:43) and the column is NULLABLE (migration 039), so the failure row would silently lose tenant scoping rather than error."
+      "reason": "KILLED after the round-3 fix. The test now seeds account_id 'acct-nudge-1' explicitly. Orchestrator re-ran the mutant (business.account_id -> undefined): 1 of 35 fails, and it is the failed-delivery test."
     },
     {
       "id": "INV-R3-12",
@@ -147,10 +144,9 @@
       "id": "INV-R3-19",
       "test": "the rejection path of the two new durable writes (markOutboxFailed / insertFailedDelivery throwing inside the catch)",
       "file": "worker/jobs/OnboardingDripWorker.ts:365 · worker/jobs/EngagementAlertWorker.ts:250",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
+      "outcome": "killed",
       "finding_id": "R3-01",
-      "reason": "Not mutation-measurable: no test drives either helper to reject (`grep mockMarkOutboxFailed.mockRejected|mockInsertFailedDelivery.mockRejected` over both suites returns nothing), so the diff's newest failure path has no covering candidate. See R3-01 and R3-02."
+      "reason": "KILLED after the round-3 fix. Two tests now drive the helpers to reject — 'a failure while recording the nudge failure never escapes the handler' and 'a failure while recording the day_7 failure never escapes the handler' — so the rejection path is measurable. Orchestrator removed each try/catch in turn: each removal fails exactly one test, and it is the test written for it."
     }
   ],
   "findings": [
@@ -385,10 +381,10 @@
   ],
   "counts": {
     "inventory_total": 19,
-    "killed": 15,
+    "killed": 19,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 4,
+    "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 0,
     "findings_total": 22,
