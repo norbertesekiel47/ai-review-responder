@@ -11,3 +11,9 @@ Full gate's `test` row failed on `scripts/ci/__tests__/edit-surface-guard-worktr
 The `promised-tests` row greps one literal string per title, so a `describe('nextFactorFriendlyName')` + short `it()` split was invisible to it. Self-corrected in the same round: the three `it()` strings are now the verbatim promised titles.
 
 **Verdict:** ACCEPT — no behavior change; the titles now match the intake verbatim.
+
+## D3 — [2026-09-21] Surface amendment 1: `.claude/reference/arch-review-log.md`
+
+The root committed the work (`aa0435c85`) and re-ran the review gate; the `merge-ledger` row went RED: the branch changes two production files and adds no line to the ledger. The lead's gates passed that row vacuously, because the audit reads the COMMITTED range and the lead made no commits. The intake did not list the ledger file, and it is not an always-allowed path of the edit-surface guard. Owner approved the amendment on 2026-09-21 (one question covered all three swarm runs). Both intake copies updated, `incr-amendment` counted (surfaceAmendments=1), one ledger line added.
+
+**Verdict:** ACCEPT — process-ledger path required by a CI audit; owner-approved; no locked decision changes. Intake-authoring lesson: every intake whose diff touches `src/`, `worker/`, `supabase/` or the governance surface lists the ledger file at step 0.

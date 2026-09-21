@@ -53,6 +53,7 @@
     "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
     "src/lib/auth/mfa.ts",
     "src/lib/auth/__tests__/mfa.test.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/fix-1149-mfa-second-factor-name-*",
     "docs/reviews/fix/1149-mfa-second-factor-name/*",
     "docs/reviews/red-team/*1149*/*"
