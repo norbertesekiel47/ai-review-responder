@@ -5,18 +5,18 @@
   "branch": "fix/1361-locations-route-fault-status",
   "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
   "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "head_sha": "702d99ceedec4a33e1f3a24dd0c311b8da22170b",
+  "head_sha": "1391ab72e5cad42e2aa48cefb0538baff4f00e78",
   "intake_sha256": "b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1",
   "risk": "high",
   "round": 3,
-  "generated_at": "2026-09-21T00:11:46Z",
+  "generated_at": "2026-09-21T00:19:13Z",
   "inventory": [
     {
       "id": "round3/production-surface-unchanged-since-round-2",
       "test": "no mutation candidate: the production surface did not move",
       "file": "src/lib/auth/resolve-owner-scope.ts",
       "outcome": "excluded",
-      "reason": "git diff 322aeaa5d..702d99cee touches five files, none under src/ or worker/: .claude/reference/arch-review-log.md, docs/runbooks/beta-launch-alerting.md, the deviations plan and this run's own two report artifacts. Blob OIDs of all three changed production files are byte-identical to HEAD: http-routes.ts bbe7a7afa4af, resolve-owner-scope.ts e5cbabece697, owner-route.ts 9189c8950e79 — verified by git hash-object against git rev-parse HEAD:<path> before and after the round. 13 of 13 scored mutants were killed across rounds 1 (7) and 2 (6); owner authorization owner-1361-third-round scopes round 3 to the documentation corrections, so no production line was re-mutated."
+      "reason": "git diff 322aeaa5d..702d99cee touches five files, none under src/ or worker/: .claude/reference/arch-review-log.md, docs/runbooks/beta-launch-alerting.md, the deviations plan and this run's own two report artifacts. Blob OIDs of all three changed production files are byte-identical to HEAD: http-routes.ts bbe7a7afa4af, resolve-owner-scope.ts e5cbabece697, owner-route.ts 9189c8950e79 \u2014 verified by git hash-object against git rev-parse HEAD:<path> before and after the round. 13 of 13 scored mutants were killed across rounds 1 (7) and 2 (6); owner authorization owner-1361-third-round scopes round 3 to the documentation corrections, so no production line was re-mutated."
     },
     {
       "id": "round3/baseline-three-changed-helper-suites",
@@ -83,6 +83,13 @@
       "file": "docs/reviews/red-team/fix-1361-locations-route-fault-status-5d679e/findings.json",
       "outcome": "excluded",
       "reason": "Counts recompute from the rows as written: 12 inventory rows (6 killed, 6 excluded), 11 findings (9 fixed, 2 accepted-risk, 0 open), status CLEAR follows the precedence. Every arbiter_reasoning note on P1-4, P1-5, P1-6, P2-4 and P2-5 describes a change that genuinely landed in the tree at 702d99cee - each was re-resolved against the file it names, not against the note. No disposition claims a fix that did not land. Provenance untampered: head_sha was 322aeaa5d (the round-2 HEAD) and intake_sha256 was null, exactly as the owner-1361-third-round authorization states they were deliberately left; the only edits to those fields in the branch history are the legitimate round-1 to round-2 update in 1d89ba41b. Both authorizations preserved."
+    },
+    {
+      "id": "round3-continuation/verify-own-three-fixes",
+      "test": "same-round continuation: re-resolve P1-7, P1-8 and P1-9 at HEAD 1391ab72e",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "Not a fourth round and no new mutation candidate: git diff 702d99cee..1391ab72e -- src worker is EMPTY and no test file changed; the one commit touches four documentation/artifact files. All three round-3 fixes re-resolved at HEAD. P1-7: the Rule 15 filter facet now states the method-space-bracketed-path shape, cites captureRequestError.js:20 (verified - setTransactionName is on line 20), gives the worked example POST /api/dashboard/reviews/[reviewId]/approve (approve really is a POST route) and directs a CONTAINS/ends-with match. The contains-match hazard was tested exhaustively against all 142 route.ts paths under src/app/api: exactly one enumerated path is a substring of another real route - /api/dashboard/past-replies/draft, which also matches draft-status and draft/[responseId] - and BOTH are already inside the enumerated twenty, so the union of twenty contains-conditions is exactly the twenty routes with zero over-reach onto the other 122 API routes, and an event-count threshold counts events rather than matching conditions so nothing double-counts. Ends-with is even tighter and also correct for all twenty. P1-8: D4 names the command and reports 2 files / 38 tests - re-measured 2 files / 38 tests, 38 passed. P1-9: the 1054/86 claim is gone; the replacement names pnpm vitest run --changed 10377aa9b and reports 26 files / 368 tests, re-measured identically (358 passed + 10 skipped under this pass's DB-less environment, 0 failed), plus 2 files / 38 tests for the helper suites and 13 for resolve-owner-scope.test.ts - both re-measured exact - and 21 added / 9 removed by git numstat, also exact. No new unverifiable figure was introduced."
     }
   ],
   "findings": [
@@ -93,7 +100,7 @@
       "at": "src/lib/auth/resolve-owner-scope.ts:113",
       "duty": 4,
       "disposition": "fixed",
-      "arbiter_reasoning": "FIXED at 322aeaa5d. `src/lib/auth/resolve-owner-scope.ts:113` is now `throw err;`. Verified four ways. (1) Mutation: reverting to `throw new ScopeError('unauthorized', 401)` kills both re-throw tests, and forcing the AuthError guard true kills them too — the new behaviour is genuinely asserted, not asserted-by-absence. (2) The raw re-throw is safe for every consumer: all FIVE call sites across the four consuming files end their catch with a bare re-throw after an `instanceof ScopeError` guard — settings/postal-address/route.ts:93, dashboard/import-offer/route.ts:135, past-replies/draft-status/route.ts:65, past-replies/_shared/edit-reply-request.ts:82 and :189. None swallows, none returns 200, none reads `.statusCode` off an unguarded error. (3) The preamble could ALREADY throw a raw non-ScopeError before this change (lines 143 and 148 re-throw `Promise.allSettled` rejection reasons), so no consumer contract is newly widened. (4) No assertion class was lost with the deleted 401 test: `ScopeError` identity plus message plus statusCode are still asserted by the AuthError test (line 124) and the no_business tests (lines 159, 248), and mutant M4 proves the AuthError arm is live. `rejects.toBe(boom)` is strictly stronger than the deleted `toMatchObject` for the re-throw path. Grep for `ScopeError` construction/catch found no other site (6 files, all listed above plus the owner module and two test files)."
+      "arbiter_reasoning": "FIXED at 322aeaa5d. `src/lib/auth/resolve-owner-scope.ts:113` is now `throw err;`. Verified four ways. (1) Mutation: reverting to `throw new ScopeError('unauthorized', 401)` kills both re-throw tests, and forcing the AuthError guard true kills them too \u2014 the new behaviour is genuinely asserted, not asserted-by-absence. (2) The raw re-throw is safe for every consumer: all FIVE call sites across the four consuming files end their catch with a bare re-throw after an `instanceof ScopeError` guard \u2014 settings/postal-address/route.ts:93, dashboard/import-offer/route.ts:135, past-replies/draft-status/route.ts:65, past-replies/_shared/edit-reply-request.ts:82 and :189. None swallows, none returns 200, none reads `.statusCode` off an unguarded error. (3) The preamble could ALREADY throw a raw non-ScopeError before this change (lines 143 and 148 re-throw `Promise.allSettled` rejection reasons), so no consumer contract is newly widened. (4) No assertion class was lost with the deleted 401 test: `ScopeError` identity plus message plus statusCode are still asserted by the AuthError test (line 124) and the no_business tests (lines 159, 248), and mutant M4 proves the AuthError arm is live. `rejects.toBe(boom)` is strictly stronger than the deleted `toMatchObject` for the re-throw path. Grep for `ScopeError` construction/catch found no other site (6 files, all listed above plus the owner module and two test files)."
     },
     {
       "id": "P1-2",
@@ -102,7 +109,7 @@
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:86",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "FIXED as to the NUMBER. D4 now reads '166 across the 13 consuming route suites'. Re-measured independently at HEAD 322aeaa5d under the scrubbed environment: `vitest run src/app/api/locations src/app/api/dashboard/reviews src/app/api/dashboard/escalations` reports 13 files, 166 total tests, 165 passed, 1 skipped. Reproduces exactly. The residual defect is the LABEL, not the number — recorded separately and at lower severity as P2-5."
+      "arbiter_reasoning": "FIXED as to the NUMBER. D4 now reads '166 across the 13 consuming route suites'. Re-measured independently at HEAD 322aeaa5d under the scrubbed environment: `vitest run src/app/api/locations src/app/api/dashboard/reviews src/app/api/dashboard/escalations` reports 13 files, 166 total tests, 165 passed, 1 skipped. Reproduces exactly. The residual defect is the LABEL, not the number \u2014 recorded separately and at lower severity as P2-5."
     },
     {
       "id": "P1-3",
@@ -157,7 +164,7 @@
       "at": "src/lib/locations/__tests__/owner-route.test.ts:160",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "FIXED. The claim is withdrawn, not softened, in all three places checkable at HEAD. (1) Test comment, src/lib/locations/__tests__/owner-route.test.ts:158-163: 'No client of these routes branches on 401, so it did NOT sign the owner out; the review wave measured that and the original claim was withdrawn.' (2) Intake, docs/superpowers/plans/fix-1361-locations-route-fault-status-intake.json user_visible_behavior[2]: the sign-out bullet is replaced by 'The owner no longer reads a server fault as a permissions problem … (The review wave measured that no client of these routes branches on 401, so no auto sign-out chain existed — that earlier claim is withdrawn.)'. (3) .claude/reference/arch-review-log.md:37: the rewritten #1361 entry contains no sign-out claim at all — `rg 'sign' ` over the entry returns nothing. The fourth place, the PR body, is out of scope for this pass (the skill defers PR-body validation to after the draft PR exists)."
+      "arbiter_reasoning": "FIXED. The claim is withdrawn, not softened, in all three places checkable at HEAD. (1) Test comment, src/lib/locations/__tests__/owner-route.test.ts:158-163: 'No client of these routes branches on 401, so it did NOT sign the owner out; the review wave measured that and the original claim was withdrawn.' (2) Intake, docs/superpowers/plans/fix-1361-locations-route-fault-status-intake.json user_visible_behavior[2]: the sign-out bullet is replaced by 'The owner no longer reads a server fault as a permissions problem \u2026 (The review wave measured that no client of these routes branches on 401, so no auto sign-out chain existed \u2014 that earlier claim is withdrawn.)'. (3) .claude/reference/arch-review-log.md:37: the rewritten #1361 entry contains no sign-out claim at all \u2014 `rg 'sign' ` over the entry returns nothing. The fourth place, the PR body, is out of scope for this pass (the skill defers PR-body validation to after the draft PR exists)."
     },
     {
       "id": "P2-3",
@@ -181,7 +188,7 @@
     {
       "id": "P2-5",
       "severity": "P2",
-      "title": "'166 across the 13 consuming route suites' is the right number with the wrong label — 3 of the 13 files consume no changed gate, and 8 newly-consuming routes are outside the set",
+      "title": "'166 across the 13 consuming route suites' is the right number with the wrong label \u2014 3 of the 13 files consume no changed gate, and 8 newly-consuming routes are outside the set",
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:86",
       "duty": 3,
       "disposition": "fixed",
@@ -212,7 +219,7 @@
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:84",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "FIXED. PR #1391 no longer claims \"1054 tests pass across the 86 affected suites\". It now names the repo's own definition of the affected set and its command — pnpm vitest run --changed 10377aa9b, per package.json test:changed, lefthook.yml and scripts/verify-gate.sh — and reports the reproducible 26 files / 368 tests, plus the two helper suites at 2 files / 38 tests and resolve-owner-scope.test.ts at 13. The unfalsifiable figure is gone rather than relabelled."
+      "arbiter_reasoning": "FIXED. PR #1391 no longer claims \"1054 tests pass across the 86 affected suites\". It now names the repo's own definition of the affected set and its command \u2014 pnpm vitest run --changed 10377aa9b, per package.json test:changed, lefthook.yml and scripts/verify-gate.sh \u2014 and reports the reproducible 26 files / 368 tests, plus the two helper suites at 2 files / 38 tests and resolve-owner-scope.test.ts at 13. The unfalsifiable figure is gone rather than relabelled."
     }
   ],
   "authorizations": [
@@ -223,7 +230,7 @@
         "P2-1",
         "P2-3"
       ],
-      "text": "Owner authorized accepting both P2 findings as risk on 2026-09-20, asked directly with each finding, its failure scenario and the cost of fixing it in front of them. P2-1 (no test distinguishes `err instanceof AuthError` from a `name` comparison; a look-alike with no statusCode would render 200): the line is byte-identical at merge-base 10377aa9b and identical in shape in all four gates including requireRoleOr401, and round 2 measured that this change does not worsen it — pinning the guard is a codebase-wide change, not a #1361 change. P2-3 (nothing pins the consumer-layer re-throw at edit-reply-request.ts:82 and :189, so reintroducing a catch-all 401 one layer up on five past-replies routes leaves 123/123 tests green): both lines are byte-identical at merge-base, so the gap is pre-existing and not introduced here, and the resolveOwnerScope fix these lines protect is itself independently pinned by 6 of 6 killed mutants in round 2. Both were declined for this branch because closing either needs a THIRD surface amendment, past the two the abort criteria allow. Both are to be filed as follow-up issues at step 8."
+      "text": "Owner authorized accepting both P2 findings as risk on 2026-09-20, asked directly with each finding, its failure scenario and the cost of fixing it in front of them. P2-1 (no test distinguishes `err instanceof AuthError` from a `name` comparison; a look-alike with no statusCode would render 200): the line is byte-identical at merge-base 10377aa9b and identical in shape in all four gates including requireRoleOr401, and round 2 measured that this change does not worsen it \u2014 pinning the guard is a codebase-wide change, not a #1361 change. P2-3 (nothing pins the consumer-layer re-throw at edit-reply-request.ts:82 and :189, so reintroducing a catch-all 401 one layer up on five past-replies routes leaves 123/123 tests green): both lines are byte-identical at merge-base, so the gap is pre-existing and not introduced here, and the resolveOwnerScope fix these lines protect is itself independently pinned by 6 of 6 killed mutants in round 2. Both were declined for this branch because closing either needs a THIRD surface amendment, past the two the abort criteria allow. Both are to be filed as follow-up issues at step 8."
     },
     {
       "id": "owner-1361-third-round",
@@ -237,13 +244,13 @@
     }
   ],
   "counts": {
-    "inventory_total": 10,
+    "inventory_total": 11,
     "killed": 0,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 10,
+    "excluded": 11,
     "findings_total": 14,
     "p0_open": 0,
     "p1_open": 0,

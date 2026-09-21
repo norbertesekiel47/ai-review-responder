@@ -5,10 +5,11 @@
 - **Fork / merge-base:** `10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9`
 - **Round-1 head:** `e1db9ecbcb8555d3bb115d61ac800777f2bfedfa`
 - **Round-2 head:** `322aeaa5d6e8919767482b73733f21fc805190ff`
-- **Head under test:** `702d99ceedec4a33e1f3a24dd0c311b8da22170b`
+- **Round-3 head:** `702d99ceedec4a33e1f3a24dd0c311b8da22170b`
+- **Head under test:** `1391ab72e5cad42e2aa48cefb0538baff4f00e78` (same-round continuation)
 - **Intake SHA-256:** `b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1`
-- **Generated:** 2026-09-21T00:11:46Z
-- **Status:** `OPEN_P1` (14 findings: 0 P0, 3 open P1, 0 open P2, 9 fixed, 2 accepted-risk)
+- **Generated:** 2026-09-21T00:19:13Z
+- **Status:** `CLEAR` (14 findings: 0 P0, 0 open P1, 0 open P2, 12 fixed, 2 accepted-risk)
 
 This round is SCOPED by the owner's authorization. `git diff 322aeaa5d..702d99cee`
 touches **no production file** — five files, all documentation or this run's own
@@ -208,3 +209,60 @@ four issues, all of them the intended consequence of this round's findings:
 `status is OPEN_P1`, plus one high-risk adjudication block each for P1-7, P1-8
 and P1-9. Schema, counts, derived status, `head_sha`, `intake_sha256`, the
 round-3 authorization and the unmoved-tree check all pass.
+
+---
+
+## Same-round continuation — HEAD `1391ab72e`, all three round-3 fixes verified
+
+Not a fourth round: no new front, no new mutation inventory. One commit moved.
+`git diff 702d99cee..1391ab72e -- src worker` is **empty**, and no test file
+changed; the commit touches four files, all documentation or this run's own
+artifacts.
+
+| Fix | Verdict | Evidence re-derived at `1391ab72e` |
+|---|---|---|
+| **P1-7** Rule 15 `transaction` facet | **LANDED** | The row now states the emitted value is `` `${request.method} ${routePath}` ``, cites `captureRequestError.js:20` (verified — `setTransactionName` really is line 20), gives the worked example `POST /api/dashboard/reviews/[reviewId]/approve` against the bare path (`approve` really is a POST route), and directs a CONTAINS/ends-with match, never equals, with the consequence spelled out. |
+| **P1-8** D4's test figure | **LANDED** | D4 names the command and reports 2 files / 38 tests at HEAD, and records that it read 37 when written. Re-measured: **2 files, 38 tests, 38 passed.** |
+| **P1-9** PR body's test figure | **LANDED** | "1054 tests / 86 affected suites" is gone. Replacement names `pnpm vitest run --changed 10377aa9b` and reports 26 files / 368 tests — re-measured **identically** (358 passed + 10 skipped under this pass's DB-less environment, 0 failed). Every other figure in the replacement also re-measured exact: helper suites **2 / 38**, `resolve-owner-scope.test.ts` **13**, numstat **21 added / 9 removed**. No new unverifiable figure. |
+
+### The contains-match hazard, tested exhaustively
+
+A CONTAINS match could fire on the wrong route if one enumerated path were a
+substring of another. Checked against **all 142 `route.ts` paths under
+`src/app/api`**:
+
+- Every one of the twenty enumerated paths is a real route on disk.
+- Exactly **one** enumerated path is a substring of another real route:
+  `/api/dashboard/past-replies/draft`, which also matches
+  `…/draft-status` and `…/draft/[responseId]`.
+- **Both of those are already inside the enumerated twenty.** Over-match onto
+  the other 122 API routes: **none**.
+- So the union of twenty contains-conditions is exactly the twenty routes. No
+  double-count either: an event-count threshold counts EVENTS, not matching
+  conditions, and overlapping conditions in an `any` set pass an event once.
+- `…/generate` is *not* a substring of `…/regenerate` at full-path granularity
+  (`]/generate` vs `]/regenerate`), so those two do not collide.
+- Ends-with is tighter still and is also correct for all twenty.
+
+### Sidecar audit of the orchestrator's edit
+
+- `arbiter_reasoning` on **P1-7, P1-8 and P1-9** each describes a change that
+  genuinely landed; every sub-claim was re-resolved against the file it names.
+  **Nothing overclaims.**
+- Counts recompute: 11 inventory rows (all `excluded`), 14 findings — 12 `fixed`,
+  2 `accepted-risk`, 0 open. `status: CLEAR` follows the precedence.
+- **`intake_sha256` untouched** (`b44597b9…`), and the commit did not touch
+  `.feature/intake.json` — the hash still matches the file on disk.
+- Both authorizations preserved, including the `owner-1361-third-round`
+  `finding_ids` linkage (P1-4, P1-5, P1-6) repaired earlier in this pass.
+- `head_sha` refreshed to `1391ab72e5cad42e2aa48cefb0538baff4f00e78`;
+  `round` stays 3.
+
+### One observation, not a finding
+
+The PR body's "26 files / 368 tests, **all passing**" holds where
+`TEST_DATABASE_POOL_URL` is set (CI, and the gate's own full-suite log records
+zero failures). Under this pass's scrubbed, DB-less environment two of those
+files (10 tests) SKIP rather than pass — the counts still reproduce exactly and
+nothing fails, so the figure is sound; the "all passing" qualifier is
+environment-dependent, which is worth knowing but is not a defect.
