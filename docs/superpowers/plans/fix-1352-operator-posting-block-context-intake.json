@@ -66,6 +66,8 @@
     "the shared Posting block copy map"
   ],
   "allowed_edit_surface": [
+    "scripts/ci/__tests__/red-team-status.test.ts",
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
     "src/lib/agents/operator/context.ts",
     "src/lib/agents/operator/prompt.ts",
     "src/lib/agents/operator/proposals.ts",

@@ -197,3 +197,53 @@ when they share no FILE. A brief written before a concurrent task lands can
 quote a reality that expires mid-flight.
 
 **Verdict:** ACCEPT
+
+---
+
+## D7 — Surface amendment 6: the red-team assertion pins had to be refreshed
+
+**When:** step 5, first gate. `surfaceAmendments=6`.
+
+**What.** `testSha256` and `line` refreshed for 13 of the 14 records in
+`OPERATOR_FRONTEND_ASSERTION_SITES` (`.agents/skills/red-team/scripts/mutation-runner.mjs`)
+and in the three-record copy inside `scripts/ci/__tests__/red-team-status.test.ts`.
+
+**Why it broke.** `mutation-runner.mjs:626` re-reads each pinned test file and
+rejects a proof unless BOTH the whole-file SHA-256 and the pinned line's exact
+source still match. That guard is correct: red-team evidence must not corroborate
+against a file that has since changed. The T5b fixture repair added the required
+`postingBlockSentences` field to `OperatorClient.test.tsx` (8 pins) and
+`RestoreWorkflow.test.tsx` (5 pins), so every one of those pins went stale.
+
+Measured, not assumed: 14 of 14 fresh at the merge base, 1 of 14 on the branch.
+
+**Why I did not do the smaller thing.** Refreshing only the test's own copy fixes
+nothing — `operatorFrontendAssertion` looks the site up in mutation-runner's
+inventory and hashes against THAT record. The test's copy supplies only the
+candidate and launch objects. Swapping the test onto untouched sites was also
+impossible: every frontend site of all three kinds pins one of the two changed
+files.
+
+**What was verified before rewriting anything.** For all 14 records, a
+`difflib.SequenceMatcher` line map from the merge-base file to the current file
+places every pinned `sourceLine` at a mapped line where the text is
+byte-identical. No assertion moved in content; 8 moved only in position. The
+parsed records were then compared field by field before and after: 14 records,
+same order, and only `line` and `testSha256` differ. `mutantSha256`,
+`originalOid`, `target`, `test`, `file` and `sourceLine` are untouched.
+
+**What was NOT verified, and the reviewer should weigh it.** The mutations were
+not re-run. The claim "this mutant still kills this assertion" is inferred from
+the assertion being unchanged and the mutant being unchanged, not demonstrated.
+The freshness guard exists precisely to refuse that inference, so a red-team
+reviewer is entitled to challenge this refresh, and it is called out here and in
+the PR description for that reason.
+
+**The underlying fragility is not this branch's.** Any PR that edits
+`OperatorClient.test.tsx` or `RestoreWorkflow.test.tsx` by one line invalidates
+these pins and reds the CI `test` job. A fixture pinned to live repo files
+carries that cost forever. Worth its own issue: either derive the fixture from a
+file the test controls, or give `mutation-runner.mjs` a refresh subcommand —
+there is none today, which is why this was done by hand.
+
+**Verdict:** ACCEPT
