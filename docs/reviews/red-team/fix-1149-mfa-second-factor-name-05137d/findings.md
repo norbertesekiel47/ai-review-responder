@@ -1,10 +1,13 @@
 # Red team — fix/1149-mfa-second-factor-name
 
-**Round 2 (scoped).** This file replaces the round-1 report in place, per the
-directory convention every prior two-round run in `docs/reviews/red-team/`
-follows. Round 1's findings are preserved below with their round-2 disposition
-and the evidence that settles each; the round-1 inventory is superseded by the
-round-2 inventory, which covers only the fix hunks and their direct callers.
+**Round 3 (scoped, owner-authorized).** This file replaces the round-2 report in
+place, per the directory convention. Rounds 1 and 2 are preserved below as
+dispositions with the evidence that settles each; the round-2 inventory is
+superseded by the round-3 inventory, which covers only the round-3 fix hunks and
+their direct callers. A third round opened ONLY because the sidecar already
+carried the owner authorization `owner-third-round-2026-09-21`, which is
+reproduced verbatim at the end of this file and was preserved byte-for-byte in
+`findings.json`. `round-start` reported **round 3 open**.
 
 | | |
 |---|---|
@@ -12,27 +15,32 @@ round-2 inventory, which covers only the fix hunks and their direct callers.
 | Branch | `fix/1149-mfa-second-factor-name` |
 | Fork / merge-base | `75c8d54cb77ac34d1f2f7686b9171528871b81f3` |
 | Round-1 reviewed HEAD | `25bf1b3fda644238778fa1322b3da5055f8e8c30` |
-| Round-2 HEAD | `e9cdaa2b12bf84575b66f249d13ca91dea49f000` |
-| Intake SHA-256 | `3031ba4d…51769` (unchanged from round 1) |
+| Round-2 reviewed HEAD | `e9cdaa2b12bf84575b66f249d13ca91dea49f000` |
+| Round-3 HEAD | `751f3dfca878eec53a42e44c2074aca5aa750e22` |
+| Intake SHA-256 | `3031ba4d…51769` (unchanged from rounds 1 and 2) |
 | Risk | high (auth surface) |
-| Status | **OPEN_P1** |
+| Status | **CLEAR** |
 
-All three pinned SHAs were re-derived in this worktree and match. The intake
-hash was recomputed and matches, so the locked contract is the same contract
-round 1 was measured against.
+All pinned SHAs were re-derived in this worktree and match: `git rev-parse HEAD`
+→ `751f3dfc…`, `git merge-base origin/main HEAD` → `75c8d54c…`. The intake hash
+was recomputed with `shasum -a 256` and matches, so the locked contract is the
+same contract rounds 1 and 2 were measured against.
 
 ## Scope
 
 ```
-git diff 25bf1b3f e9cdaa2b -- . ':(exclude)docs/reviews' ':(exclude)docs/superpowers'
+git diff e9cdaa2b 751f3dfc -- . ':(exclude)docs/reviews' ':(exclude)docs/superpowers'
 ```
 
-Four files, 102 insertions / 19 deletions: the two changed test files, the
-`enrollmentErrorMessage` guard plus a comment block in
-`src/components/auth/useMfaEnrollment.ts`, and one row in
-`docs/directory/lib-platform.md`. No new front was opened against unchanged
-code; the one direct caller (`SecuritySections.tsx`) was read, not mutated, and
-unrelated observations are in the appendix, untriaged.
+Three files, 8 insertions / 1 deletion: one line span in
+`docs/directory/lib-platform.md`, +6 in
+`src/components/auth/__tests__/useMfaEnrollment.test.tsx`, +1 in
+`src/lib/auth/__tests__/mfa.test.ts`. **No production code changed in this
+round.** The one direct caller of the new test import
+(`src/app/(authenticated)/settings/security/SecuritySections.tsx`) was read and
+mutated as a measurement, never edited on disk beyond the journaled, restored
+mutation. No new front was opened against unchanged code; unrelated observations
+are in the appendix, untriaged.
 
 ## Findings
 
@@ -40,283 +48,273 @@ unrelated observations are in the appendix, untriaged.
 |---|---|---|---|---|
 | RT-1149-F1 | P1 | `src/lib/auth/__tests__/mfa.test.ts:202` | Vacuous invariant property — `fc.string()` never drew a name in the sequence | **fixed** |
 | RT-1149-F2 | P2 | `src/components/auth/useMfaEnrollment.ts:84` | Provider text could trigger the step-up link | **fixed** |
-| RT-1149-F3 | P2 | `src/components/auth/useMfaEnrollment.ts:84` | Two unbound copies of `/sign in again/i`; the new test asserts the copy string, not the predicate | open |
-| RT-1149-F4 | **P1** | `docs/directory/lib-platform.md:82` | The rewritten row re-asserts `src/proxy.ts` `:92-103` for the lenient AAL read; those lines are the CORS preflight | open |
-| RT-1149-F5 | P2 | `src/lib/auth/__tests__/mfa.test.ts:211` | The new second property is vacuous whenever the result is the unnumbered `RepWorth` | open |
+| RT-1149-F3 | P2 | `src/components/auth/useMfaEnrollment.ts:84` | Two unbound copies of `/sign in again/i`; the test asserted the copy string, not the predicate | **fixed** (round 3) |
+| RT-1149-F4 | **P1** | `docs/directory/lib-platform.md:82` | The row cited `src/proxy.ts` `:92-103` for the lenient AAL read; those lines are the CORS preflight | **fixed** (round 3) |
+| RT-1149-F5 | P2 | `src/lib/auth/__tests__/mfa.test.ts:211` | The second property was vacuous whenever the result is the unnumbered `RepWorth` | **fixed** (round 3) |
+| RT-1149-F6 | P2 | `src/components/auth/__tests__/useMfaEnrollment.test.tsx:321` | The new predicate binding is directional: it catches a pattern CHANGE, not a WIDENING | open |
 
-No P0. One open P1 (`RT-1149-F4`) on a high-risk run — at the two-round cap
-that is the user's call, not the verifier's, and this verifier does not fix it.
+No P0. **No open P1.** One open P2 (`RT-1149-F6`), which by the skill's own rule
+is recorded and never blocks. No `inconclusive` rows, no `skipped-budget` rows,
+no `accepted-risk` findings, no rejected findings — so there is no rejection
+section and nothing is owed to the PR description on that account.
 
-## Round-1 findings — disposition
+## Round-3 verdicts on the three open round-2 findings
 
-### RT-1149-F1 (P1) — CLOSED, by re-running the survivor, not by reading the fix
+### RT-1149-F4 (P1) — CLOSED, by re-resolving the span, not by reading the diff
 
-The claimed fix biases the arbitrary toward the sequence itself
-(`mfa.test.ts:192-199`):
+The row at HEAD reads: ``` `src/proxy.ts` skips these, inlining its lenient read
+(`:260-271`, ADR 0025 D6) ```. Re-resolved by hand against HEAD `751f3dfc`:
 
-```
-fc.oneof(
-  fc.constantFrom('RepWorth', 'RepWorth 2', 'RepWorth 3', 'RepWorth 4', 'RepWorth 5'),
-  fc.string(),
-  fc.constant(null),
-)
-```
+| Claim | HEAD |
+|---|---|
+| `:260` | `async function getAalGate(): Promise<'ok' \| 'mfa_required' \| 'mfa_check_failed'> {` |
+| `:264` | `const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();` |
+| `:268` | `return data.nextLevel === 'aal2' && data.currentLevel !== 'aal2'` |
+| `:271` | the function's closing brace |
 
-The test of the claim is not the shape of that arbitrary but whether the exact
-round-1 survivor now dies. It does. `nextFactorFriendlyName`'s whole body was
-replaced by `void existingNames; return 'RepWorth';` — the same mutation that
-passed in round 1 over 100,000 draws — and the property test exited 1 with
-exactly one executed test (`rt2-1149-01`). Green baseline at HEAD confirmed on
-the same title immediately before the mutation, under the identical environment.
+The cited span is the function, exactly — not a superset, not an off-by-some.
+The ADR half was re-checked as well and remains true: ADR 0025 decision 6
+(`docs/adr/0025-dual-mode-admin-gate.md:120-128`) is the `src/proxy.ts` branch-4
+decision and names "the lenient/strict AAL disagreement already in the tree".
 
-One caveat worth recording rather than burying: it is **property 1** that kills
-that mutant, not the newly added property 2, which passes it vacuously. That is
-RT-1149-F5, below. The fix to F1 is real; the second property is a bonus that
-buys something different (`rt2-1149-02`).
+Method note, unchanged from round 2 and worth repeating because it bounds the
+confidence: `prevalidate-plan.py` was present and re-run, and again reported
+`CITATIONS: 0 checked, 0 unresolved` on this file — its citation grammar does
+not recognise the row's bare ``(`:260-271`, …)`` form. **No part of this verdict
+rests on that script's PASS.** It rests on `grep -n` output quoted above.
 
-### RT-1149-F2 (P2) — CLOSED at the hook, with the residue carried forward
+### RT-1149-F3 (P2) — CLOSED, and the fix is measurably load-bearing
 
-`enrollmentErrorMessage` now falls back to the generic sentence when the
-composed text matches the consumer's pattern (`useMfaEnrollment.ts:84-86`). The
-guard is pinned in **both** directions, which is what stops it from being
-decoration:
+The fix is exactly the behavioural replacement the finding proposed: the hook
+test imports the real consumer predicate
+(`useMfaEnrollment.test.tsx:26`, `import { isStepUpRequiredError } from
+'@/app/(authenticated)/settings/security/SecuritySections'`) and asserts it is
+`false` on the hook's enrollment sentence (`:278`) and `true` on the unenroll-403
+hint (`:321`).
 
-- delete the guard block → the new test reddens (`rt2-1149-05`);
-- invert the guard condition → the pre-existing "shows the Supabase error
-  message for an unmapped enrollment error" test reddens (`rt2-1149-07`).
+**Probe, as asked (`r3-01`).** Mutating the PRESENTATION pattern in
+`SecuritySections.tsx:42` from `/sign in again/i` to `/verify again/i` reddens
+the suite — and the failure is at `useMfaEnrollment.test.tsx:321:57`,
+`AssertionError: expected false to be true`, i.e. the NEW predicate assertion.
+The pre-existing `toBe('Sign in again with your authenticator…')` at `:320`
+**passed** under that mutant. Nothing else in the repository catches it. So the
+answer to "does the predicate assertion add detection the older one lacks" is
+**yes, under the presentation-pattern mutation**.
 
-The exposure was also re-checked for completeness rather than assumed: every
-other error string this hook can dispatch is a fixed constant
-(`useMfaEnrollment.ts:181, :246, :252, :265, :271, :288, :293, :299`), and the
-only one matching `/sign in again/i` is the unenroll-403 hint at `:288` — the
-one case that SHOULD keep the link. Nothing else in the hook interpolates
-provider text.
+**Counter-probe, reported honestly (`r3-02`).** Mutating only the hook's LOCAL
+pattern (`useMfaEnrollment.ts:84`, replaced with a never-matching pattern, i.e.
+guard removal) also reddens — but at `useMfaEnrollment.test.tsx:277:34`,
+`expected 'Could not start MFA enrollment: Pleas…' to be 'Could not start MFA
+enrollment.'`. That is the OLDER string assertion, which precedes the predicate
+assertion at `:278` and fails first. **Under a guard-removal mutation the new
+predicate assertion adds no detection the older assertion lacks.** Both halves
+of that are recorded because only the pair is the truth.
 
-What is NOT closed is the mechanism: the fix works by duplicating the pattern.
-That is RT-1149-F3.
+The import is legal, checked rather than assumed: `eslint.config.mjs` ignores
+`**/__tests__/**` in both the non-route zone (`:253`) and the
+`src/components/**` zone (`:251`), and `npx eslint` over the two changed test
+files exits 0 at HEAD.
 
-## New round-2 findings
+What the binding does NOT catch is opened as RT-1149-F6 below, rather than left
+buried inside a closed finding.
 
-### RT-1149-F3 (P2) — two copies of `/sign in again/i`, nothing binding them
+### RT-1149-F5 (P2) — CLOSED, and both properties now go red
 
-At HEAD the two patterns are byte-identical:
+`expect(taken.has(next)).toBe(false);` at `mfa.test.ts:218` is the one line the
+finding proposed. Re-running the round-1 survivor mutant — `nextFactorFriendlyName`'s
+body replaced by `void existingNames; return 'RepWorth';` — against each property
+individually, as asked:
 
-- `src/app/(authenticated)/settings/security/SecuritySections.tsx:42` —
-  `return error !== null && /sign in again/i.test(error);`
-- `src/components/auth/useMfaEnrollment.ts:84` —
-  `if (/sign in again/i.test(text)) {`
+| Property | Round 2 | Round 3 |
+|---|---|---|
+| 1 — never returns a taken name | FAILS after 9 draws, `[["RepWorth"]]` | FAILS after 9 draws, `[["RepWorth"]]` |
+| 2 — the first unused name in the sequence | **PASSED** (vacuous at `n === 1`) | **FAILS after 1 draw, `[["RepWorth"]]`** |
 
-and they are applied to the same string, because the consumer receives exactly
-what the hook returns. So there is no defect today. The comment at `:77-83`
-justifies the duplication by the ESLint ban on `@/app/**` imports from
-`src/components/**`, and that justification is TRUE for production code
-(`eslint.config.mjs:172-178`).
+**BOTH properties now go red.** One regression mutation confirms the new line did
+not flatten property 2 into property 1: replacing gap-fill with
+append-past-the-maximum (which returns an UNTAKEN name, so property 1 cannot see
+it) still fails property 2, counterexample `[["RepWorth","RepWorth 3"]]`.
+Property 1 owns non-collision, property 2 owns minimality, and each now kills a
+mutant the other cannot.
 
-The problem is that nothing fails when the copies diverge. Widen the consumer's
-pattern to `/sign in again|re-authenticate/i` and the whole suite stays green
-while the enrollment path silently re-acquires the exact defect RT-1149-F2
-described. The new test asserts `toBe('Could not start MFA enrollment.')` — an
-exact copy string standing in for "this sentence does not trigger the step-up
-link", which is the contract that actually matters.
+## New round-3 finding
 
-**Behavioural replacement, and it costs one import.** The ESLint ban explicitly
-exempts tests — `eslint.config.mjs:178` and `:251` both ignore
-`**/__tests__/**` — and the repo already relies on that exemption
-(`src/components/approval/__tests__/approval-client.test.tsx:9` imports from
-`@/app/api/...`). So the test can import the real predicate and assert against
-it:
+### RT-1149-F6 (P2) — the binding is directional
 
-```ts
-import { isStepUpRequiredError } from '@/app/(authenticated)/settings/security/SecuritySections';
-…
-expect(isStepUpRequiredError(result.current.error)).toBe(false);
-```
+**`src/components/auth/__tests__/useMfaEnrollment.test.tsx:321` (duty 2, open).**
 
-That binds the two copies at the one point they must agree. P2 because it is a
-latent drift risk over a UI affordance, not a defect at HEAD.
+Both new assertions run `isStepUpRequiredError` over two FIXED literals:
+`'Could not start MFA enrollment.'` (`:278`) and `'Sign in again with your
+authenticator before removing this factor.'` (`:321`). A mutation of
+`SecuritySections.tsx:42` that only ADDS an alternative —
+`/sign in again|re-authenticate/i`, the literal example RT-1149-F3 itself used —
+classifies both literals exactly as before, so both assertions still pass and the
+repository stays green. Meanwhile a provider message containing "re-authenticate"
+slips the hook's local `/sign in again/i` guard at `useMfaEnrollment.ts:84` and
+re-acquires RT-1149-F2's defect.
 
-### RT-1149-F4 (P1) — the rewritten directory row cites the wrong lines
+**Why there is no mutation row for it, stated rather than hidden.** Such a mutant
+would survive on a branch these two fixed literals provably never execute. The
+skill classifies exactly that as `inconclusive` (class `oracle`), which would
+force `INCOMPLETE_ORACLE` while carrying zero information. The static argument
+above is complete on its own, and the measured half (`r3-01`) already establishes
+the binding's real, narrower power. Spending a launch to manufacture a blocking
+`inconclusive` would have been theatre.
 
-`docs/directory/lib-platform.md:82` now reads, in part:
+**Behavioural closure, if the owner wants it:** make the two files share ONE
+predicate exported from a `src/lib/` module and imported by both. The ESLint ban
+is on `@/app/**` leaves, not on `src/lib`, so a single owner is available to
+production code on both sides; that removes the second copy instead of testing
+around it.
 
-> `src/proxy.ts` skips these, inlining its lenient read (`:92-103`, ADR 0025 D6)
+**P2, unchanged from RT-1149-F3's severity:** a latent drift risk over a UI
+affordance, not a defect at HEAD. At HEAD the two patterns are byte-identical —
+`rt2-1149-13` established it, and `r3-01`'s mutant diff re-confirms it (a single
+differing line).
 
-Re-resolved against HEAD `e9cdaa2b`:
+## Rounds 1 and 2 — carried dispositions
 
-- `src/proxy.ts:92-103` is `adminCorsPreflight` — "ADR 0026 D3's allowlisted
-  column", a 204 preflight builder. There is no AAL read in it.
-- The inlined lenient read is `getAalGate` at `src/proxy.ts:260-271`:
-  `getAuthenticatorAssuranceLevel()` at `:264`, the lenient
-  `nextLevel === 'aal2' && currentLevel !== 'aal2'` test at `:268`.
-- The ADR half of the citation IS correct. ADR 0025 decision 6
-  (`docs/adr/0025-dual-mode-admin-gate.md:123-126`) is the `src/proxy.ts`
-  branch-4 decision and names "the lenient/strict AAL disagreement already in
-  the tree" as its worked example.
+- **RT-1149-F1 (P1) — fixed.** Closed in round 2 by measurement (`rt2-1149-01`)
+  and re-confirmed in round 3 (`r3-03`): the hardcoding mutant fails property 1
+  after 9 draws where round 1 recorded a pass over 100,000 draws.
+- **RT-1149-F2 (P2) — fixed.** Closed at the hook in round 2; re-confirmed in
+  round 3 (`r3-02`): removing the guard reddens the covering test. The residual
+  duplicated-regex risk is now carried, narrowed, as RT-1149-F6.
 
-So the row is misleading about WHERE, not about WHAT: a stale line number, which
-the skill grades P1, not the P0 reserved for a false claim. The span was carried
-over verbatim from the pre-fix row — but this diff rewrote that whole sentence,
-so it is a claim this round re-asserted, and it is in scope. Fix: `:260-271`.
+## Inventory — round 3
 
-**Method note, because a PASS here would otherwise be misread.**
-`~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py` is present and was
-run against the changed doc. It reported `CITATIONS: 0 checked, 0 unresolved` /
-`PREVALIDATE: PASS` — its citation grammar does not recognise the row's bare
-``(`:92-103`, …)`` form, so the PASS is vacuous and proves nothing about this
-file. Every citation in the changed row was resolved by hand instead.
+| ID | Test | Target | Outcome |
+|---|---|---|---|
+| `r3-01` | `useMfaEnrollment.test.tsx > maps a 403 on unenroll to the re-authenticate hint` | `SecuritySections.tsx:42` | killed |
+| `r3-02` | `useMfaEnrollment.test.tsx > does not surface provider text that would trigger the step-up link` | `useMfaEnrollment.ts:84` | killed |
+| `r3-03` | `mfa.test.ts > invariant: nextFactorFriendlyName never returns a name an existing factor holds` | `mfa.ts:87` | killed |
+| `r3-04` | `mfa.test.ts > invariant: the result is always the first unused name in the sequence` | `mfa.ts:87` | killed (2 mutations) |
+| `r3-05` | the `mfa.ts` row in `docs/directory/lib-platform.md` | `lib-platform.md:82` | excluded (not executable; duty 3 instead) |
 
-### RT-1149-F5 (P2) — the second property is vacuous for the unnumbered case
+Full per-row reasoning, including the exact failing assertion line for every
+kill, is in `findings.json`. **No survivors.** No `inconclusive` row, no
+`skipped-budget` row — nothing in the round-3 inventory was left unmeasured.
 
-`mfa.test.ts:211-226` matches the result, derives `n`, and then asserts only
-that every SMALLER name in the sequence is taken:
+## Re-derived gate evidence (the claim was not taken on trust)
 
-```ts
-for (let i = 1; i < n; i += 1) { … expect(taken.has(smaller)).toBe(true); }
-```
+- `.feature/codex-gate-fingerprint.json` names `headSha`
+  `751f3dfca878eec53a42e44c2074aca5aa750e22`, `baseSha` `75c8d54c…`,
+  `intakeSha256` `3031ba4d…`, and a clean tree (`statusSha256` and
+  `untrackedSha256` are both the SHA-256 of the empty string).
+- `gate-fingerprint.mjs check` **re-computed the same fingerprint at HEAD**,
+  `4064f32fb16b0cfd7e54393ad0f154e34d0547251ea4a5f1da5d94715ca5d149`, exit 0.
+- `.feature/gate-status.json` is `"passed": true`, `"mode": "full"`, 29 checks
+  all PASS; its SHA-256 `7387ee93…` matches the `gateStatusSha256` the
+  fingerprint binds, so the fingerprint is not describing some other gate run.
+  Its timestamp (`2026-09-21T17:34:17Z`) is AFTER the HEAD commit
+  (`2026-09-21T17:30:47Z`), so the evidence post-dates the tree it certifies.
+- Independently re-run in this pass, after full restoration: `pnpm typecheck`
+  (clean), `npx eslint` over both changed test files (exit 0, zero output),
+  `pnpm ci:directory-map` (passed — 632 files, no stale rows, which is the audit
+  the changed doc row is under), and the four affected suites together
+  (`useMfaEnrollment.test.tsx`, `mfa.test.ts`, `SecurityClient.test.tsx`,
+  `SecuritySections.test.tsx`) — **56 tests, 56 passed, 0 failed**.
 
-When the result is `'RepWorth'`, `n === 1` and the loop body never executes, so
-the property reduces to "the result matches `/^RepWorth(?: (\d+))?$/`". That is
-precisely why the round-1 survivor `return 'RepWorth';` passes THIS property on
-every draw — and why property 1, not property 2, is what closes RT-1149-F1.
+The final review-mode gate is the invoking root's last serialized step, per the
+skill's Ordering section; this section re-derives the claim, it does not replace
+that run.
 
-This is recorded as P2, not as a confirmed survivor, and the distinction is
-deliberate. The pairing is sound: property 1 owns non-collision, property 2 owns
-minimality, and together they pin "first unused". Running the `return 'RepWorth'`
-mutant against property 2 alone would have manufactured a blocking P0 out of an
-assertion that never claimed to own non-collision, so it was not run as an
-inventory row; the vacuity is provable statically and is reported as what it is.
+## Sound searches that found nothing new
 
-**Behavioural strengthening, one line:** add `expect(taken.has(next)).toBe(false);`
-inside property 2, so its own title is true without leaning on its sibling.
-
-Property 2 is not dead weight: `rt2-1149-02` shows it kills the
-gap-fill-to-append mutant (`let n = 2` → `let n = taken.size + 1`) that property
-1 cannot see.
-
-## The new surface — what was attacked and what held
-
-### 1. The `all`-only fixtures are load-bearing (`rt2-1149-03`)
-
-Round 2's rewrite moved the unverified factor in the start→cancel→start test out
-of `totp` and into `all` only. Deleting the `all` arm of `collectFactors`
-(`mfa.ts:146-149`) now reddens that test at
-`useMfaEnrollment.test.tsx:169` — the second `enroll` call re-sends `'RepWorth'`.
-Round 1's fixture, which put the unverified factor under `totp`, would have
-survived that mutation. The rewrite added real coverage, not just realism.
-
-It is also factually right about the provider, which was verified against the
-installed dependency rather than taken on faith.
-`node_modules/.pnpm/@supabase+auth-js@2.106.2/…/GoTrueClient.js` `_listFactors`
-pushes **every** factor into `data.all` and pushes into `data[factor_type]`
-(i.e. `totp`) only `if (factor.status === 'verified')`. The test comment's claim
-— "an unverified factor ONLY under `all`, never `totp`" — is exactly the
-installed behaviour, and the version it names is the version resolved.
-
-### 2. Unverified factors really do count (`rt2-1149-04`)
-
-The intake invariant is "verified **or** unverified". Teaching
-`normalizeFactor` to drop every non-verified factor (the shape
-`normalizeChallengeFactor` uses) reddens the same test. The enrollment-side
-normalizer's deliberate divergence from the challenge-side one is pinned by a
-test, not only by the comment at `mfa.ts:106-109`.
-
-### 3. The guard cannot be removed or inverted (`rt2-1149-05`, `rt2-1149-07`)
-
-Covered under RT-1149-F2 above.
-
-### 4. The guard's subject is provably interchangeable (`rt2-1149-06`)
-
-Swapping `test(text)` for `test(message)` survives — and this is a PROVEN
-equivalence, recorded as `equivalent` rather than parked as `inconclusive`.
-`text === 'Could not start MFA enrollment: ' + message`; `/sign in again/i` is
-unanchored, so the two subjects can differ only if a match straddles the seam,
-which requires a non-empty prefix of `sign in again` (`s`, `si`, `sig`, `sign`,
-`sign `, …) to be a suffix of `Could not start MFA enrollment: `. That prefix
-ends in `": "`, and no prefix of `sign in again` ends in `:` or is a lone space.
-No straddling match exists, for any message. A claim about the mutant, so it
-does not block.
-
-### 5. The rewritten mixed fixture did not weaken what it already killed (`rt2-1149-08`)
-
-Replacing `nextFactorFriendlyName` with `return 'RepWorth';` still reddens
-"enrolls a second factor under a name no existing factor holds". Adding the
-`all` array to that fixture cost nothing.
-
-### 6. Direct caller — the patterns match exactly at HEAD (`rt2-1149-13`)
-
-Read, not mutated. `SecuritySections.tsx:42` and `useMfaEnrollment.ts:84` carry
-the same pattern applied to the same string. No drift today; the risk is
-RT-1149-F3.
-
-## Sound searches that found nothing
-
-- **Other sentence-sniffing classifiers over UI error strings.**
-  `rg -n "test\((error|err|message|text)\)" src/app src/components --glob '!**/__tests__/**'`
-  returns exactly two hits: `useMfaEnrollment.ts:84` and
-  `SecuritySections.tsx:42`. No third surface classifies an error by its prose.
-- **Other provider-text interpolations in the hook.** Every other dispatched
-  error is a fixed constant (enumerated under RT-1149-F2). Zero siblings.
-- **Other consumers of the hook.** `rg -l useMfaEnrollment src --glob '!**/__tests__/**'`
-  → `SecurityClient.tsx` and `SecuritySections.tsx` only (plus the two files
-  that merely name it in comments). One consumer surface, already reviewed.
-- **Does anything already bind the two regex copies?**
-  `SecurityClient.test.tsx:158-168` tests `isStepUpRequiredError` directly, but
-  only against literal strings — nothing ties it to the hook's copy. This is the
-  gap RT-1149-F3 names.
-- **Operational completeness (duty 5).** The diff adds no terminal or swallowed
-  operator-actionable failure path: it rewrites one browser-side error sentence
-  into another, emits no Sentry signal, logs nothing, and touches no worker,
-  webhook or queue. No row in `docs/runbooks/beta-launch-alerting.md` is owed,
-  and none is orphaned. Nothing found, and the search was sound.
+- **Duty 4, the fixed doc-citation pattern.** `rg -n 'proxy\.ts[^|]{0,40}`:[0-9]+-[0-9]+`|proxy\.ts:[0-9]+' docs/ --glob '!docs/reviews/**'`.
+  Two siblings carry the SAME stale `src/proxy.ts:92-103` citation for
+  `getAalGate`: `docs/adr/0025-dual-mode-admin-gate.md:46` and `:176`.
+  `git diff --stat 75c8d54c 751f3dfc` lists every file this branch touches and
+  `docs/adr/0025-dual-mode-admin-gate.md` is NOT among them, so neither site is a
+  finding against this branch. Recorded in the appendix so it is not lost.
+- **Duty 4, the duplicated step-up pattern.** `rg -n "sign in again" -i src/ docs/ --glob '!docs/reviews/**'`.
+  Exactly two production copies of the classifier pattern exist
+  (`useMfaEnrollment.ts:84`, `SecuritySections.tsx:42`) — the pair RT-1149-F6
+  describes. The other `sign in again` strings
+  (`FinishSignupClient.tsx:37-38`, `action-copy.ts:50`,
+  `enrollment-reducer.ts:69`, `onboarding-error-copy.ts:16`) are session-expiry
+  copy on surfaces that never feed `SecurityErrorNotice`; none can reach the
+  predicate. Zero additional siblings.
+- **Duty 2, fragile assertions in the round-3 hunks.** All three added
+  assertions are behavioural: two call the real consumer predicate, one asserts
+  set non-membership. No absence-of-tag proxy, no exact string count on rendered
+  output, no order assertion. Nothing found, and the search was sound.
+- **Duty 5, operational completeness.** The round-3 diff adds no production code
+  at all — two test assertions, one test import, one documentation line span. It
+  emits no Sentry signal, logs nothing, and touches no worker, webhook, queue or
+  migration. No row in `docs/runbooks/beta-launch-alerting.md` is owed, and none
+  is orphaned. Nothing found, and the search was sound.
 
 ## Protocol notes
 
-- `round-start` reported **round 2 open**, 20 minutes of test time available.
-  Preconditions all passed first: clean tree at a committed SHA, `watchers`
-  reported none serving this worktree, journal closed.
-- Spend: **14 launches, 14 seconds** of measured test time out of 1200. Nothing
-  in the inventory was left unmeasured for budget; there are no `skipped-budget`
-  rows and no `inconclusive` rows.
-- Every mutation went through `mutation-runner.mjs mutate` (blob OID journalled
-  before the write) and was restored via `finalize` before the next one, with
-  `git status --porcelain --untracked-files=no` verified empty between cycles.
-  Every launch ran under the paused supervisor with `assert-one-test`
-  confirming exactly one executed test.
-- **Environment, and one recorded deviation.** `env --tmp-home` was used for
-  every run: `PATH`, a temporary `HOME`/`TMPDIR`, `NODE_ENV=test`, `CI=true`,
-  `MOCK_EXTERNAL_APIS=true`, `REPWORTH_DISABLE_LIVE_DB_SUITES=1`. The
-  `dotenv-swap` was **not** performed, deliberately, and the reason is checkable
-  rather than asserted: `vitest.setup.ts` loads no dotenv file — it only assigns
-  `process.env.X = process.env.X ?? '<dummy>'` defaults on an already-scrubbed
-  environment — and every candidate here is a pure or jsdom unit test with the
-  Supabase browser client fully mocked, so no `.env.local` value is read on any
-  executed path. Introducing the swap partway would also have broken the skill's
-  harder requirement, that baseline and mutant run under the IDENTICAL
-  environment; every pair in this round did.
+- Preconditions all passed before anything ran: `git status --porcelain` empty
+  at a committed SHA; `mutation-runner.mjs watchers` reported "none — no dev
+  server, watch worker, or E2E server is serving this worktree"; `round-start`
+  reported **round 3 open, 20 min of test time available**, which is itself the
+  proof that the runner accepted the sidecar's authorization.
+- **Spend: 8 launches, 14 seconds** of measured test time out of 1200 (2
+  baselines, 5 mutant runs, 1 regression sweep of four suites). Nothing was left
+  unmeasured for budget.
+- `run-grants.md` was read. Every grant in it is pinned by exact branch, SHA and
+  authorization id to another branch (`feat/1185`,
+  `codex/operator-fallow-refactor`, Runs C, D, E); **none applies here** and none
+  was invoked. The 20-minute/400-launch default governed this round.
+- Every mutation went through `mutation-runner.mjs mutate` (original blob OID
+  written to the object database BEFORE the write) and was restored via
+  `finalize` before the next one, with `git status --porcelain` verified empty
+  between cycles. Every launch ran under the paused supervisor with
+  `assert-one-test` confirming exactly one executed test.
+- **Environment.** `env --tmp-home` for every run (`PATH`, a temporary
+  `HOME`/`TMPDIR`, `NODE_ENV=test`, `CI=true`, `MOCK_EXTERNAL_APIS=true`,
+  `REPWORTH_DISABLE_LIVE_DB_SUITES=1`), and — unlike round 2, which recorded a
+  deliberate deviation here — **`dotenv-swap` WAS performed** for every mutation
+  cycle and restored by `finalize`. Baseline and mutant always ran under the
+  identical environment.
 - Per the session's constraint, every test command ran as
   `env -u WORKTREE_EDIT_GUARD_DISABLE …`. No hook, guard or settings file was
-  read for modification or modified.
-- No infra class events: no exit 143, no coverage `.tmp` ENOENT, no retries.
-- **Artifact write.** The `Write` tool refused this `findings.md` on a generic
-  "subagents should not write report files" guard. It was not routed around
-  silently: the refusal is recorded here and in the handback, and the file was
-  written through the same shell path that wrote `findings.json`, which the
-  intake's `allowed_edit_surface` explicitly permits
-  (`docs/reviews/red-team/*1149*/*`) and which the skill requires to exist
-  alongside the sidecar.
+  read for modification or modified. Nothing was committed, staged, pushed,
+  rebased, or branch-switched.
+- No infra-class events: no exit 143, no coverage `.tmp` ENOENT, no retries.
+- **Artifact write — disclosed, not routed around silently.** The `Write` tool
+  refused this `findings.md` with, verbatim: *"Subagents should return findings
+  as text, not write report files. Include this content in your final response
+  instead."* — the same guard rounds 1 and 2 hit. The file was written through
+  the same shell path that wrote `findings.json`, which the intake's
+  `allowed_edit_surface` explicitly permits (`docs/reviews/red-team/*1149*/*`)
+  and which the skill requires to exist alongside the sidecar. The refusal is
+  recorded here and in the handback.
 
 ## Low-confidence appendix — unrelated, untriaged
 
-Noted while reading in-scope files; outside the round-2 scope, not investigated,
-and NOT a finding.
+Noted while reading in-scope files; outside the round-3 scope, not investigated,
+and NOT findings against this branch.
 
+- **`docs/adr/0025-dual-mode-admin-gate.md:46` and `:176`** both cite
+  `src/proxy.ts:92-103` for the proxy's `getAalGate` — the exact stale span
+  RT-1149-F4 corrected in `docs/directory/lib-platform.md`. At HEAD those lines
+  are `adminCorsPreflight`; `getAalGate` is at `:260-271`. Neither ADR line is
+  touched by any commit on this branch (`git diff --stat 75c8d54c 751f3dfc`), so
+  the drift pre-dates it and belongs to whoever next edits that ADR.
 - `src/components/auth/useMfaEnrollment.ts:170-172` (pre-existing, unchanged by
-  this diff) says "Both the owner settings surface and the admin security
+  this branch) says "Both the owner settings surface and the admin security
   surface consume this hook". At HEAD the only consumers found are
-  `src/app/(authenticated)/settings/security/SecurityClient.tsx` and
-  `SecuritySections.tsx`; no admin surface was located. Either the admin surface
-  was removed or renamed, or the search missed it — unverified either way.
+  `SecurityClient.tsx` and `SecuritySections.tsx`; no admin surface was located.
+  Carried from round 2, still unverified either way.
 
 ## Authorizations
 
-None. No finding in this report is `accepted-risk`.
+Rendered from `findings.json`'s `authorizations` array, which was preserved
+byte-for-byte from the round-2 sidecar.
+
+- **`owner-third-round-2026-09-21`** (2026-09-21), covering `RT-1149-F3`,
+  `RT-1149-F4`, `RT-1149-F5`:
+
+  > Owner authorization for a third round. Asked on 2026-09-21: "Runs A and B:
+  > do you authorize a THIRD red-team round for each, scoped only to the round-3
+  > fix hunks? Without it, neither run can reach 'reviewed' unless known defects
+  > stay unfixed." The owner selected, verbatim: "Authorize both (Recommended)".
+  > Scope: the round-3 fix hunks only. This grant authorizes verification work;
+  > it accepts no finding.
+
+No finding in this report is `accepted-risk`; the grant authorized the round, not
+a waiver.
