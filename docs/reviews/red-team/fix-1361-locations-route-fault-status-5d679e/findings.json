@@ -208,6 +208,12 @@
         "P2-3"
       ],
       "text": "Owner authorized accepting both P2 findings as risk on 2026-09-20, asked directly with each finding, its failure scenario and the cost of fixing it in front of them. P2-1 (no test distinguishes `err instanceof AuthError` from a `name` comparison; a look-alike with no statusCode would render 200): the line is byte-identical at merge-base 10377aa9b and identical in shape in all four gates including requireRoleOr401, and round 2 measured that this change does not worsen it — pinning the guard is a codebase-wide change, not a #1361 change. P2-3 (nothing pins the consumer-layer re-throw at edit-reply-request.ts:82 and :189, so reintroducing a catch-all 401 one layer up on five past-replies routes leaves 123/123 tests green): both lines are byte-identical at merge-base, so the gap is pre-existing and not introduced here, and the resolveOwnerScope fix these lines protect is itself independently pinned by 6 of 6 killed mutants in round 2. Both were declined for this branch because closing either needs a THIRD surface amendment, past the two the abort criteria allow. Both are to be filed as follow-up issues at step 8."
+    },
+    {
+      "id": "owner-1361-third-round",
+      "date": "2026-09-20",
+      "finding_ids": [],
+      "text": "Owner authorized a THIRD ROUND of the red-team pass on 2026-09-20, asked directly and answered \"Go for round 3 yes\". Reason stated when asking: round 2 found three real P1s in the runbook row this branch adds (wrong affected-route count, a rule-number collision with an existing Rule 12, and a rule that could not be configured for lack of a name, level, threshold, window, throttle and destination). All three were documentation defects written by this run, so the third round exists to adversarially verify those corrections at current HEAD rather than to re-verify the code, which two clean mutation rounds and a Codex APPROVED already cover. The third round is additionally needed because the round-2 sidecar is stale by construction: fixing its own findings moved HEAD and amending the estimate changed the intake, so intake_sha256 and head_sha no longer match. Those freshness fields were deliberately NOT edited by hand; a fresh round is the honest way to make them current."
     }
   ],
   "counts": {
