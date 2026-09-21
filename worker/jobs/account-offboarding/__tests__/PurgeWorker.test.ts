@@ -302,9 +302,38 @@ function rule16TableRow(block: string): string {
   return row!;
 }
 
+/** A markdown table row's cells, split on unescaped `|` (an escaped `\|` stays in its cell). */
+function tableCells(row: string): string[] {
+  // A well-formed row opens and closes with `|`, so the outer two parts are empty.
+  return row
+    .split(/(?<!\\)\|/)
+    .slice(1, -1)
+    .map((cell) => cell.trim());
+}
+
+/**
+ * A named column's index, READ OFF rule 16's own header row rather than
+ * hard-coded — inserting a column has to move the assertions, not silently
+ * re-point them at a neighbouring cell.
+ */
+function rule16ColumnIndex(block: string, columnHeader: string): number {
+  const headerRow = block
+    .split('\n')
+    .find((line) => line.startsWith('|') && line.includes('Rule name'));
+  expect(headerRow, 'rule 16 has no table header row').toBeDefined();
+  const index = tableCells(headerRow!).indexOf(columnHeader);
+  expect(index, `rule 16's table has no "${columnHeader}" column`).toBeGreaterThan(-1);
+  return index;
+}
+
+/** Regex metacharacters escaped, so a constant is matched literally and never widens the pin. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** `[a, b, …]` as the runbook spells a fingerprint, from the constants themselves. */
 function fingerprintPattern(members: readonly string[]): RegExp {
-  return new RegExp(`\\[\\s*${members.join(',\\s*')}\\s*\\]`);
+  return new RegExp(`\\[\\s*${members.map(escapeRegExp).join(',\\s*')}\\s*\\]`);
 }
 
 describe('AccountOffboarding PurgeWorker', () => {
@@ -928,34 +957,61 @@ describe('AccountOffboarding PurgeWorker', () => {
       // rather than hand-copied, because "the runbook and the worker agree" is
       // a claim about two artifacts and a copy only ever proves the copy.
       //
-      // Every assertion is scoped to rule 16's own TABLE ROW — the cells the
-      // operator copies into the Sentry form. A file-wide `toContain` passed
-      // with that row corrupted to `terminal equals false` at `warning` on the
-      // retry fingerprint (red-team RT-A6), because §1's bullet carries the
-      // same strings. Patterns, not literals: the prose around each cell is
-      // free to change, the configured VALUES are not.
+      // Every assertion is scoped to one named CELL of rule 16's own table row —
+      // the cells the operator copies into the Sentry form — and each cell is
+      // located by its header, not by a hard-coded index. A file-wide
+      // `toContain` passed with the row corrupted to `terminal equals false` at
+      // `warning` on the retry fingerprint (red-team RT-A6), because §1's
+      // bullet carries the same strings; a ROW-wide regex then still passed
+      // when the two fingerprint spellings were SWAPPED inside the row, because
+      // each pattern found itself in the other cell's sentence (red-team
+      // RT16-02). Position, not mere presence, is what the operator reads.
       const block = rule16Block(readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8'));
-      const row = rule16TableRow(block);
+      const cells = tableCells(rule16TableRow(block));
+      const filterCell = cells[rule16ColumnIndex(block, 'Emitted identity and filter')]!;
+      const groupingCell = cells[rule16ColumnIndex(block, 'Level and grouping')]!;
+      const triggerCell = cells[rule16ColumnIndex(block, 'Trigger and destination')]!;
 
-      // Filter: the four facets that decide WHICH events reach Discord.
-      expect(row).toMatch(/`terminal`\s+equals\s+`true`/);
-      expect(row).not.toMatch(/`terminal`\s+equals\s+`false`/);
-      expect(row).toMatch(/level\s+equals\s+`error`/);
-      expect(row).toMatch(/`subsystem`\s+equals\s+`account_offboarding`/);
-      expect(row).toMatch(/`step`\s+equals\s+`purge`/);
+      // Filter: the facets that decide WHICH events reach Discord.
+      expect(filterCell).toMatch(/`terminal`\s+equals\s+`true`/);
+      expect(filterCell).not.toMatch(/`terminal`\s+equals\s+`false`/);
+      expect(filterCell).toMatch(/level\s+equals\s+`error`/);
+      expect(filterCell).toMatch(/`subsystem`\s+equals\s+`account_offboarding`/);
+      expect(filterCell).toMatch(/`step`\s+equals\s+`purge`/);
+      expect(filterCell).toMatch(/scope to the deployment environment/i);
 
-      // Grouping: the terminal fingerprint's constant members, then the
-      // per-offboarding member that keeps one account's issue off another's.
-      expect(row).toMatch(
-        fingerprintPattern([...PURGE_TERMINAL_FINGERPRINT_PREFIX, '<account_offboarding_id>']),
-      );
-      // The retry spelling is pinned too — renaming it silently unmatches the
-      // rule's own explanation of why the two arms are separate issues.
-      expect(block).toMatch(fingerprintPattern(PURGE_RETRY_FINGERPRINT));
+      // Level: the grouping cell configures it a second time, and a rule saved
+      // at `warning` never fires on this `error` event. It has to OPEN with the
+      // level, which is where the operator reads it.
+      expect(groupingCell).toMatch(/^`error`/);
 
-      // Trigger: first-seen is the RT-08 defect this whole rule exists to undo.
-      expect(row).toMatch(/every event/i);
-      expect(row).not.toMatch(/first[\s-]seen/i);
+      // Grouping, POSITION-SCOPED. The cell states the terminal grouping first
+      // and introduces the retry arm in its own sentence; each fingerprint must
+      // appear in its own part and NOWHERE in the other, or swapping the two
+      // spellings reads green.
+      const retryArmStart = groupingCell.indexOf('The retry arm');
+      expect(retryArmStart, "rule 16's grouping cell has no retry-arm sentence").toBeGreaterThan(-1);
+      const terminalGrouping = groupingCell.slice(0, retryArmStart);
+      const retryArm = groupingCell.slice(retryArmStart);
+
+      const terminalFingerprint = fingerprintPattern([
+        ...PURGE_TERMINAL_FINGERPRINT_PREFIX,
+        '<account_offboarding_id>',
+      ]);
+      const retryFingerprint = fingerprintPattern(PURGE_RETRY_FINGERPRINT);
+
+      expect(terminalGrouping).toMatch(terminalFingerprint);
+      expect(terminalGrouping).not.toMatch(retryFingerprint);
+      expect(retryArm).toMatch(retryFingerprint);
+      expect(retryArm).not.toMatch(terminalFingerprint);
+
+      // Trigger and destination: first-seen is the RT-08 defect this whole rule
+      // exists to undo, and the throttle's SCOPE is what the per-offboarding
+      // third fingerprint member is built on.
+      expect(triggerCell).toMatch(/every event/i);
+      expect(triggerCell).not.toMatch(/first[\s-]seen/i);
+      expect(triggerCell).toMatch(/action throttle\s+60\s+minutes\s+per\s+issue/i);
+      expect(triggerCell).toMatch(/integration\s+443670\b/);
     });
   });
 

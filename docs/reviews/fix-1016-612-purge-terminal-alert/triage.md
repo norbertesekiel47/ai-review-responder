@@ -24,3 +24,28 @@ status OPEN_P0). Every axis: REVISE. The per-finding JSONL transcript (`review-l
 | Codex A2 — a watchdog-terminalized purge carries no offboarding id | P1 | REJECT for this run → issue | Pre-existing, outside the surface (`OutboxPoller`, `AccountOffboardingPurgePoller`). Filed as a follow-up issue; the runbook names the uncovered path. |
 | Codex A3 · Spec F4 · RT16-06 — `account_offboarding_not_found` and a `loadPurgeOffboarding` throw raise no rule-16 event | P2/P3 | REJECT for this run → issue | Pre-existing; changing them is new alerting behavior the intake does not name. Filed; the runbook stops presenting rule 16 as the only page and names both paths. |
 | RT16-04 · RT16-05 — `TeardownWorker` and `BillingScheduleWorker` carry the same RT-08 shape | P1 | REJECT for this run → issue | Sibling defects, outside the surface. Filed as one follow-up issue. |
+
+Issues filed 2026-09-21: #1411 (no recovery path for a terminally failed purge), #1412 (the Teardown/BillingSchedule
+siblings), #1413 (the three purge paths that raise no signal naming the offboarding).
+
+# Round 2 (verification-only) — fix commit `4070fad8bb141455be5a51d598563dd355ad5aa1`
+
+Members: one Claude verification agent (`round-2-verification.md`, 11/11 accepted findings ADDRESSED, REVISE on
+defects the fixes introduced), the Codex session resumed (`adversarial-round-2.md`, REVISE), red team round 2
+(22 mutations; the exact round-1 survivor RT-A6 is KILLED; 3 new survivors; status OPEN_P0). The red-team cap is
+two rounds; the owner authorized a third round on 2026-09-21, scoped to the round-3 fix hunks, and adjudicated the
+open out-of-scope P1s as accepted risk tracked in #1412/#1413 (both recorded in the sidecar).
+
+| Finding | Sev | Verdict | Reason |
+|---|---|---|---|
+| RT16-02 (still open) — the row-scoped regexes match the OTHER cell's sentence, so SWAPPING the two fingerprint spellings inside rule 16's row survives | P0 | ACCEPT | Measured by the red team. Position-scope the assertions: the terminal fingerprint must appear in the grouping cell's head; the retry fingerprint only in the retry-arm sentence. |
+| RT16-10 · Verif N1 · Codex A4 — the row states the level twice and only the filter cell is pinned; throttle and destination are unpinned; the new prose promises more than the pin checks | P2 | ACCEPT | Pin the grouping cell's level, the 60-minute per-issue throttle and integration 443670; make the prose claim exactly what the pin asserts. |
+| RT16-09 · Verif N2 · Codex — `stripCommentLines` drops CODE lines that begin with `*` or `/*` | P2 | ACCEPT | Three reviewers; the red team measured a respelling on a `*`-leading continuation line staying green. Strip only the COMMENT PART of a line and keep any code on it. |
+| Verif FALSE claim — "no admin route mutates purge state" | — | ACCEPT | False as written: the provider-disposition admin route writes `status`/`failed_step`. True in scope: it refuses a `failed_step='purge'` row. Say that. |
+| Verif FALSE claims — "reads them back out of the table row" / "asserts on its table ROW … BOTH constants" (runbook `:578`, ledger) | — | ACCEPT | Made true by the RT16-02 fix; reword to match what the pin really asserts. |
+| Codex — runbook `:578` "keeps a repeat failure on the same offboarding from being swallowed" | — | ACCEPT | Too strong: the SAME offboarding is still throttled for 60 minutes. Only the cross-offboarding guarantee holds. |
+| Verif N3 — a systemic N-offboarding failure now sends N pages with no aggregate ceiling | P3 | ACCEPT (one sentence) | Owner-decided trade-off; the rule documents only the benefit. State the cost. |
+| Verif N4 — `fingerprintPattern` interpolates constants into a `RegExp` unescaped | P3 | ACCEPT | Escape regex metacharacters. |
+| RT16-04 · RT16-05 · RT16-06 — out-of-scope siblings and the silent not-found path | P1/P2 | ACCEPTED RISK (owner, 2026-09-21) | Tracked in #1412 and #1413; listed in the PR body. |
+
+Round 3 for this branch is the authorized third red-team round on the fix hunks.

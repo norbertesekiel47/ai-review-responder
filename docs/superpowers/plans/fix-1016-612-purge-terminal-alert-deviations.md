@@ -162,3 +162,31 @@ review wave, and this branch already ran the full high-risk wave (four axes
 plus red team) and owes the scoped round 2.
 
 **Verdict:** ACCEPT — growth is review-driven test rigor, not scope drift.
+
+## 2026-09-21 — Review round 2: the doc pin was still beatable, and the owner authorized a third red-team round
+
+**What.** Round 2 confirmed 11 of 11 accepted findings addressed and killed the
+exact round-1 survivor, but the red team then SWAPPED the two fingerprint
+spellings inside rule 16's row and the pin stayed green (RT16-02 stays P0): its
+row-scoped regexes could match the other cell's sentence. Two more survivors:
+the grouping cell's level token (RT16-10), and a key respelled on a `*`-leading
+code line that the new comment filter dropped (RT16-09 — a false negative the
+round-1 fix INTRODUCED; three reviewers found it independently). Verification
+also caught prose that promised more than the pin checked, and one sentence that
+was false as written ("no admin route mutates purge state": the
+provider-disposition route writes that state; it refuses a `failed_step='purge'`
+row).
+
+**Why it comes to the owner.** Any fix moves the tree past the round-2 sidecar's
+`head_sha`, the skill caps the red team at two rounds, and an open P0 at the cap
+is the owner's by rule. Two decisions of 2026-09-21, both recorded verbatim in
+the sidecar's `authorizations`: a third round, scoped to the round-3 fix hunks;
+and RT16-04, RT16-05 and RT16-06 (the Teardown/BillingSchedule siblings and the
+silent not-found path) accepted as out of scope, tracked in #1412 and #1413.
+
+**Lesson worth promoting.** A test that pins prose to code needs POSITION, not
+just presence: three rounds of "does the string occur" were beaten by moving the
+string. Assert which cell, and which sentence, carries which value.
+
+**Verdict:** ACCEPT — owner-authorized; the alternative was shipping a pin that
+a swap defeats.

@@ -83,8 +83,8 @@ const LANE_ROOTS = ['src/lib', 'worker'];
 // is followed by an interpolation (`csv_ingest_${businessId}`). The unrelated
 // `csv_ingest_exhausted` outbox reason is outside the pattern.
 //
-// Exactly what this guard sees, stated plainly. COMMENT lines are stripped
-// before the pattern runs (`stripCommentLines` below), so prose that spells the
+// Exactly what this guard sees, stated plainly. COMMENT TEXT is stripped
+// before the pattern runs (`stripComments` below), so prose that spells the
 // key — `hashtext('csv_ingest_' || id)` in purge-stages.ts, for one — is not a
 // finding, and production comments are never reworded to appease this test. And
 // a key assembled by other string means (`['csv_ingest', id].join('_')`,
@@ -94,18 +94,26 @@ const LANE_ROOTS = ['src/lib', 'worker'];
 const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
 
 /**
- * Source with `//`, `*` and `/*` lines removed, so the scan reads CODE only.
- * Line-granular on purpose: a trailing comment on a code line stays, which
- * errs toward a false positive rather than a missed respelling.
+ * Source with its COMMENT PARTS blanked out and every other character kept, so
+ * the scan reads code — including code that shares a line with a comment.
+ *
+ * Deliberately NOT line-granular. Dropping whole lines that open with `*` or
+ * `/*` also drops real code: the second line of a wrapped expression, code
+ * following a closing block comment on the same line, and a leading inline
+ * pragma such as `/* c8 ignore next *\/ const key = ...`. The red team walked
+ * straight through that hole (RT16-09) — a guard whose only job is catching a
+ * respelling must not go blind on a line because of how it starts.
+ *
+ * Documented imprecision: this is a scanner, not a tokenizer, so a `//` inside
+ * a string or regex literal is treated as a comment. That can only ever hide
+ * text AFTER the `//` on that line; it never drops code that follows a `*\/`
+ * or a line that opens with `*`, which is the failure mode that mattered.
+ * Comments are replaced space-for-space so line and column positions survive.
  */
-function stripCommentLines(source: string): string {
-  return source
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trimStart();
-      return !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*');
-    })
-    .join('\n');
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) =>
+    comment.replace(/[^\n]/g, ' '),
+  );
 }
 
 function* walkLaneSources(dir: string): Generator<string> {
@@ -140,7 +148,7 @@ function laneSourceFiles(): { path: string; absolutePath: string }[] {
 function laneFilesBuildingTheLockKey(): string[] {
   return laneSourceFiles()
     .filter((file) =>
-      LOCK_KEY_CONSTRUCTION.test(stripCommentLines(readFileSync(file.absolutePath, 'utf-8'))))
+      LOCK_KEY_CONSTRUCTION.test(stripComments(readFileSync(file.absolutePath, 'utf-8'))))
     .map((file) => file.path)
     .sort();
 }
