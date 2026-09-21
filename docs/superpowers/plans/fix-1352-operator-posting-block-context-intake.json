@@ -142,7 +142,7 @@
     "rereading the same pending proposal adds and removes Posting block sentences as current settings change"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 520,
+  "estimated_prod_lines": 240,
   "estimated_test_lines": 520,
   "dependencies_added": [],
   "rollback_plan": "Revert the merge commit. There is no migration, no new flag and no new env var, so revert restores both the Operator wording and the previous readiness entitlement in one step. AUTOPILOT_PURCHASABLE keeps its own meaning throughout and needs no change either way.",

@@ -320,3 +320,40 @@ rather than taken on the writer's word:
 **The entry the review wave should attack first is D7.** It rewrites red-team
 freshness pins on a branch that is about to be red-teamed, and the underlying
 claim ("this mutant still kills this assertion") is inferred, not re-run.
+
+---
+
+## D10 — Both line estimates are knowingly exceeded, and neither was re-fitted
+
+**When:** step 5, after the review wave.
+
+**What.** `estimated_prod_lines` stays **240** and `estimated_test_lines` stays
+**520**. The gate's `reclassify` row WARNs on both. Neither number was raised to
+silence it.
+
+**The earlier bump, and why it was reverted.** `estimated_prod_lines` was raised
+240 → 520 after the first gate WARN. The owner flagged that move on sight, and
+they were right to: changing an estimate after seeing the actual is how a
+warning gets laundered into a pass. It is reverted here.
+
+**Why the WARN stands rather than the number moving.** The gate's
+`reclassify_bucket` skips plans, reviews and lab notes but COUNTS ADRs, glossary
+and directory pages as production. The honest split at the time of the first
+WARN was 338 lines of `src/` code against a 240 estimate — **1.4x**, under the
+trigger — with the rest being a 150-line ADR and the glossary and directory
+edits the change required. The test bucket then grew again when the review wave
+added coverage the reviewers demanded: the P0 card arity, the untested restore
+branch, the admin entitlement boundary, and the narrowed prompt rule.
+
+**What the trigger asks for, and the answer.** Step 5 says re-run step 0 with
+the real numbers. Re-run: `size` is still **standard** (six tracers, one risk
+domain, a tight surface), `risk` is still **high** (an auto-approval gate moved),
+`surface` is still **backend**. Test-line volume moves no axis. The
+classification that drove every process decision on this branch — the plan
+skeptic rounds, the review wave, the red-team pass, the staging ride — is
+unchanged, so re-deriving it would produce the same three values.
+
+The WARN is therefore left visible in the gate output as an accurate statement:
+this change wrote more tests than it predicted. That is the honest record.
+
+**Verdict:** ACCEPT
