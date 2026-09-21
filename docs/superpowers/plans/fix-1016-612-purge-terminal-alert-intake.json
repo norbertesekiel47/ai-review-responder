@@ -56,6 +56,7 @@
     "worker/jobs/account-offboarding/purge-stages.ts",
     "docs/runbooks/beta-launch-alerting.md",
     "src/lib/solicitation/__tests__/ingest.test.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/fix-1016-612-purge-terminal-alert-*",
     "docs/reviews/fix/1016-612-purge-terminal-alert/*",
     "docs/reviews/red-team/*1016*/*"

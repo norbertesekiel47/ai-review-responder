@@ -91,3 +91,18 @@ surface unchanged, no amendment. The estimate was wrong, not the scope.
 
 **Verdict:** ACCEPT — estimation error on a docs bucket; classification and
 lane are unchanged.
+
+## 2026-09-21 — Surface amendment 1: `.claude/reference/arch-review-log.md`
+
+**What.** `ci:merge-ledger` requires one added ledger line from any branch that
+changes a production file. The intake did not list the ledger file and the
+edit-surface guard does not always-allow it. The lead's gates passed the row
+vacuously: the audit reads the COMMITTED range and the lead made no commits.
+The sibling run fix/1149 surfaced it on its first post-commit gate.
+
+**What the root did.** Owner approved the amendment on 2026-09-21 (one question
+covered all three swarm runs). Both intake copies updated, `incr-amendment`
+counted (surfaceAmendments=1), one ledger line added.
+
+**Verdict:** ACCEPT — process-ledger path required by a CI audit;
+owner-approved; no locked decision changes.
