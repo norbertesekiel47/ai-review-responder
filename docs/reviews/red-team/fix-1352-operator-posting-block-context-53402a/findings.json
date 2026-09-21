@@ -5,7 +5,7 @@
   "branch": "fix/1352-operator-posting-block-context",
   "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
   "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
-  "head_sha": "188b31dd3d68ccfc132ccaef0ce3d1093e738f1b",
+  "head_sha": "324d94b65",
   "intake_sha256": "f01c796c90d76796b6992afd6e0b507e97dda033e974ddd8c63a2791f7b12d5d",
   "risk": "high",
   "round": 2,
@@ -169,8 +169,8 @@
       "title": "The directory page's proposals.ts row was not swept for FIX 3 or for the new field: its enumeration of when the Posting-block read is skipped is now incomplete, and postingBlockNowSentences is undocumented",
       "at": "docs/directory/lib-owner-operator.md:30",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "The row states: \"`mapStoredRows` is the ONE place all seven reads converge, so it reads the account-wide **Posting block** there - once per batch via `getAutoApprovalPostingStatus`, sequentially (one pooled connection, no `Promise` combinator), and never for an empty read.\" The trailing clause is offered as the sole exception, and at the round-1 HEAD it WAS the sole exception. FIX 3 (proposals.ts:641-650) added a second: a non-empty batch in which no row is PENDING or APPLIED issues no `FROM accounts` statement either and receives the neutral `{ blocked: false, reasons: [] }`. A reader of this row concludes every non-empty batch issues the account read; at HEAD that is false, and inventory row RT2-M09 measures exactly that skip. Separately, the row is the code map for this file and never mentions `postingBlockNowSentences` — a new PUBLIC field on `ProposalView` with its own three-condition predicate and its own optional/required asymmetry, all of which the row's existing sentences describe for the sibling field. `ci:directory-map` cannot catch either: it audits row EXISTENCE per production file, not row content, and `proposals.ts` still has a row. The same wave rewrote the `prompt.ts` row six lines above (RT-03) and the `context.ts` row's source comment, so this is a missed file in a sweep that was performed, not an absent sweep. Not P0: the skip is behaviour-preserving (see RT2-M07's proof that a neutral status and an unblocked account produce the same `[]`), so the false clause misleads about mechanism, not about owner-visible behaviour."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed at 324d94b65. The proposals.ts directory row now states BOTH skip cases (empty read returns before any statement; a non-empty batch with no PENDING and no APPLIED row passes a neutral {blocked:false,reasons:[]}) and BOTH fields, with the PENDING vs APPLIED split and the optional-on-view/required-on-CardFacts compile guard named. ci:directory-map passes; it audits row existence, not content, which is why nothing mechanical caught this."
     },
     {
       "id": "RT-07",
@@ -178,8 +178,8 @@
       "title": "Narrowing correctionOwed to unsolicited mention in rule 2 left rule 5's \"and only when correctionOwed is true\" un-narrowed, so the two rules instruct opposite things for a suspended account asked a direct question",
       "at": "src/lib/agents/operator/prompt.ts:88",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "The fix rewrote prompt.ts:85 from a blanket silence rule into a permission: \"If the owner asks directly whether anything is stopping replies from posting automatically, or asks what a proposed change would do, you may answer from snapshot.posting.sentences, stating each string you use verbatim and adding nothing.\" prompt.ts:88 was NOT touched and still reads: \"When the account default is suspended, state the suspension first. Then, and only when snapshot.posting.correctionOwed is true, state each Posting block sentence once.\" \"Only when X\" is an exclusivity claim over the same act the new rule 2 now permits when X is false. On a suspended account with correctionOwed=false where the owner asks directly, rule 2 permits stating the sentences and rule 5 forbids it. The branch's own test encodes the un-narrowed form: prompt.test.ts asserts every rule containing 'Posting block' also contains 'correctionOwed', which rule 5 satisfies in exactly the shape that conflicts. Suspension is not a corner case here — `policy_suspended` is a Governor outcome and the Operator surface is the one an owner uses to ask what is wrong. The minimal correction is to give rule 5 the same carve-out, or to scope its 'only when' to the unprompted composition it is really about. HONEST TENSION, recorded for the arbiter: the task's known-and-accepted list says the chat sentence is a prompt rule with no enforcement and only the CARD half is reportable. This finding is not that the chat half is unguaranteed - it is that the artifact the fix edited now contradicts itself - but an arbiter who reads the accepted item as covering all prompt-text quality may reject it on that basis. It is recorded at P1 rather than P0 because nothing enforces either rule, so the blast radius is one ambiguous model instruction, not a defect a user can trip."
+      "disposition": "fixed",
+      "arbiter_reasoning": "Fixed at 324d94b65. Confirmed a real contradiction, not an instance of the accepted chat-guided limitation: \"only when X\" is a necessary condition, so a suspended account with correctionOwed=false and a direct question was one reachable state receiving two opposite instructions. Unguaranteed and contradictory are different failures - the first says the model may not comply, the second means compliance is undefined. Rule 5 now defers to the same terms as rules 1 and 2; prompt version bumped to 2026-09-20.3; a new test loop forbids a bare \"only when correctionOwed is true\" in any Posting-block rule, and the old rule-5 text was verified to trip it."
     }
   ],
   "authorizations": [],
@@ -197,7 +197,8 @@
     "p2_open": 0,
     "accepted_risk": 0,
     "fixed": 5,
-    "rejected": 0
+    "rejected": 0,
+    "open": 0
   },
-  "status": "OPEN_P1"
+  "status": "CLEARED"
 }

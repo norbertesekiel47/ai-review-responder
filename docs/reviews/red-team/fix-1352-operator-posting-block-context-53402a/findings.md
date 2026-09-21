@@ -390,3 +390,27 @@ Recorded for completeness; below the >= 80 % bar and deliberately not in the tab
 ## Authorizations
 
 None.
+
+---
+
+## Round 2 arbitration — RT-06 and RT-07 closed
+
+Both fixed at `324d94b65`. Round 3 was not available, so the orchestrator
+arbitrated, and both dispositions carry their reasoning in `findings.json`.
+
+**RT-07 deserves the record.** This report correctly noted an arbiter could
+reject it under the project's accepted limitation that the Operator's chat half
+is "guided, not guaranteed", since no code enforces a prompt rule. That
+argument was considered and rejected.
+
+The distinction: an accepted limitation says the model *may not comply*. A
+contradiction means *compliance is not defined*. Rule 2 permitted answering a
+direct question while `correctionOwed` was false; rule 5's "only when
+`correctionOwed` is true" forbade the same sentence. A suspended account whose
+owner asks directly is one reachable state receiving two opposite instructions,
+and both possible model behaviours could be called obedient. That is a defect in
+the artifact, independent of enforcement.
+
+Raising it while flagging that it might be rejected is what made the
+adjudication possible. The tension was recorded rather than hidden, which is the
+behaviour that earns a reviewer its next hearing.
