@@ -2,13 +2,14 @@
 
 - **Branch:** `fix/1361-locations-route-fault-status`
 - **Mode:** feature · **Risk:** high · **Round:** 3 (owner-authorized, `owner-1361-third-round`)
-- **Fork / merge-base:** `10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9`
+- **Fork / merge-base:** `cb90d3f5ee1ae7b827da5446792f344703af3d5e` (was `10377aa9b`; the branch was rebased twice for the up-to-date merge requirement)
 - **Round-1 head:** `e1db9ecbcb8555d3bb115d61ac800777f2bfedfa`
 - **Round-2 head:** `322aeaa5d6e8919767482b73733f21fc805190ff`
 - **Round-3 head:** `702d99ceedec4a33e1f3a24dd0c311b8da22170b`
-- **Head under test:** `1391ab72e5cad42e2aa48cefb0538baff4f00e78` (same-round continuation)
+- **Head under test:** `bbb0ba54d60fd4ea3a279f5c86ae06a351b3852b` (same-round continuation, post-rebase)
+- **Last pre-rebase verified head:** `1391ab72e5cad42e2aa48cefb0538baff4f00e78`
 - **Intake SHA-256:** `b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1`
-- **Generated:** 2026-09-21T00:19:13Z
+- **Generated:** 2026-09-21T00:33:10Z
 - **Status:** `CLEAR` (14 findings: 0 P0, 0 open P1, 0 open P2, 12 fixed, 2 accepted-risk)
 
 This round is SCOPED by the owner's authorization. `git diff 322aeaa5d..702d99cee`
@@ -266,3 +267,48 @@ zero failures). Under this pass's scrubbed, DB-less environment two of those
 files (10 tests) SKIP rather than pass — the counts still reproduce exactly and
 nothing fails, so the figure is sound; the "all passing" qualifier is
 environment-dependent, which is worth knowing but is not a defect.
+
+---
+
+## Same-round continuation — HEAD `bbb0ba54d`, verified across two rebases
+
+The branch was rebased twice to satisfy the up-to-date merge requirement:
+`10377aa9b` → `e737d7de9` (#1378 + its doc sweep) → `cb90d3f5e` (#1397). Every
+SHA was rewritten. The pre-rebase SHAs quoted earlier in this report
+(`322aeaa5d`, `702d99cee`, `1391ab72e`) remain resolvable objects, so that
+evidence trail is still checkable.
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| **a** byte-identity vs `1391ab72e` | **HOLDS** | All three production files, all three test files, `src/instrumentation.ts`, the deviations plan, the plan and the intake: **IDENTICAL**. Two reviewed docs differ, both **purely additive, zero lines removed**. `.feature/intake.json` unchanged (`b44597b9…`). |
+| **b** Rule 15 through #1397 | **HOLDS — prediction confirmed** | #1397 inserted +20/-0 at line 978, ~480 lines below Rule 15. The 63-line Rule 15 block hashes to the same `sha256:899c8f7bbb0dd043` at `1391ab72e` and at HEAD — **byte-identical, `transaction` clause included**. Rule headings 5, 6, 9, 10, 11, 12, 13, 14, 15 — **no duplicate**. #1397's block appears exactly once; **0 lines of main's runbook missing from HEAD**. |
+| **c** arch-review-log | **HOLDS** | +1/-0 vs `1391ab72e`. The #1361 entry appears **exactly once** and is **sha-identical**; #1378's row exactly once; #1397 added no ledger row (it did not touch the file). Line counts reconcile: `cb90d3f5e` 2103 + 2 = HEAD 2105. **0 lines removed** vs the new merge-base. |
+| **d** duty-4 re-sweep | **HOLDS** | Exactly **8** `instanceof AuthError` sites, same files and lines as round 3. #1397's docs-only claim **verified, not trusted**: every path in `cb90d3f5e` is under `docs/`, and `git diff e737d7de9 cb90d3f5e -- src worker` is empty. No new gate, no new catch-all-401. |
+| **e** PR figures at the new fork | **HOLDS** | `pnpm vitest run --changed $(git merge-base origin/main HEAD)` → substitution resolves to `cb90d3f5e` → **26 files / 368 tests**, exactly as printed. Helper suites **2 / 38**; `resolve-owner-scope.test.ts` **13**; numstat **21 added / 9 removed** (30). Enumeration unchanged: 1/6/4 gate-consumer files, 142 `route.ts` under `src/app/api`. "Zero remaining catch-all-401 sites" still true. |
+
+### The stale-citation defect and its rebase-proof repair
+
+The first repair of P1-9 hardcoded `--changed 10377aa9b`. The rebase onto
+`e737d7de9` made that command report **39 files / 581 tests** — 10377aa9b was no
+longer the fork point, so the set swept in #1378's files. The figure beside it
+stayed 26 / 368, reopening P1-9's exact failure mode one level down. The
+command-substitution form now in the body cannot go stale, and it survived the
+second rebase unchanged. P1-9's `arbiter_reasoning` has been updated to quote it.
+
+The body also now discloses the DB-gated skip nuance this pass raised: two of the
+26 files (10 tests) run where `TEST_DATABASE_POOL_URL` is set and skip without
+it, with the counts reproducing either way.
+
+### Housekeeping
+
+The stray 0-byte untracked file `discord` is gone, and nothing in the tree
+depends on a file of that name — the only two matches are a
+`getChannel('discord')` negative-test string literal. `git status --porcelain` is
+empty apart from this run's own two artifacts.
+
+`fork_sha` and `merge_base_sha` were moved from `10377aa9b` to `cb90d3f5e` so the
+sidecar's claimed review base is the branch's **actual** fork point. Leaving them
+at `10377aa9b` would have passed the checker (it is still an ancestor) while
+claiming a review scope that now contains #1378's and #1397's work, which this
+pass did not review. `round` stays 3; `intake_sha256` untouched; both
+authorizations and all 14 dispositions preserved unchanged.

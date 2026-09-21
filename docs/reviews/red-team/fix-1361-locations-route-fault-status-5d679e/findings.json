@@ -3,13 +3,13 @@
   "mode": "feature",
   "run_id": "feature-fix-1361-locations-route-fault-status-5d679e",
   "branch": "fix/1361-locations-route-fault-status",
-  "fork_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "merge_base_sha": "10377aa9bc8db7be9f7af1fdd2c5418ba81fabe9",
-  "head_sha": "1391ab72e5cad42e2aa48cefb0538baff4f00e78",
+  "fork_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "merge_base_sha": "cb90d3f5ee1ae7b827da5446792f344703af3d5e",
+  "head_sha": "bbb0ba54d60fd4ea3a279f5c86ae06a351b3852b",
   "intake_sha256": "b44597b9ed7f653e37528ff204d6271e1b002ece9ddae05045f35f9ffb351fe1",
   "risk": "high",
   "round": 3,
-  "generated_at": "2026-09-21T00:19:13Z",
+  "generated_at": "2026-09-21T00:33:10Z",
   "inventory": [
     {
       "id": "round3/production-surface-unchanged-since-round-2",
@@ -90,6 +90,13 @@
       "file": "docs/runbooks/beta-launch-alerting.md",
       "outcome": "excluded",
       "reason": "Not a fourth round and no new mutation candidate: git diff 702d99cee..1391ab72e -- src worker is EMPTY and no test file changed; the one commit touches four documentation/artifact files. All three round-3 fixes re-resolved at HEAD. P1-7: the Rule 15 filter facet now states the method-space-bracketed-path shape, cites captureRequestError.js:20 (verified - setTransactionName is on line 20), gives the worked example POST /api/dashboard/reviews/[reviewId]/approve (approve really is a POST route) and directs a CONTAINS/ends-with match. The contains-match hazard was tested exhaustively against all 142 route.ts paths under src/app/api: exactly one enumerated path is a substring of another real route - /api/dashboard/past-replies/draft, which also matches draft-status and draft/[responseId] - and BOTH are already inside the enumerated twenty, so the union of twenty contains-conditions is exactly the twenty routes with zero over-reach onto the other 122 API routes, and an event-count threshold counts events rather than matching conditions so nothing double-counts. Ends-with is even tighter and also correct for all twenty. P1-8: D4 names the command and reports 2 files / 38 tests - re-measured 2 files / 38 tests, 38 passed. P1-9: the 1054/86 claim is gone; the replacement names pnpm vitest run --changed 10377aa9b and reports 26 files / 368 tests, re-measured identically (358 passed + 10 skipped under this pass's DB-less environment, 0 failed), plus 2 files / 38 tests for the helper suites and 13 for resolve-owner-scope.test.ts - both re-measured exact - and 21 added / 9 removed by git numstat, also exact. No new unverifiable figure was introduced."
+    },
+    {
+      "id": "round3-continuation/verify-across-two-rebases",
+      "test": "same-round continuation: re-verify every reviewed artifact across the rebases onto e737d7de9 and cb90d3f5e",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "No new front and no new mutation candidate. The branch was rebased twice to satisfy the up-to-date merge requirement (10377aa9b -> e737d7de9 -> cb90d3f5e); the pre-rebase SHAs quoted in the rows above (322aeaa5d, 702d99cee, 1391ab72e) remain resolvable objects, so that evidence trail is still checkable. Byte-identity re-established against 1391ab72e, the last fully verified head: all three production files, all three test files, src/instrumentation.ts, the deviations plan, the plan and the intake are IDENTICAL. Two reviewed docs differ and both differences are purely additive with zero removed lines: docs/runbooks/beta-launch-alerting.md +20/-0 (#1397's Google-Group/DKIM block, inserted at line 978, ~480 lines below Rule 15) and .claude/reference/arch-review-log.md +1/-0 (#1378's merge-ledger row). Rule 15 itself is byte-identical - the 63-line block hashes to the same sha256 prefix 899c8f7bbb0dd043 at 1391ab72e and at HEAD, including the transaction-filter clause - rule headings are 5, 6, 9, 10, 11, 12, 13, 14, 15 with no duplicate, #1397's block appears exactly once and zero lines of main's runbook are missing from HEAD. The ledger carries the #1361 entry exactly once and sha-identical, #1378's row exactly once, nothing truncated or duplicated, 0 lines removed versus the new merge-base, and the line counts reconcile (cb90d3f5e 2103 + 2 = HEAD 2105). #1397 is genuinely docs-only - every path in cb90d3f5e is under docs/ and git diff e737d7de9 cb90d3f5e -- src worker is empty - so the duty-4 sweep is unchanged: exactly 8 instanceof AuthError sites at the same files and lines, no new gate and no new catch-all-401. The twenty-route enumeration is unchanged (1/6/4 gate-consumer files, 142 route.ts under src/app/api). The stray 0-byte untracked file `discord` is gone and nothing in the tree depends on a file of that name - the only two matches are a getChannel('discord') negative-test string literal. git status --porcelain is empty. fork_sha and merge_base_sha moved to cb90d3f5e so the sidecar's claimed review base is the branch's actual fork point; intake_sha256 is unchanged because .feature/intake.json did not change."
     }
   ],
   "findings": [
@@ -219,7 +226,7 @@
       "at": "docs/superpowers/plans/fix-1361-locations-route-fault-status-deviations.md:84",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "FIXED. PR #1391 no longer claims \"1054 tests pass across the 86 affected suites\". It now names the repo's own definition of the affected set and its command \u2014 pnpm vitest run --changed 10377aa9b, per package.json test:changed, lefthook.yml and scripts/verify-gate.sh \u2014 and reports the reproducible 26 files / 368 tests, plus the two helper suites at 2 files / 38 tests and resolve-owner-scope.test.ts at 13. The unfalsifiable figure is gone rather than relabelled."
+      "arbiter_reasoning": "FIXED, and re-verified after two rebases. PR #1391 no longer claims \"1054 tests pass across the 86 affected suites\". It now names the repo's own definition of the affected set and a REBASE-PROOF command \u2014 `pnpm vitest run --changed $(git merge-base origin/main HEAD)`, per package.json test:changed, lefthook.yml and scripts/verify-gate.sh \u2014 and reports 26 files / 368 tests with zero failures. Re-measured at HEAD bbb0ba54d, where that substitution resolves to cb90d3f5e: 26 files / 368 tests, identical. The first repair cited the hardcoded fork SHA 10377aa9b, which the rebase onto e737d7de9 made stale \u2014 that command then reported 39 files / 581 tests because 10377aa9b was no longer the branch's fork point and the set swept in #1378's files. The command-substitution form was adopted precisely so the citation cannot go stale on the next rebase, and it survived the second one onto cb90d3f5e unchanged. The body also now discloses that two of the 26 files (10 tests) are DB-gated and skip without TEST_DATABASE_POOL_URL, with the counts reproducing either way. Every other figure re-measured exact at the new fork point: helper suites 2 files / 38 tests, resolve-owner-scope.test.ts 13, numstat 21 added / 9 removed. The unfalsifiable figure is gone rather than relabelled."
     }
   ],
   "authorizations": [
@@ -244,13 +251,13 @@
     }
   ],
   "counts": {
-    "inventory_total": 11,
+    "inventory_total": 12,
     "killed": 0,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 11,
+    "excluded": 12,
     "findings_total": 14,
     "p0_open": 0,
     "p1_open": 0,
