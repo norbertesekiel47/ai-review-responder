@@ -38,3 +38,23 @@ experiments in scratch repositories. REVISE on defects the fixes introduced.
 | N5 — the false "gitleaks counts only commits that ADD a line" measurement is recorded in three durable places | P3 | ACCEPT | Corrected together: script header, ledger paragraph, deviations file. |
 
 Round 3 is this branch's last branch round (cap three): one verification agent on the round-3 fix hunks.
+
+# Round 3 (verification-only, LAST round) — fix commit `8837643e380e15ad660b5f7fa2c19e124702878d`
+
+The round-2-reviewed commit `8092131a4` was unpushed and tripped this branch's own scan (N1); the root undid it with
+`git reset --soft`, so rounds 1-2 land as ONE fix commit. One Claude verification agent (`round-3-verification.md`):
+N1, N2/N3, N4, N5 all ADDRESSED; 30+ scratch experiments; mutation-tested by execution (lower bound → equality reddens
+exactly the N2/N3 tests; each fail-closed branch reddens its own test); the real branch range scans 3/3 and passes;
+the evil-merge key is reported once, REDACTED; the round-1 reproduction fails on two independent conditions.
+No P0/P1/P2. VERDICT: APPROVED. RISK = normal and the round cap is reached, so the root makes the call on the P3s.
+
+| Finding | Sev | Verdict | Reason |
+|---|---|---|---|
+| M1 — stale "count does not match the range" wording in `ci.yml`, audit C1 step 4 and the deviations file after the lower-bound decision | P3 | ACCEPT — fixed by the root | A count ABOVE the minimum is now the normal case; those sentences called it a failure. Text only. |
+| M2 — two false premises in the rewritten drill paragraph ("neither marker is written out in full anywhere in this repo"; "a complete pair written into a doc is itself a finding", unconditionally) | P3 | ACCEPT — fixed by the root | Measured false: `.env.example` has an adjacent pair (too short to match) and a committed review report has a pair gitleaks' default global allowlist drops. The paragraph now claims only what holds, and keeps its instruction. |
+| M3 — an empty-output `textconv` driver gives a shortfall FAIL on a clean range with no error line; only the false-PASS direction was documented | P3 | ACCEPT — documented by the root | Safe direction and unreachable in this repo today, but it is the failure a developer would have to debug. The "Known limit" section now names it and says where to look. |
+| Appendix — `gitleaks:allow` inline comments and a committed `.gitleaksignore` each pass a complete fake key; gitleaks' default path allowlist skips image/PDF extensions | — | NOTED, not this branch | Pre-existing gitleaks behavior, identical at the round-1 SHA. Candidate follow-up: make the scan fail on a NEW `gitleaks:allow` or `.gitleaksignore` entry in the range. Named in the run report. |
+
+No fourth round exists for a P3 text fix. The root's three text edits are verified mechanically instead: a redacted
+`gitleaks dir` pass over every changed file before the commit, the real `pnpm ci:secret-scan` on the commit, and the
+full review gate as the last step.

@@ -292,7 +292,9 @@ fatal: …`, `INF 0 commits scanned.`), and the first implementation trusted the
 empty report. That broke the intake invariant "a gate that cannot see never
 passes". The pass condition is now a conjunction: exit 0, stdout `[]`, no
 `ERR`/`FTL`/`fatal:` marker on stderr, and gitleaks' OWN `N commits scanned.`
-count equal to the scannable-commit count git reports for the same range.
+count checked against what git reports for the same range — first as an exact
+match, which round 2 showed to be wrong, and since the owner's decision as a
+LOWER BOUND (see the round-2 entry below).
 
 [CORRECTED 2026-09-21 by review round 2 — the first version of this paragraph
 recorded a FALSE measurement: "gitleaks counts only commits whose diff ADDS at
@@ -365,3 +367,19 @@ runbook; the header no longer implies that matching counts prove coverage.
 
 **Verdict:** ACCEPT — owner-decided design; both P1s traced to their cause; the
 history rewrite touched only an unpushed local commit.
+
+## 2026-09-21 — Review round 3 (last): APPROVED, three P3 text items fixed by the root without a fourth round
+
+Round 3 verified N1-N5 addressed by measurement and found no P0/P1/P2. Its three
+P3s were all statements that were not true: stale "count does not match" wording
+left behind by the lower-bound decision (`ci.yml`, audit C1 step 4, this file);
+two overstated premises in the drill paragraph; and an undocumented false-FAIL
+direction (an empty-output `textconv` driver). The branch round cap is three, so
+no reviewer re-reads these edits. They are text only, and they are verified
+mechanically: a redacted `gitleaks dir` pass over every changed file before the
+commit, the real `pnpm ci:secret-scan` on the commit, and the full review gate
+last. Named follow-up (not this branch): `gitleaks:allow` comments and a
+committed `.gitleaksignore` are one-line bypasses of any gitleaks gate.
+
+**Verdict:** ACCEPT — normal risk, cap reached, root's call; documentation truth
+only, no behavior change.

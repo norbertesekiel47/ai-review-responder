@@ -280,8 +280,10 @@ jobs:
       # Scans the commits THIS PR adds (origin/main..HEAD), never the working
       # tree — fails closed on an absent binary, an unresolvable base ref, an
       # unreadable commit count, and on an empty report whose scanned-commit
-      # count does not match the range (gitleaks exits 0 with `[]` when its
-      # own `git log` errors). On a PR the base ref comes from GITHUB_BASE_REF.
+      # count is BELOW the number of commits that add text (a lower bound, not
+      # an exact match: gitleaks also counts deletions and reverts; it exits 0
+      # with `[]` when its own `git log` errors). On a PR the base ref comes
+      # from GITHUB_BASE_REF.
       - name: Run secret scan
         run: pnpm ci:secret-scan
       # Informational only: Dependabot owns dependency updates; this surfaces

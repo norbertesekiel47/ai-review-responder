@@ -164,6 +164,15 @@ git attributes itself. Practical guard: **a PR that adds `-diff` or `binary`
 attributes for a text file deserves a human look** — ask what the attribute is
 for before approving it.
 
+The same mechanism has a false-FAIL direction, and it is the one a developer
+would have to debug: a `.gitattributes` `diff=<driver>` whose `textconv` command
+succeeds but prints nothing makes `--numstat` count the added lines while
+`git log -p` emits no hunk, so gitleaks scans fewer commits than the minimum and
+the gate fails on a clean range **with no `ERR` or `fatal:` line to explain it**.
+No such driver is configured in this repo today. If the shortfall message
+appears on a range you know is clean, check `.gitattributes` and
+`git config --get-regexp '^diff\..*\.textconv$'` first.
+
 **On a finding:** rotate the value FIRST (see the procedures above), *then*
 remove it from the file — never just delete the line and leave the old value
 live in history. A finding blocks the push/PR until it is either fixed or
@@ -201,12 +210,15 @@ then `BEGIN RSA PRIVATE KEY`, then five hyphens), at least one line of base64
 body, and the matching closing line (the same shape, with `END` where the
 opening line has `BEGIN`).
 
-Neither marker is written out in full anywhere in this repo, and nothing you
-copy from here should be. The `private-key` rule matches from an opening marker
-through to the next closing one **wherever they sit**, prose included, so a
-complete pair written into a doc is itself a finding — in this file, in this
-gate, blocking this repo's own push. The first cut of this paragraph spelled
-both markers out and the branch failed its own scan. So: no part of the value,
+Neither marker is written out in full in this runbook, and nothing you copy from
+here should be. The `private-key` rule matches from an opening marker through to
+the next closing one **wherever they sit**, prose included, when enough text
+separates them (measured on 8.30.1: about 64 characters or more), so a complete
+pair written into a doc can itself be a finding — in this file it was: the first
+cut of this paragraph spelled both markers out and the branch failed its own
+scan. Do not rely on the exceptions: `.env.example` carries an adjacent pair that
+is too short to match, and a committed review report carries a pair that
+gitleaks' default global allowlist happens to drop. So: no part of the value,
 markers included, is typed as a literal here; every part is assembled at run
 time inside the scratch directory, e.g. in `bash`:
 
