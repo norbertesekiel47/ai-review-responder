@@ -94,6 +94,41 @@ function isDripTooStale(
   return capMs < asOf.getTime();
 }
 
+/**
+ * True when this drip's HTML can differ between two attempts at the same
+ * logical send — which decides how the drip defends its crash-after-send
+ * window (#1363).
+ *
+ * Only `day_7` carries approval links, and `createApprovalLink` mints a fresh
+ * `randomUUID` token on every call, so attempt 2 renders different HTML by
+ * construction. That makes a provider idempotency key actively HARMFUL rather
+ * than merely useless: Resend answers 409 `invalid_idempotent_request` instead
+ * of replaying the original response, so the delivery row would carry a
+ * synthetic message id — and `worker/ingress/resend.ts` correlates delivered /
+ * complained / bounced events ONLY on the real Resend id. A hard bounce on that
+ * drip would then match no row, leaving `businesses.owner_email_bounced` unset
+ * and the owner receiving mail at a dead address.
+ *
+ * So `day_7` marks before sending and carries no key, matching
+ * `WeeklySummaryWorker`: losing one email to a crash beats sending two, and
+ * beats silently disabling bounce suppression.
+ *
+ * `day_1` and `day_30` render from inputs that are stable in the ordinary case,
+ * so Resend replays the ORIGINAL response — original message id included — and
+ * correlation survives. They keep the key and lose no email.
+ *
+ * Two named residuals, both requiring a crash AND a same-window change, both
+ * accepted rather than defended: day_30 re-reads its stats per attempt, so a
+ * review landing mid-retry changes the body; and day_1 carries `dashboardUrl`,
+ * derived per attempt from a live owner-`auth_id` probe
+ * (`summary-report-helpers.ts` `resolveDashboardUrl`), so an owner completing
+ * signup mid-retry changes it from null to a URL. An earlier version of this
+ * comment named day_30 as the only residual — review round 2 corrected that.
+ */
+function dripBodyVariesPerAttempt(dripType: OnboardingDripPayload['drip_type']): boolean {
+  return dripType === 'day_7';
+}
+
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
   const { drip_type } = job.data;
@@ -274,17 +309,91 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 7. Send email ─────────────────────────────────────────────────
-  const { messageId } = await sendInternalEmail({
-    to: business.owner_email,
-    subject,
-    bodyHtml: html,
-    category: 'marketing',
-  });
+  // Two crash-after-send defences, chosen per drip type by
+  // `dripBodyVariesPerAttempt` — see that function for WHY they differ.
+  const bodyVaries = dripBodyVariesPerAttempt(drip_type);
+
+  if (bodyVaries) {
+    // MARK-BEFORE-SEND. The mark is NOT rolled back on a send error, and that
+    // is deliberate: `EmailSendTimeoutError` fires at 10s while the orphaned
+    // fetch may still reach Resend, so a rollback would re-send a mail the
+    // provider already accepted — the duplicate this whole change exists to
+    // stop. WeeklySummaryWorker states the same rule
+    // (`summary-report-helpers.ts:115-118`).
+    //
+    // The COST is wider than a crash, and the catch below is what makes it
+    // honest: ANY send error — a transient Resend 5xx, a timeout — loses this
+    // drip permanently, because `onboarding_drip_log UNIQUE (business_id,
+    // drip_type)` means the scheduler can never re-mint the pair. At the
+    // merge-base that error retried and delivered. #1363 review round 2.
+    await sql`
+      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
+    `;
+  }
+
+  // The Send idempotency key is scoped to (business_id, drip_type), NOT to the
+  // outbox row. The scope is load-bearing: the stale-claim takeover at step 4
+  // admits a SECOND outbox row on a claim still carrying sent_at IS NULL, which
+  // is exactly the crash-after-send case this key defends. Two outbox rows
+  // carry two ids, so an outbox-scoped key would not dedupe them;
+  // (business_id, drip_type) mirrors the onboarding_drip_log UNIQUE constraint
+  // that already bounds one drip per pair. It is spelled to match the
+  // notification_deliveries.template written at step 9, so one grep ties the
+  // provider key to the delivery record.
+  let messageId: string;
+  let idempotentReplay: boolean | undefined;
+  try {
+    ({ messageId, idempotentReplay } = await sendInternalEmail({
+      to: business.owner_email,
+      subject,
+      bodyHtml: html,
+      category: 'marketing',
+      ...(bodyVaries ? {} : { idempotencyKey: `onboarding_drip_${drip_type}:${businessId}` }),
+    }));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (!bodyVaries) {
+      // sent_at is still NULL, so a retry can legitimately re-send under the
+      // same key. Rethrow and let BullMQ do exactly that.
+      throw err;
+    }
+    // sent_at is already committed, so no retry can ever deliver this drip.
+    // Rethrowing would only churn BullMQ into the step-4 skip branch, which
+    // marks the row COMPLETED — the job ledger would then record a success for
+    // a mail that never went out. Record the failure durably instead.
+    logger.error(`${drip_type} send failed after sent_at was committed: ${reason}`);
+    // Best-effort, and it MUST carry its own try/catch
+    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
+    // primary side effect"). An unguarded rejection here escapes the handler,
+    // BullMQ retries the job, and the retry reaches the step-4 skip branch
+    // which marks the row COMPLETED — re-opening the very defect this catch
+    // closes. Observability must never poison the path it observes.
+    try {
+      await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+    } catch (recordErr) {
+      logger.error(
+        `${drip_type} could not record the send failure: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
+      );
+    }
+    return;
+  }
+
+  if (idempotentReplay) {
+    // Resend refused a second send under this key, which proves the first
+    // attempt was accepted. The email IS delivered, so steps 8-10 below run
+    // unchanged — skipping them would leave the claim open for a third attempt.
+    logger.log(`${drip_type} already delivered under its idempotency key`, {
+      business_id: businessId,
+      drip_type,
+    });
+  }
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────
-  await sql`
-    UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
-  `;
+  if (!bodyVaries) {
+    await sql`
+      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
+    `;
+  }
 
   // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
   // checks in other workers can see this delivery record.

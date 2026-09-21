@@ -15,6 +15,7 @@ const {
   mockBuildPartnerLowEngagementAlertHtml,
   mockBuildPartnerSatisfactionAlertHtml,
   mockRecordNotificationDelivery,
+  mockInsertFailedDelivery,
   mockCreateApprovalLink,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -40,6 +41,7 @@ const {
     mockBuildPartnerLowEngagementAlertHtml: vi.fn(() => '<html>low-engagement</html>'),
     mockBuildPartnerSatisfactionAlertHtml: vi.fn(() => '<html>satisfaction</html>'),
     mockRecordNotificationDelivery: vi.fn(),
+    mockInsertFailedDelivery: vi.fn(),
     mockCreateApprovalLink: vi.fn().mockImplementation(() => {
       linkCounter++;
       return Promise.resolve({ rawToken: `token-${linkCounter}`, tokenHash: `hash-${linkCounter}` });
@@ -63,6 +65,7 @@ vi.mock('../../../src/lib/notifications/email', () => ({
 }));
 vi.mock('../../../src/lib/notifications/delivery', () => ({
   recordNotificationDelivery: mockRecordNotificationDelivery,
+  insertFailedDelivery: mockInsertFailedDelivery,
 }));
 vi.mock('../../../src/lib/approval/create-link', () => ({
   createApprovalLink: mockCreateApprovalLink,
@@ -304,6 +307,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: "Customer Test Biz hasn't engaged in 10 days",
       bodyHtml: '<html>engagement</html>',
       category: 'internal',
+      idempotencyKey: 'partner_engagement_alert:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -361,6 +365,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: 'Customer Test Biz may be at risk',
       bodyHtml: '<html>escalation</html>',
       category: 'internal',
+      idempotencyKey: 'partner_escalation_alert:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -403,6 +408,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: 'Customer Test Biz approval rate is 25%',
       bodyHtml: '<html>low-engagement</html>',
       category: 'internal',
+      idempotencyKey: 'partner_low_engagement:biz-1',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
@@ -428,16 +434,21 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('throws on email send failure (BullMQ retries)', async () => {
+  it('swallows an owner-nudge send failure so BullMQ cannot retry into a duplicate', async () => {
+    // Behaviour CHANGED by #1363. The outbox row is completed BEFORE the send,
+    // so rethrowing would fail the BullMQ job, and a BullMQ retry would
+    // re-enter, see no delivery row, and send a second nudge. The error stops
+    // in the handler instead; this nudge is lost and the poller re-nudges after
+    // the 3-day cooldown.
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check
     pushPendingReviewRows(1);                 // pending reviews
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend API error'));
 
-    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).rejects.toThrow('Resend API error');
+    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).resolves.toBeUndefined();
 
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ea-1', undefined);
   });
 
   // ── Partner satisfaction alert ──────────────────────────────────────
@@ -590,5 +601,233 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+});
+
+// ── Send idempotency key (#1363) ───────────────────────────────────────────
+// The owner nudge and the partner alerts send, THEN record the delivery. A crash
+// in that gap loses the delivery row, so the retry's cooldown probe sees nothing
+// and sends a second copy. Unlike the drip, these two RECUR on a cooldown and
+// have no natural domain identity, so the outbox row id IS the identity of one
+// send occurrence and the key is scoped to it.
+//
+// The satisfaction branch is deliberately excluded: it completes the outbox row
+// BEFORE calling Resend, so the duplicate this fixes cannot occur there.
+
+describe('EngagementAlertWorker – Send idempotency key', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
+    process.env.RESEND_FROM_EMAIL = 'RepWorth <noreply@repworth.com>';
+    resetWorkerConfigForTests();
+  });
+
+  /** Payload metrics every partner alert branch needs. */
+  const METRICS = {
+    days_since_approval: 10,
+    oldest_pending_age_days: 12,
+    pending_count: 4,
+    approval_rate: 45,
+    notified_count: 4,
+  };
+
+  it('owner nudge completes the outbox row before sending and passes no idempotency key', async () => {
+    // The nudge mints a fresh approval token per attempt, so its body differs
+    // every time. A key would therefore draw Resend's 409 instead of a replay
+    // of the original response, and the synthetic message id it returns would
+    // break the hard-bounce webhook correlation in worker/ingress/resend.ts.
+    // Mark-before-send is used instead. Pin BOTH facts: a key appearing here
+    // later would mean that reasoning was reversed without this test noticing.
+    sqlReturnQueue.push([mockBusinessRow()]); // business
+    sqlReturnQueue.push([]);                  // cooldown probe — no recent nudge
+    pushPendingReviewRows(2);
+
+    const callOrder: string[] = [];
+    mockMarkOutboxCompleted.mockImplementation(() => {
+      callOrder.push('mark');
+      return Promise.resolve();
+    });
+    mockSendInternalEmail.mockImplementation(() => {
+      callOrder.push('send');
+      return Promise.resolve({ messageId: 'msg-ea-1' });
+    });
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(callOrder).toEqual(['mark', 'send']);
+    const sendArg = (mockSendInternalEmail.mock.calls as unknown[][])[0]![0] as {
+      idempotencyKey?: string;
+    };
+    expect(sendArg.idempotencyKey).toBeUndefined();
+  });
+
+  it('owner nudge keeps revokeMode orphaned_only now that it no longer relies on a provider key', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    pushPendingReviewRows(1);
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      channel: 'email',
+      revokeMode: 'orphaned_only',
+    });
+  });
+
+  it('partner engagement alert sends with an idempotency key scoped to the business', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(
+      makeJob({ alert_type: 'partner_engagement_alert', metrics: METRICS }),
+    );
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'partner_engagement_alert:biz-1' }),
+    );
+  });
+
+  it('partner escalation alert sends with an idempotency key scoped to the business', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(
+      makeJob({ alert_type: 'partner_escalation_alert', metrics: METRICS }),
+    );
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'partner_escalation_alert:biz-1' }),
+    );
+  });
+
+  it('partner low engagement alert sends with an idempotency key scoped to the business', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(
+      makeJob({ alert_type: 'partner_low_engagement', metrics: METRICS }),
+    );
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'partner_low_engagement:biz-1' }),
+    );
+  });
+
+  it('a partner alert replay logs that the email was already delivered', async () => {
+    // Red-team round 2: round 1's log-oracle P1 was closed for the drip only.
+    // Deleting the partner-alert replay log left 32/32 green.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockSendInternalEmail.mockResolvedValueOnce({
+        messageId: 'idempotent-replay:partner_engagement_alert:biz-1',
+        idempotentReplay: true,
+      });
+      sqlReturnQueue.push([mockBusinessRow()]);
+
+      await handleEngagementAlert(
+        makeJob({ alert_type: 'partner_engagement_alert', metrics: METRICS }),
+      );
+
+      const lines = logSpy.mock.calls.map((call) => String(call[0]));
+      expect(lines.some((line) => /already delivered under its idempotency key/.test(line))).toBe(
+        true,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('records a failed delivery when an owner-nudge send fails', async () => {
+    // Red-team round 2: the swallow left NO durable record — outbox already
+    // completed, so markOutboxFailed no-ops. A Resend outage would drop every
+    // nudge while the job ledger reported success.
+    // account_id is set explicitly: the shared fixture omits it, which would
+    // pin the expectation to `undefined` and let a dropped `business.account_id`
+    // survive (red-team round 3).
+    sqlReturnQueue.push([mockBusinessRow({ account_id: 'acct-nudge-1' })]);
+    sqlReturnQueue.push([]);
+    pushPendingReviewRows(1);
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      mockSql,
+      'acct-nudge-1',
+      'biz-1',
+      null,
+      'email',
+      'owner@test.com',
+      'Resend 503',
+      'owner_nudge',
+    );
+    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('a failure while recording the nudge failure never escapes the handler', async () => {
+    // `.claude/rules/worker-layout.md`: best-effort work after a primary side
+    // effect needs its own try/catch. Unguarded, this rejection escapes, BullMQ
+    // retries, the cooldown probe misses (no sent_at on a failed row) and a
+    // SECOND nudge goes out.
+    sqlReturnQueue.push([mockBusinessRow({ account_id: 'acct-nudge-1' })]);
+    sqlReturnQueue.push([]);
+    pushPendingReviewRows(1);
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+    mockInsertFailedDelivery.mockRejectedValueOnce(new Error('pool exhausted'));
+
+    await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).resolves.toBeUndefined();
+  });
+
+  it('a partner alert replay completes the outbox row instead of failing it', async () => {
+    mockSendInternalEmail.mockResolvedValueOnce({
+      messageId: 'idempotent-replay:partner_engagement_alert:outbox-ea-1',
+      idempotentReplay: true,
+    });
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(
+      makeJob({ alert_type: 'partner_engagement_alert', metrics: METRICS }),
+    );
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ea-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        externalMessageId: 'idempotent-replay:partner_engagement_alert:outbox-ea-1',
+      }),
+    );
+  });
+
+  it('the partner satisfaction alert still marks the outbox completed before sending and passes no key', async () => {
+    // Its ordering is the reason it needs no key. Pin BOTH facts: a future change
+    // that adds a key here would signal the ordering had been reversed.
+    sqlReturnQueue.push([mockBusinessRow()]);                       // business
+    sqlReturnQueue.push([]);                                         // week-scoped dedupe probe
+    sqlReturnQueue.push([{ rating: 'not_great', comment: 'slow' }]); // live satisfaction row
+
+    const callOrder: string[] = [];
+    mockMarkOutboxCompleted.mockImplementation(() => {
+      callOrder.push('mark');
+      return Promise.resolve();
+    });
+    mockSendInternalEmail.mockImplementation(() => {
+      callOrder.push('send');
+      return Promise.resolve({ messageId: 'msg-ea-1' });
+    });
+
+    await handleEngagementAlert(
+      makeJob({
+        alert_type: 'partner_satisfaction_alert',
+        satisfaction: { rating: 'not_great', week_start_date: '2026-09-14', comment: 'slow' },
+      }),
+    );
+
+    expect(callOrder).toEqual(['mark', 'send']);
+    const sendArg = (mockSendInternalEmail.mock.calls as unknown[][])[0]![0] as {
+      idempotencyKey?: string;
+    };
+    expect(sendArg.idempotencyKey).toBeUndefined();
   });
 });
