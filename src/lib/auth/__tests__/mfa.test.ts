@@ -179,16 +179,48 @@ describe('nextFactorFriendlyName', () => {
   it('nextFactorFriendlyName ignores null names and names outside the sequence', () => {
     expect(nextFactorFriendlyName(['RepWorth', null, 'Laptop', 'repworth 2'])).toBe('RepWorth 2');
   });
+});
+
+// Property tests (fast-check): the house style for invariant-level coverage —
+// /feature requires at least one per declared invariant on billing/approval/
+// escalation logic (feature.md step 5).
+describe('nextFactorFriendlyName invariants', () => {
+  // Biased toward the `RepWorth`/`RepWorth N` sequence itself — an arbitrary
+  // drawn from `fc.string()` alone almost never lands inside the sequence, so
+  // the property below never falsifies against the mutant that hardcodes
+  // `return 'RepWorth'`. Mixing in the sequence values, arbitrary strings, and
+  // null gives the property real inputs to fail on.
+  const existingNamesArb = fc.array(
+    fc.oneof(
+      fc.constantFrom('RepWorth', 'RepWorth 2', 'RepWorth 3', 'RepWorth 4', 'RepWorth 5'),
+      fc.string(),
+      fc.constant(null),
+    ),
+    { maxLength: 20 },
+  );
 
   it('invariant: nextFactorFriendlyName never returns a name an existing factor holds', () => {
     fc.assert(
-      fc.property(
-        fc.array(fc.option(fc.string(), { nil: null }), { maxLength: 20 }),
-        (existingNames) => {
-          const next = nextFactorFriendlyName(existingNames);
-          expect(existingNames).not.toContain(next);
-        },
-      ),
+      fc.property(existingNamesArb, (existingNames) => {
+        const next = nextFactorFriendlyName(existingNames);
+        expect(existingNames).not.toContain(next);
+      }),
+    );
+  });
+
+  it('invariant: the result is always the first unused name in the sequence', () => {
+    fc.assert(
+      fc.property(existingNamesArb, (existingNames) => {
+        const taken = new Set(existingNames.filter((name): name is string => name !== null));
+        const next = nextFactorFriendlyName(existingNames);
+        const match = /^RepWorth(?: (\d+))?$/.exec(next);
+        expect(match).not.toBeNull();
+        const n = match![1] ? Number(match![1]) : 1;
+        for (let i = 1; i < n; i += 1) {
+          const smaller = i === 1 ? 'RepWorth' : `RepWorth ${i}`;
+          expect(taken.has(smaller)).toBe(true);
+        }
+      }),
     );
   });
 });

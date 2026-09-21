@@ -17,3 +17,19 @@ The `promised-tests` row greps one literal string per title, so a `describe('nex
 The root committed the work (`aa0435c85`) and re-ran the review gate; the `merge-ledger` row went RED: the branch changes two production files and adds no line to the ledger. The lead's gates passed that row vacuously, because the audit reads the COMMITTED range and the lead made no commits. The intake did not list the ledger file, and it is not an always-allowed path of the edit-surface guard. Owner approved the amendment on 2026-09-21 (one question covered all three swarm runs). Both intake copies updated, `incr-amendment` counted (surfaceAmendments=1), one ledger line added.
 
 **Verdict:** ACCEPT — process-ledger path required by a CI audit; owner-approved; no locked decision changes. Intake-authoring lesson: every intake whose diff touches `src/`, `worker/`, `supabase/` or the governance surface lists the ledger file at step 0.
+
+## D4 — [2026-09-21] Review round 1: the fix removes the cap on abandoned unverified factors (owner decision: measure on staging)
+
+Spec F2 and Codex F1, independently: before this branch the name conflict capped abandoned unverified factors at one per user; now every start → cancel banks another (`RepWorth`, `RepWorth 2`, …). If GoTrue counts unverified factors against its enrolled-factor limit and does not expire them, a first-time user can block their own enrollment, and the new factor-limit copy points at an unenroll the route gates behind AAL2. No reviewer could verify GoTrue's expiry behavior offline. This touches the locked non-goal "no cleanup of abandoned unverified factors", so on a RISK = high run it was the owner's call.
+
+Owner decision 2026-09-21: keep the non-goal; during the staging ride, start and cancel enrollment several times, wait, and read the factor list to establish whether GoTrue expires unverified factors and whether they count against the limit; record the result here and in the PR. If they do not expire, file a ticket for an audited server-side cancel operation and the PR waits for the owner.
+
+**Verdict:** ACCEPT — owner-decided; the residual risk is named, bounded by a concrete staging measurement, and gates the PR.
+
+## D5 — [2026-09-21] Review round 1 fixes (triage: `docs/reviews/fix-1149-mfa-second-factor-name/triage.md`)
+
+Applied: the invariant property now draws names from the `RepWorth N` sequence and lives in a `nextFactorFriendlyName invariants` block, with a second property (the result is the FIRST unused name) — proved against the red-team mutant `return 'RepWorth'` (RED at `mfa.test.ts:206`). The start → cancel → start fixtures now use the payload auth-js 2.106.2 really emits (unverified factor only in `all`) — proved by deleting the `all` arm of `collectFactors` (RED at `useMfaEnrollment.test.tsx:169`). One test beyond the intake's list: `does not surface provider text that would trigger the step-up link`. `docs/directory/lib-platform.md` names the new export and its caller obligation.
+
+Named debt: `enrollmentErrorMessage` carries a local copy of the `/sign in again/i` pattern that `SecuritySections.tsx` `isStepUpRequiredError` owns, because the presentation file is a non-goal and outside the surface. The honest design is an explicit step-up discriminator on the hook's return value instead of string sniffing; recorded for the change ledger.
+
+**Verdict:** ACCEPT — every change traces to an accepted finding; the two test-strength fixes carry mutation proof.

@@ -73,7 +73,18 @@ function enrollmentErrorMessage(enrollError: unknown): string {
     return 'You have the maximum number of authenticator apps. Remove one before you add another.';
   }
   if (message) {
-    return `Could not start MFA enrollment: ${message}`;
+    const text = `Could not start MFA enrollment: ${message}`;
+    // Local copy of the pattern SecuritySections.tsx's isStepUpRequiredError
+    // uses to decide whether to render the AAL2 step-up link
+    // (`/sign in again/i`). That link belongs only to the unenroll 403
+    // re-authenticate hint below — never to raw provider text on an
+    // ENROLLMENT failure, which would send the owner to "Verify with your
+    // authenticator" instead of the real problem. Components don't import
+    // from the app route folder, so the pattern is duplicated, not shared.
+    if (/sign in again/i.test(text)) {
+      return 'Could not start MFA enrollment.';
+    }
+    return text;
   }
   return 'Could not start MFA enrollment.';
 }
@@ -186,6 +197,10 @@ export function useMfaEnrollment(): UseMfaEnrollment {
       // Read fresh rather than trust `state.factors`: start → cancel → start
       // leaves an unverified factor on the server while the hook's loaded
       // state is stale, and a name derived from stale state would collide.
+      // The fresh list is discarded right after — deliberately, not an
+      // oversight: it exists only to derive a collision-free name; the list
+      // the UI renders (`state.factors`) is refreshed separately, on verify
+      // and on unenroll, via `loadFactors()`.
       const { data: freshData, error: listError } = await supabase.auth.mfa.listFactors();
       if (listError) {
         dispatch({ type: 'setError', error: 'Could not load MFA factors.' });

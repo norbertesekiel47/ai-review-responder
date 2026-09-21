@@ -96,8 +96,18 @@ describe('useMfaEnrollment', () => {
   });
 
   it('enrolls a second factor under a name no existing factor holds', async () => {
+    // Mixed fixture matching the real @supabase/auth-js shape: a verified
+    // factor is reported in BOTH `totp` and `all`; an unverified factor
+    // appears ONLY in `all` (never `totp`). The unverified factor's name is
+    // outside the RepWorth sequence so it doesn't shift the expected result.
     mockListFactors.mockResolvedValue({
-      data: { totp: [{ id: 'f1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'verified' }] },
+      data: {
+        totp: [{ id: 'f1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'verified' }],
+        all: [
+          { id: 'f1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'verified' },
+          { id: 'f2', friendly_name: 'Old Phone', factor_type: 'totp', status: 'unverified' },
+        ],
+      },
       error: null,
     });
     mockEnroll.mockResolvedValue({
@@ -117,15 +127,10 @@ describe('useMfaEnrollment', () => {
   });
 
   it('re-reads the factor list before enroll so a cancelled enrollment does not reuse its name', async () => {
-    mockListFactors
-      .mockResolvedValueOnce({ data: { totp: [] }, error: null }) // initial load
-      .mockResolvedValueOnce({ data: { totp: [] }, error: null }) // fresh read before the first startEnrollment
-      .mockResolvedValueOnce({
-        data: {
-          totp: [{ id: 'factor-1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'unverified' }],
-        },
-        error: null,
-      }); // fresh read before the second startEnrollment — the cancelled enrollment is still on the server
+    // mockListFactors already resolves to { totp: [] } from beforeEach — that
+    // covers both the initial load and the fresh read before the first
+    // startEnrollment. Re-set per phase (the file's own precedent, ~:72)
+    // rather than queuing a fixed-depth `mockResolvedValueOnce` chain.
     mockEnroll
       .mockResolvedValueOnce({
         data: { id: 'factor-1', totp: { qr_code: 'data:image/png;base64,AAA', secret: 'SECRET1' } },
@@ -146,6 +151,17 @@ describe('useMfaEnrollment', () => {
 
     act(() => result.current.cancelEnrollment());
     expect(result.current.enrollment).toBeNull();
+
+    // Fresh read before the second startEnrollment — the cancelled enrollment
+    // is still on the server. @supabase/auth-js 2.106.2 reports an unverified
+    // factor ONLY under `all`, never `totp`.
+    mockListFactors.mockResolvedValue({
+      data: {
+        totp: [],
+        all: [{ id: 'factor-1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'unverified' }],
+      },
+      error: null,
+    });
 
     await act(async () => {
       await result.current.startEnrollment();
@@ -225,6 +241,26 @@ describe('useMfaEnrollment', () => {
     mockEnroll.mockResolvedValue({
       data: null,
       error: { code: 'unknown_error', message: '' },
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(result.current.error).toBe('Could not start MFA enrollment.');
+  });
+
+  it('does not surface provider text that would trigger the step-up link', async () => {
+    // SecuritySections.tsx's isStepUpRequiredError renders the AAL2 step-up
+    // link whenever the hook's error sentence matches /sign in again/i. That
+    // affordance belongs only to the unenroll 403 hint — never to raw
+    // provider text on an ENROLLMENT failure.
+    mockEnroll.mockResolvedValue({
+      data: null,
+      error: { code: 'unmapped_provider_code', message: 'Please sign in again to continue.' },
     });
 
     const { result } = renderHook(() => useMfaEnrollment());
