@@ -95,6 +95,148 @@ describe('useMfaEnrollment', () => {
     expect(result.current.verifiedFactors).toHaveLength(1);
   });
 
+  it('enrolls a second factor under a name no existing factor holds', async () => {
+    mockListFactors.mockResolvedValue({
+      data: { totp: [{ id: 'f1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'verified' }] },
+      error: null,
+    });
+    mockEnroll.mockResolvedValue({
+      data: { id: 'factor-456', totp: { qr_code: 'data:image/png;base64,BBB', secret: 'SECRET2' } },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(mockEnroll).toHaveBeenCalledWith({ factorType: 'totp', friendlyName: 'RepWorth 2' });
+    expect(result.current.enrollment?.factorId).toBe('factor-456');
+  });
+
+  it('re-reads the factor list before enroll so a cancelled enrollment does not reuse its name', async () => {
+    mockListFactors
+      .mockResolvedValueOnce({ data: { totp: [] }, error: null }) // initial load
+      .mockResolvedValueOnce({ data: { totp: [] }, error: null }) // fresh read before the first startEnrollment
+      .mockResolvedValueOnce({
+        data: {
+          totp: [{ id: 'factor-1', friendly_name: 'RepWorth', factor_type: 'totp', status: 'unverified' }],
+        },
+        error: null,
+      }); // fresh read before the second startEnrollment — the cancelled enrollment is still on the server
+    mockEnroll
+      .mockResolvedValueOnce({
+        data: { id: 'factor-1', totp: { qr_code: 'data:image/png;base64,AAA', secret: 'SECRET1' } },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { id: 'factor-2', totp: { qr_code: 'data:image/png;base64,BBB', secret: 'SECRET2' } },
+        error: null,
+      });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+    expect(mockEnroll).toHaveBeenNthCalledWith(1, { factorType: 'totp', friendlyName: 'RepWorth' });
+
+    act(() => result.current.cancelEnrollment());
+    expect(result.current.enrollment).toBeNull();
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+    expect(mockEnroll).toHaveBeenNthCalledWith(2, { factorType: 'totp', friendlyName: 'RepWorth 2' });
+  });
+
+  it('does not call enroll when the fresh factor list cannot be loaded', async () => {
+    mockListFactors
+      .mockResolvedValueOnce({ data: { totp: [] }, error: null }) // initial load succeeds
+      .mockResolvedValueOnce({ data: null, error: new Error('network') }); // fresh read before startEnrollment fails
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(mockEnroll).not.toHaveBeenCalled();
+    expect(result.current.error).toBe('Could not load MFA factors.');
+  });
+
+  it('shows the name-conflict message when Supabase returns mfa_factor_name_conflict', async () => {
+    mockEnroll.mockResolvedValue({
+      data: null,
+      error: { code: 'mfa_factor_name_conflict', message: 'A factor with this friendly name already exists' },
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(result.current.error).toBe(
+      'An authenticator app with this name already exists. Reload the page and try again.',
+    );
+  });
+
+  it('shows the factor-limit message when Supabase returns too_many_enrolled_mfa_factors', async () => {
+    mockEnroll.mockResolvedValue({
+      data: null,
+      error: { code: 'too_many_enrolled_mfa_factors', message: 'Too many factors' },
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(result.current.error).toBe(
+      'You have the maximum number of authenticator apps. Remove one before you add another.',
+    );
+  });
+
+  it('shows the Supabase error message for an unmapped enrollment error', async () => {
+    mockEnroll.mockResolvedValue({
+      data: null,
+      error: { code: 'weak_password', message: 'Something else broke' },
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(result.current.error).toBe('Could not start MFA enrollment: Something else broke');
+  });
+
+  it('keeps the generic message when the enrollment error has no message', async () => {
+    mockEnroll.mockResolvedValue({
+      data: null,
+      error: { code: 'unknown_error', message: '' },
+    });
+
+    const { result } = renderHook(() => useMfaEnrollment());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.startEnrollment();
+    });
+
+    expect(result.current.error).toBe('Could not start MFA enrollment.');
+  });
+
   it('reports a rate-limit error without accepting the verification', async () => {
     mockEnroll.mockResolvedValue({
       data: { id: 'factor-123', totp: { qr_code: null, secret: 'SECRET' } },

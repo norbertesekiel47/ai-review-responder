@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
-import { collectFactors } from '@/lib/auth/mfa';
+import { collectFactors, nextFactorFriendlyName } from '@/lib/auth/mfa';
 
 export interface MfaFactor {
   id: string;
@@ -53,6 +53,29 @@ function normalizeFactor(raw: unknown): MfaFactor | null {
 // can finish or abandon that enrollment — the challenge path drops those.
 function normalizeFactors(data: unknown): MfaFactor[] {
   return collectFactors(data, normalizeFactor);
+}
+
+/**
+ * Maps a `supabase.auth.mfa.enroll` failure to UI text. Only the error's
+ * `code` and `message` are read — never a TOTP secret, QR payload, or factor
+ * id, none of which the enroll error carries anyway.
+ */
+function enrollmentErrorMessage(enrollError: unknown): string {
+  const record =
+    enrollError && typeof enrollError === 'object' ? (enrollError as Record<string, unknown>) : null;
+  const code = typeof record?.code === 'string' ? record.code : null;
+  const message = typeof record?.message === 'string' ? record.message : '';
+
+  if (code === 'mfa_factor_name_conflict') {
+    return 'An authenticator app with this name already exists. Reload the page and try again.';
+  }
+  if (code === 'too_many_enrolled_mfa_factors') {
+    return 'You have the maximum number of authenticator apps. Remove one before you add another.';
+  }
+  if (message) {
+    return `Could not start MFA enrollment: ${message}`;
+  }
+  return 'Could not start MFA enrollment.';
 }
 
 interface InternalState {
@@ -160,12 +183,23 @@ export function useMfaEnrollment(): UseMfaEnrollment {
   const startEnrollment = useCallback(async () => {
     dispatch({ type: 'actionStart' });
     try {
+      // Read fresh rather than trust `state.factors`: start → cancel → start
+      // leaves an unverified factor on the server while the hook's loaded
+      // state is stale, and a name derived from stale state would collide.
+      const { data: freshData, error: listError } = await supabase.auth.mfa.listFactors();
+      if (listError) {
+        dispatch({ type: 'setError', error: 'Could not load MFA factors.' });
+        return;
+      }
+      const existingNames = normalizeFactors(freshData).map((factor) => factor.friendlyName);
+      const friendlyName = nextFactorFriendlyName(existingNames);
+
       const { data, error: enrollError } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
-        friendlyName: 'RepWorth',
+        friendlyName,
       });
       if (enrollError || !data) {
-        dispatch({ type: 'setError', error: 'Could not start MFA enrollment.' });
+        dispatch({ type: 'setError', error: enrollmentErrorMessage(enrollError) });
         return;
       }
       const record = data as unknown as Record<string, unknown>;

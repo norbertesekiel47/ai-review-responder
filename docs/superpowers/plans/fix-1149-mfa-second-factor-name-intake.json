@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "Touches the MFA enrollment path (auth). A defect here can block an admin or owner from adding or rotating a second factor, which is the lockout the Security page warns about.",
+    "Unit tests mock the Supabase browser SDK, so the name-conflict behavior of the real Auth server is only provable on staging."
+  ],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "An admin or owner who already holds a verified TOTP factor can start the enrollment of another factor, because each enrollment sends a friendly name that no existing factor of that user holds, and a failed enrollment shows the reason instead of one generic message.",
+  "non_goals": [
+    "No change to /api/auth/mfa/challenge (challenge, verify, unenroll, rate limit, AAL2 gate, audit).",
+    "No user-editable factor name field.",
+    "No cleanup of abandoned unverified factors.",
+    "No change to the presentation in SecurityClient.tsx or SecuritySections.tsx.",
+    "No change to the challenge-path factor projection in src/lib/auth/mfa.ts beyond the one new pure function."
+  ],
+  "user_visible_behavior": [
+    "Add authenticator app succeeds for a user who already has one or more factors. The new factor is named RepWorth, RepWorth 2, RepWorth 3, ... : the first name in that sequence that no existing factor of the user holds, in any status.",
+    "A user with zero factors still gets the name RepWorth (unchanged).",
+    "When Supabase rejects the enrollment with code mfa_factor_name_conflict, the page shows: An authenticator app with this name already exists. Reload the page and try again.",
+    "When Supabase rejects the enrollment with code too_many_enrolled_mfa_factors, the page shows: You have the maximum number of authenticator apps. Remove one before you add another.",
+    "For any other enrollment error with a non-empty message, the page shows: Could not start MFA enrollment: <Supabase message>. With no message it shows the current generic text."
+  ],
+  "invariants": [
+    "The friendly name sent to supabase.auth.mfa.enroll is never equal to the friendly name of any factor the fresh listFactors() call returned, verified or unverified.",
+    "The name derivation is a pure function with no clock and no randomness: same existing names in, same name out.",
+    "Only the Supabase error code and message reach the UI state. No TOTP secret, QR payload, factor id, or token is placed in an error string or logged.",
+    "The error text is rendered as React text only, never as HTML.",
+    "Challenge, verify and unenroll stay routed through the server route. The hook gains no new direct Supabase MFA call other than the fresh listFactors() read before enroll."
+  ],
+  "edge_cases": [
+    "Start, cancel, start again in one page session: cancelEnrollment leaves an unverified factor named RepWorth on the server and the hook state is stale. startEnrollment therefore reads listFactors() fresh before it derives the name, and the second start sends RepWorth 2.",
+    "Existing names RepWorth and RepWorth 3: the next name is RepWorth 2 (first gap), not RepWorth 4.",
+    "A factor with a null friendly name, or a name outside the sequence (for example Laptop), does not affect the derivation.",
+    "The fresh listFactors() call fails: startEnrollment shows Could not load MFA factors. and does not call enroll, because a blind enroll repeats the bug.",
+    "A legacy factor named RepWorth stays as it is. No rename.",
+    "Name comparison is exact and case-sensitive, which matches the conflict check of the Auth server on the stored string."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/auth/mfa.ts — collectFactors: pure, client-safe helper shared with the hook; the new nextFactorFriendlyName lives beside it.",
+    "src/components/auth/useMfaEnrollment.ts — reducer + dispatch error semantics (setError after actionStart, actionDone in finally).",
+    "src/components/auth/__tests__/useMfaEnrollment.test.tsx — renderHook with a mocked browser Supabase client.",
+    "src/lib/reviews/__tests__/sentiment.test.ts — the fast-check invariants describe block (house style for the property test)."
+  ],
+  "test_seams": [
+    "useMfaEnrollment() through renderHook, with createBrowserSupabaseClient mocked (listFactors, enroll).",
+    "nextFactorFriendlyName(existingNames) exported from src/lib/auth/mfa.ts."
+  ],
+  "allowed_edit_surface": [
+    "src/components/auth/useMfaEnrollment.ts",
+    "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+    "src/lib/auth/mfa.ts",
+    "src/lib/auth/__tests__/mfa.test.ts",
+    "docs/superpowers/plans/fix-1149-mfa-second-factor-name-*",
+    "docs/reviews/fix/1149-mfa-second-factor-name/*",
+    "docs/reviews/red-team/*1149*/*"
+  ],
+  "tests_to_add": [
+    "nextFactorFriendlyName returns RepWorth when no factor holds it",
+    "nextFactorFriendlyName returns the first unused numbered name and fills a gap",
+    "nextFactorFriendlyName ignores null names and names outside the sequence",
+    "invariant: nextFactorFriendlyName never returns a name an existing factor holds",
+    "enrolls a second factor under a name no existing factor holds",
+    "re-reads the factor list before enroll so a cancelled enrollment does not reuse its name",
+    "does not call enroll when the fresh factor list cannot be loaded",
+    "shows the name-conflict message when Supabase returns mfa_factor_name_conflict",
+    "shows the factor-limit message when Supabase returns too_many_enrolled_mfa_factors",
+    "shows the Supabase error message for an unmapped enrollment error",
+    "keeps the generic message when the enrollment error has no message"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 45,
+  "estimated_test_lines": 150,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single squash commit. No schema, flag, or stored data changes. Factors already enrolled under a numbered name stay valid after a revert, because the name is display-only.",
+  "observability": [
+    "Staging smoke at the ship step: an admin with one verified factor presses Add authenticator app, gets a QR code, verifies, and the Security page lists two factors (RepWorth and RepWorth 2).",
+    "After release: no new Could not start MFA enrollment reports from a user who already has a factor."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

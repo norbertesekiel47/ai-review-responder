@@ -1,9 +1,11 @@
+import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 import {
   factorStatusBefore,
   requireAal2FromSupabase,
   requireCurrentAal2FromSupabase,
   normalizeChallengeFactors,
+  nextFactorFriendlyName,
 } from '../mfa';
 
 describe('requireAal2FromSupabase', () => {
@@ -159,6 +161,35 @@ describe('normalizeChallengeFactors', () => {
     expect(
       normalizeChallengeFactors({ totp: [{ friendly_name: 'X', status: 'verified' }] }),
     ).toEqual([]);
+  });
+});
+
+describe('nextFactorFriendlyName', () => {
+  it('nextFactorFriendlyName returns RepWorth when no factor holds it', () => {
+    expect(nextFactorFriendlyName([])).toBe('RepWorth');
+    expect(nextFactorFriendlyName(['Laptop', null])).toBe('RepWorth');
+  });
+
+  it('nextFactorFriendlyName returns the first unused numbered name and fills a gap', () => {
+    expect(nextFactorFriendlyName(['RepWorth'])).toBe('RepWorth 2');
+    expect(nextFactorFriendlyName(['RepWorth', 'RepWorth 3'])).toBe('RepWorth 2');
+    expect(nextFactorFriendlyName(['RepWorth', 'RepWorth 2'])).toBe('RepWorth 3');
+  });
+
+  it('nextFactorFriendlyName ignores null names and names outside the sequence', () => {
+    expect(nextFactorFriendlyName(['RepWorth', null, 'Laptop', 'repworth 2'])).toBe('RepWorth 2');
+  });
+
+  it('invariant: nextFactorFriendlyName never returns a name an existing factor holds', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.option(fc.string(), { nil: null }), { maxLength: 20 }),
+        (existingNames) => {
+          const next = nextFactorFriendlyName(existingNames);
+          expect(existingNames).not.toContain(next);
+        },
+      ),
+    );
   });
 });
 
