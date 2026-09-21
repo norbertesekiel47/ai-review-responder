@@ -1,3 +1,4 @@
+import type postgres from 'postgres';
 import { getWorkerConfig, type WorkerConfig } from '../../../src/lib/config/worker';
 import { zernioPublishingEnabled, zernioRecentReviewPollDisabled } from '../../../src/lib/publishing/flags';
 import { sql } from '../../../src/lib/db/server';
@@ -185,8 +186,14 @@ async function processZernioReview(
   return 'processed';
 }
 
-async function tombstoneMissingSourceReviews(
-  connection: ConnectionRow,
+// Exported, with the client as a parameter, for the live-DB rollback suite —
+// runOnce() is a platform-wide sweep and cannot run against the shared test DB.
+export async function tombstoneMissingSourceReviews(
+  db: postgres.Sql,
+  connection: Pick<
+    ConnectionRow,
+    'business_id' | 'zernio_account_id' | 'zernio_location_id' | 'connected_at'
+  >,
   sourceReviewIds: Set<string>,
   feedComplete: boolean,
 ): Promise<number> {
@@ -198,7 +205,7 @@ async function tombstoneMissingSourceReviews(
     connection.zernio_location_id,
   );
 
-  const missing = await sql<{ id: string; provider_review_id: string }[]>`
+  const missing = await db<{ id: string; provider_review_id: string }[]>`
     SELECT id, provider_review_id
     FROM reviews
     WHERE business_id = ${connection.business_id}
@@ -212,21 +219,28 @@ async function tombstoneMissingSourceReviews(
   if (missing.length === 0) return 0;
   const reviewIds = missing.map((r) => r.id);
 
-  await sql`
-    UPDATE reviews
-    SET status = ${REVIEW_STATUS.DELETED}
-    WHERE id = ANY(${reviewIds}::uuid[])
-      AND status <> ${REVIEW_STATUS.DELETED}
-  `;
+  // ONE transaction (#1360): once a review is `deleted` the SELECT above never
+  // returns it again, so a tombstone that commits without its response sweep
+  // strands `pending_approval`/`approved` responses forever — and an `approved`
+  // orphan can reach the publisher. `reviews` before `responses` is the repo's
+  // lock order (process-review.ts, edit-publish.ts).
+  await db.begin(async (tx) => {
+    await tx`
+      UPDATE reviews
+      SET status = ${REVIEW_STATUS.DELETED}
+      WHERE id = ANY(${reviewIds}::uuid[])
+        AND status <> ${REVIEW_STATUS.DELETED}
+    `;
 
-  await sql`
-    UPDATE responses
-    SET status = 'failed',
-        posting_error = 'review_deleted_at_source',
-        updated_at = NOW()
-    WHERE review_id = ANY(${reviewIds}::uuid[])
-      AND status = ANY(${[...NON_TERMINAL_STATUSES]}::text[])
-  `;
+    await tx`
+      UPDATE responses
+      SET status = 'failed',
+          posting_error = 'review_deleted_at_source',
+          updated_at = NOW()
+      WHERE review_id = ANY(${reviewIds}::uuid[])
+        AND status = ANY(${[...NON_TERMINAL_STATUSES]}::text[])
+    `;
+  });
 
   return missing.length;
 }
@@ -351,6 +365,7 @@ async function checkConnection(
 
   try {
     result.reviewsDeleted += await tombstoneMissingSourceReviews(
+      sql,
       connection,
       new Set(reviews.map((review) => review.id)),
       feedComplete,

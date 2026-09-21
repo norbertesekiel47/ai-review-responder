@@ -128,9 +128,32 @@ export async function runOutboxWatchdogRecovery(
     // recording anything. This writes nothing new itself, so the
     // bounded-class-only PII contract (worker/jobs/csv-ingest/failed-hook.ts)
     // is honored by construction.
-    // A failed reconciliation can roll the final dispatch attempt back to
-    // dispatching. Recover that Operator pair after the existing claim fence;
-    // otherwise no pending claim or dispatched watchdog can own it again.
+    // The `dispatching` disjunct is TOPIC-BLIND and must stay that way (#1378):
+    // an exhausted row there matches no other arm and no claim, so scoping it
+    // to one topic strands every other topic permanently. Re-scoping it turns
+    // the non-agent_turn case in OutboxPoller.watchdog.integration.test.ts red.
+    //
+    // It uses `watchdogStaleSecs` (15 min), NOT arm 3's 2 minutes, and the gap
+    // is load-bearing. `dispatchBatch` walks topic groups SERIALLY and
+    // `markDispatched` runs per group, so the claim→dispatched gap is bounded
+    // only by (topics × OUTBOX_DISPATCH_TIMEOUT_MS) ≈ 6 min, while the 60s
+    // overlap guard lets a superseding cycle's watchdog run against that live
+    // batch. At 2 minutes this arm would terminalize work still in flight.
+    // Arm 3 keeps 2 minutes because the risks are ASYMMETRIC: a premature
+    // re-pend costs one idempotent duplicate, a premature terminalization is
+    // unrecoverable and drops the row out of every
+    // `status IN ('pending','dispatching','dispatched')` dedup guard. Before
+    // #1378 only `agent_turn` reached this arm, and it alone has a rollback
+    // valve (`reconcileTurnForFailedOutbox` returning 'deferred'); the other
+    // topics have none, which is why they need the wider window.
+    //
+    // Termination is topic-blind; RECONCILIATION is not. The guard that keeps
+    // `reconcileTurnForFailedOutbox` Operator-only is its OWN re-select
+    // (`turns.ts`: `AND topic = AGENT_TURN`, returning 'unchanged' otherwise).
+    // The `array_agg(...) FILTER` below is a redundant pre-filter that saves a
+    // round trip per non-Operator row — it is NOT the safety boundary, and
+    // deleting it alone leaves every test green.
+    // Why, in full: docs/context/core-platform-runtime.md, term **Watchdog**.
     const [terminated] = await tx<{ count: string; operator_ids: string[] | null }[]>`
       WITH terminated AS (
         UPDATE job_outbox
@@ -143,8 +166,9 @@ export async function runOutboxWatchdogRecovery(
           AND (
             (status = 'dispatched'
               AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs}))
-            OR (topic = ${QUEUE_NAMES.AGENT_TURN} AND status = 'dispatching'
-              AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes'))
+            OR (status = 'dispatching'
+              AND (dispatched_at IS NULL
+                OR dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})))
           )
         RETURNING id, topic
       )
