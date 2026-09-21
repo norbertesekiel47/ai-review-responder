@@ -20,3 +20,22 @@ Every axis: REVISE. The per-finding JSONL transcript (`review-log.mjs`) was not 
 | Codex (a) — GoTrue's exact/case-sensitive conflict check across statuses is asserted, not evidenced | appendix | NOTED | Verified on staging with the F2 measurement. |
 | Codex (c) — read-then-enroll is not atomic; "Reload the page" is unnecessary advice | appendix | REJECT | The copy is locked by the intake and is harmless; the mapped conflict is the recoverable outcome. |
 | Codex (f) — numeric suffixes do not identify devices | appendix | REJECT | Locked decision; a user-editable name is a named non-goal. |
+
+# Round 2 (verification-only) — fix commit `e9cdaa2b12bf84575b66f249d13ca91dea49f000`
+
+Members: one Claude verification agent (`round-2-verification.md`, APPROVED, 7/7 accepted findings ADDRESSED),
+the Codex session resumed (`adversarial-round-2.md`, no fix-introduced defect; REVISE on the staging plan only),
+red team round 2 (7 of 8 mutants killed; the round-1 survivor M4a is KILLED; the one survivor is proven equivalent;
+RT-1149-F1 and F2 CLOSED; status OPEN_P1 on one new stale line reference). The red-team cap is two rounds; the
+owner authorized a third round on 2026-09-21, scoped to the round-3 fix hunks (recorded in the sidecar).
+
+| Finding | Sev | Verdict | Reason |
+|---|---|---|---|
+| RT-1149-F4 · Verif N1 — the rewritten `lib-platform.md` row re-asserts `src/proxy.ts:92-103` for the lenient AAL read; those lines are `adminCorsPreflight`, the read is `getAalGate` at `:260-271` | P1 | ACCEPT | A stale line span in a row this branch rewrote. One-line fix. |
+| RT-1149-F3 · Verif N3 — two unbound copies of `/sign in again/i`; the new test asserts the copy string, not the consumer's predicate | P2 | ACCEPT | Bind them in a test: the hook's error for a provider message carrying the phrase must make `isStepUpRequiredError` false, and the unenroll 403 text must make it true. |
+| RT-1149-F5 — property 2 is vacuous when the result is `RepWorth` | P2 | ACCEPT | One line: assert inside property 2 that the result is not taken, so its title is true on its own. |
+| Verif N2 — the step-up guard carves an exception into a locked `user_visible_behavior` bullet and D5 does not say so | P3 | ACCEPT | Recorded in the deviations file (D5). |
+| Codex round 2 — the staging measurement plan is too loose | — | ACCEPT | D4 now names four measurements: real capacity from zero verified factors, expiry timing and trigger, recovery AT capacity, and how long a first-time owner stays blocked. An inconclusive result also holds the PR. |
+
+Round 3 for this branch is the authorized third red-team round on the fix hunks; no separate Claude verification
+agent runs, because the round-3 diff is one doc line and two test assertions and the red team covers exactly that scope.

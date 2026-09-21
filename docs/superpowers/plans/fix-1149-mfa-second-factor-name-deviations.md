@@ -24,6 +24,15 @@ Spec F2 and Codex F1, independently: before this branch the name conflict capped
 
 Owner decision 2026-09-21: keep the non-goal; during the staging ride, start and cancel enrollment several times, wait, and read the factor list to establish whether GoTrue expires unverified factors and whether they count against the limit; record the result here and in the PR. If they do not expire, file a ticket for an audited server-side cancel operation and the PR waits for the owner.
 
+The staging measurement, sharpened by the Codex round-2 verification (a few successful starts prove nothing about the limit), must record all four:
+
+1. **Real capacity** — from an account with ZERO verified factors at AAL1, start and cancel through the configured limit; record the count reached and the exact rejection code.
+2. **Expiry timing and trigger** — record factor ages over a defined window; distinguish passive expiry from cleanup triggered by a later enrollment.
+3. **Recovery AT capacity** — after the expected expiry interval, start an enrollment while full, then complete verification. Expiry below capacity alone does not prove recovery.
+4. **Blocked interval** — how long a first-time owner stays unable to enroll, and whether recovery needs AAL2, removal of a verified factor, or an operator.
+
+The PR stays on hold for an INCONCLUSIVE result or a failed recovery as well as for non-expiry, and any measured temporary blockage needs the owner's explicit acceptance.
+
 **Verdict:** ACCEPT — owner-decided; the residual risk is named, bounded by a concrete staging measurement, and gates the PR.
 
 ## D5 — [2026-09-21] Review round 1 fixes (triage: `docs/reviews/fix-1149-mfa-second-factor-name/triage.md`)
@@ -32,4 +41,12 @@ Applied: the invariant property now draws names from the `RepWorth N` sequence a
 
 Named debt: `enrollmentErrorMessage` carries a local copy of the `/sign in again/i` pattern that `SecuritySections.tsx` `isStepUpRequiredError` owns, because the presentation file is a non-goal and outside the surface. The honest design is an explicit step-up discriminator on the hook's return value instead of string sniffing; recorded for the change ledger.
 
+Behavior note (round-2 verification N2): the step-up guard carves one exception into the locked `user_visible_behavior` bullet "for any other enrollment error with a non-empty message, the page shows `Could not start MFA enrollment: <Supabase message>`" — a provider message that matches `/sign in again/i` shows the generic text instead. The exception exists only to keep provider text from switching on the AAL2 step-up link.
+
 **Verdict:** ACCEPT — every change traces to an accepted finding; the two test-strength fixes carry mutation proof.
+
+## D6 — [2026-09-21] Review round 2 and the owner-authorized third red-team round
+
+Round 2 closed RT-1149-F1 and F2 (the round-1 mutant survivor is killed) and left one stale line reference in the `lib-platform.md` row this branch rewrote (P1 by the red-team skill's line-number rule) plus two test-strength items (P2). Any fix moves the tree past the round-2 sidecar's `head_sha`, and the skill caps the red team at two rounds. The owner authorized a third round on 2026-09-21, scoped to the round-3 fix hunks; the grant is recorded verbatim in the sidecar's `authorizations`.
+
+**Verdict:** ACCEPT — owner-authorized; the alternative was leaving known defects unfixed.

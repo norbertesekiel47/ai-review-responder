@@ -5,132 +5,102 @@
   "branch": "fix/1149-mfa-second-factor-name",
   "fork_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
   "merge_base_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
-  "head_sha": "25bf1b3fda644238778fa1322b3da5055f8e8c30",
+  "head_sha": "e9cdaa2b12bf84575b66f249d13ca91dea49f000",
   "intake_sha256": "3031ba4d24022d04c3b8dac99506d637a6b519aa5c7321b7f1f8d7bb3de51769",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-21T16:20:13Z",
+  "round": 2,
+  "generated_at": "2026-09-21T17:05:00Z",
   "inventory": [
     {
-      "id": "rt-1149-01",
-      "test": "nextFactorFriendlyName returns RepWorth when no factor holds it",
-      "file": "src/lib/auth/__tests__/mfa.test.ts",
-      "outcome": "killed",
-      "reason": "M1 removed the unnumbered first name (`if (!taken.has('RepWorth')) return 'RepWorth'` deleted, so an empty list yields `RepWorth 2`); the test failed."
-    },
-    {
-      "id": "rt-1149-02",
-      "test": "nextFactorFriendlyName returns the first unused numbered name and fills a gap",
-      "file": "src/lib/auth/__tests__/mfa.test.ts",
-      "outcome": "killed",
-      "reason": "M2 replaced gap-filling with appending (`let n = 2` -> `let n = taken.size + 1`), so ['RepWorth','RepWorth 3'] yields `RepWorth 4`; the test failed."
-    },
-    {
-      "id": "rt-1149-03",
-      "test": "nextFactorFriendlyName ignores null names and names outside the sequence",
-      "file": "src/lib/auth/__tests__/mfa.test.ts",
-      "outcome": "killed",
-      "reason": "M3 made the comparison case-insensitive, so 'repworth 2' counted as taken and the result became `RepWorth 3`; the test failed. The case-sensitivity decision in the intake is genuinely pinned."
-    },
-    {
-      "id": "rt-1149-04",
+      "id": "rt2-1149-01",
       "test": "invariant: nextFactorFriendlyName never returns a name an existing factor holds",
       "file": "src/lib/auth/__tests__/mfa.test.ts",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "M4a replaced the whole body with `return 'RepWorth';` — the exact negation of the asserted invariant — and the property test PASSED. Arbiter: the mutant is not equivalent (rows 01-03 kill it) and the mutated statement is executed on every draw, but the mutation only diverges on inputs containing the literal 'RepWorth', and the shipped arbitrary `fc.array(fc.option(fc.string()))` produced 0 such inputs in 100,000 draws (measured this pass; the suite ships fast-check's default 100). The divergence therefore lies in a subdomain this test's generator cannot reach, which is a claim about the ORACLE, not about the mutant. Recorded as finding RT-1149-F1 rather than a confirmed P0, because the production behaviour itself is covered — rows 01-03 kill three independent mutants of the same function.",
-      "finding_id": "RT-1149-F1"
-    },
-    {
-      "id": "rt-1149-05",
-      "test": "enrolls a second factor under a name no existing factor holds",
-      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "killed",
-      "reason": "M5 kept the fresh `listFactors()` read but derived the name from an empty list, so enroll was called with `RepWorth` instead of `RepWorth 2`; the test failed."
+      "reason": "The round-1 SURVIVOR re-run. `nextFactorFriendlyName`'s whole body replaced by `void existingNames; return 'RepWorth';` (mfa.ts:87-95) \u2014 the exact mutant that passed in round 1. Under the biased arbitrary (mfa.test.ts:192-199) the property now FAILS (exit 1, one executed test). RT-1149-F1 is closed by measurement, not by inspection."
     },
     {
-      "id": "rt-1149-06",
+      "id": "rt2-1149-02",
+      "test": "invariant: the result is always the first unused name in the sequence",
+      "file": "src/lib/auth/__tests__/mfa.test.ts",
+      "outcome": "killed",
+      "reason": "New round-2 test. Gap-filling replaced by appending (`let n = 2` -> `let n = taken.size + 1`, mfa.ts:90); the property FAILED. The minimality clause does real work: ['RepWorth','RepWorth 3'] yields 'RepWorth 4' under the mutant and the loop finds 'RepWorth 2' untaken."
+    },
+    {
+      "id": "rt2-1149-03",
       "test": "re-reads the factor list before enroll so a cancelled enrollment does not reuse its name",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "killed",
-      "reason": "M6 deleted the fresh read and derived the name from the hook's already-loaded `state.factors` (the pre-fix shape of the bug), so the second start re-sent `RepWorth`; the test failed."
+      "reason": "The rewritten `all`-only fixture is load-bearing: deleting the `all` arm of `collectFactors` (mfa.ts:146-149) made the second startEnrollment see an empty list and re-send 'RepWorth'; the test FAILED at :169 on the 2nd enroll call. Round 1's fixture (unverified factor under `totp`) would have survived this mutation."
     },
     {
-      "id": "rt-1149-07",
-      "test": "does not call enroll when the fresh factor list cannot be loaded",
+      "id": "rt2-1149-04",
+      "test": "re-reads the factor list before enroll so a cancelled enrollment does not reuse its name",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "killed",
-      "reason": "M7 kept the error dispatch but removed the `return`, so enroll ran after a failed list read; the test failed."
+      "reason": "Second mutation on the same test, aimed at the intake invariant 'verified OR unverified': `normalizeFactor` taught to drop every non-verified factor (useMfaEnrollment.ts:23-24). The cancelled unverified factor vanished from the derived names and the second start re-sent 'RepWorth'; the test FAILED."
     },
     {
-      "id": "rt-1149-08",
-      "test": "shows the name-conflict message when Supabase returns mfa_factor_name_conflict",
+      "id": "rt2-1149-05",
+      "test": "does not surface provider text that would trigger the step-up link",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "killed",
-      "reason": "M8 removed the `mfa_factor_name_conflict` branch of `enrollmentErrorMessage`, so the provider message was surfaced instead of the mapped copy; the test failed."
+      "reason": "New round-2 test. The whole `/sign in again/i` guard block deleted (useMfaEnrollment.ts:84-86); the hook surfaced 'Could not start MFA enrollment: Please sign in again to continue.' and the test FAILED. The guard is really the thing under test."
     },
     {
-      "id": "rt-1149-09",
-      "test": "shows the factor-limit message when Supabase returns too_many_enrolled_mfa_factors",
+      "id": "rt2-1149-06",
+      "test": "does not surface provider text that would trigger the step-up link",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
-      "outcome": "killed",
-      "reason": "M9 removed the `too_many_enrolled_mfa_factors` branch; the test failed."
+      "outcome": "equivalent",
+      "reason": "PROVEN equivalent, not merely unkilled. The guard's subject swapped from the composed `text` to the raw `message` (useMfaEnrollment.ts:84); the test passed. Proof for ALL inputs, not just this fixture: text === 'Could not start MFA enrollment: ' + message, the pattern /sign in again/i is unanchored, and a match can therefore differ only if it straddles the seam \u2014 which requires some non-empty prefix of 'sign in again' ('s','si','sig','sign','sign ',...) to be a suffix of 'Could not start MFA enrollment: '. That prefix ends in ': ', and no prefix of 'sign in again' ends in ':' or is ' '. No straddling match exists, so the two subjects agree on every message. A claim about the MUTANT, so it does not block."
     },
     {
-      "id": "rt-1149-10",
+      "id": "rt2-1149-07",
       "test": "shows the Supabase error message for an unmapped enrollment error",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "killed",
-      "reason": "M10 removed the `if (message)` interpolation branch, so an unmapped error fell through to the generic sentence; the test failed."
+      "reason": "Direction B: pre-existing test that now transits the new guard. The guard condition negated (`if (!/sign in again/i.test(text))`, useMfaEnrollment.ts:84); a benign provider message was swallowed into the generic sentence and the test FAILED. The guard cannot be inverted without a red test."
     },
     {
-      "id": "rt-1149-11",
+      "id": "rt2-1149-08",
+      "test": "enrolls a second factor under a name no existing factor holds",
+      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "outcome": "killed",
+      "reason": "Regression check on the REWRITTEN mixed fixture: `nextFactorFriendlyName` body replaced by `return 'RepWorth';`; enroll received 'RepWorth' instead of 'RepWorth 2' and the test FAILED. Adding the `all` array did not weaken what this test already killed in round 1."
+    },
+    {
+      "id": "rt2-1149-09",
+      "test": "docs/directory/lib-platform.md row for `mfa.ts`",
+      "file": "docs/directory/lib-platform.md",
+      "outcome": "excluded",
+      "reason": "Documentation hunk \u2014 duty 3 (docs vs reality), not duty 1. Hand-re-resolved against HEAD; see finding RT-1149-F4."
+    },
+    {
+      "id": "rt2-1149-10",
+      "test": "startEnrollment fresh-read comment block",
+      "file": "src/components/auth/useMfaEnrollment.ts",
+      "outcome": "excluded",
+      "reason": "Comment-only hunk (useMfaEnrollment.ts:200-203) \u2014 four added comment lines, no executable change, so no mutation of it is observable. Its claims were re-resolved under duty 3 instead and hold."
+    },
+    {
+      "id": "rt2-1149-11",
       "test": "keeps the generic message when the enrollment error has no message",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
-      "outcome": "killed",
-      "reason": "M11 weakened the emptiness check (`if (message)` -> `if (typeof message === 'string')`), so an empty provider message produced a dangling 'Could not start MFA enrollment: '; the test failed."
+      "outcome": "excluded",
+      "reason": "Cannot reach the new hunk: an empty `message` fails the `if (message)` guard at useMfaEnrollment.ts:75, so the added `/sign in again/i` block never executes on this path. Green baseline unchanged by every mutation above."
     },
     {
-      "id": "rt-1149-12",
-      "test": "runs enroll -> challenge -> verify and reloads factors on success",
-      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
-      "outcome": "killed",
-      "reason": "Direction B: pre-existing test that now transits the new fresh-read hunk. M12 inverted the new guard (`if (listError)` -> `if (!listError)`), so the happy path aborted before enroll; the test failed."
-    },
-    {
-      "id": "rt-1149-13",
-      "test": "reports a rate-limit error without accepting the verification",
-      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
-      "outcome": "killed",
-      "reason": "Direction B: same M12 inverted guard; the enrollment never started, so the rate-limit assertions failed."
-    },
-    {
-      "id": "rt-1149-14",
-      "test": "surfaces verified factors from the initial load",
+      "id": "rt2-1149-12",
+      "test": "shows the name-conflict message when Supabase returns mfa_factor_name_conflict / shows the factor-limit message when Supabase returns too_many_enrolled_mfa_factors",
       "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
       "outcome": "excluded",
-      "reason": "Not a candidate: exercises only `loadFactors`/`normalizeFactors`, which the diff does not change. Green baseline confirmed."
+      "reason": "Cannot reach the new hunk: both return on `code` at useMfaEnrollment.ts:70 and :73, above the `if (message)` block the round-2 diff changes."
     },
     {
-      "id": "rt-1149-15",
-      "test": "maps a 403 on unenroll to the re-authenticate hint",
-      "file": "src/components/auth/__tests__/useMfaEnrollment.test.tsx",
+      "id": "rt2-1149-13",
+      "test": "isStepUpRequiredError / SecurityErrorNotice (the direct caller)",
+      "file": "src/app/(authenticated)/settings/security/SecuritySections.tsx",
       "outcome": "excluded",
-      "reason": "Not a candidate: exercises only `unenrollFactor`, an unchanged server-routed path (intake non-goal)."
-    },
-    {
-      "id": "rt-1149-16",
-      "test": "SecurityClient suite (whole file)",
-      "file": "src/app/(authenticated)/settings/security/__tests__/SecurityClient.test.tsx",
-      "outcome": "excluded",
-      "reason": "Reverse-import candidate that cannot cover the diff: the suite replaces the whole hook module with `vi.mock('@/components/auth/useMfaEnrollment')`, so no changed production line executes."
-    },
-    {
-      "id": "rt-1149-17",
-      "test": "SecuritySections suite (whole file)",
-      "file": "src/app/(authenticated)/settings/security/__tests__/SecuritySections.test.tsx",
-      "outcome": "excluded",
-      "reason": "Reverse-import candidate that cannot cover the diff: it imports only the `MfaFactor`/`MfaEnrollmentState` TYPES from the changed file; no changed production line executes."
+      "reason": "Unchanged production code and out of the round-2 scope for mutation; attacked instead by a static parity read. At HEAD the consumer is `error !== null && /sign in again/i.test(error)` (:42) and the hook's local copy is `/sign in again/i.test(text)` (useMfaEnrollment.ts:84) \u2014 byte-identical patterns applied to the same string the consumer receives, so there is no drift TODAY. The drift RISK is carried as RT-1149-F3."
     }
   ],
   "findings": [
@@ -138,37 +108,71 @@
       "id": "RT-1149-F1",
       "severity": "P1",
       "title": "The promised invariant test cannot falsify its invariant: `fc.string()` never draws a name in the RepWorth sequence, so a `return 'RepWorth'` implementation passes it",
-      "at": "src/lib/auth/__tests__/mfa.test.ts:183",
+      "at": "src/lib/auth/__tests__/mfa.test.ts:202",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Measured, not inferred. (1) With `nextFactorFriendlyName` replaced by `return 'RepWorth';` the test passes (rt-1149-04). (2) Over 100,000 draws of the shipped arbitrary `fc.array(fc.option(fc.string(), { nil: null }), { maxLength: 20 })`, ZERO generated arrays contained the literal 'RepWorth'; the suite runs fast-check's default 100. (3) The same mutant is killed in 7 draws by a domain-shaped arbitrary (`fc.oneof(fc.constantFrom('RepWorth','RepWorth 2','RepWorth 3','Laptop'), fc.option(fc.string(), { nil: null }))`), which still passes against the real implementation over 2,000 draws. The house-style reference the intake cites (`src/lib/reviews/__tests__/sentiment.test.ts:46`) uses a domain-shaped arbitrary (`fc.option(fc.double(...))` over the real rating domain) precisely so the branches are reached. Behavioural replacement: draw names from the RepWorth sequence alongside arbitrary strings, keeping the same assertion."
+      "disposition": "fixed",
+      "arbiter_reasoning": "CLOSED BY MEASUREMENT (rt2-1149-01). The fix biases the arbitrary toward the sequence itself (mfa.test.ts:192-199: fc.oneof over fc.constantFrom('RepWorth','RepWorth 2'..'RepWorth 5'), fc.string(), fc.constant(null)). Re-running the round-1 survivor M4a \u2014 `nextFactorFriendlyName` body replaced by `void existingNames; return 'RepWorth';` \u2014 against the SAME test title now exits 1 with exactly one executed test, where round 1 recorded a pass over 100,000 draws. The shape of the fix also matches the house-style reference the intake names (src/lib/reviews/__tests__/sentiment.test.ts:46), which draws from the real domain. Round-2 additionally confirms the new second property is not the load-bearing one for this mutant (see RT-1149-F5) \u2014 property 1 alone kills it."
     },
     {
       "id": "RT-1149-F2",
       "severity": "P2",
       "title": "Provider-controlled enrollment error text now reaches `isStepUpRequiredError`'s /sign in again/i sniff, which can attach a 'Verify with your authenticator' link to an enrollment failure",
-      "at": "src/components/auth/useMfaEnrollment.ts:76",
+      "at": "src/components/auth/useMfaEnrollment.ts:84",
       "duty": 4,
+      "disposition": "fixed",
+      "reason": "CLOSED AT THE HOOK. `enrollmentErrorMessage` now falls back to the generic sentence when the composed text matches the consumer's pattern (useMfaEnrollment.ts:84-86), and the guard is pinned in both directions: deleting it reddens the new test (rt2-1149-05) and inverting it reddens the pre-existing unmapped-error test (rt2-1149-07). Re-verified that this was the ONLY exposure: a recorded search for sentence-sniffing classifiers over UI error strings (`rg -n \"test\\((error|err|message|text)\\)\" src/app src/components --glob '!**/__tests__/**'`) returns exactly two sites, this one and SecuritySections.tsx:42, and every other error string the hook can dispatch is a fixed constant (useMfaEnrollment.ts:181, :246, :252, :265, :271, :288, :293, :299) of which only the unenroll-403 hint at :288 matches the pattern \u2014 which is the one case that SHOULD keep the link. The residual duplicated-regex drift risk is carried forward as RT-1149-F3 rather than left inside a closed finding."
+    },
+    {
+      "id": "RT-1149-F3",
+      "severity": "P2",
+      "title": "Two independent copies of `/sign in again/i` with nothing binding them, and the new test asserts the exact copy string rather than the consumer's predicate",
+      "at": "src/components/auth/useMfaEnrollment.ts:84",
+      "duty": 2,
       "disposition": "open",
-      "reason": "Before this branch the enrollment failure string was the fixed constant 'Could not start MFA enrollment.', so the regex at src/app/(authenticated)/settings/security/SecuritySections.tsx:42 could never match it. The new unmapped branch interpolates the raw Supabase message into that same string, and SecurityClient.tsx:71 feeds the hook's `error` straight into `SecurityErrorNotice`, which renders the STEP_UP_HREF link whenever the sentence matches /sign in again/i. Whether Supabase Auth ever emits an enroll-path message containing that phrase was NOT verified in this pass (offline), so this is recorded as a coupling the diff creates with no test over it, not a proven defect. Cheapest fix: key the step-up link off a sentinel the hook sets, not off the sentence text."
+      "reason": "The fix works by duplicating the consumer's pattern into the hook (the comment at :77-83 justifies this by the ESLint ban on `@/app/**` imports from `src/components/**`, eslint.config.mjs:172-178 \u2014 verified true for PRODUCTION code). But nothing fails if the two copies diverge: widen SecuritySections.tsx:42 to, say, /sign in again|re-authenticate/i and every test in the repo stays green while the enrollment path re-acquires the exact defect RT-1149-F2 described. The new test (useMfaEnrollment.test.tsx:256-273) asserts `toBe('Could not start MFA enrollment.')` \u2014 an exact copy string standing in for 'this sentence does not trigger the step-up link', which is the real contract. Behavioural replacement, and it is cheap: the ESLint ban EXEMPTS tests (eslint.config.mjs:178 and :251 both ignore `**/__tests__/**`) and the repo already does exactly this (src/components/approval/__tests__/approval-client.test.tsx:9 imports from `@/app/api/...`), so the test can `import { isStepUpRequiredError } from '@/app/(authenticated)/settings/security/SecuritySections'` and assert `expect(isStepUpRequiredError(result.current.error)).toBe(false)`. That binds the two copies at the one place they must agree. P2: a latent drift risk over a UI affordance, not a defect at HEAD \u2014 rt2-1149-13 confirms the patterns are byte-identical today."
+    },
+    {
+      "id": "RT-1149-F4",
+      "severity": "P1",
+      "title": "The rewritten `mfa.ts` directory row re-asserts `src/proxy.ts` `:92-103` for the inlined lenient AAL read; at HEAD those lines are the admin CORS preflight",
+      "at": "docs/directory/lib-platform.md:82",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "Re-resolved against HEAD e9cdaa2b. The row says: '`src/proxy.ts` skips these, inlining its lenient read (`:92-103`, ADR 0025 D6)'. src/proxy.ts:92-103 is `adminCorsPreflight` \u2014 'ADR 0026 D3's allowlisted column', a 204 preflight builder with no AAL read in it. The actual inlined lenient read is `getAalGate` at src/proxy.ts:260-271 (`getAuthenticatorAssuranceLevel()` at :264, the `nextLevel === 'aal2' && currentLevel !== 'aal2'` lenient test at :268). The ADR half of the citation IS true: ADR 0025's decision 6 (docs/adr/0025-dual-mode-admin-gate.md:123-126) is the `src/proxy.ts` branch-4 decision and names 'the lenient/strict AAL disagreement already in the tree'. So the defect is confined to the line span. The span was carried over verbatim from the pre-fix row, but this diff REWROTE that sentence, so it is a claim this round re-asserted. A stale line number is a P1 by the skill's own rule, not a P0 \u2014 the row is misleading about WHERE, not about WHAT. Fix: `:260-271`. NOTE ON METHOD: `prevalidate-plan.py` was present and ran, but reported 'CITATIONS: 0 checked, 0 unresolved' on this file \u2014 its citation grammar does not recognise the row's bare '(`:92-103`, ...)' form \u2014 so this was found by hand-resolution, and no part of this doc's claims rests on that script's PASS."
+    },
+    {
+      "id": "RT-1149-F5",
+      "severity": "P2",
+      "title": "The new second property is vacuous exactly when the result is the unnumbered `RepWorth`, so it carries no weight alone for that case",
+      "at": "src/lib/auth/__tests__/mfa.test.ts:211",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "Static, no launch needed. The property matches the result, derives `n`, and then asserts only that every SMALLER name in the sequence is taken: `for (let i = 1; i < n; i += 1)` (mfa.test.ts:220-223). When the result is 'RepWorth', n === 1 and the loop body never executes, so the whole property reduces to 'the result matches /^RepWorth(?: (\\d+))?$/'. That is why the round-1 survivor `return 'RepWorth';` would pass THIS property on every draw \u2014 it is property 1 (rt2-1149-01), not property 2, that closes RT-1149-F1. Reported as P2 rather than a confirmed survivor precisely because the pairing is deliberate and sound: property 1 owns non-collision and property 2 owns minimality, and together they pin first-unused. It is recorded because the title claims the stronger thing on its own. Behavioural strengthening, one line: add `expect(taken.has(next)).toBe(false);` inside property 2 so the test's own title is true without leaning on its sibling. Round-2 did confirm property 2 is not dead weight \u2014 rt2-1149-02 shows it kills the gap-fill-to-append mutant that property 1 cannot see."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-third-round-2026-09-21",
+      "date": "2026-09-21",
+      "finding_ids": ["RT-1149-F3", "RT-1149-F4", "RT-1149-F5"],
+      "text": "Owner authorization for a third round. Asked on 2026-09-21: \"Runs A and B: do you authorize a THIRD red-team round for each, scoped only to the round-3 fix hunks? Without it, neither run can reach 'reviewed' unless known defects stay unfixed.\" The owner selected, verbatim: \"Authorize both (Recommended)\". Scope: the round-3 fix hunks only. This grant authorizes verification work; it accepts no finding."
+    }
+  ],
   "counts": {
-    "inventory_total": 17,
-    "killed": 12,
+    "inventory_total": 13,
+    "killed": 7,
     "survived_confirmed_p0": 0,
-    "equivalent": 0,
-    "inconclusive": 1,
+    "equivalent": 1,
+    "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 4,
-    "findings_total": 2,
+    "excluded": 5,
+    "findings_total": 5,
     "p0_open": 0,
     "p1_open": 1,
-    "p2_open": 1,
+    "p2_open": 2,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 2,
     "rejected": 0
   },
-  "status": "INCOMPLETE_ORACLE"
+  "status": "OPEN_P1"
 }

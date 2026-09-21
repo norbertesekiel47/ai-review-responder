@@ -20,6 +20,10 @@ vi.mock('@/lib/db/browser', () => ({
 
 // Imported after vi.mock so the mock is in place when the module loads.
 import { useMfaEnrollment } from '@/components/auth/useMfaEnrollment';
+// The real consumer predicate — binds these assertions to what
+// SecuritySections.tsx actually renders the step-up link on, not a second
+// unbound copy of /sign in again/i.
+import { isStepUpRequiredError } from '@/app/(authenticated)/settings/security/SecuritySections';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -271,6 +275,7 @@ describe('useMfaEnrollment', () => {
     });
 
     expect(result.current.error).toBe('Could not start MFA enrollment.');
+    expect(isStepUpRequiredError(result.current.error)).toBe(false);
   });
 
   it('reports a rate-limit error without accepting the verification', async () => {
@@ -313,5 +318,6 @@ describe('useMfaEnrollment', () => {
 
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ action: 'unenroll', factorId: 'f1' });
     expect(result.current.error).toBe('Sign in again with your authenticator before removing this factor.');
+    expect(isStepUpRequiredError(result.current.error)).toBe(true);
   });
 });

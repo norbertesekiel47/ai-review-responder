@@ -215,6 +215,7 @@ describe('nextFactorFriendlyName invariants', () => {
         const next = nextFactorFriendlyName(existingNames);
         const match = /^RepWorth(?: (\d+))?$/.exec(next);
         expect(match).not.toBeNull();
+        expect(taken.has(next)).toBe(false);
         const n = match![1] ? Number(match![1]) : 1;
         for (let i = 1; i < n; i += 1) {
           const smaller = i === 1 ? 'RepWorth' : `RepWorth ${i}`;
