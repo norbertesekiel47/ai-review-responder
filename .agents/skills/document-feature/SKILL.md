@@ -1,6 +1,6 @@
 ---
 name: document-feature
-description: Post-feature documentation sweep — updates currents.md, progresstracking.md, the .claude/reference inventories, the architecture review log (with a measured entropy counter), the change ledger, and CLAUDE.md from the branch diff. Use after finishing or merging a feature, when the user says "document this feature" / "update the docs for what we did", or types /document-feature.
+description: Post-feature documentation sweep — updates currents.md, progresstracking.md, the .claude/reference inventories, the architecture review log, the change ledger, and CLAUDE.md from the branch diff. Use after finishing or merging a feature, when the user says "document this feature" / "update the docs for what we did", or types /document-feature.
 ---
 
 # Document Feature
@@ -41,7 +41,7 @@ skip the file and say so in the final table — do not invent content.
 | [.claude/CLAUDE.md](../../../.claude/CLAUDE.md) | An architecture invariant, a file location, or a "Where things live" row changed | Edit minimally — invariants list, the routing table, or a global gotcha only. Shape-guarded (`src/__tests__/claude-md-shape.test.ts`): rows ≤ 80 words, gotchas ≤ 60 — the WHY goes to `docs/directory/<page>.md` § folder / the owning `docs/context/<context>.md` / `.claude/reference/lab-notes/<topic>.md`, an area trap to `.claude/rules/<area>.md`, not here |
 | [docs/directory.md](../../../docs/directory.md) + `docs/directory/<page>.md` | A production file under `worker/` or `src/lib/` was added, moved, renamed or deleted | Add / move / delete its **row** (first-cell code span under the folder's `###` section) on the **page that inventories its folder** — the index's `## Pages` table maps folders to pages; a new folder gets a Pages-table row too. `pnpm ci:directory-map` must pass — it reads the index plus every `docs/directory/*.md` and fails on a file with no row and on a row with no file. |
 | [CONTEXT-MAP.md](../../../CONTEXT-MAP.md) + `docs/context/<context>.md` | A domain term was coined, sharpened, or locked | Add / edit the `- **Term**: …` line in the `docs/context/<context>.md` that owns it AND add the term's name to that context's row in `CONTEXT-MAP.md` (a new context = a new file + a map row). A term defined in two files fails the shape test. The root `CONTEXT.md` is a redirect stub — never add to it. |
-| [.claude/reference/arch-review-log.md](../../../.claude/reference/arch-review-log.md) | **Always, on a MERGED feature** (skip only if this sweep is running pre-merge) | **Append one row to the table at the BOTTOM of the file** (columns: Date, Trigger, Scope reviewed, Outcome) — the bottom table is the one owner of merge entries (#1383); do not also add a dated paragraph or a `- **PR #<n>**` bullet at the top. Say what the merge did to the *architecture*: migrations, env vars, flags, dependencies, new single owners, deleted concepts, allowlist baselines moved — and name what the next pass should look at. Escape every literal pipe inside a cell with a backslash, or the row loses every cell after it (the #1363 row did). **Then MEASURE the counter and state it in that row — never add 1 to the "Merges since last architecture pass" line.** Procedure: "Measure the entropy counter" below. At **≥ 5**, tell the user a pass is due (their call — never start one automatically). |
+| [.claude/reference/arch-review-log.md](../../../.claude/reference/arch-review-log.md) | **Always, on a MERGED feature** (skip only if this sweep is running pre-merge) | **Append one row to the table at the BOTTOM of the file** (columns: Date, Trigger, Scope reviewed, Outcome) — the bottom table is the one owner of merge entries (#1383); do not also add a dated paragraph or a `- **PR #<n>**` bullet at the top. Say what the merge did to the *architecture*: migrations, env vars, flags, dependencies, new single owners, deleted concepts, allowlist baselines moved — and name what the next pass should look at. Escape every literal pipe inside a cell with a backslash, or the row loses every cell after it (the #1363 row did). There is no merge counter to update (deleted 2026-09-22, #1383/#1409); an architecture pass runs only when the owner asks — `docs/runbooks/architecture-pass.md`. |
 | [docs/agents/change-ledger.md](../../../docs/agents/change-ledger.md) | **On a MERGED change that ran a `/feature`, `/feature-small` or `$feature` lane** (skip for a docs-only or out-of-lane PR, and pre-merge) | The lane's ship step owns the row; this sweep **checks it exists** (search the `PR` column for the number) and adds it when it is missing. The file's header defines the columns. `Minutes` and `Repairs` come from the run's `.feature/` state and review record, `Named debt` from the review record — write `unknown` rather than estimate one. Set `Found later` to `pending — check <merge+7d> and <merge+30d>`. While here, fill any earlier row whose check date has passed. |
 
 ### currents.md vs progresstracking.md — the boundary
@@ -61,35 +61,6 @@ merge only made the code match what currents.md already says, skip both and
 say so in the final table — the arch-log row records the merge, the lab notes
 record the lesson. When unsure, write the entry: a redundant summary costs
 words, a missing one costs a wrong belief.
-
-### Measure the entropy counter
-
-A merge **counts** when its diff touches a non-test file under `src/`,
-`worker/` or `supabase/` — `isProductionFile` in
-`scripts/ci/merge-ledger-audit.ts`, the single owner of the rule. The
-hand-incremented number was wrong at eight consecutive architecture passes
-(measured 19 against a stated 5 on 2026-09-20), so the sweep measures it.
-
-1. Find the window base: the end SHA of the newest **Architecture pass** entry
-   in the log (the 2026-09-20 pass closed its window at `cf053acfa`).
-2. Run this from an up-to-date checkout (`git fetch origin main` first):
-
-```bash
-BASE=<window-base-sha>
-for c in $(git rev-list --first-parent "$BASE"..origin/main); do
-  n=$(git show --name-only --pretty=format: "$c" \
-    | grep -E '^(src|worker|supabase)/' \
-    | grep -vE '(__tests__/|\.(test|spec)\.[cm]?[jt]sx?$)' | wc -l | tr -d ' ')
-  echo "$n $(git log -1 --format='%h %s' "$c")"
-done
-```
-
-3. Every line with a non-zero count is a counting merge. In the arch-log row,
-   state the total, the window (`<base>..origin/main`), the number of commits
-   examined, and each counting merge with its SHA and file count.
-4. Do not edit the "Merges since last architecture pass: N" headline line. It
-   is a claim, not a measurement; #1383 replaces it with a SHA-keyed column.
-   When #1383 lands, this section and the row above change with it.
 
 ### Size caps — every page above is guarded
 
@@ -115,7 +86,7 @@ End your run with this table so the user has a review surface:
 | currents.md | ✅ | added trial summary + bumped Last updated |
 | progresstracking.md | ✅ | written with currents.md |
 | migrations-log.md | ⛔ | no migration in this diff |
-| arch-review-log.md | ✅ | bottom-table row for PR #NNN; counter MEASURED at 4 in `<base>..origin/main` |
+| arch-review-log.md | ✅ | bottom-table row for PR #NNN |
 | change-ledger.md | ✅ | row present from the ship step; filled the 7-day check on #MMM |
 | … | | |
 
@@ -123,10 +94,11 @@ Do **not** claim a file was updated unless you actually edited it.
 
 ### Why `arch-review-log.md` is in that table
 
-Because it kept being forgotten when it wasn't. The counter is the only thing
-tracking architectural entropy between passes, and a missed increment is
-invisible — nothing fails, the number is just quietly wrong, and the pass that
-should have been triggered isn't.
+Because it kept being forgotten when it wasn't. The bottom table is the only
+record of what each merge did to the architecture, and it is what an
+architecture pass reads first. A missed row is invisible — nothing fails, the
+record just quietly has a gap. `ci:merge-ledger` now catches a merge that left
+no line at all, but only the sweep writes a row a reader can use.
 
 It was missed on **#712, #716 and #746**, each time by a session that ran this
 sweep and had no reason to think of it. Two architecture passes then prescribed
@@ -138,10 +110,7 @@ checklist rather than by this skill).
 That is the whole argument for the row: an instruction that lives only in a
 runbook depends on someone remembering to read the runbook. Keep it in the table.
 
-The row alone was not enough. With the row in place the number was still wrong
-at the 2026-09-12 pass (stated 21, measured 83) and the 2026-09-20 pass (stated
-5, measured 19), because merges that never ran this sweep never incremented
-it. A count that depends on every merge remembering is wrong by construction,
-so the sweep now derives it from `git` each time. `ci:merge-ledger` guards the
-other half on the merging PR: a production or governance diff must add a line
-to the log.
+The row once also fed a merge counter that reminded the owner to schedule an
+architecture pass. That count was wrong at eight consecutive passes (stated 5,
+measured 19 on 2026-09-20), and the reminder had no procedure behind it, so the
+owner deleted it on 2026-09-22 (#1383, #1409). The row stays; the count does not.
