@@ -242,6 +242,16 @@ describe('getAdminOverview — shape', () => {
 
     // Exactly 7 queries issued (5 system-health + businessRows + metricsRows).
     expect(harness.sqlCalls).toHaveLength(7);
+
+    // #1365: email health (query 4) is bounded by the exact union of its FILTER
+    // windows — never a whole-table scan, never a `created_at` cut-off (a row
+    // can fail or send after it was created). Number-equivalence against the
+    // unbounded read is proven live in admin-panel-bounds.integration.test.ts.
+    const emailHealthText = harness.sqlCalls[4]!.text.replace(/\s+/g, ' ');
+    expect(emailHealthText).toContain(
+      "FROM notification_deliveries WHERE sent_at >= NOW() - INTERVAL '24 hours' OR failed_at >= NOW() - INTERVAL '7 days'",
+    );
+    expect(emailHealthText).not.toContain('created_at');
   });
 
   // `maps null last_sync_at / last_activity to null (not a crash on missing
