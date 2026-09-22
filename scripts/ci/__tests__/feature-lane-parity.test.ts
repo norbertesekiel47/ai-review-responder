@@ -255,3 +255,67 @@ describe('the one intended divergence still holds', () => {
     expect(codexLane).not.toContain('## 8. SHIP');
   });
 });
+
+// execution-lanes.md is the shared owner for both harnesses, so a bullet in
+// one of its lane lists reads as universal. The Standard list once said "Root
+// Codex implements the first tracer" among otherwise neutral bullets, and the
+// Claude lane's answer (hand off at plan approval, implement nothing in the
+// planning session) sat 141 lines away under a differently titled section
+// (#1385). A bullet that mentions one harness either carries that harness as
+// its label ("Claude lane: …") or states both answers.
+describe('harness-scoped bullets in the shared lane lists are named as such', () => {
+  const NAMES_CLAUDE = /\bClaude\b/;
+  const NAMES_CODEX = /\bCodex\b/;
+  const LABELLED = /^(Claude|Codex) lane:/;
+
+  interface LaneBullet {
+    readonly lane: string;
+    readonly bullet: string;
+    readonly title: string;
+  }
+
+  /** Bullets under `## Lane behavior`, keyed by their `### <Lane>`, continuation lines joined. */
+  function laneBullets(text: string): LaneBullet[] {
+    const lines = text.split('\n');
+    const start = lines.indexOf('## Lane behavior');
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex((line) => line.startsWith('## '));
+    const bullets: LaneBullet[] = [];
+    let lane = '';
+    for (const line of end === -1 ? rest : rest.slice(0, end)) {
+      if (line.startsWith('### ')) lane = line.slice(4).trim().toLowerCase();
+      else if (line.startsWith('- ')) bullets.push({ lane, bullet: line.slice(2).trim(), title: '' });
+      else if (line.startsWith('  ')) {
+        const last = bullets.pop();
+        if (last) bullets.push({ ...last, bullet: `${last.bullet} ${line.trim()}` });
+      }
+    }
+    return bullets.map((entry) => ({ ...entry, title: `${entry.lane}: ${entry.bullet.slice(0, 48)}` }));
+  }
+
+  const bullets = laneBullets(executionLanes);
+
+  it('finds the lane lists', () => {
+    expect(new Set(bullets.map((entry) => entry.lane))).toEqual(
+      new Set(['trivial', 'small', 'standard', 'high', 'epic']),
+    );
+  });
+
+  it.each(bullets)('$title', ({ lane, bullet }) => {
+    const claude = NAMES_CLAUDE.test(bullet);
+    const codex = NAMES_CODEX.test(bullet);
+    if (!claude && !codex) return;
+    expect(
+      (claude && codex) || LABELLED.test(bullet),
+      `${lane} lane: "${bullet}" names one harness without saying it applies to that harness only`,
+    ).toBe(true);
+  });
+
+  it('the standard lane gives both harnesses\' first-tracer answer and points at the handoff', () => {
+    const tracer = bullets.find((entry) => /first tracer/.test(entry.bullet));
+    expect(tracer?.lane).toBe('standard');
+    expect(tracer?.bullet).toMatch(NAMES_CODEX);
+    expect(tracer?.bullet).toMatch(/Claude lane/);
+    expect(tracer?.bullet).toContain('Model handoff at plan approval');
+  });
+});

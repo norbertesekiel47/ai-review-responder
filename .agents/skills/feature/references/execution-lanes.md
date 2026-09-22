@@ -63,7 +63,10 @@ closed, never waives.
 
 - Lock the full intake and obtain sign-off.
 - Use a sibling worktree and plan tracer bullets.
-- Root Codex implements the first tracer to establish precedent.
+- The first tracer establishes precedent, and who writes it differs by
+  harness: root Codex implements it in the root context; the Claude lane hands
+  off at plan approval and implements nothing in the planning session (the
+  mechanism is § Model handoff at plan approval).
 - Delegate later work only when tasks have disjoint edit leases and concrete
   parallel value.
 - Run the spec/correctness review; add the maintainability review only when
