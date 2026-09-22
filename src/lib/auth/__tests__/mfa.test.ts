@@ -1,9 +1,11 @@
+import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 import {
   factorStatusBefore,
   requireAal2FromSupabase,
   requireCurrentAal2FromSupabase,
   normalizeChallengeFactors,
+  nextFactorFriendlyName,
 } from '../mfa';
 
 describe('requireAal2FromSupabase', () => {
@@ -159,6 +161,68 @@ describe('normalizeChallengeFactors', () => {
     expect(
       normalizeChallengeFactors({ totp: [{ friendly_name: 'X', status: 'verified' }] }),
     ).toEqual([]);
+  });
+});
+
+describe('nextFactorFriendlyName', () => {
+  it('nextFactorFriendlyName returns RepWorth when no factor holds it', () => {
+    expect(nextFactorFriendlyName([])).toBe('RepWorth');
+    expect(nextFactorFriendlyName(['Laptop', null])).toBe('RepWorth');
+  });
+
+  it('nextFactorFriendlyName returns the first unused numbered name and fills a gap', () => {
+    expect(nextFactorFriendlyName(['RepWorth'])).toBe('RepWorth 2');
+    expect(nextFactorFriendlyName(['RepWorth', 'RepWorth 3'])).toBe('RepWorth 2');
+    expect(nextFactorFriendlyName(['RepWorth', 'RepWorth 2'])).toBe('RepWorth 3');
+  });
+
+  it('nextFactorFriendlyName ignores null names and names outside the sequence', () => {
+    expect(nextFactorFriendlyName(['RepWorth', null, 'Laptop', 'repworth 2'])).toBe('RepWorth 2');
+  });
+});
+
+// Property tests (fast-check): the house style for invariant-level coverage —
+// /feature requires at least one per declared invariant on billing/approval/
+// escalation logic (feature.md step 5).
+describe('nextFactorFriendlyName invariants', () => {
+  // Biased toward the `RepWorth`/`RepWorth N` sequence itself — an arbitrary
+  // drawn from `fc.string()` alone almost never lands inside the sequence, so
+  // the property below never falsifies against the mutant that hardcodes
+  // `return 'RepWorth'`. Mixing in the sequence values, arbitrary strings, and
+  // null gives the property real inputs to fail on.
+  const existingNamesArb = fc.array(
+    fc.oneof(
+      fc.constantFrom('RepWorth', 'RepWorth 2', 'RepWorth 3', 'RepWorth 4', 'RepWorth 5'),
+      fc.string(),
+      fc.constant(null),
+    ),
+    { maxLength: 20 },
+  );
+
+  it('invariant: nextFactorFriendlyName never returns a name an existing factor holds', () => {
+    fc.assert(
+      fc.property(existingNamesArb, (existingNames) => {
+        const next = nextFactorFriendlyName(existingNames);
+        expect(existingNames).not.toContain(next);
+      }),
+    );
+  });
+
+  it('invariant: the result is always the first unused name in the sequence', () => {
+    fc.assert(
+      fc.property(existingNamesArb, (existingNames) => {
+        const taken = new Set(existingNames.filter((name): name is string => name !== null));
+        const next = nextFactorFriendlyName(existingNames);
+        const match = /^RepWorth(?: (\d+))?$/.exec(next);
+        expect(match).not.toBeNull();
+        expect(taken.has(next)).toBe(false);
+        const n = match![1] ? Number(match![1]) : 1;
+        for (let i = 1; i < n; i += 1) {
+          const smaller = i === 1 ? 'RepWorth' : `RepWorth ${i}`;
+          expect(taken.has(smaller)).toBe(true);
+        }
+      }),
+    );
   });
 });
 

@@ -72,6 +72,28 @@ export function factorStatusBefore(
   return 'unknown';
 }
 
+/**
+ * The next friendly name to send on a new TOTP enrollment: the first of
+ * `RepWorth`, `RepWorth 2`, `RepWorth 3`, ... that no existing factor of the
+ * user holds, in any status. Fills a gap (`RepWorth` + `RepWorth 3` →
+ * `RepWorth 2`) rather than always appending. Exact, case-sensitive compare;
+ * a null name or a name outside the sequence (e.g. `Laptop`) is ignored.
+ *
+ * Pure — no clock, no randomness — so the same existing names always produce
+ * the same next name. The caller (`useMfaEnrollment.startEnrollment`) is
+ * responsible for reading `listFactors()` fresh before calling this, since a
+ * stale list can omit a factor the server already holds.
+ */
+export function nextFactorFriendlyName(existingNames: readonly (string | null)[]): string {
+  const taken = new Set(existingNames.filter((name): name is string => name !== null));
+  if (!taken.has('RepWorth')) return 'RepWorth';
+  let n = 2;
+  while (taken.has(`RepWorth ${n}`)) {
+    n += 1;
+  }
+  return `RepWorth ${n}`;
+}
+
 export function mfaChallengePath(next: string): string {
   return `/mfa/challenge?next=${encodeURIComponent(next)}`;
 }

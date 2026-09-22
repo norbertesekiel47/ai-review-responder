@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1149-mfa-second-factor-name-05137d",
+  "branch": "fix/1149-mfa-second-factor-name",
+  "fork_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "merge_base_sha": "75c8d54cb77ac34d1f2f7686b9171528871b81f3",
+  "head_sha": "751f3dfca878eec53a42e44c2074aca5aa750e22",
+  "intake_sha256": "3031ba4d24022d04c3b8dac99506d637a6b519aa5c7321b7f1f8d7bb3de51769",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-21T17:43:29Z",
+  "inventory": [
+    {
+      "id": "r3-01",
+      "test": "useMfaEnrollment.test.tsx > maps a 403 on unenroll to the re-authenticate hint",
+      "file": "src/app/(authenticated)/settings/security/SecuritySections.tsx:42",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD (exactly one executed test). Mutation: the PRESENTATION predicate isStepUpRequiredError's pattern changed from /sign in again/i to /verify again/i. KILLED, exit 1. The failing assertion is useMfaEnrollment.test.tsx:321:57 — the round-3 expect(isStepUpRequiredError(result.current.error)).toBe(true) — and the pre-existing toBe('Sign in again with your authenticator before removing this factor.') at :320 PASSED. So the new predicate assertion is the SOLE detector of a presentation-pattern change: this is RT-1149-F3's fix being load-bearing, measured rather than read."
+    },
+    {
+      "id": "r3-02",
+      "test": "useMfaEnrollment.test.tsx > does not surface provider text that would trigger the step-up link",
+      "file": "src/components/auth/useMfaEnrollment.ts:84",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation: the hook's LOCAL guard pattern replaced by a never-matching pattern (guard removal in effect), leaving raw provider text in the sentence. KILLED, exit 1 — but at useMfaEnrollment.test.tsx:277:34, the PRE-EXISTING toBe('Could not start MFA enrollment.'), which precedes the round-3 predicate assertion at :278 and fails first. Recorded honestly: under a guard-removal mutation the new predicate assertion adds NO detection the older assertion lacks. It adds detection under r3-01's presentation-pattern mutation, which no other assertion in the repository catches."
+    },
+    {
+      "id": "r3-03",
+      "test": "mfa.test.ts > invariant: nextFactorFriendlyName never returns a name an existing factor holds",
+      "file": "src/lib/auth/mfa.ts:87",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation: the round-1 survivor re-run — nextFactorFriendlyName's body replaced by `void existingNames; return 'RepWorth';`. KILLED, property failed after 9 draws, counterexample [[\"RepWorth\"]]. Property 1 continues to own non-collision."
+    },
+    {
+      "id": "r3-04",
+      "test": "mfa.test.ts > invariant: the result is always the first unused name in the sequence",
+      "file": "src/lib/auth/mfa.ts:87",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation 1: the SAME `return 'RepWorth';` mutant that round 2 recorded as PASSING this property (RT-1149-F5, vacuous at n===1). It now FAILS after 1 draw, counterexample [[\"RepWorth\"]] — the round-3 line expect(taken.has(next)).toBe(false) at mfa.test.ts:218 is what closes it. BOTH properties now go red against that mutant, which is the exact claim RT-1149-F5's fix made. Mutation 2 (regression, that the new line did not displace property 2's distinct value): gap-fill replaced by append-past-the-maximum, which property 1 cannot see because it returns an untaken name. KILLED, counterexample [[\"RepWorth\",\"RepWorth 3\"]] — property 2 still owns minimality."
+    },
+    {
+      "id": "r3-05",
+      "test": "docs/directory/lib-platform.md row for `mfa.ts` (duty 3, not executable)",
+      "file": "docs/directory/lib-platform.md:82",
+      "outcome": "excluded",
+      "reason": "A Markdown directory row has no covering test and cannot be mutated meaningfully; it is verified by hand-resolution under duty 3 instead. Result recorded there: `src/proxy.ts` `:260-271` resolves EXACTLY to `getAalGate` at HEAD (signature at :260, `getAuthenticatorAssuranceLevel()` at :264, the lenient `nextLevel === 'aal2' && currentLevel !== 'aal2'` test at :268, closing brace at :271), so RT-1149-F4 is closed. `prevalidate-plan.py` was re-run and again reported \"CITATIONS: 0 checked\" on this file — its grammar does not read the bare \"(`:260-271`, …)\" form — so no part of this verdict rests on that script."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1149-F1",
+      "severity": "P1",
+      "title": "The promised invariant test cannot falsify its invariant: `fc.string()` never draws a name in the RepWorth sequence, so a `return 'RepWorth'` implementation passes it",
+      "at": "src/lib/auth/__tests__/mfa.test.ts:202",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Closed in round 2 by measurement (rt2-1149-01) and RE-CONFIRMED in round 3 (r3-03): the same hardcoding mutant now fails property 1 after 9 draws, counterexample [[\"RepWorth\"]], where round 1 recorded a pass over 100,000 draws."
+    },
+    {
+      "id": "RT-1149-F2",
+      "severity": "P2",
+      "title": "Provider-controlled enrollment error text reached `isStepUpRequiredError`'s /sign in again/i sniff, which could attach a 'Verify with your authenticator' link to an enrollment failure",
+      "at": "src/components/auth/useMfaEnrollment.ts:84",
+      "duty": 4,
+      "disposition": "fixed",
+      "reason": "Closed at the hook in round 2 and re-confirmed in round 3 (r3-02): removing the guard reddens the covering test. The residual duplicated-regex drift risk was carried as RT-1149-F3 and is now carried, narrowed, as RT-1149-F6."
+    },
+    {
+      "id": "RT-1149-F3",
+      "severity": "P2",
+      "title": "Two independent copies of `/sign in again/i` with nothing binding them, and the new test asserted the exact copy string rather than the consumer’s predicate",
+      "at": "src/components/auth/useMfaEnrollment.ts:84",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "FIXED, and the fix is exactly the behavioural replacement this finding proposed: the hook test now imports the real consumer predicate (useMfaEnrollment.test.tsx:26) and asserts isStepUpRequiredError is false on the hook's enrollment sentence (:278) and true on the unenroll-403 hint (:321). Measured, not read: r3-01 changes SecuritySections.tsx:42 from /sign in again/i to /verify again/i and the suite goes red at :321 ONLY — the pre-existing string assertion at :320 passes. So the two copies are now bound at the place they must agree, for a pattern CHANGE. The import is legal: eslint.config.mjs:253 and :251 ignore `**/__tests__/**` for the @/app leaf ban, and `npx eslint` over both changed test files exits 0 at HEAD. What the binding does NOT catch is a widening that adds an alternative; that residue is opened as RT-1149-F6 rather than left inside a closed finding."
+    },
+    {
+      "id": "RT-1149-F4",
+      "severity": "P1",
+      "title": "The rewritten `mfa.ts` directory row re-asserted `src/proxy.ts` `:92-103` for the inlined lenient AAL read; at the round-2 HEAD those lines were the admin CORS preflight",
+      "at": "docs/directory/lib-platform.md:82",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED. The row at HEAD 751f3dfc reads '`src/proxy.ts` skips these, inlining its lenient read (`:260-271`, ADR 0025 D6)'. Re-resolved by hand against HEAD, not taken on trust: `grep -n` puts `async function getAalGate()` at src/proxy.ts:260, `supabase.auth.mfa.getAuthenticatorAssuranceLevel()` at :264, the lenient `data.nextLevel === 'aal2' && data.currentLevel !== 'aal2'` test at :268, and the function's closing brace at :271 — the cited span is the function, exactly. The ADR half was re-checked too and remains true: ADR 0025 decision 6 (docs/adr/0025-dual-mode-admin-gate.md:120-128) is the `src/proxy.ts` branch-4 decision and names 'the lenient/strict AAL disagreement already in the tree'. Sibling note in the appendix: two UNCHANGED sites, docs/adr/0025-dual-mode-admin-gate.md:46 and :176, still carry the old `src/proxy.ts:92-103` citation for the same function; neither is touched by any commit on this branch, so neither is a finding against it."
+    },
+    {
+      "id": "RT-1149-F5",
+      "severity": "P2",
+      "title": "The second property was vacuous exactly when the result is the unnumbered `RepWorth`, so it carried no weight alone for that case",
+      "at": "src/lib/auth/__tests__/mfa.test.ts:211",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "FIXED by the one line this finding proposed, `expect(taken.has(next)).toBe(false);` at mfa.test.ts:218, and verified by re-running the exact mutant the finding named (r3-04): `return 'RepWorth';` now fails property 2 after ONE draw, counterexample [[\"RepWorth\"]], where round 2 recorded it passing. BOTH properties are now red against that mutant, as claimed. A second mutation confirms the new line did not flatten property 2 into property 1: gap-fill replaced by append-past-the-maximum still fails property 2 (counterexample [[\"RepWorth\",\"RepWorth 3\"]]) and is invisible to property 1."
+    },
+    {
+      "id": "RT-1149-F6",
+      "severity": "P2",
+      "title": "The new predicate binding is directional — it catches a CHANGE to the presentation pattern but not a WIDENING that adds an alternative, which is the drift scenario RT-1149-F3 originally described",
+      "at": "src/components/auth/__tests__/useMfaEnrollment.test.tsx:321",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "Static, and exact — no launch was spent on it deliberately (see below). Both new assertions run isStepUpRequiredError over two FIXED literals: 'Could not start MFA enrollment.' (:278) and 'Sign in again with your authenticator before removing this factor.' (:321). A mutation of SecuritySections.tsx:42 that only ADDS an alternative — /sign in again|re-authenticate/i, the literal example RT-1149-F3 used — classifies both literals exactly as before, so both assertions still pass and the repository stays green; meanwhile a provider message containing 're-authenticate' slips the hook's local /sign in again/i guard at useMfaEnrollment.ts:84 and re-acquires RT-1149-F2's defect. Why no mutation row: such a mutant would survive on a branch these two literals provably never execute, which the skill classifies `inconclusive` (class oracle) by construction and which would force INCOMPLETE_ORACLE while carrying zero information; the static argument above is complete on its own. Behavioural closure if the owner wants it: make the two files share ONE predicate exported from a `src/lib/` module (importable from both — the ESLint ban is on `@/app/**` leaves, not on `src/lib`), so there is one pattern instead of two. P2, unchanged from RT-1149-F3's severity: a latent drift risk over a UI affordance, not a defect at HEAD — at HEAD the two patterns are byte-identical (rt2-1149-13, re-confirmed by r3-01's diff, which shows the single differing line)."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "owner-third-round-2026-09-21",
+      "date": "2026-09-21",
+      "finding_ids": [
+        "RT-1149-F3",
+        "RT-1149-F4",
+        "RT-1149-F5"
+      ],
+      "text": "Owner authorization for a third round. Asked on 2026-09-21: \"Runs A and B: do you authorize a THIRD red-team round for each, scoped only to the round-3 fix hunks? Without it, neither run can reach 'reviewed' unless known defects stay unfixed.\" The owner selected, verbatim: \"Authorize both (Recommended)\". Scope: the round-3 fix hunks only. This grant authorizes verification work; it accepts no finding."
+    }
+  ],
+  "counts": {
+    "inventory_total": 5,
+    "killed": 4,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 6,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 5,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}
