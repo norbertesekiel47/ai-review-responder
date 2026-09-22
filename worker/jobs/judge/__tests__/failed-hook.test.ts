@@ -104,8 +104,15 @@ describe('JudgeWorker failed hook', () => {
 
   it('marks a budget-decision failure (error name) with the budget_exceeded reasons marker', async () => {
     pushTerminalSequence();
-    const budgetError = new Error('Daily cost limit exceeded for business business-1');
-    budgetError.name = 'CostLimitExceededError';
+    // Same shape as src/lib/costs/tracker.ts: the class assigns this.name, so
+    // the name-matching classifier and the constructor-named rationale agree.
+    class CostLimitExceededError extends Error {
+      constructor() {
+        super('Daily cost limit exceeded for business business-1');
+        this.name = 'CostLimitExceededError';
+      }
+    }
+    const budgetError = new CostLimitExceededError();
 
     await handleJudgeFailed(mockSql as never, failedJob(3), budgetError);
 

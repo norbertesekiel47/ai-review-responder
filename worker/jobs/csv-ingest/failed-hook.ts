@@ -7,6 +7,7 @@ import {
   type IngestReport,
 } from '@/lib/solicitation/ingest';
 import { UPLOAD_STATUSES } from '@/lib/solicitation/upload-status';
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { CsvIngestPayload } from '@/lib/shared/worker-types';
 
@@ -88,12 +89,6 @@ export async function handleCsvIngestFailed(
   } catch (handlerErr) {
     await captureCsvIngestFailedHookCrash(sql, state, handlerErr);
   }
-}
-
-/** Error NAME only, bounded — never the message (may embed handle values). */
-function boundedErrorClass(err: unknown): string {
-  if (err instanceof Error && err.name) return err.name.slice(0, 100);
-  return 'UnknownError';
 }
 
 async function captureCsvIngestFailedHookCrash(

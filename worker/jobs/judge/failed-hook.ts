@@ -8,6 +8,7 @@ import {
   findLatestRunIdForReview,
   insertJudgeVerdict,
 } from '@/lib/responses/judge-store';
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import {
   extractOutboxHandle,
@@ -34,11 +35,6 @@ function isBudgetDecisionFailure(job: Job<JudgeVerdictPayload>, err: unknown): b
   if (err instanceof Error && BUDGET_DECISION_ERROR_NAMES.includes(err.name)) return true;
   const failedReason = typeof job.failedReason === 'string' ? job.failedReason : '';
   return failedReason.includes('cost limit exceeded');
-}
-
-function boundedErrorClass(err: unknown): string {
-  if (err instanceof Error && err.name) return err.name.slice(0, 100);
-  return 'UnknownError';
 }
 
 function isJudgeAttemptExhausted(job: Job<JudgeVerdictPayload>): boolean {

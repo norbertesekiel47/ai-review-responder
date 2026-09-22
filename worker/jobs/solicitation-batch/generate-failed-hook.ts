@@ -11,7 +11,8 @@ import {
   recordOutboxTransientError,
 } from '@/lib/shared/outbox';
 import type { GenerateSolicitationAsksPayload } from '@/lib/shared/worker-types';
-import { boundedErrorClass, isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
+import { isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
 
 const logger = createWorkerLogger('[GenerateSolicitationAsksWorker.failed]');
 const logFailureSafely = makeFailureLogger(logger, 'ask generation exhausted');
