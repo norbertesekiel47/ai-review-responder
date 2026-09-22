@@ -358,45 +358,72 @@ function currentBranch(): string {
   }
 }
 
+/** Prints one report and ends the process. Never returns. */
+function emit(report: { text: string; exitCode: number }): never {
+  if (report.exitCode === 0) console.log(report.text);
+  else console.error(report.text);
+  process.exit(report.exitCode);
+}
+
+/** The merge-base with `baseRef`, or null when this checkout cannot see it. */
+function mergeBaseOrNull(baseRef: string): string | null {
+  try {
+    return git('merge-base', 'HEAD', baseRef).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The report for a base ref this checkout cannot see. Same rule as
+ * merge-ledger-audit: a gate that cannot see the diff fails in CI — that is
+ * the exact "it did not run" shape this audit exists to end — and skips on a
+ * fresh local clone, where a missing `origin/main` is not a violation.
+ */
+function unresolvedBaseReport(baseRef: string): { text: string; exitCode: number } {
+  const message = `weakened-checks-audit: cannot resolve ${baseRef} — no merge-base with HEAD`;
+  return process.env.CI
+    ? { text: `${message}. Check out with full history (fetch-depth: 0).`, exitCode: 1 }
+    : { text: `${message}; skipped (run \`git fetch origin\` to enable it locally).`, exitCode: 0 };
+}
+
+/**
+ * The registry gaps for these findings, or null when the head branch — which
+ * the key is built from — cannot be determined.
+ *
+ * Named rather than inlined (invariant #12): the branch, the registry read and
+ * the key lookup are ONE decision, and `main` only decides what to print.
+ */
+function registryGapsForRun(findings: readonly Finding[]): RegistryGap[] | null {
+  const branch = branchFor(process.env.GITHUB_HEAD_REF, currentBranch());
+  return branch === null ? null : registryGaps(findings, branch, parseRegistryKeys(readRegistry()));
+}
+
+/**
+ * Same policy as an unresolvable base ref, one step narrower: without a branch
+ * the registry check cannot run, so CI fails and a detached local checkout
+ * prints the reason and keeps reporting the diff findings.
+ */
+function noteMissingBranch(): void {
+  const message = 'weakened-checks-audit: cannot determine the head branch — the registry key needs it';
+  if (process.env.CI) {
+    emit({ text: `${message}. Set GITHUB_HEAD_REF (it is set on every pull_request run).`, exitCode: 1 });
+  }
+  console.log(`${message}; the ${REGISTRY_PATH} check is skipped on this detached checkout.`);
+}
+
 function main(): never {
   const baseRef = baseRefFor(process.env.GITHUB_BASE_REF);
-  let mergeBase: string;
-  try {
-    mergeBase = git('merge-base', 'HEAD', baseRef).trim();
-  } catch {
-    // Same rule as merge-ledger-audit: a gate that cannot see the diff fails in
-    // CI and skips on a fresh local clone.
-    const message = `weakened-checks-audit: cannot resolve ${baseRef} — no merge-base with HEAD`;
-    if (process.env.CI) {
-      console.error(`${message}. Check out with full history (fetch-depth: 0).`);
-      process.exit(1);
-    }
-    console.log(`${message}; skipped (run \`git fetch origin\` to enable it locally).`);
-    process.exit(0);
-  }
+  const mergeBase = mergeBaseOrNull(baseRef);
+  if (mergeBase === null) emit(unresolvedBaseReport(baseRef));
 
   // Working tree vs merge-base, so an uncommitted `.only` is caught before the
   // commit and not only at push time.
   const findings = evaluateDiff(parseUnifiedDiff(git('diff', '-U0', '--no-renames', mergeBase)));
+  const gaps = registryGapsForRun(findings);
+  if (gaps === null) noteMissingBranch();
 
-  // The registry check needs a branch name to build the key from. Same policy
-  // as an unresolvable base ref: a gate that cannot see its input says so in
-  // CI rather than passing, and skips on a detached local checkout.
-  const branch = branchFor(process.env.GITHUB_HEAD_REF, currentBranch());
-  if (branch === null) {
-    const message = 'weakened-checks-audit: cannot determine the head branch — the registry key needs it';
-    if (process.env.CI) {
-      console.error(`${message}. Set GITHUB_HEAD_REF (it is set on every pull_request run).`);
-      process.exit(1);
-    }
-    console.log(`${message}; the ${REGISTRY_PATH} check is skipped on this detached checkout.`);
-  }
-  const gaps = branch === null ? [] : registryGaps(findings, branch, parseRegistryKeys(readRegistry()));
-
-  const report = formatReport(findings, gaps);
-  if (report.exitCode === 0) console.log(report.text);
-  else console.error(report.text);
-  process.exit(report.exitCode);
+  emit(formatReport(findings, gaps ?? []));
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
