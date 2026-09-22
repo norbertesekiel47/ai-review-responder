@@ -49,7 +49,7 @@
 # migration 122's MAINTAIN branch is version-guarded, so a PG16 container
 # passes its suite while asserting less. assertSchemaReady
 # (src/lib/shared/__tests__/helpers/schema-ready.ts) re-checks the same floor
-# at suite time; scripts/ci/__tests__/test-db-provision.test.ts pins the two
+# at suite time; its unit test (schema-ready.test.ts, beside it) pins the two
 # spellings and the CI images to this value.
 #
 #   pnpm test:db:setup
@@ -65,7 +65,8 @@ cd "$(dirname "$0")/.."
 LOCK_KEY='repworth_live_db_integration'
 
 # The one owner of the test DB's PostgreSQL major (see header). Pinned against
-# REQUIRED_PG_MAJOR in schema-ready.ts and the CI `postgres:<major>` images.
+# REQUIRED_PG_MAJOR in schema-ready.ts and the CI `postgres:<major>` images
+# by schema-ready.test.ts.
 REQUIRED_PG_MAJOR=17
 
 MIGRATIONS=$(ls supabase/migrations/*.sql | sort)

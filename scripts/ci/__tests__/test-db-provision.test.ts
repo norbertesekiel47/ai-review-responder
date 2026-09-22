@@ -43,43 +43,6 @@ describe('lock-key drift guard', () => {
   });
 });
 
-describe('PostgreSQL major drift guard (#1379)', () => {
-  // Read as TEXT, not imported: importing a live-DB helper module would make
-  // ci:live-db-suites classify this DB-free file as a live-DB suite.
-  const script = readFileSync(join(ROOT, 'scripts/test-db-setup.sh'), 'utf8');
-  const ownerMatch = /^REQUIRED_PG_MAJOR=(\d+)$/m.exec(script);
-  const REQUIRED_PG_MAJOR = Number(ownerMatch?.[1]);
-
-  it('test-db-setup.sh owns the major, and schema-ready.ts spells the SAME value', () => {
-    expect(ownerMatch, 'REQUIRED_PG_MAJOR=<n> in test-db-setup.sh').not.toBeNull();
-    // Path built from segments: the joined spelling is a ci:live-db-suites marker.
-    const helper = readFileSync(
-      join(ROOT, 'src/lib/shared/__tests__', 'helpers', 'schema-ready.ts'),
-      'utf8',
-    );
-    expect(helper).toContain(`export const REQUIRED_PG_MAJOR = ${REQUIRED_PG_MAJOR};`);
-  });
-
-  it.each(['.github/workflows/ci.yml', '.github/workflows/e2e.yml'])(
-    '%s runs every postgres service on the required major',
-    (workflow) => {
-      const yaml = readFileSync(join(ROOT, workflow), 'utf8');
-      const images = [...yaml.matchAll(/image:\s*postgres:(\S+)/g)].map((match) => match[1]);
-      expect(images.length).toBeGreaterThan(0);
-      expect(images).toEqual(images.map(() => String(REQUIRED_PG_MAJOR)));
-    },
-  );
-
-  it('the driver refuses a server below the major BEFORE any DDL', () => {
-    const driver = readDriver();
-    const guard = driver.indexOf(
-      `IF current_setting('server_version_num')::int < ${REQUIRED_PG_MAJOR * 10_000} THEN RAISE EXCEPTION`,
-    );
-    expect(guard).toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(driver.indexOf('DROP SCHEMA'));
-  });
-});
-
 describe('provisioning driver generator (--print-driver)', () => {
   const driver = readDriver();
   const lines = driver.split('\n');

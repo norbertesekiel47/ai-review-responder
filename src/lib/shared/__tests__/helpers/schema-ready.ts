@@ -22,8 +22,8 @@ const SETUP_COMMAND = 'pnpm test:db:setup';
 /**
  * The PostgreSQL major every live-DB suite requires (#1379). Owned by
  * `REQUIRED_PG_MAJOR` in `scripts/test-db-setup.sh`; this copy exists because
- * bash cannot be imported, and `scripts/ci/__tests__/test-db-provision.test.ts`
- * pins the two spellings (and CI's `postgres:<major>` images) together.
+ * bash cannot be imported, and `schema-ready.test.ts` (beside this file) pins the
+ * two spellings and CI's `postgres:<major>` images together.
  */
 export const REQUIRED_PG_MAJOR = 17;
 
