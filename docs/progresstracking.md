@@ -941,3 +941,43 @@ inside the guard. It blanks **comment text**, not whole comment lines (whole-lin
 stripping hid code after a `*/` and on `*`-leading continuations, RT16-09), which
 is why `purge-stages.ts` leaves the diff entirely: no production prose was
 reworded to dodge a regex. The race half of #612 was closed by #637.
+
+## 2026-09-21 — #1149 MFA second factor merged (PR #1416, squash `d66c74823`)
+
+The third run of the same `/feature-swarm` sitting, and the last to land (2026-09-22).
+Lane `/feature`, size small, RISK high (auth), lead `claude/sonnet` with `opus`
+fix rounds; three review rounds (spec-correctness + security lens,
+standards-maintainability, Codex `gpt-6-astra` adversarial) and three red-team
+rounds, the third owner-authorized, final status CLEAR with 0 survivors.
+
+**Files.** `src/lib/auth/mfa.ts` (new pure `nextFactorFriendlyName`),
+`src/components/auth/useMfaEnrollment.ts` (fresh `listFactors()` read before
+enroll, error-code mapping, the step-up sentinel guard), their two test files,
+`docs/directory/lib-platform.md` (row for the export; also re-pointed the stale
+`src/proxy.ts:92-103` span to `getAalGate` at `:260-271`). No new module,
+dependency, flag, env var or migration.
+
+**Decisions.** Name rule `RepWorth`, `RepWorth 2`, … (first unused, fills gaps,
+no clock, no randomness) rather than a date — the Security page already shows
+"Added <date>". The hook re-reads the factor list rather than trusting its
+state. The terminal-vs-retry question did not arise here; the one owner decision
+was to keep "no cleanup of abandoned unverified factors" as a non-goal and gate
+the PR on a staging measurement — then, on 2026-09-21, to merge without it.
+That measurement is **#1418 (P1)**.
+
+**What the review changed.** The invariant property was empty (`fc.string()`
+never drew an in-sequence name; the red-team mutant `return 'RepWorth'` survived
+100,000 draws) — now biased and paired with a first-unused-name property. The
+cancel fixture placed an unverified factor under `totp`, a shape auth-js 2.106.2
+never emits (every factor goes to `all`, only verified ones to `totp`); deleting
+the `all` arm of `collectFactors` left the suite green. Provider text reached
+the string `isStepUpRequiredError` sniffs, so a Supabase message containing
+"sign in again" would have rendered the AAL2 step-up link on an enrollment
+failure — guarded in the hook, bound to the real consumer predicate in a test.
+
+**Gotchas.** CI's `test` job failed once on `migration-119-job-outbox-rls`
+(`deadlock detected`) — the known live-DB deadlock class
+(lab-notes/live-db-test-suites.md), not this branch; green on re-run. A branch
+that takes `main` after `reviewed` makes `red-team-status.mjs` report a stale
+sidecar by construction; the PR records the empty intersection instead of a
+hand-edited `head_sha`.

@@ -43,7 +43,7 @@ Facts measured at 2026-09-07, on `main` at 85b31e15:
   `demos`, `jobs`, `nav-counts`, `notifications` and `overview` use
   `requireRoleOr401`. All are role-only; none require AAL2.
 - **`MFA_ENFORCEMENT_ENABLED` is OFF** (`.claude/reference/env-vars.md:652`), so
-  the proxy's `getAalGate` (`src/proxy.ts:92-103`) returns `ok` without asking.
+  the proxy's `getAalGate` (`src/proxy.ts:260-271`) returns `ok` without asking.
   An `aal1` admin can therefore read all nine GET routes today, while the
   AAL2-gated routes refuse the same admin.
 - **`src/proxy.ts` branch 4 (`:138-151`) is the backstop.** It 401/403s
@@ -173,7 +173,7 @@ Facts inherited from research #1160, not re-derived here:
    own MFA challenge, and retries with the resulting `aal2` token.
 
 10. **`MFA_ENFORCEMENT_ENABLED` never reaches the gate.** It gates the proxy's
-    AAL step only (`src/proxy.ts:92-103`); `requireAdminWithAal2` is
+    AAL step only (`src/proxy.ts:260-271`); `requireAdminWithAal2` is
     unconditional today and stays unconditional. Research #1160 open risk 4 names
     this exact trap.
 
