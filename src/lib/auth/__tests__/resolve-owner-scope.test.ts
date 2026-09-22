@@ -156,6 +156,21 @@ describe('resolveOwnerScope', () => {
     await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toBe('pool exhausted');
   });
 
+  // #1399: an AuthError LOOK-ALIKE — `name: 'AuthError'`, no `statusCode`. The
+  // guard must be `instanceof`, not a name comparison; under the name variant
+  // this value is wrapped as `ScopeError(message, undefined)` and every consumer
+  // then answers `NextResponse.json(…, { status: undefined })`, which renders
+  // 200. The string row above does not catch that (a string has no `.name`).
+  // Why it matters, once, for all four gates:
+  // src/lib/auth/__tests__/route-helpers.test.ts, requireRoleOr401.
+  it('re-throws an AuthError look-alike (name, no statusCode) rather than wrapping it', async () => {
+    const lookAlike = { name: 'AuthError', message: 'Unauthorized' };
+    mockRequireRole.mockRejectedValue(lookAlike);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toBe(lookAlike);
+  });
+
   it('user.accountId is null → throws ScopeError 403 no_business', async () => {
     mockRequireRole.mockResolvedValue(ownerUser({ accountId: null }));
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();

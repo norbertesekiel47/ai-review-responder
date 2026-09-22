@@ -233,6 +233,30 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(res.status).toBe(401);
   });
 
+  // #1400: the ROUTE-level half of the #1361 contract, and the only row in the
+  // 20 past-replies/dashboard route suites that pins escape-to-5xx — every other
+  // one exercises AuthError, which is a refusal and is SUPPOSED to be mapped.
+  //
+  // A non-AuthError from requireRole is a server fault. It must travel
+  // untouched: resolveOwnerScope re-throws it (#1361), resolveEditReplyScope
+  // re-throws it (_shared/edit-reply-request.ts), and withSameOrigin does not
+  // catch handler errors — so the handler's promise REJECTS and Next renders a
+  // real 500, which `onRequestError` (src/instrumentation.ts) captures. Any
+  // response at all here is the regression, so the assertion names the status it
+  // would have been mapped to rather than only asserting "threw".
+  it('lets a non-AuthError fault escape to a 5xx instead of masking it as 4xx', async () => {
+    const fault = new Error('pool exhausted');
+    mockRequireRole.mockRejectedValue(fault);
+    const POST = await importPOST();
+
+    const outcome = await POST(makeRequest({ body: validBody() })).then(
+      (response) => ({ maskedAs: response.status }),
+      (error: unknown) => ({ threw: error }),
+    );
+
+    expect(outcome).toEqual({ threw: fault });
+  });
+
   it('returns 403 cross-origin when wrong Origin header (withSameOrigin)', async () => {
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody(), origin: 'https://evil.example.com' }));
