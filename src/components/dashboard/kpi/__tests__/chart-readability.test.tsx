@@ -140,10 +140,10 @@ const RECENT_REVIEWS: ReadonlyArray<{ starRating: number | null }> = [
 
 /**
  * The window vocabulary the charts already share. `ReputationTrendChart` is the
- * precedent ("last 8 weeks" via `trendSpanLabel`); the two `Recent*` sub-labels
- * supply the other two phrases in use today.
+ * precedent ("last 8 weeks" via `trendSpanLabel`); `RecentRatingBreakdown`
+ * states its own span in days (#991) and `RecentSentimentMix` its sample.
  */
-const WINDOW_PATTERN = /last (?:week|\d+ weeks)|selected period|most recent/i;
+const WINDOW_PATTERN = /last (?:week|\d+ weeks|\d+ days)|most recent/i;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -254,7 +254,7 @@ const CHART_SUBJECTS: ReadonlyArray<ChartSubject> = [
   },
   {
     name: 'RecentRatingBreakdown',
-    render: async () => render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} />).container,
+    render: async () => render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} window="30d" />).container,
   },
   {
     name: 'RecentSentimentMix',
@@ -344,7 +344,7 @@ describe('chart readability (feat/1088)', () => {
     cleanup();
 
     expect(
-      render(<RecentRatingBreakdown breakdown={{ counts: [], total: 0 }} />).container,
+      render(<RecentRatingBreakdown breakdown={{ counts: [], total: 0 }} window="30d" />).container,
     ).toBeEmptyDOMElement();
     cleanup();
     expect(render(<RecentSentimentMix reviews={[]} />).container).toBeEmptyDOMElement();
@@ -389,7 +389,7 @@ describe('chart readability (feat/1088)', () => {
     // So the requirement is the honest one: each states its window explicitly,
     // and the two stay VISIBLY DISTINCT, because a reader who cannot tell them
     // apart will assume one period covers both. That is gap G4.
-    const rating = render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} />).container;
+    const rating = render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} window="30d" />).container;
     const ratingWindow = windowPhrase(windowSubLabel(rating));
     cleanup();
 
@@ -431,7 +431,7 @@ describe('chart readability (feat/1088)', () => {
     expect(trendAxisStars(trend)).toEqual(['4.7', '4.3', '3.8']);
     cleanup();
 
-    const breakdown = render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} />).container;
+    const breakdown = render(<RecentRatingBreakdown breakdown={RATING_BREAKDOWN} window="30d" />).container;
     expect(rowCountValues(breakdown)).toEqual([7, 3, 1, 0, 1]);
     cleanup();
 

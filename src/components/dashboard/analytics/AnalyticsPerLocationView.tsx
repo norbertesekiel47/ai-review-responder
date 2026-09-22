@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
+import type { DashboardWindow } from '@/lib/kpi/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -20,6 +21,8 @@ interface Props {
   refresh: () => Promise<void>;
   /** Analytics time-range control rendered into the TopBar action slot (#403). */
   periodToolbar?: ReactNode;
+  /** The window `active` was fetched for; the rating breakdown states it (#991). */
+  window: DashboardWindow;
 }
 
 /**
@@ -27,7 +30,7 @@ interface Props {
  * trend -> two-up velocity/ranking -> recent rating breakdown. Falls back to the
  * "no analytics yet" empty state until any chartable data exists.
  */
-export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Props) {
+export function AnalyticsPerLocationView({ active, refresh, periodToolbar, window }: Props) {
   const reputation = active.reputationSummary;
   const trend = reputation?.trend ?? [];
   const hasRanking = (active.ranking?.length ?? 0) > 0;
@@ -77,7 +80,7 @@ export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Pro
             </div>
             {(hasRatingBreakdown || hasRatedReviews) && (
               <div className="section-enter section-enter-4 chart-row">
-                <RecentRatingBreakdown breakdown={active.ratingBreakdown} />
+                <RecentRatingBreakdown breakdown={active.ratingBreakdown} window={window} />
                 <RecentSentimentMix reviews={active.recentReviews} />
               </div>
             )}

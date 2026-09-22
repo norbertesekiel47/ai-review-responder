@@ -62,7 +62,7 @@ export function RecentSentimentMix({ reviews }: Props) {
         {/* Worded so it does NOT repeat the visible sub-label verbatim — see
             the twin in `RecentRatingBreakdown`. "most recent" is kept, because
             that phrase IS this chart's window and the pair must stay
-            distinguishable from the rating breakdown's "selected period". */}
+            distinguishable from the rating breakdown's "last N days" (#991). */}
         <caption>{`Sentiment mix across the ${total} most recent rated ${reviewWord}`}</caption>
         <thead>
           <tr>

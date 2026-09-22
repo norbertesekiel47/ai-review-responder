@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 const { useDashboardDataMock } = vi.hoisted(() => ({
   useDashboardDataMock: vi.fn(),
@@ -16,8 +16,15 @@ vi.mock('@/contexts/LocationContext', () => ({
 vi.mock('@/contexts/PendingCountContext', () => ({
   useSetPendingCount: () => () => {},
 }));
+// The action slot renders too: the period toolbar lives there, and the #991
+// test below drives it.
 vi.mock('@/components/dashboard/shell/TopBar', () => ({
-  TopBar: ({ title }: { title: string }) => <h1>{title}</h1>,
+  TopBar: ({ title, children }: { title: string; children?: React.ReactNode }) => (
+    <>
+      <h1>{title}</h1>
+      {children}
+    </>
+  ),
 }));
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
@@ -121,7 +128,7 @@ describe('AnalyticsContent', () => {
 
     expect(screen.getByText('Reviews by rating')).toBeInTheDocument();
     // Honest aggregate copy — no "most recent sample" caveat.
-    expect(screen.getByText(/Across 5 reviews in the selected period/i)).toBeInTheDocument();
+    expect(screen.getByText(/Across 5 reviews in the last 30 days/i)).toBeInTheDocument();
     expect(screen.queryByText(/Based on your/i)).not.toBeInTheDocument();
     // The paired sentiment-mix card still derives from the recent sample (5 of 6 rated).
     expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
@@ -188,9 +195,37 @@ describe('AnalyticsContent', () => {
     render(<AnalyticsContent />);
 
     expect(screen.getByText('Reviews by rating')).toBeInTheDocument();
-    expect(screen.getByText(/Across 4 reviews in the selected period/i)).toBeInTheDocument();
+    expect(screen.getByText(/Across 4 reviews in the last 30 days/i)).toBeInTheDocument();
     expect(screen.queryByText(/Based on your/i)).not.toBeInTheDocument();
     expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
+  });
+
+  // #991: one `?window=` drives two spans — `windowDays` for the breakdown,
+  // `trendWeeks` for velocity and the trend. Neither may hide behind "the
+  // selected period": the breakdown states its days and follows the picker,
+  // while velocity keeps stating its weeks from the series it plots.
+  it('the rating breakdown states its own days and follows the period picker (#991)', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: {
+        ...baseActive,
+        ratingBreakdown: breakdown({ 5: 2, 4: 1, 3: 1, 1: 1 }),
+        recentReviews: ratings([5, 5, 4, 3, 1, null]),
+      },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<AnalyticsContent />);
+
+    expect(screen.getByText(/Across 5 reviews in the last 30 days/i)).toBeInTheDocument();
+    expect(screen.getByText(/^last 2 weeks$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/selected period/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }));
+
+    expect(screen.getByText(/Across 5 reviews in the last 7 days/i)).toBeInTheDocument();
+    expect(screen.queryByText(/in the last 30 days/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^last 2 weeks$/i)).toBeInTheDocument();
   });
 
   it('shows a loading state', () => {
