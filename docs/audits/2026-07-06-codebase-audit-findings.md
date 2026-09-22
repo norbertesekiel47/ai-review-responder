@@ -103,7 +103,7 @@ Mature, well-engineered codebase with genuinely strong security and reliability 
 
 `src/app/api/settings/voice/route.ts:28` interpolates `${locationId}::uuid` with no `isValidUuid` guard and no try/catch in GET; same gap at `src/lib/approval/http-routes.ts:160-170` and `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:88-92`. Tenant scoping is intact — this is an error-contract bug (500 + Sentry noise instead of 400). The guard pattern already exists at `dashboard/route.ts:364-369`. **Fix:** `isValidUuid` guard at the two shared helpers + the voice GET (3 edits fix 8 routes).
 
-### [ ] M-C — StripeCheckoutReconcileWorker marks outbox terminally failed on transient errors, then rethrows · **Verified (bounded)** · Effort: S
+### [x] M-C — StripeCheckoutReconcileWorker marks outbox terminally failed on transient errors, then rethrows · **Verified (bounded)** · Effort: S · **Fixed 2026-09-21 (#1364)**
 
 `worker/jobs/billing/StripeCheckoutReconcileWorker.ts:40-41` — `markOutboxFailed(...)` then `throw err`. A later successful BullMQ retry can't record success (`markOutboxCompleted` is guarded on `status='dispatched'` → no-ops), and a Stripe outage outlasting retries strands the row `'failed'` (the watchdog only recovers `'dispatched'`). **Bounded:** this is the *backup* reconcile lane; the Stripe webhook is the primary path (~3 days of provider retries). The correct pattern (`recordOutboxTransientError` for transient vs `markOutboxFailed` for terminal) is used 20 lines away in `UpdateStripeOverageWorker.ts:159-167`. **Fix:** classify transient vs terminal.
 

@@ -1,6 +1,9 @@
 // worker/jobs/billing/stripe-overage-error.ts
 //
-// Transient/terminal RETRY POLICY for UpdateStripeOverageWorker's Stripe calls.
+// Transient/terminal RETRY POLICY for the billing lane's worker Stripe calls:
+// UpdateStripeOverageWorker (its owner) and, since #1364,
+// StripeCheckoutReconcileWorker. One policy per lane — a second copy for the
+// reconcile worker would have drifted on the 409 rule below.
 //
 // The error-inspection vocabulary (type sets, network codes, property readers)
 // is owned by src/lib/payments/stripe-error-inspect.ts and shared with the
