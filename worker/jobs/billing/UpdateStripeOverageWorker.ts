@@ -79,6 +79,7 @@ export async function handleUpdateStripeOverage(
         stripe_subscription_id: string | null;
         locations_included: number;
         locations_overage_price_cents: number;
+        base_price_cents: number;
       }[]>`
         SELECT
           id,
@@ -87,7 +88,8 @@ export async function handleUpdateStripeOverage(
           price_variant,
           stripe_subscription_id,
           locations_included,
-          locations_overage_price_cents
+          locations_overage_price_cents,
+          base_price_cents
         FROM accounts
         WHERE id = ${account_id}::uuid
         FOR UPDATE
@@ -149,6 +151,7 @@ export async function handleUpdateStripeOverage(
           subscriptionId: account.stripe_subscription_id,
           tier: account.subscription_tier,
           storedOveragePriceCents: account.locations_overage_price_cents,
+          storedBasePriceCents: account.base_price_cents,
           overagePriceId,
           newQuantity,
           mutationPolicy: isBillingMutationBlocked(offboardingState)

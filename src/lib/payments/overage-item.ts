@@ -20,15 +20,55 @@
 //               written by this app on every item it creates), or unit_amount
 //               (equals the account's STORED grandfathered cents). Safe to
 //               mutate (delete / re-quantity / re-price).
-//   untrusted — descriptor keyword only (lookup_key/nickname/metadata regex).
-//               Enough to FLAG an item for read-only drift detection, never
-//               enough to mutate one ("Priority Support Add-on" keyword-matches).
+//   untrusted — descriptor keyword (lookup_key/nickname/metadata regex), or a
+//               unit-amount match the stored cents can no longer disambiguate
+//               (see the #1298 paragraph). Enough to FLAG an item for read-only
+//               drift detection, never enough to mutate one ("Priority Support
+//               Add-on" keyword-matches). A mutating caller turns `untrusted`
+//               into a refusal — NOT into "no overage item exists", which is
+//               what makes the downgrade safe; see the #1298 paragraph.
 //
-// The algorithm intentionally runs base-exclusion FIRST, before any heuristic,
-// so a base item whose unit_amount happens to equal storedOveragePriceCents can
-// never be selected. The unit-amount pass uses the ORIGINAL items.length
-// (not the candidate-set count) to preserve the long-standing poller semantics:
-// a single-item subscription never matches by unit-amount alone.
+// The algorithm runs base-exclusion FIRST, before any heuristic, so a REGISTERED
+// base item (env base Price ID or retained base-price history) can never be
+// selected. That exclusion is by Price ID, so it protects nothing when a base
+// Price ID is unregistered — a rotation that forgot RETAINED_STRIPE_PRICE_HISTORY,
+// a misconfigured env, or a Price created by hand. Since the 2026-09-14 list
+// reprice (#1290) the extra-location price EQUALS the list base price on both
+// tiers (Copilot 7900/7900, Autopilot 14900/14900), so on a list-variant account
+// such an unregistered base item would match the unit-amount pass and be handed
+// back as `trusted` for a caller to re-quantity, re-price or delete. The guard is
+// the account's own stored cents: when storedOveragePriceCents equals
+// storedBasePriceCents the unit-amount pass CANNOT tell the two lines apart, so
+// its match is DOWNGRADED to `untrusted` (#1298) — flagged, never mutated.
+//
+// The downgrade, not a skip. #1298 listed three options; this is a hybrid of its
+// option 1 (feed the stored base cents in) and its option 3 (an ambiguous
+// unit-amount match is untrusted, never mutated). Dropping the pass outright —
+// option 1 alone — was tried and rejected: it returns `{kind:'none'}`, and no
+// caller reads that as "ambiguous". `syncStripeOverageItem` reads it as "no
+// overage item exists" and creates one (`worker/jobs/billing/overage-sync.ts`,
+// whose idempotency key dedupes retries, not a pre-existing second line), and
+// `planOverageMutation` in `src/lib/accounts/tier-change.ts` does the same. That
+// is a duplicate overage item — the double-billing this module was written to
+// prevent. `untrusted` instead makes both mutating callers REFUSE and hand the
+// account to ops, while read-only drift detection still sees the item.
+//
+// ACCEPTED COST: the downgrade fires on stored-cents equality alone. It does not
+// check whether a base item actually survived base-exclusion, because the module
+// has no signal that would tell it — an unregistered base Price ID is invisible
+// by construction. So a list-variant account whose base Price ID IS registered
+// (the common case, where base-exclusion already removed every base item) still
+// loses the trusted unit-amount pass. The price is paid by the accounts that
+// reach Priority 3 at all, which is only those whose overage item is BOTH
+// unregistered AND unstamped.
+//
+// Priorities 1 and 2 are unaffected: an env Price-ID match and the `billing_role`
+// stamp this app writes on every overage item it creates or re-prices both still
+// resolve trusted under the collision, and the stamp is the primary defense the
+// narrow unit-amount pass was always deferring to.
+// The unit-amount pass uses the ORIGINAL items.length (not the candidate-set
+// count) to preserve the long-standing poller semantics: a single-item
+// subscription never matches by unit-amount alone.
 
 import Stripe from 'stripe';
 import type {
@@ -49,11 +89,26 @@ export type TrustedOverageMatch = 'price_id' | 'metadata_role' | 'unit_amount';
 export type OverageItemResolution =
   | { kind: 'none' }
   | { kind: 'trusted'; item: Stripe.SubscriptionItem; matchedBy: TrustedOverageMatch }
-  | { kind: 'untrusted'; item: Stripe.SubscriptionItem; matchedBy: 'descriptor' };
+  | { kind: 'untrusted'; item: Stripe.SubscriptionItem; matchedBy: 'descriptor' | 'unit_amount' };
 
 export interface ResolveOverageItemOptions {
   /** Stored overage unit price in cents from the accounts row (point-in-time). */
   storedOveragePriceCents: number;
+  /**
+   * Stored BASE unit price in cents from the same accounts row (point-in-time).
+   * Required, not optional: it is the only input that tells the unit-amount pass
+   * whether a stored-cents match can still distinguish the overage line from the
+   * base line, and a caller that omitted it would silently get the pre-#1298
+   * behaviour back.
+   *
+   * `accounts.base_price_cents` is NOT NULL with a `>= 0` check, so 0 is a real
+   * stored price (a comped/beta account billed nothing for its base line), not an
+   * "unknown" sentinel. It needs no special case either way: a comped account with
+   * a positive overage price is unequal, so the pass stays trusted; a 0/0 account
+   * never reaches the pass at all, because `storedOveragePriceCents > 0` gates it
+   * first and a $0 overage line has no amount worth matching on.
+   */
+  storedBasePriceCents: number;
 }
 
 function hasOverageBillingRole(item: Stripe.SubscriptionItem): boolean {
@@ -70,14 +125,18 @@ function hasOverageBillingRole(item: Stripe.SubscriptionItem): boolean {
  * Matching priority (candidates only — base items excluded first):
  *   1. Env price-ID match                          → trusted (price_id)
  *   2. Exact billing-role metadata match           → trusted (metadata_role)
- *   3. Unit-amount vs stored cents (multi-item)    → trusted (unit_amount)
+ *   3. Unit-amount vs stored cents (multi-item)    → trusted (unit_amount) when
+ *                                                    the stored overage cents
+ *                                                    differ from the stored base
+ *                                                    cents, else untrusted
+ *                                                    (unit_amount) — #1298
  *   4. Keyword descriptor match                    → untrusted (descriptor)
  */
 export function resolveOverageItem(
   items: Stripe.SubscriptionItem[],
   options: ResolveOverageItemOptions,
 ): OverageItemResolution {
-  const { storedOveragePriceCents } = options;
+  const { storedOveragePriceCents, storedBasePriceCents } = options;
   const overagePriceIds = overagePriceIdSet();
   const basePriceIds = basePriceIdSet();
 
@@ -107,12 +166,25 @@ export function resolveOverageItem(
   // guard means a solo-location sub whose ONLY line is the overage item can't
   // match here — by design. The `billing_role` metadata stamp (Priority 2) is the
   // primary defense for that case; this unit-amount pass is intentionally narrow.
+  //
+  // #1298: the stored cents stop being a discriminator the moment the account's
+  // stored overage price equals its stored base price (every list-variant account
+  // since the 2026-09-14 reprice). Base-exclusion above is by Price ID only, so an
+  // unregistered base item survives into `candidates` and would match this pass —
+  // and `find` returns the base line first. DOWNGRADE the match to `untrusted`
+  // rather than trusting it: a mutating caller then refuses the account instead of
+  // re-quantitying the customer's base line. Do NOT turn this into a skip —
+  // `{kind:'none'}` means "no overage item exists" to every caller, and both
+  // mutating callers answer that by CREATING one. See the header's #1298 paragraph.
+  const storedCentsDiscriminate = storedOveragePriceCents !== storedBasePriceCents;
   if (originalCount > 1 && storedOveragePriceCents > 0) {
     const byUnitAmount = candidates.find(
       (item) => item.price?.unit_amount === storedOveragePriceCents,
     );
     if (byUnitAmount !== undefined) {
-      return { kind: 'trusted', item: byUnitAmount, matchedBy: 'unit_amount' };
+      return storedCentsDiscriminate
+        ? { kind: 'trusted', item: byUnitAmount, matchedBy: 'unit_amount' }
+        : { kind: 'untrusted', item: byUnitAmount, matchedBy: 'unit_amount' };
     }
   }
 

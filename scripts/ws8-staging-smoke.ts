@@ -994,9 +994,10 @@ async function scenarioOverageLifecycle(sql: Sql, accountId: string): Promise<bo
     stripe_subscription_id: string | null;
     locations_included: number;
     locations_overage_price_cents: number;
+    base_price_cents: number;
   }[]>`
     SELECT subscription_tier, price_variant, stripe_subscription_id,
-           locations_included, locations_overage_price_cents
+           locations_included, locations_overage_price_cents, base_price_cents
     FROM accounts WHERE id = ${accountId}::uuid
   `;
   const subscriptionId = account?.stripe_subscription_id;
@@ -1019,6 +1020,7 @@ async function scenarioOverageLifecycle(sql: Sql, accountId: string): Promise<bo
         subscriptionId,
         tier: account.subscription_tier as never,
         storedOveragePriceCents: account.locations_overage_price_cents,
+        storedBasePriceCents: account.base_price_cents,
         overagePriceId,
         newQuantity,
         mutationPolicy: 'allow_all',
