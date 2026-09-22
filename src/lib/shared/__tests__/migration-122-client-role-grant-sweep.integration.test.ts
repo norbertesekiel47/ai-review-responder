@@ -19,7 +19,10 @@
 // suite passes 8 of 8 on 17. The mandatory PG17 post-apply query in
 // `.claude/reference/migrations-log.md` entry 122 remains the proof for
 // the two live Supabase projects, not this container — a different
-// target, not superseded.
+// target, not superseded. The container's major is owned by
+// `scripts/test-db-setup.sh` (REQUIRED_PG_MAJOR, #1379), and beforeAll
+// refuses a server below it — so a PG16 container fails here instead of
+// passing while asserting one right fewer.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,6 +37,7 @@ import {
   resolveTestDatabaseUrl,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
+import { assertServerMajor } from '@/lib/shared/__tests__/helpers/schema-ready';
 
 const MIGRATION_FILE = 'supabase/migrations/122_client_role_grant_sweep.sql';
 const DENY_ALL_TABLES = [
@@ -415,6 +419,8 @@ describeWithDb(
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
+      // Before any DDL: below PG17 the MAINTAIN branch cannot execute (#1379).
+      await assertServerMajor(sql());
 
       const [identity] = await sql()<{ current_user: string }[]>`SELECT current_user::text`;
       currentUser = identity?.current_user ?? '';

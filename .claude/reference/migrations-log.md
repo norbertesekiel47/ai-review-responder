@@ -2964,11 +2964,20 @@ Revisit triggers:
   carries a column grant, so `REVOKE ALL` strips nothing hidden. `REVOKE` takes
   no relation lock. TRUNCATE is exempt from row policies, which is why it goes
   everywhere, not only on deny-all tables.
-  **Version guard limit.** Both projects run PostgreSQL 17; the container runs
-  16, so `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`
+  **Version guard coverage.** Both projects run PostgreSQL 17, and so does the
+  test container: its major is owned by `REQUIRED_PG_MAJOR` in
+  `scripts/test-db-setup.sh` (17 — CI, e2e and the local default alike, #1307
+  RT-4 and #1379), and both that script and the suite's `beforeAll` refuse a
+  lower server. So `src/lib/shared/__tests__/migration-122-client-role-grant-sweep.integration.test.ts`
   (in `MIGRATION_SHAPE_FILES`; degrades, applies the file verbatim twice,
-  diffs, restores) never executes the MAINTAIN branch. Its only proof is this
-  mandatory post-apply check, which must return `0` on each project:
+  diffs, restores) DOES execute the MAINTAIN branch. **CORRECTION to this
+  migration's own header, which is immutable:** its VERSION GUARD paragraph
+  says "the test container runs 16 … The suite … therefore cannot execute the
+  MAINTAIN branch". That was true when written and is false since #1376 (CI)
+  and #1379 (local); the file cannot be edited now that it is applied, and
+  this entry is the correction. The suite proves the container; the live
+  projects still need this mandatory post-apply check, which must return `0`
+  on each project:
 
   ```sql
   SELECT count(*)

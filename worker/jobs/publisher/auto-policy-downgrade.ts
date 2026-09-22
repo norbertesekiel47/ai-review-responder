@@ -89,7 +89,8 @@ export async function downgradeAutoApprovedResponseForManualReviewInTx(
       return 'no-op';
     }
 
-    // Binding lane order continues reviews -> businesses -> responses.
+    // Binding lane order continues reviews -> businesses -> responses
+    // (owner: .claude/reference/lab-notes/lock-order.md).
     //
     // `account_id` RIDES THE LOCK THIS TRANSACTION ALREADY TAKES, and that is a
     // decision rather than a convenience. The Refusal below needs the account

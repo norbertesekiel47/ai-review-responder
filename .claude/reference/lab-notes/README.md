@@ -31,6 +31,7 @@ each topic page carries the index bullet verbatim under "Summary", the canonical
 | Owner offboarding | [owner-offboarding.md](owner-offboarding.md) |
 | Worker crash-net / cost-guard | [worker-crash-net-cost-guard.md](worker-crash-net-cost-guard.md) |
 | Vercel BotID / WAF | [vercel-botid-waf.md](vercel-botid-waf.md) |
+| Lock order (cross-owner row locks) | [lock-order.md](lock-order.md) |
 
 Each topic page has three sections: **Summary** (the one-bullet current rule, formerly the topic-index bullet), **Canonical entries** (the full-mechanics sections CLAUDE.md cites by heading, moved verbatim), and **History** (pointers `history/<range>.md § "<entry heading>"` to the dated entries about the topic).
 
