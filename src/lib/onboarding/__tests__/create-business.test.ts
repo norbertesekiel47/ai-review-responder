@@ -328,6 +328,9 @@ describe('createBusinessTx — result', () => {
   // select-plan route creates the Checkout Session.
   it('returns exactly businessId, userId, accountId (self_serve)', async () => {
     const res = await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' });
+    expect(res.businessId).toBeTruthy();
+    expect(res.userId).toBeTruthy();
+    expect(res.accountId).toBeTruthy();
     expect(Object.keys(res).sort()).toEqual(['accountId', 'businessId', 'userId']);
   });
 
