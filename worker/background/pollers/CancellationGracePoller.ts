@@ -1,21 +1,25 @@
 // worker/background/pollers/CancellationGracePoller.ts
 //
-// Polls for cancelled accounts that have passed the 30-day grace period
-// and soft-archives their locations by setting businesses.archived_at.
+// Polls for cancelled accounts that have passed the cancellation grace
+// period and soft-archives their locations by setting businesses.archived_at.
 //
 // VAL-BILLING-048: Subscription cancellation sets all locations to read-only
 //   (workers skip via isAccountActive guard).
-// VAL-BILLING-049: 30-day grace period before automatic soft-archive of locations.
+// VAL-BILLING-049: grace period before automatic soft-archive of locations.
 //
 // During the grace period, locations are read-only (workers skip them via
-// the isAccountActive check), but the data is preserved. After 30 days,
-// this poller soft-archives all remaining active locations.
+// the isAccountActive check), but the data is preserved. After grace expires
+// (`CANCELLATION_GRACE_DAYS`, `src/lib/shared/cancellation-grace.ts` — the
+// same day count the dashboard route reads for `gracePeriodEndDate`, #1371),
+// this poller soft-archives all remaining active locations, via
+// `cancellationGraceExpiredSql`'s SQL twin of that constant.
 
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
+import { cancellationGraceExpiredSql } from '../../../src/lib/shared/subscription-eligibility-sql';
 import { createGuardedPoll } from '../guarded-poll';
 import { acquireLocationLifecycleLock } from '../../../src/lib/accounts/billing-locks';
 
@@ -46,8 +50,7 @@ async function runCancellationGrace(logger: WorkerLogger): Promise<void> {
       FROM accounts a
       JOIN businesses b ON b.account_id = a.id
       WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED}
-        AND a.cancelled_at IS NOT NULL
-        AND a.cancelled_at < NOW() - INTERVAL '30 days'
+        AND ${cancellationGraceExpiredSql(sql)}
         AND b.archived_at IS NULL
         AND NOT EXISTS (
           SELECT 1

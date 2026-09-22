@@ -3,6 +3,7 @@ import {
   PAST_DUE_EXTENSION_TIMESTAMP_PATTERN,
   PAST_DUE_GRACE_DAYS,
 } from './past-due-recovery';
+import { CANCELLATION_GRACE_DAYS } from './cancellation-grace';
 import { SubscriptionStatus } from './subscription-status';
 
 type SqlExecutor = postgres.Sql | postgres.TransactionSql;
@@ -70,5 +71,20 @@ export function publisherSubscriptionEligibleSql(exec: SqlExecutor) {
         END
       )
     )
+  )`;
+}
+
+/**
+ * SQL counterpart of `cancellationGraceDeadline()` (cancellation-grace.ts):
+ * true once a cancelled account's `CANCELLATION_GRACE_DAYS` grace window has
+ * expired. Alias contract: the accounts table is `a`, matching
+ * `publisherSubscriptionEligibleSql` above. PostgreSQL 15-compatible
+ * (`make_interval`, no cast). Owns the null check as well — a legacy row with
+ * no `cancelled_at` (predates migration 037) must never read as expired.
+ */
+export function cancellationGraceExpiredSql(exec: SqlExecutor) {
+  return exec`(
+    a.cancelled_at IS NOT NULL
+    AND a.cancelled_at < NOW() - make_interval(days => ${CANCELLATION_GRACE_DAYS})
   )`;
 }
