@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardWindow } from '@/lib/kpi/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { AnalyticsTabs } from '@/components/dashboard/analytics/AnalyticsTabs';
@@ -18,6 +19,8 @@ interface Props {
   refresh: () => Promise<void>;
   /** Analytics time-range control rendered into the TopBar action slot (#403). */
   periodToolbar?: ReactNode;
+  /** The window `data` was fetched for; the rating breakdown states it (#991). */
+  window: DashboardWindow;
 }
 
 /**
@@ -25,7 +28,7 @@ interface Props {
  * two-up velocity/ranking -> recent rating breakdown. No reputation trend —
  * the aggregate payload carries no trend series.
  */
-export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) {
+export function AnalyticsAggregateView({ data, refresh, periodToolbar, window }: Props) {
   const hasRanking = Boolean(data.ranking) || data.perLocationRanking.length > 0;
   const hasRatingBreakdown = data.ratingBreakdown.total > 0;
   const hasRatedReviews = data.recentReviews.some((review) => review.starRating != null);
@@ -71,7 +74,7 @@ export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) 
         </div>
         {(hasRatingBreakdown || hasRatedReviews) && (
           <div className="section-enter section-enter-4 chart-row">
-            <RecentRatingBreakdown breakdown={data.ratingBreakdown} />
+            <RecentRatingBreakdown breakdown={data.ratingBreakdown} window={window} />
             <RecentSentimentMix reviews={data.recentReviews} />
           </div>
         )}
