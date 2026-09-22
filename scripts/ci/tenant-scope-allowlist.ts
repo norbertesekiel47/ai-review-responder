@@ -2350,11 +2350,15 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Background scheduler globally scans active accounts and uses weekly_summaries only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
-    file: "worker/jobs/OnboardingDripWorker.ts",
+    // #1403: moved from OnboardingDripWorker.ts into its send-and-record
+    // helper (same business-scoped job flow, no behavior change) — this one
+    // entry covers both the pre-send and post-send UPDATEs, which share the
+    // identical normalized SQL text.
+    file: "worker/jobs/onboarding-drip/send-and-record.ts",
     table: "onboarding_drip_log",
     sqlSnippet: "UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}",
     category: 'worker-job-scoped',
-    reason: "OnboardingDripWorker updates the drip-log row id claimed earlier in the same business-scoped job flow.",
+    reason: "OnboardingDripWorker's send-and-record tail updates the drip-log row id claimed earlier in the same business-scoped job flow.",
   },
   {
     file: "worker/jobs/zernio/ZernioBackfillWorker.ts",
