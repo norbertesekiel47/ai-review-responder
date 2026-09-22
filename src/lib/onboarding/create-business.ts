@@ -116,7 +116,6 @@ export interface CreateBusinessResult {
   businessId: string;
   userId: string;
   accountId: string;
-  paymentUrl: string | null;
 }
 
 export async function createBusinessTx(
@@ -228,7 +227,7 @@ export async function createBusinessTx(
     throw err;
   }
 
-  return { businessId, userId, accountId, paymentUrl: null };
+  return { businessId, userId, accountId };
 }
 
 /** The per-mode values `insertOwnerRows` writes; every other column is fixed. */

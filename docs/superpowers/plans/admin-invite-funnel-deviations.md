@@ -19,7 +19,7 @@ Read end to end by the orchestrator. **No entry is RE-PLAN**: none invalidates a
 | D-9 | **ACCEPT** | Two forced test-file edits, both inside the intake surface. |
 | D-10 | **ACCEPT, superseded** | The tombstone it had to leave behind was removed in D-11. |
 | D-11 | **ACCEPT — needs owner sign-off** | Surface amendment #3. Trips the stated abort threshold; the reasoning for proceeding is in the entry and is surfaced in the run report. |
-| D-12 | **ACCEPT** | Known dead field left in place deliberately; follow-up ticket, not a late widening. |
+| D-12 | **ACCEPT — now RESOLVED** | Known dead field left in place deliberately; follow-up ticket, not a late widening. **Removed 2026-09-22 in #1356** together with the D-17 insert-path unification. |
 | D-13 | **ACCEPT — now RESOLVED** | The mapping shipped before its staging verification, as this run's scope required. **Probed 2026-08-14 and CONFIRMED**: re-invite-while-pending succeeds, accepted-user returns `email_exists`/422 → the existing 409 entry, and `last_sign_in_at` really does prove acceptance. The probe also caught that the table's reachability depends on the client surfacing a STRING `code` (the wire body also carries a numeric `422`) — now pinned by a test. Only the UI half remains. |
 | D-14 | **ACCEPT** | Three stale docs fixed; its one "not fixed" item (the `place-prefill` comment pointing at the deleted admin route) was closed by the orchestrator before the gate run. |
 
@@ -340,6 +340,17 @@ Left deliberately: deleting it means touching self-serve signup callers for a co
 
 **Triage verdict:** _(pending step 6)_
 
+### RESOLVED 2026-09-22 — field removed (#1356)
+
+`CreateBusinessResult` is now `{ businessId, userId, accountId }`. The step-7
+standards review was right that the recorded cost did not hold: the reference
+set was the declaration, the `const paymentUrl = null`, the return, two null
+assertions in `create-business.test.ts`, and nine mocked-fixture lines in
+`src/app/api/auth/__tests__/{signup,finish-signup}.test.ts`. No production
+code read it. The suite now pins the result's exact key set so it cannot
+return. (The unrelated `paymentUrl` on `POST /api/onboarding/select-plan`'s
+response is a real Checkout Session URL and is untouched.)
+
 ---
 
 ## D-13 — 2026-08-14 — T7 shipped the Supabase re-invite error mapping BEFORE the staging verification the plan blocks it on
@@ -593,6 +604,31 @@ handed it to a reviewer; both intake copies were updated in lockstep and
   unnoticed.
 
 **Triage verdict:** ACCEPT — all accepted findings fixed; rejections reasoned above.
+
+### RESOLVED 2026-09-22 — `runAdminTx`/`runSelfServeTx` duplication (#1356)
+
+The deferred standards-high finding is fixed. Both modes now build one
+`OwnerRowValues` and go through a single `insertOwnerRows(tx, …)` in
+`src/lib/onboarding/create-business.ts`, so the `accounts`, `businesses` and
+`users` column lists each exist once. The column-order hazard is gone rather
+than documented. The admin-only verified email `channel_enrollments` row moved
+up to `createBusinessTx`, still inside the same `sql.begin`. Neither mode
+enqueues anything, before or after.
+
+Proof of no behaviour change: `src/lib/onboarding/__tests__/create-business-columns.test.ts`
+was committed before the refactor. It parses every INSERT the transaction
+issues into a column → `{ sql, value }` map and pins it exactly for both modes,
+covering `onboarded_by`, `auth_id`, both phone columns, the #9a billing snapshot
+and the enrollment row. It passed unchanged against the old and the new code,
+and hand mutations of the shared insert (NULL `onboarded_by`, a swapped
+`website`/`onboarded_by`, a wrong cents field, a NULL `users.phone`, a NULL
+self-serve `auth_id`) each fail it.
+
+The staging proof this deferral protected is void, as the entry predicted. The
+admin-invite journey must be re-walked on staging
+(`docs/runbooks/beta-onboarding-cofounder-guide.md` Part 5) before the PR merges.
+That re-walk is a manual owner step and is listed in the PR as a merge
+precondition.
 
 ---
 

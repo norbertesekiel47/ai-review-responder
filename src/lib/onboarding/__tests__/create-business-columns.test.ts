@@ -240,7 +240,7 @@ describe('createBusinessTx — column → value characterization (#1356)', () =>
         inTransaction: true,
       },
     ]);
-    expect(res).toMatchObject({ businessId: BUSINESS_ID, userId: USER_ID, accountId: ACCOUNT_ID });
+    expect(res).toEqual({ businessId: BUSINESS_ID, userId: USER_ID, accountId: ACCOUNT_ID });
   });
 
   it('self_serve mode writes exactly accounts, businesses, users in one transaction (no enrollment)', async () => {
@@ -261,7 +261,7 @@ describe('createBusinessTx — column → value characterization (#1356)', () =>
       }),
       usersRow({ authId: 'auth-abc', name: 'Sam Self', phone: '+15551234567' }),
     ]);
-    expect(res).toMatchObject({ businessId: BUSINESS_ID, userId: USER_ID, accountId: ACCOUNT_ID });
+    expect(res).toEqual({ businessId: BUSINESS_ID, userId: USER_ID, accountId: ACCOUNT_ID });
   });
 
   it('self_serve mode without a phone writes NULL to both phone columns', async () => {

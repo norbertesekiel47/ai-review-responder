@@ -49,7 +49,6 @@ beforeEach(() => {
   vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_autopilot_overage');
   vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
   resetServerConfigForTests();
-  // No more mockBuildPaymentLinkUrl — paymentUrl is always null now
 });
 
 afterEach(() => {
@@ -324,19 +323,17 @@ describe('createBusinessTx — channel_enrollments', () => {
 });
 
 describe('createBusinessTx — result', () => {
-  it('returns businessId, userId, accountId, and paymentUrl=null (checkout session created by select-plan)', async () => {
+  // The result is the three created ids and nothing else. The always-null
+  // `paymentUrl` it used to carry had no reader (D-12, removed in #1356): the
+  // select-plan route creates the Checkout Session.
+  it('returns exactly businessId, userId, accountId (self_serve)', async () => {
     const res = await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' });
-    expect(res.businessId).toBeTruthy();
-    expect(res.userId).toBeTruthy();
-    expect(res.accountId).toBeTruthy();
-    // paymentUrl is always null now — the select-plan route creates
-    // the Checkout Session instead of using Payment Links
-    expect(res.paymentUrl).toBeNull();
+    expect(Object.keys(res).sort()).toEqual(['accountId', 'businessId', 'userId']);
   });
 
-  it('returns paymentUrl=null for admin mode too', async () => {
+  it('returns exactly businessId, userId, accountId (admin)', async () => {
     const res = await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    expect(res.paymentUrl).toBeNull();
+    expect(Object.keys(res).sort()).toEqual(['accountId', 'businessId', 'userId']);
   });
 });
 
