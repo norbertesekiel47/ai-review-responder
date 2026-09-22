@@ -27,6 +27,10 @@ import { SQL_TAG_NAMES } from './lib/sql-tag-scan';
  *    §  — Worker code must not read NODE_ENV to decide which deployment lane it
  *         is on; the lane owner is src/lib/config/deployment-lane.ts (#611,
  *         ADR 0013). See scanWorkerNodeEnvReads for the exact scope.
+ *    §  — A handler passed to `withSameOrigin()` must not annotate its own
+ *         return type wider than `NextResponse`; that pins the wrapper's `TRes`
+ *         and widens the route export (#1327/#1331). See
+ *         scanSameOriginHandlerReturnTypes.
  *    §  — No `next/font/google` import. Turbopack resolves it by fetching
  *         Google's CDN at compile time; an intermittent failure there breaks
  *         the importing layout and every page under it, taking down E2E and
@@ -77,7 +81,8 @@ export type PolicyRule =
   | 'inline-feature-flag'
   | 'railway-replicas'
   | 'sql-executor-tag-name'
-  | 'worker-node-env-read';
+  | 'worker-node-env-read'
+  | 'same-origin-handler-return-type';
 
 export interface PolicyFinding {
   file: string;
@@ -875,12 +880,159 @@ export function scanWorkerNodeEnvReads(file: string, text: string): PolicyFindin
   return findings;
 }
 
+// A handler that annotates its OWN return type wider than NextResponse pins
+// `TRes = Response` on the withSameOrigin wrapper, widening the route export —
+// opt-out mechanism (a) in that wrapper's doc comment (src/lib/auth/route-helpers.ts),
+// which is the single owner of the pair. #1327 fixed the three handlers that had
+// done it; nothing stopped a fourth until this rule (#1331). Mechanism (b) — a
+// guard type declaring `response: Response` — is not syntactic and is closed
+// structurally instead, by the shared `Guard<T>` (#1332).
+//
+// Only these spellings are flagged. A wider-by-name annotation is a deliberate
+// act; anything else (`NextResponse`, `NextResponse<T>`, a named alias of one,
+// or no annotation at all, which is the preferred form) infers correctly and is
+// left alone, so the rule has no false-positive surface.
+const WIDER_THAN_NEXT_RESPONSE: ReadonlySet<string> = new Set(['Response', 'any', 'unknown']);
+
+/** Split a type's text on its TOP-LEVEL `|`, ignoring `|` nested in brackets. */
+function splitTopLevelUnion(text: string): string[] {
+  const members: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!;
+    if (char === '<' || char === '(' || char === '{' || char === '[') depth++;
+    else if (char === '>' || char === ')' || char === '}' || char === ']') depth--;
+    else if (char === '|' && depth === 0) {
+      members.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  members.push(text.slice(start));
+  return members.map((member) => member.trim()).filter((member) => member.length > 0);
+}
+
+/** The union members an annotation resolves to, with `Promise<…>` unwrapped. */
+function annotationMembers(text: string): string[] {
+  let inner = text.trim();
+  for (let i = 0; i < 2; i++) {
+    const match = /^Promise\s*<([\s\S]*)>$/.exec(inner);
+    if (!match) break;
+    inner = match[1]!.trim();
+  }
+  return splitTopLevelUnion(inner);
+}
+
+/** `withSameOrigin()(x)` — the outer call, so `node.arguments[0]` is the handler. */
+function isWithSameOriginApplication(node: ts.CallExpression): boolean {
+  const callee = node.expression;
+  return (
+    ts.isCallExpression(callee)
+    && ts.isIdentifier(callee.expression)
+    && callee.expression.text === 'withSameOrigin'
+    && callee.arguments.length === 0
+  );
+}
+
+/**
+ * Resolve a handler argument to the function whose return annotation matters.
+ * An inline arrow/function expression is itself; an identifier is looked up
+ * among the file's own top-level `function f()` / `const f = () => …`
+ * declarations, which is how 46 of the 49 call sites are written.
+ *
+ * A handler produced by another CALL (`withScopedContact(…)`) is deliberately
+ * unresolved: its return type lives in the factory, not at this call site, and
+ * following it needs the type checker. Three sites today; each returns a
+ * NextResponse already.
+ */
+function resolveHandlerFunction(
+  argument: ts.Expression,
+  source: ts.SourceFile,
+): ts.SignatureDeclaration | undefined {
+  if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) return argument;
+  if (!ts.isIdentifier(argument)) return undefined;
+
+  const name = argument.text;
+  let found: ts.SignatureDeclaration | undefined;
+  const visit = (node: ts.Node): void => {
+    if (found !== undefined) return;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
+      found = node;
+      return;
+    }
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === name
+      && node.initializer !== undefined
+      && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    ) {
+      found = node.initializer;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/**
+ * Flag a `withSameOrigin()`-wrapped handler that annotates its own return type
+ * wider than NextResponse (#1331). Pure — unit-tested with fixtures pinning both
+ * directions. `src/app/**` only: that is where wrapped route handlers live.
+ */
+export function scanSameOriginHandlerReturnTypes(file: string, text: string): PolicyFinding[] {
+  const normalized = normalize(file);
+  if (!/^src\/app\//.test(normalized)) return [];
+  if (!text.includes('withSameOrigin')) return [];
+
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const findings: PolicyFinding[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && isWithSameOriginApplication(node)) {
+      const argument = node.arguments[0];
+      const handler = argument === undefined ? undefined : resolveHandlerFunction(argument, source);
+      const annotation = handler?.type;
+      if (annotation !== undefined) {
+        const wide = annotationMembers(annotation.getText(source))
+          .filter((member) => WIDER_THAN_NEXT_RESPONSE.has(member));
+        if (wide.length > 0) {
+          findings.push({
+            file,
+            line: lineOf(source, annotation.getStart(source)),
+            rule: 'same-origin-handler-return-type',
+            detail:
+              `a withSameOrigin() handler annotates its return type \`${annotation.getText(source)}\`, `
+              + `which is wider than NextResponse (${wide.join(', ')}). That pins the `
+              + "wrapper's `TRes` and widens the route export — opt-out mechanism (a) "
+              + 'in the withSameOrigin doc comment (src/lib/auth/route-helpers.ts), '
+              + 'fixed once in #1327 and guarded here since #1331. Drop the annotation '
+              + 'and let TRes infer, or annotate `: Promise<NextResponse>`. Never cast '
+              + 'at the export (#865 deviation D5).',
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
   const findings: PolicyFinding[] = [
     ...scanLegacySubscriptionTiers(file, text),
     ...scanSqlExecutorTagNames(file, text),
     ...scanWorkerNodeEnvReads(file, text),
+    ...scanSameOriginHandlerReturnTypes(file, text),
   ];
   const lines = text.split('\n');
   const isClientComponent = isClientComponentFile(text);

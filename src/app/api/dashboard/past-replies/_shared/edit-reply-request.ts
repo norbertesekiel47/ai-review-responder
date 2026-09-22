@@ -26,15 +26,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import type postgres from 'postgres';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
+import type { Guard } from '@/lib/auth/route-helpers';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { isValidUuid } from '@/lib/shared/ids';
 import { mapEditReplyError } from './edit-reply-errors';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 
-export type EditReplyGuard<T> =
-  | { ok: true; value: T }
-  | { ok: false; response: NextResponse };
+/**
+ * The edit-reply routes' guard shape. Aliases the shared `Guard<T>`
+ * (src/lib/auth/route-helpers.ts, #1332) so `response: NextResponse` is declared
+ * in exactly one place; the `value` payload field is unchanged for callers.
+ */
+export type EditReplyGuard<T> = Guard<{ value: T }>;
 
 /** Route context shape for the `[responseId]` dynamic-segment handlers. */
 export interface ResponseIdRouteContext {

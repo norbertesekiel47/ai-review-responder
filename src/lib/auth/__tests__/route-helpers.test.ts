@@ -11,13 +11,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Type-only imports of the three formerly opted-out route exports (#1327). These
-// are erased at runtime, so the route modules never load and no mock is needed;
-// `pnpm typecheck` is what reads them.
-import type { POST as ImportOfferPost } from '@/app/api/dashboard/import-offer/route';
-import type { POST as PastRepliesPublishPost } from '@/app/api/dashboard/past-replies/publish/route';
-import type { POST as PastRepliesDraftPost } from '@/app/api/dashboard/past-replies/draft/route';
-
 // ── Hoisted mock state ───────────────────────────────────────────────────────
 
 const { mockRequireRole } = vi.hoisted(() => ({
@@ -208,34 +201,23 @@ describe('withSameOrigin', () => {
     expect(res.status).toBe(204);
   });
 
-  // ── No wrapped route opts itself out (#1327) ────────────────────────────────
+  // ── No wrapped route opts itself out ───────────────────────────────────────
   //
-  // TYPE-level, like the two cases above, and `pnpm typecheck` is what executes
-  // it. These three routes each annotated their handler `: Promise<Response>`,
-  // which pinned `TRes = Response` and kept the pre-#879 widened export even
-  // though every one of their return paths is a `NextResponse`. The fix belongs
-  // on the HANDLER's annotation, never a cast at the export (#865 deviation D5).
-  // NO `@ts-expect-error` here, and its ABSENCE is the assertion: re-adding any
-  // of the three annotations reintroduces TS2739 and fails the typecheck row.
+  // #1327 pinned three named routes to `NextResponse` here by type assertion.
+  // That row is GONE, deliberately (#1331): the three-route assertion covered 3
+  // of 49 call sites and could not see a new handler opting itself out, and it
+  // had no runtime subject at all — vitest cannot load those route modules,
+  // which reach the DB singleton at import, so its green meant nothing.
   //
-  // vitest cannot run these routes — all three modules reach the DB singleton at
-  // import — so this row has NO runtime subject. The expectation below is a
-  // placeholder on a freshly built array and can never fail; the row name says
-  // typecheck-only so nobody reads its green as runtime evidence. The two cases
-  // above each pair their type assertion with a real runtime one; this one cannot.
-  it('typecheck-only: leaves no wrapped dashboard route pinned to a bare Response', () => {
-    const importOffer: NextResponse = null as unknown as Awaited<
-      ReturnType<typeof ImportOfferPost>
-    >;
-    const publish: NextResponse = null as unknown as Awaited<
-      ReturnType<typeof PastRepliesPublishPost>
-    >;
-    const draft: NextResponse = null as unknown as Awaited<
-      ReturnType<typeof PastRepliesDraftPost>
-    >;
-
-    expect([importOffer, publish, draft]).toHaveLength(3);
-  });
+  // One owner per fact, and neither owner is this file:
+  //   (a) a handler annotating its own return type wider than NextResponse →
+  //       the `same-origin-handler-return-type` rule in
+  //       scripts/ci/static-policy-audit.ts, at ALL 49 call sites;
+  //   (b) a guard type declaring `response: Response` → structurally impossible
+  //       for the route guards now that `Guard<T>` (../route-helpers.ts, #1332)
+  //       declares `response: NextResponse` once.
+  // The two #879 cases above stay: they pin the WRAPPER's own inference, which
+  // is a different fact from either opt-out mechanism.
 });
 
 // ── requireRoleOr401 ───────────────────────────────────────────────────────────
@@ -302,6 +284,33 @@ describe('requireRoleOr401', () => {
     mockRequireRole.mockRejectedValue(new Error('unexpected DB crash'));
 
     await expect(requireRoleOr401(makeReq(), 'owner')).rejects.toThrow('unexpected DB crash');
+  });
+
+  // #1399: `instanceof AuthError` is the guard, and until this row nothing
+  // distinguished it from `err.name === 'AuthError'` — a red-team pass mutated
+  // two of the four gates to the name comparison and every test stayed green.
+  // This file is the single owner of WHY that matters; the sibling rows in
+  // src/lib/locations/__tests__/owner-route.test.ts,
+  // src/lib/approval/__tests__/http-routes.test.ts and
+  // src/lib/auth/__tests__/resolve-owner-scope.test.ts point here.
+  //
+  // A look-alike is any rejection value carrying `name: 'AuthError'` and no
+  // `statusCode` — a plain object, or a same-named class from another module.
+  // Under the name variant it takes the REFUSAL arm, and the gate then builds
+  // its response from `err.statusCode === undefined`:
+  // `NextResponse.json(body, { status: undefined })` renders **HTTP 200**. An
+  // unauthenticated caller would read a success. Re-throwing is what makes the
+  // fault a 5xx instead, so the assertion is identity — the same value back out,
+  // never a response.
+  //
+  // The pre-existing 'non-Error rejection value' rows do NOT cover this: a
+  // string has no `.name`, so it falls through the name comparison too and the
+  // mutant survives them.
+  it('re-throws an AuthError look-alike (name, no statusCode) rather than rendering it 2xx', async () => {
+    const lookAlike = { name: 'AuthError', message: 'Unauthorized' };
+    mockRequireRole.mockRejectedValue(lookAlike);
+
+    await expect(requireRoleOr401(makeReq(), 'owner')).rejects.toBe(lookAlike);
   });
 });
 
