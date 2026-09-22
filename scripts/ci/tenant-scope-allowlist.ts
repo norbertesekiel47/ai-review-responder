@@ -284,7 +284,7 @@ export interface TenantScopeAllowlistEntry {
 //     that an account-level refusal was otherwise holding for 72h, so each has
 //     to see every account before it can decide which ones to drop.
 //     380 -> 382.
-export const ALLOWLIST_BASELINE = 382;
+export const ALLOWLIST_BASELINE = 383;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -398,6 +398,12 @@ const HEALTH_ZERO_DELIVERY_SQL =
 // an approval_request delivery. Read-only cross-tenant health probe.
 const HEALTH_OWNER_UNREACHABLE_SQL =
   "SELECT COUNT(*)::int AS count FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.status = 'pending_approval' AND b.archived_at IS NULL AND r.created_at < NOW() - make_interval(secs => ${cfg.ownerUnreachableAgeS}) AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = r.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id AND nd.template = 'approval_request' )";
+
+// #1413 path 3. HealthAlertPoller.checkStrandedAccountOffboardings: an account-
+// offboarding outbox row that terminalized without its handler marking the
+// offboarding (watchdog terminalization, stale-attempt return, failed marks).
+const HEALTH_STRANDED_OFFBOARDINGS_SQL =
+  "SELECT o.id AS outbox_id, o.topic, o.last_error, a.id AS account_offboarding_id, a.account_id, a.status AS offboarding_status FROM job_outbox o JOIN account_offboardings a ON a.id = o.aggregate_id WHERE o.aggregate_type = ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING} AND o.topic IN ( ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE}, ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN}, ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE} ) AND o.status = 'failed' AND a.terminal_at IS NULL AND a.status <> 'failed' AND NOT EXISTS ( SELECT 1 FROM job_outbox n WHERE n.aggregate_type = o.aggregate_type AND n.aggregate_id = o.aggregate_id AND n.topic = o.topic AND n.created_at > o.created_at ) ORDER BY o.completed_at ASC NULLS LAST, o.id ASC LIMIT ${STRANDED_OFFBOARDING_LIMIT}";
 
 // F1 owner-unreachable failover. NotificationFailoverPoller.processOwnerUnreachable
 // candidate scan: pending_approval drafts aged past the 4h floor whose latest
@@ -992,6 +998,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: HEALTH_ZERO_DELIVERY_SQL,
     category: 'background-global-scan',
     reason: "HealthAlertPoller zero-delivery probe joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant (beta-launch gate A3).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "account_offboardings",
+    sqlSnippet: HEALTH_STRANDED_OFFBOARDINGS_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller stranded-offboarding probe (#1413): joins account_offboardings to every failed account-offboarding outbox row whose offboarding is neither terminal nor failed — a watchdog-terminalized purge/teardown/billing row that no handler marked. Read-only platform health probe, intentionally cross-tenant; carries ids and the scrubbed last_error only.",
   },
   {
     file: "worker/background/pollers/health-alert/checks.ts",

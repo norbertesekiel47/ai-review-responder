@@ -23,7 +23,7 @@ import type {
 type TxClient = postgres.TransactionSql;
 
 const JOB_OUTBOX_STATUS_PENDING = 'pending';
-const AGGREGATE_TYPE_ACCOUNT_OFFBOARDING = 'account_offboarding';
+export const AGGREGATE_TYPE_ACCOUNT_OFFBOARDING = 'account_offboarding';
 const ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE = 'repworth:account-offboarding-email-outbox:v1';
 const ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE = 'repworth:account-offboarding-reactivation-outbox:v1';
 

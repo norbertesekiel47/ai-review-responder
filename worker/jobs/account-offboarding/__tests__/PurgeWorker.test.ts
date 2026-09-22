@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { AccountOffboardingPurgePayload } from '../../../../src/lib/shared/worker-types';
@@ -57,6 +55,7 @@ const {
   mockSendInternalEmail,
   stageOrder,
   mockRedactionStage,
+  loadPurgeFailure,
 } = vi.hoisted(() => {
   const calls: QueryCall[] = [];
   const mockState = {
@@ -178,6 +177,8 @@ const {
     stageOrder: [] as string[],
     mockRedactionStage: vi.fn(),
     mockSendInternalEmail: vi.fn(),
+    /** When set, `loadPurgeOffboarding` throws it instead of reading the mock row (#1413 path 2). */
+    loadPurgeFailure: { error: null as Error | null },
   };
 });
 
@@ -243,6 +244,12 @@ vi.mock('../purge-stages', async (importOriginal) => {
   };
   return {
     ...actual,
+    loadPurgeOffboarding: async (
+      ...args: Parameters<typeof actual.loadPurgeOffboarding>
+    ): ReturnType<typeof actual.loadPurgeOffboarding> => {
+      if (loadPurgeFailure.error) throw loadPurgeFailure.error;
+      return actual.loadPurgeOffboarding(...args);
+    },
     runAuditAndCostPayloadPurgeStage: trace(
       'audit',
       actual.runAuditAndCostPayloadPurgeStage,
@@ -263,78 +270,7 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   }),
 }));
 
-import {
-  handleAccountOffboardingPurge,
-  PURGE_RETRY_FINGERPRINT,
-  PURGE_TERMINAL_FINGERPRINT_PREFIX,
-} from '../PurgeWorker';
-
-/** The runbook that owns the Sentry rule routing this worker's terminal alert. */
-const ALERTING_RUNBOOK = 'docs/runbooks/beta-launch-alerting.md';
-
-/** The alert rule's name, and the first cell of the table row that configures it. */
-const RULE_16_ROW_NAME = 'account-offboarding-purge-terminal → discord';
-
-/**
- * Rule 16's own block: from its `**Rule 16` header to the next `**Rule ` header
- * or `## ` section heading.
- *
- * Slicing is the whole point. A file-wide `toContain` let the red team corrupt
- * this rule's row to `terminal equals false` at `warning` grouping on the RETRY
- * fingerprint and keep the test green, because §1's checklist bullet carries
- * the same strings (red-team RT-A6). The operator configures Sentry from the
- * ROW, so the row is what has to be pinned.
- */
-function rule16Block(runbook: string): string {
-  const start = runbook.indexOf('**Rule 16');
-  expect(start, 'the runbook has no **Rule 16 block').toBeGreaterThan(-1);
-  const rest = runbook.slice(start + '**Rule 16'.length);
-  const ends = [rest.indexOf('\n**Rule '), rest.indexOf('\n## ')].filter((index) => index >= 0);
-  return ends.length > 0 ? rest.slice(0, Math.min(...ends)) : rest;
-}
-
-/** The one table row inside rule 16's block that names the alert rule. */
-function rule16TableRow(block: string): string {
-  const row = block
-    .split('\n')
-    .find((line) => line.startsWith('|') && line.includes(RULE_16_ROW_NAME));
-  expect(row, `rule 16 has no table row for ${RULE_16_ROW_NAME}`).toBeDefined();
-  return row!;
-}
-
-/** A markdown table row's cells, split on unescaped `|` (an escaped `\|` stays in its cell). */
-function tableCells(row: string): string[] {
-  // A well-formed row opens and closes with `|`, so the outer two parts are empty.
-  return row
-    .split(/(?<!\\)\|/)
-    .slice(1, -1)
-    .map((cell) => cell.trim());
-}
-
-/**
- * A named column's index, READ OFF rule 16's own header row rather than
- * hard-coded — inserting a column has to move the assertions, not silently
- * re-point them at a neighbouring cell.
- */
-function rule16ColumnIndex(block: string, columnHeader: string): number {
-  const headerRow = block
-    .split('\n')
-    .find((line) => line.startsWith('|') && line.includes('Rule name'));
-  expect(headerRow, 'rule 16 has no table header row').toBeDefined();
-  const index = tableCells(headerRow!).indexOf(columnHeader);
-  expect(index, `rule 16's table has no "${columnHeader}" column`).toBeGreaterThan(-1);
-  return index;
-}
-
-/** Regex metacharacters escaped, so a constant is matched literally and never widens the pin. */
-function escapeRegExp(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** `[a, b, …]` as the runbook spells a fingerprint, from the constants themselves. */
-function fingerprintPattern(members: readonly string[]): RegExp {
-  return new RegExp(`\\[\\s*${members.map(escapeRegExp).join(',\\s*')}\\s*\\]`);
-}
+import { handleAccountOffboardingPurge } from '../PurgeWorker';
 
 describe('AccountOffboarding PurgeWorker', () => {
   beforeEach(() => {
@@ -356,6 +292,7 @@ describe('AccountOffboarding PurgeWorker', () => {
     });
     mockSendInternalEmail.mockClear();
     mockSendInternalEmail.mockResolvedValue({ messageId: 'email-purge-receipt-1' });
+    loadPurgeFailure.error = null;
     mockState.authRevalidationPasses = true;
     mockState.authAlreadyDetached = false;
     mockState.retainedGlobalSuppressions = 0;
@@ -793,11 +730,12 @@ describe('AccountOffboarding PurgeWorker', () => {
   // One constant message with no fingerprint grouped a retry `warning` and the
   // terminal `error` into ONE Sentry issue, so a first-seen rule fired on an
   // early retry and never on the terminal event (red-team RT-08). The
-  // fingerprints are spelled out here rather than imported from PurgeWorker on
-  // purpose: they are an operator-facing contract with a configured Sentry
-  // rule, and importing them would let a rename pass on both sides while every
-  // rule stopped matching. The doc pin below reads the exported constants —
-  // that comparison is between two artifacts and must not be hand-copied.
+  // fingerprints are spelled out here rather than imported from the shared
+  // emitter on purpose: they are an operator-facing contract with a configured
+  // Sentry rule, and importing them would let a rename pass on both sides while
+  // every rule stopped matching. The runbook pin that reads the exported
+  // constants back out of rule 16's own table row lives in
+  // `failure-alert.test.ts` beside rules 17 and 18 (#1412).
   //
   // The terminal arm carries a THIRD member, the offboarding id: Sentry's
   // action throttle is per issue, so one shared terminal issue swallowed a
@@ -951,67 +889,110 @@ describe('AccountOffboarding PurgeWorker', () => {
       });
     });
 
-    it('the alerting runbook routes the terminal purge fingerprint the worker sends', () => {
-      // A fingerprint nobody routes is worth nothing: before #1016 the signal
-      // had no rule at all (red-team RT-05). Read off the exported constants
-      // rather than hand-copied, because "the runbook and the worker agree" is
-      // a claim about two artifacts and a copy only ever proves the copy.
-      //
-      // Every assertion is scoped to one named CELL of rule 16's own table row —
-      // the cells the operator copies into the Sentry form — and each cell is
-      // located by its header, not by a hard-coded index. A file-wide
-      // `toContain` passed with the row corrupted to `terminal equals false` at
-      // `warning` on the retry fingerprint (red-team RT-A6), because §1's
-      // bullet carries the same strings; a ROW-wide regex then still passed
-      // when the two fingerprint spellings were SWAPPED inside the row, because
-      // each pattern found itself in the other cell's sentence (red-team
-      // RT16-02). Position, not mere presence, is what the operator reads.
-      const block = rule16Block(readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8'));
-      const cells = tableCells(rule16TableRow(block));
-      const filterCell = cells[rule16ColumnIndex(block, 'Emitted identity and filter')]!;
-      const groupingCell = cells[rule16ColumnIndex(block, 'Level and grouping')]!;
-      const triggerCell = cells[rule16ColumnIndex(block, 'Trigger and destination')]!;
+    // ── The three paths outside the two failure sites (#1413) ──────────────
 
-      // Filter: the facets that decide WHICH events reach Discord.
-      expect(filterCell).toMatch(/`terminal`\s+equals\s+`true`/);
-      expect(filterCell).not.toMatch(/`terminal`\s+equals\s+`false`/);
-      expect(filterCell).toMatch(/level\s+equals\s+`error`/);
-      expect(filterCell).toMatch(/`subsystem`\s+equals\s+`account_offboarding`/);
-      expect(filterCell).toMatch(/`step`\s+equals\s+`purge`/);
-      expect(filterCell).toMatch(/scope to the deployment environment/i);
+    it('alerts a not-found dispatch as TERMINAL under the fingerprint of the id it was dispatched for', async () => {
+      // `loadPurgeOffboarding` matches on BOTH ids, so a valid offboarding id
+      // with the wrong account id lands here. Absence does not prove there is
+      // no deletion obligation, and before #1413 this branch marked the outbox
+      // row failed and returned with no event at all.
+      mockState.offboarding = null;
 
-      // Level: the grouping cell configures it a second time, and a rule saved
-      // at `warning` never fires on this `error` event. It has to OPEN with the
-      // level, which is where the operator reads it.
-      expect(groupingCell).toMatch(/^`error`/);
+      await expect(
+        handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 })),
+      ).resolves.toBeUndefined();
 
-      // Grouping, POSITION-SCOPED. The cell states the terminal grouping first
-      // and introduces the retry arm in its own sentence; each fingerprint must
-      // appear in its own part and NOWHERE in the other, or swapping the two
-      // spellings reads green.
-      const retryArmStart = groupingCell.indexOf('The retry arm');
-      expect(retryArmStart, "rule 16's grouping cell has no retry-arm sentence").toBeGreaterThan(-1);
-      const terminalGrouping = groupingCell.slice(0, retryArmStart);
-      const retryArm = groupingCell.slice(retryArmStart);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        OUTBOX_ID,
+        'account_offboarding_not_found',
+        2,
+      );
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
+          tags: expect.objectContaining({ terminal: 'true' }),
+          extra: expect.objectContaining({ error: 'account_offboarding_not_found' }),
+        }),
+      );
+    });
 
-      const terminalFingerprint = fingerprintPattern([
-        ...PURGE_TERMINAL_FINGERPRINT_PREFIX,
-        '<account_offboarding_id>',
-      ]);
-      const retryFingerprint = fingerprintPattern(PURGE_RETRY_FINGERPRINT);
+    it('alerts a retryable load failure with the retry fingerprint and rethrows', async () => {
+      // The load used to sit OUTSIDE the try: a throw there reached Sentry only
+      // as the generic job-failure sink's `captureException`, which no rule routes.
+      loadPurgeFailure.error = new Error('connection terminated unexpectedly');
 
-      expect(terminalGrouping).toMatch(terminalFingerprint);
-      expect(terminalGrouping).not.toMatch(retryFingerprint);
-      expect(retryArm).toMatch(retryFingerprint);
-      expect(retryArm).not.toMatch(terminalFingerprint);
+      await expect(
+        handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 })),
+      ).rejects.toThrow('connection terminated unexpectedly');
 
-      // Trigger and destination: first-seen is the RT-08 defect this whole rule
-      // exists to undo, and the throttle's SCOPE is what the per-offboarding
-      // third fingerprint member is built on.
-      expect(triggerCell).toMatch(/every event/i);
-      expect(triggerCell).not.toMatch(/first[\s-]seen/i);
-      expect(triggerCell).toMatch(/action throttle\s+60\s+minutes\s+per\s+issue/i);
-      expect(triggerCell).toMatch(/integration\s+443670\b/);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'warning',
+          fingerprint: ['account_offboarding_purge_failed', 'retry'],
+        }),
+      );
+    });
+
+    it('a terminal load failure marks the offboarding failed by its ids, fails the outbox row, alerts terminal, and returns', async () => {
+      loadPurgeFailure.error = new Error('connection terminated unexpectedly');
+
+      await expect(
+        handleAccountOffboardingPurge(
+          mockSql,
+          mockSupabaseServer,
+          makeJob({ attemptsMade: 2, attempts: 3 }),
+        ),
+      ).resolves.toBeUndefined();
+
+      // The same `failed` / `failed_step='purge'` state every other terminal
+      // purge failure lands — the state #1411's recovery targets.
+      expect(mockState.offboarding?.status).toBe('failed');
+      const terminalMark = calls.find(
+        (call) =>
+          call.text.includes("SET status = 'failed'") && call.text.includes("failed_step = 'purge'"),
+      );
+      expect(terminalMark?.values).toEqual(
+        expect.arrayContaining([OFFBOARDING_ID, ACCOUNT_ID, 'connection terminated unexpectedly']),
+      );
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        OUTBOX_ID,
+        'connection terminated unexpectedly',
+        2,
+      );
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_purge_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_purge_failed', 'terminal', OFFBOARDING_ID],
+        }),
+      );
+    });
+
+    it('emits the terminal alert only AFTER the durable marks have landed', async () => {
+      // Best-effort work behind the side effect it reports
+      // (`.claude/rules/worker-layout.md`): the page must never precede the
+      // marks it describes, and a Sentry throw must never strand them.
+      mockRedactionStage.mockImplementation(async () => {
+        throw new Error('stripe connection error');
+      });
+
+      await handleAccountOffboardingPurge(
+        mockSql,
+        mockSupabaseServer,
+        makeJob({ attemptsMade: 2, attempts: 3 }),
+      );
+
+      const alertOrder = mockCaptureMessage.mock.invocationCallOrder[0]!;
+      const outboxMarkOrder = mockMarkOutboxFailed.mock.invocationCallOrder[0]!;
+      expect(outboxMarkOrder).toBeLessThan(alertOrder);
     });
   });
 

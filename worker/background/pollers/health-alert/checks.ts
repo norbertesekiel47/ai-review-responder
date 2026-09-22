@@ -27,6 +27,7 @@ import { JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS } from '../../../../src/lib/response
 import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
 import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
 import { evaluateSendBreaker } from '../../../../src/lib/solicitation/send-breaker';
+import { AGGREGATE_TYPE_ACCOUNT_OFFBOARDING } from '../../../../src/lib/account-offboarding/outbox';
 import type { HealthFinding } from '../../../../src/lib/shared/health-finding';
 
 // The finding shape lives in src/lib/shared/health-finding.ts (#910 B3.1) so
@@ -132,6 +133,82 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
       title: `${r.count} ${r.topic} job(s) exhausted retries and failed in the last ${cfg.failedWindowS}s`,
       detail: { topic: r.topic, count: r.count, window_s: cfg.failedWindowS },
     }));
+}
+
+// An account-offboarding outbox row that terminalized WITHOUT its handler
+// marking the offboarding (#1413, path 3). The three offboarding handlers
+// alert per offboarding on their own terminal attempt (`failure-alert.ts`,
+// runbook rules 16-18) and land `status='failed'`; the paths that bypass the
+// handler leave the offboarding non-terminal and un-failed beside a `failed`
+// outbox row: a watchdog terminalization (no handler ran, so
+// `purge_started_at` stays set and `AccountOffboardingPurgePoller` never
+// re-claims it), a stalled handler that reached finalization after the
+// watchdog and returned on the stale-attempt check, and a terminal load
+// failure whose marks did not land. Those are a stranded obligation — for the
+// purge topic, live PII with no deletion in flight — and until here the only
+// signal was the `outbox_failed:<topic>` aggregate above, a topic and a count.
+//
+// One finding PER OFFBOARDING, keyed and titled by its id, so rule 1's
+// first-seen trigger opens one issue per stranded offboarding and pages once
+// for each; a still-stranded row repeats into the same issue every cycle
+// rather than paging again. The `NOT EXISTS` keeps a superseded row quiet: a
+// re-drive (`AccountOffboardingTeardownRetryPoller`, `retry-billing.ts`)
+// enqueues a NEWER row for the same topic and offboarding, and the old failed
+// row is then history, not a finding. Ids and the already-scrubbed
+// `last_error` only — never owner text.
+export const STRANDED_OFFBOARDING_FINDING_PREFIX = 'account_offboarding_stranded';
+const STRANDED_OFFBOARDING_LIMIT = 50;
+
+export async function checkStrandedAccountOffboardings(sql: postgres.Sql): Promise<HealthFinding[]> {
+  const rows = await sql<{
+    outbox_id: string;
+    topic: string;
+    last_error: string | null;
+    account_offboarding_id: string;
+    account_id: string;
+    offboarding_status: string;
+  }[]>`
+    SELECT o.id AS outbox_id,
+           o.topic,
+           o.last_error,
+           a.id AS account_offboarding_id,
+           a.account_id,
+           a.status AS offboarding_status
+    FROM job_outbox o
+    JOIN account_offboardings a ON a.id = o.aggregate_id
+    WHERE o.aggregate_type = ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING}
+      AND o.topic IN (
+        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE},
+        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN},
+        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE}
+      )
+      AND o.status = 'failed'
+      AND a.terminal_at IS NULL
+      AND a.status <> 'failed'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM job_outbox n
+        WHERE n.aggregate_type = o.aggregate_type
+          AND n.aggregate_id = o.aggregate_id
+          AND n.topic = o.topic
+          AND n.created_at > o.created_at
+      )
+    ORDER BY o.completed_at ASC NULLS LAST, o.id ASC
+    LIMIT ${STRANDED_OFFBOARDING_LIMIT}
+  `;
+  return rows.map((r) => ({
+    key: `${STRANDED_OFFBOARDING_FINDING_PREFIX}:${r.account_offboarding_id}`,
+    level: 'error' as const,
+    title: `Offboarding ${r.account_offboarding_id} is stranded: its ${r.topic} outbox row failed with the offboarding left ${r.offboarding_status}`,
+    detail: {
+      account_offboarding_id: r.account_offboarding_id,
+      account_id: r.account_id,
+      topic: r.topic,
+      outbox_id: r.outbox_id,
+      offboarding_status: r.offboarding_status,
+      last_error: r.last_error,
+    },
+  }));
 }
 
 // Oldest claimable pending row — a climbing age means dispatch is backed up or
@@ -603,6 +680,20 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
       level: 'warning',
       title: `Backlog depth check failed: ${toError(err).message}`,
       detail: { check: 'backlog_depth' },
+    });
+  }
+
+  // LAST, and isolated for that reason: every finding above is already in
+  // hand, and a rejection from a check in the final position would discard all
+  // of them for the cycle. Still sequential (#505).
+  try {
+    collect(await checkStrandedAccountOffboardings(sql));
+  } catch (err) {
+    findings.push({
+      key: 'health_check_error:account_offboarding_stranded',
+      level: 'warning',
+      title: `Stranded account-offboarding check failed: ${toError(err).message}`,
+      detail: { check: 'account_offboarding_stranded' },
     });
   }
 

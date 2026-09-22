@@ -25,6 +25,8 @@ import {
   checkStaleDispatching,
   checkOpenFlaggedResponses,
   checkFailedOutboxByTopic,
+  checkStrandedAccountOffboardings,
+  STRANDED_OFFBOARDING_FINDING_PREFIX,
   checkZeroDeliveryNotifications,
   checkOwnerUnreachable,
   checkBacklogDepth,
@@ -74,6 +76,87 @@ describe('health-alert checks', () => {
     sqlReturnQueue.length = 0;
     for (const k of HEALTH_ENV) delete process.env[k];
     resetWorkerConfigForTests();
+  });
+
+  // #1413 path 3: a watchdog-terminalized offboarding outbox row runs no
+  // handler, so nothing marks the offboarding and no handler alert fires.
+  describe('checkStrandedAccountOffboardings', () => {
+    const OFFBOARDING_ID = '00000000-0000-7000-8000-0000000000e1';
+    const OTHER_OFFBOARDING_ID = '00000000-0000-7000-8000-0000000000e2';
+
+    it('emits one error finding PER OFFBOARDING, keyed and titled by its id, with ids and the scrubbed error only', async () => {
+      sqlReturnQueue.push([
+        {
+          outbox_id: 'ob-1',
+          topic: QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+          last_error: 'Stale dispatched entry exceeded max_attempts',
+          account_offboarding_id: OFFBOARDING_ID,
+          account_id: 'acct-1',
+          offboarding_status: 'purge_scheduled',
+        },
+        {
+          outbox_id: 'ob-2',
+          topic: QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
+          last_error: null,
+          account_offboarding_id: OTHER_OFFBOARDING_ID,
+          account_id: 'acct-2',
+          offboarding_status: 'tearing_down',
+        },
+      ]);
+
+      const findings = await checkStrandedAccountOffboardings(mockSql);
+
+      expect(findings).toEqual([
+        {
+          key: `${STRANDED_OFFBOARDING_FINDING_PREFIX}:${OFFBOARDING_ID}`,
+          level: 'error',
+          title: expect.stringContaining(OFFBOARDING_ID),
+          detail: {
+            account_offboarding_id: OFFBOARDING_ID,
+            account_id: 'acct-1',
+            topic: QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+            outbox_id: 'ob-1',
+            offboarding_status: 'purge_scheduled',
+            last_error: 'Stale dispatched entry exceeded max_attempts',
+          },
+        },
+        expect.objectContaining({
+          key: `${STRANDED_OFFBOARDING_FINDING_PREFIX}:${OTHER_OFFBOARDING_ID}`,
+          level: 'error',
+        }),
+      ]);
+      // The title is the Sentry grouping (health findings set no fingerprint):
+      // the id in it is what makes one issue per stranded offboarding, and the
+      // topic names the obligation.
+      expect(findings[0]?.title).toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE);
+      expect(findings[0]?.key).not.toBe(findings[1]?.key);
+    });
+
+    it('returns an empty array when no offboarding is stranded', async () => {
+      sqlReturnQueue.push([]);
+      expect(await checkStrandedAccountOffboardings(mockSql)).toEqual([]);
+    });
+
+    it('queries the newest failed row per topic and offboarding, excluding failed and terminal offboardings', async () => {
+      sqlReturnQueue.push([]);
+      await checkStrandedAccountOffboardings(mockSql);
+      const text = String((mockSql.mock.calls[0]?.[0] as string[])?.join('?'));
+      // The handler's own terminal paths land `failed` and already alerted
+      // under rules 16-18; a re-drive enqueues a NEWER row for the same topic
+      // and offboarding, and the old failed row is then history.
+      expect(text).toMatch(/a\.terminal_at IS NULL/);
+      expect(text).toMatch(/a\.status <> 'failed'/);
+      expect(text).toMatch(/NOT EXISTS[\s\S]*n\.created_at > o\.created_at/);
+      expect(text).toMatch(/o\.status = 'failed'/);
+      expect(mockSql.mock.calls[0]?.slice(1)).toEqual(
+        expect.arrayContaining([
+          'account_offboarding',
+          QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
+          QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
+          QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+        ]),
+      );
+    });
   });
 
   describe('checkOldestPendingOutbox', () => {
@@ -522,10 +605,12 @@ describe('health-alert checks', () => {
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
   // Sequential dispatch order: wedgedClientRead, failedByTopic, oldestPending, staleDispatching,
   // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents,
-  // stalledSendBatches, solicitationSendBreaker, backlogDepth — push a queue entry per
-  // QUERY in that order. POSITIONAL: a new check inserted anywhere shifts every later
-  // response by one, so appending a check means appending its entry here too (#898).
-  // Note solicitationSendBreaker is the one check that issues TWO queries.
+  // stalledSendBatches, solicitationSendBreaker, backlogDepth, strandedAccountOffboardings —
+  // push a queue entry per QUERY in that order. POSITIONAL: a new check inserted anywhere
+  // shifts every later response by one, so appending a check means appending its entry
+  // here too (#898). Note solicitationSendBreaker is the one check that issues TWO
+  // queries. strandedAccountOffboardings is LAST (#1413) and the stub yields `[]` on an
+  // exhausted queue, which is why the cases below need no entry for it.
   function pushQuietChecksBeforeBacklog(): void {
     sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]); // wedgedClientRead → null
     sqlReturnQueue.push([]);              // failedByTopic → []
@@ -610,7 +695,7 @@ describe('health-alert checks', () => {
       // Order matches sequential dispatch order in runHealthChecks:
       // wedgedClientRead, failedByTopic, oldestPending, staleDispatching, openFlagged,
       // zeroDelivery, ownerUnreachable, failedInboundEvents,
-      // stalledSendBatches, backlogDepth
+      // stalledSendBatches, backlogDepth, strandedAccountOffboardings
       sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]);          // wedgedClientRead → null
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
@@ -627,10 +712,19 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([]);                                            // breaker open-trip probe → no open trip
       sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // breaker window → null
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
+      sqlReturnQueue.push([{                                            // stranded offboarding → finding (#1413)
+        outbox_id: 'ob-1',
+        topic: QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+        last_error: null,
+        account_offboarding_id: '00000000-0000-7000-8000-0000000000e1',
+        account_id: 'acct-1',
+        offboarding_status: 'purge_scheduled',
+      }]);
 
       const findings = await runHealthChecks(mockSql);
       const keys = findings.map((f) => f.key).sort();
       expect(keys).toEqual([
+        'account_offboarding_stranded:00000000-0000-7000-8000-0000000000e1',
         'backlog_depth:job_outbox',
         'flagged_open_backlog',
         'inbound_events_failed:stripe:invoice.paid',
@@ -753,6 +847,30 @@ describe('health-alert checks', () => {
         true,
       );
       expect(sql.json).toHaveBeenCalledTimes(1);
+    });
+
+    it('isolates a stranded-offboarding failure in the LAST position: every earlier finding survives', async () => {
+      // The check runs last, so an un-isolated rejection there would discard
+      // the whole cycle's findings — the one position where isolation is
+      // required rather than merely kind (#1413).
+      const sql = localSqlStub([
+        ...ROWS_BEFORE_BREAKER,
+        [],                                            // breaker open-trip probe → none open
+        [{ sends: 0, hard_bounces: 0, complaints: 0 }], // breaker window → null
+        [{ job_outbox: 0, analytics_events: 0 }],      // backlogDepth inner SELECT
+        new Error('canceling statement due to statement timeout'), // stranded offboardings → REJECTS
+      ]);
+
+      const findings = await runHealthChecks(sql);
+      const keys = findings.map((f) => f.key);
+
+      expect(keys).toContain('flagged_open_backlog');
+      const errFinding = findings.find(
+        (f) => f.key === 'health_check_error:account_offboarding_stranded',
+      );
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.title).toContain('statement timeout');
+      expect(errFinding?.detail).toEqual({ check: 'account_offboarding_stranded' });
     });
 
     it('isolates a send-breaker READ failure the same way: the probe rejects before any write', async () => {

@@ -18,7 +18,7 @@ paths:
 ## Traps
 
 - No trap clauses were moved from `.claude/CLAUDE.md` for this area; the worker-wide traps (single-replica registry paging via `HealthAlertPoller`, best-effort work needing its own `try/catch`) are in `.claude/rules/worker-layout.md`.
-- **A runbook rule is a REQUIREMENT, not a live alert, and a regex pin over its prose cannot catch a negation.** Rules 1, 11 and 16 in `docs/runbooks/beta-launch-alerting.md` are written but unconfigured in Sentry — check the §1 box before treating any of them as a page. A test pinning such a row to exported constants must assert POSITION (which cell, which sentence, found by column header); even then every pinned substring survives a `do **not**` prefix, which is why #1414 asks for a machine-readable record instead. Story: lab-notes/false-coverage-mutation.md Summary + history/2026-09-19-to-30.md (2026-09-21, #1417).
+- **A runbook rule is a REQUIREMENT, not a live alert, and a regex pin over its prose cannot catch a negation.** Rules 1, 11, 16, 17 and 18 in `docs/runbooks/beta-launch-alerting.md` are written but unconfigured in Sentry — check the §1 box before treating any of them as a page. A test pinning such a row to exported constants must assert POSITION (which cell, which sentence, found by column header); even then every pinned substring survives a `do **not**` prefix, which is why #1414 asks for a machine-readable record instead. The pin for rules 16–18 lives in `worker/jobs/account-offboarding/__tests__/failure-alert.test.ts` and parses the cells inside each test, so a malformed block fails a named test rather than collection. Story: lab-notes/false-coverage-mutation.md Summary + history/2026-09-19-to-30.md (2026-09-21, #1417).
 
 ## Rules
 

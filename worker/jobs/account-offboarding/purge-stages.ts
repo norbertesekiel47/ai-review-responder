@@ -1229,7 +1229,9 @@ export async function markPurgeRetryableFailure(
 
 export async function markPurgeTerminalFailure(
   sql: postgres.Sql,
-  row: AccountOffboardingPurgeRow,
+  // Only the two ids: the terminal load-failure path (#1413) has no loaded row
+  // to hand over, so it marks by the payload's ids instead.
+  row: Pick<AccountOffboardingPurgeRow, 'id' | 'account_id'>,
   safeMessage: string,
 ): Promise<void> {
   await sql`

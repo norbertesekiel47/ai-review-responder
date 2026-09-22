@@ -947,4 +947,103 @@ describe('AccountOffboarding TeardownWorker', () => {
       }),
     );
   });
+
+  // ── The teardown alert splits terminal from retry (#1412) ────────────────
+  //
+  // The RT-08 shape #1016 removed from the purge worker: one constant message
+  // with no fingerprint grouped a retry `warning` and the terminal `error`
+  // into ONE Sentry issue, so a first-seen rule fired on an early retry and
+  // never on the terminal event. Spelled out rather than imported — see the
+  // note in failure-alert.test.ts, which also pins runbook rule 17.
+  describe('teardown-failure alert fingerprints', () => {
+    it('a terminal failure carries [message, terminal, <offboarding id>] at error, emitted AFTER the marks', async () => {
+      mockStripeSubscriptionsCancel.mockRejectedValueOnce(new Error('stripe down'));
+
+      await handleAccountOffboardingTeardown(
+        mockSql,
+        makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingTeardownPayload>>),
+      );
+
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_teardown_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_teardown_failed', 'terminal', OFFBOARDING_ID],
+          tags: expect.objectContaining({ step: 'teardown', terminal: 'true' }),
+        }),
+      );
+      // Best-effort work behind the side effect it reports: the page never
+      // precedes the marks it describes.
+      expect(mockMarkOutboxFailed.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockCaptureMessage.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it('a retryable failure carries the shared [message, retry] at warning and rethrows', async () => {
+      mockStripeSubscriptionsCancel.mockRejectedValueOnce(new Error('stripe down'));
+
+      await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).rejects.toThrow('stripe down');
+
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_teardown_failed',
+        expect.objectContaining({
+          level: 'warning',
+          fingerprint: ['account_offboarding_teardown_failed', 'retry'],
+          tags: expect.objectContaining({ terminal: 'false' }),
+        }),
+      );
+    });
+
+    it('a terminal validation failure takes the same terminal fingerprint, after the marks', async () => {
+      mockState.offboarding = offboardingRow({ mode: 'cancel_only', status: 'scheduled', access_ends_at: null });
+
+      await handleAccountOffboardingTeardown(
+        mockSql,
+        makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingTeardownPayload>>),
+      );
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        'outbox-teardown-1',
+        'account_offboarding_missing_access_end',
+        4,
+      );
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_teardown_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_teardown_failed', 'terminal', OFFBOARDING_ID],
+        }),
+      );
+      expect(mockMarkOutboxFailed.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockCaptureMessage.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it('a not-found dispatch alerts as TERMINAL under the id it was dispatched for (#1413 shape)', async () => {
+      // The branch returns after marking, so it is terminal by construction;
+      // before #1412 it raised nothing at all.
+      mockState.offboarding = null;
+
+      await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).resolves.toBeUndefined();
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        'outbox-teardown-1',
+        'account_offboarding_not_found',
+        4,
+      );
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_teardown_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_teardown_failed', 'terminal', OFFBOARDING_ID],
+          extra: expect.objectContaining({ error: 'account_offboarding_not_found' }),
+        }),
+      );
+    });
+  });
 });
