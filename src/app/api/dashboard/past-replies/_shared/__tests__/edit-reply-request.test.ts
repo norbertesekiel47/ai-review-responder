@@ -28,7 +28,11 @@ vi.mock('@/lib/responses/edit-existing', () => ({
   ResponseChangedError: class extends Error {},
 }));
 
-import { authorizeEditReplyResponse, resolveEditReplyRequest } from '../edit-reply-request';
+import {
+  authorizeEditReplyResponse,
+  resolveEditReplyRequest,
+  resolveEditReplyScope,
+} from '../edit-reply-request';
 
 const db = (() => Promise.resolve([])) as never;
 const request = () => new NextRequest('https://app.example.com/api/test', {
@@ -98,5 +102,60 @@ describe('authorizeEditReplyResponse', () => {
       await expect(result.response.json()).resolves.toEqual({ error: 'invalid_response_id' });
     }
     expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+// ── The consumer-layer re-throw the #1361 gate fix rests on (#1400) ──────────
+//
+// #1361 made `resolveOwnerScope` re-throw a non-`ScopeError` instead of wrapping
+// it as `ScopeError('unauthorized', 401)`. That fix only holds because every
+// consumer re-throws a non-`ScopeError` too. Both consumers in this file front
+// five routes (publish, draft POST, draft PATCH, retry, restore-original), and
+// until these rows NOTHING pinned their two `throw err;` statements: a red-team
+// pass replaced both with a catch-all 401 — reintroducing the #1361 defect one
+// layer up — and 123 of 123 past-replies tests stayed green.
+//
+// The assertion is identity: the ORIGINAL fault comes back out. Mapping it to
+// any response at all is the regression, so the test names the mapped status
+// rather than just "did not throw".
+describe('non-ScopeError faults propagate out of the edit-reply preamble', () => {
+  const settle = async <T>(promise: Promise<T>): Promise<unknown> =>
+    promise.then((value) => ({ mappedTo: value }), (error: unknown) => ({ threw: error }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    enabled.mockReturnValue(true);
+    assertSameOrigin.mockImplementation(() => {});
+  });
+
+  it('resolveEditReplyScope re-throws a non-ScopeError instead of mapping it to a 4xx', async () => {
+    const fault = new Error('pool exhausted');
+    resolveOwnerScope.mockRejectedValueOnce(fault);
+
+    expect(await settle(resolveEditReplyScope(db, request()))).toEqual({ threw: fault });
+  });
+
+  it('resolveEditReplyRequest re-throws a non-ScopeError instead of mapping it to a 4xx', async () => {
+    const fault = new Error('pool exhausted');
+    resolveOwnerScope.mockRejectedValueOnce(fault);
+
+    expect(
+      await settle(resolveEditReplyRequest(db, request(), Promise.resolve({ responseId: 'r-1' }))),
+    ).toEqual({ threw: fault });
+  });
+
+  // A non-Error rejection value has no prototype to test, so a `catch (err) { if
+  // (err instanceof ScopeError) … }` that is later loosened to a name comparison
+  // still has to let this one through unchanged.
+  it.each([
+    ['resolveEditReplyScope', () => resolveEditReplyScope(db, request())],
+    [
+      'resolveEditReplyRequest',
+      () => resolveEditReplyRequest(db, request(), Promise.resolve({ responseId: 'r-1' })),
+    ],
+  ])('%s re-throws a non-Error rejection value unchanged', async (_label, call) => {
+    resolveOwnerScope.mockRejectedValueOnce('pool exhausted');
+
+    expect(await settle(call())).toEqual({ threw: 'pool exhausted' });
   });
 });
