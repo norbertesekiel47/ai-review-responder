@@ -14,6 +14,7 @@
 // Extracted rather than inlined per invariant #12.
 import * as Sentry from '@sentry/node';
 import type { Job, Worker } from 'bullmq';
+import { boundedErrorClass } from '../src/lib/shared/error-inspect';
 import { createWorkerLogger, toError } from '../src/lib/shared/logger';
 
 const logger = createWorkerLogger('[JobFailureSink]');
@@ -42,23 +43,6 @@ function isFailedEventTerminal(job: Job<unknown>): boolean {
   const maxAttempts =
     typeof job.opts.attempts === 'number' && job.opts.attempts > 0 ? job.opts.attempts : 1;
   return job.attemptsMade >= maxAttempts;
-}
-
-/**
- * Error NAME only, bounded. Mirrors csv-ingest's PII contract AND its
- * implementation (`worker/jobs/csv-ingest/failed-hook.ts:93-97`): a driver
- * message may embed contact handles, and string logger arguments bypass the
- * object sanitizer. The full error still reaches Sentry, which has its own
- * scrubber.
- *
- * The slice and the `'UnknownError'` fallback are copied deliberately rather
- * than approximated: `Error.name` is attacker-influenceable on a custom class,
- * and returning `typeof err` for a non-Error leaks nothing useful ("object")
- * while diverging from the sibling helper readers will compare this against.
- */
-function boundedErrorClass(err: unknown): string {
-  if (err instanceof Error && err.name) return err.name.slice(0, 100);
-  return 'UnknownError';
 }
 
 export function reportJobFailure(queueName: string, job: Job | undefined, err: Error): void {

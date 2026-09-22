@@ -5,7 +5,7 @@ import { failTurnIfNonTerminal } from '@/lib/agents/operator/turns';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
-import { boundedErrorClass } from '../solicitation-batch/failed-hook-shared';
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
 
 const logger = createWorkerLogger('[AgentTurnWorker.failed]');
 

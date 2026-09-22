@@ -42,12 +42,9 @@ import { closeBatchIfSettled } from '@/lib/solicitation/outreach';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { SolicitationSendPayload } from '@/lib/shared/worker-types';
-// Log-field hygiene only, and the one helper in that file with no lane-specific
-// semantics: it turns a constructor name into a bounded identifier and makes no
-// claim about transport errors or exhaustion arithmetic, which is what its
-// "deliberately NOT generalized past this folder" docstring is actually about.
-// `isSendAttemptExhausted` below stays local for exactly that reason.
-import { boundedErrorClass } from '../solicitation-batch/failed-hook-shared';
+// Log-field hygiene only (#1381: one definition for every lane). Exhaustion
+// arithmetic is lane semantics, so `isSendAttemptExhausted` below stays local.
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
 
 const logger = createWorkerLogger('[SolicitationSendWorker.failed]');
 

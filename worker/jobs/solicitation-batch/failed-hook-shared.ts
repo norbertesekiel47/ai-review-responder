@@ -3,11 +3,12 @@ import type { Job } from 'bullmq';
 /**
  * The mechanics every solicitation-batch `failed` listener needs, owned once.
  *
- * Both hooks in this folder independently grew the same three helpers — BullMQ
- * exhaustion arithmetic, a log-safe error-class name, and a swallow-everything
- * logger — differing only in their log message. Two copies of "how do we decide
- * a job is exhausted" is two places to get it wrong; the duplication was caught
- * by the fallow clone detector on #628.
+ * Both hooks in this folder independently grew the same helpers — BullMQ
+ * exhaustion arithmetic and a swallow-everything logger — differing only in
+ * their log message. Two copies of "how do we decide a job is exhausted" is two
+ * places to get it wrong; the duplication was caught by the fallow clone
+ * detector on #628. The log-safe error-class name that used to live here is
+ * lane-neutral and moved to `src/lib/shared/error-inspect.ts` (#1381).
  *
  * Deliberately NOT generalized past this folder: the publisher and zernio
  * failed-hooks classify their own transport errors and have different
@@ -26,19 +27,6 @@ export function isExhaustedJob(job: Job<unknown>): boolean {
       ? job.opts.attempts
       : 1;
   return job.attemptsMade >= maxAttempts;
-}
-
-/**
- * A constructor name safe to put in a log field: bounded length and a strict
- * identifier shape, so a hostile or exotic error type cannot inject structure
- * into the log line. Anything that fails the shape is reported generically.
- */
-export function boundedErrorClass(err: unknown): string {
-  if (!(err instanceof Error)) return 'UnknownError';
-  const constructorName = err.constructor.name;
-  return /^[A-Za-z][A-Za-z0-9_$]{0,99}$/.test(constructorName)
-    ? constructorName
-    : 'UnknownError';
 }
 
 /**

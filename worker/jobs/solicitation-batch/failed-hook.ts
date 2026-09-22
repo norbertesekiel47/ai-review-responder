@@ -4,7 +4,8 @@ import { failSolicitationBatchRun } from '@/lib/agents/run-spine';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
-import { boundedErrorClass, isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
+import { boundedErrorClass } from '@/lib/shared/error-inspect';
+import { isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
 
 const logger = createWorkerLogger('[SolicitationBatchWorker.failed]');
 const logFailureSafely = makeFailureLogger(logger, 'solicitation batch build exhausted');
