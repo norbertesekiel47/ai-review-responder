@@ -98,7 +98,12 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     stripe_customer_id: 'cus_test',
     stripe_subscription_id: 'sub_test',
     locations_included: 1,
+    // The real list-variant Copilot snapshot since the 2026-09-14 reprice: the
+    // extra-location price EQUALS the base price. Set explicitly (not left
+    // undefined) so a dropped `storedBasePriceCents` forward can no longer be
+    // masked by `undefined !== <cents>` silently keeping the guard off (#1298).
     locations_overage_price_cents: 7900,
+    base_price_cents: 7900,
     ...overrides,
   };
 }
@@ -1100,6 +1105,54 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
           drift_type: 'ambiguous_overage_item',
         }),
       }),
+    );
+  });
+
+  // #1298 — the collision this worker is the reason to guard against. An
+  // UNREGISTERED base Price ID survives base-exclusion (which is by Price ID),
+  // and on a list-variant account its unit_amount equals the stored overage
+  // cents, so the resolver's unit-amount pass would have handed the CUSTOMER'S
+  // BASE ITEM back as `trusted` and this worker would have re-quantitied it.
+  // The pass now downgrades to `untrusted`, which this worker refuses.
+  //
+  // Downgraded, NOT dropped: `{kind:'none'}` would fall through to
+  // createOverageItem below and add a SECOND overage line — double billing.
+  // `expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled()` is what
+  // pins that, with newQuantity=2 so the create path is genuinely reachable.
+  it('#1298 AMBIGUOUS: equal stored base/overage cents + an unregistered base Price ID never mutates or duplicates', async () => {
+    queueAccountRow(); // list Copilot: overage 7900 === base 7900
+    queueOverageTx(3); // 3 locations - 1 included = 2 → create path is reachable
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          {
+            // NOT price_copilot — a rotation that forgot RETAINED_STRIPE_PRICE_HISTORY.
+            id: 'si_base',
+            price: { id: 'price_copilot_rotated', unit_amount: 7900, metadata: {} },
+            quantity: 1,
+          },
+          {
+            // The real overage line: rotated away AND never stamped, so neither
+            // Priority 1 nor Priority 2 can rescue it.
+            id: 'si_overage_legacy',
+            price: { id: 'price_overage_rotated', unit_amount: 7900, metadata: {} },
+            quantity: 1,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
+      'outbox-1',
+      expect.stringContaining('ambiguous_overage_item'),
+      1,
     );
   });
 

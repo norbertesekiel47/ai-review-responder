@@ -50,6 +50,7 @@ interface LockedAccountState extends ActiveOffboardingProjection {
   subscription_status: string;
   subscription_tier: string;
   locations_overage_price_cents: number;
+  base_price_cents: number;
 }
 
 async function loadLockedAccountState(
@@ -67,6 +68,7 @@ async function loadLockedAccountState(
       a.subscription_status,
       a.subscription_tier,
       a.locations_overage_price_cents,
+      a.base_price_cents,
       ao.id AS offboarding_id,
       ao.account_id AS offboarding_account_id,
       ao.mode AS offboarding_mode,
@@ -332,11 +334,14 @@ async function loadCommittedTierChange(
 function planOverageMutation(input: {
   items: Stripe.SubscriptionItem[];
   storedOveragePriceCents: number;
+  /** #1298: equal stored base/overage cents disable the resolver's unit-amount pass. */
+  storedBasePriceCents: number;
   targetOveragePriceId: string;
   newOverageUnits: number;
 }): { plan: OverageMutation } | { failure: TierChangeOutcome & { ok: false } } {
   const resolution = resolveOverageItem(input.items, {
     storedOveragePriceCents: input.storedOveragePriceCents,
+    storedBasePriceCents: input.storedBasePriceCents,
   });
   if (resolution.kind === 'untrusted') {
     return {
@@ -644,6 +649,7 @@ async function buildTierChangeProviderPlan(
   const overage = planOverageMutation({
     items: subscription.items.data,
     storedOveragePriceCents: account.locations_overage_price_cents,
+    storedBasePriceCents: account.base_price_cents,
     targetOveragePriceId: prices.overagePriceId,
     newOverageUnits,
   });
