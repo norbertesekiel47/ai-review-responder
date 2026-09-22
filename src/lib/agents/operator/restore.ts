@@ -40,9 +40,11 @@ export async function createRestoreProposal(
 }
 
 /**
- * Preparation-only locks: lifecycle orders business before account. NO KEY
- * UPDATE serializes with Apply while admitting createTurn's FK KEY SHARE.
- * Never upgrade these parents through an Apply/settings lock helper.
+ * Preparation-only locks, businesses then accounts, both FOR NO KEY UPDATE.
+ * Why this order and strength cannot deadlock with Apply, and why NO KEY
+ * UPDATE (it admits createTurn's FK KEY SHARE):
+ * .claude/reference/lab-notes/lock-order.md § "Owner Operator: Restore vs
+ * Apply". Never upgrade these parents through an Apply/settings lock helper.
  */
 async function lockRestoreScope(tx: Tx, input: RestoreActor & { locationId: string | null }): Promise<boolean> {
   if (input.locationId !== null) {

@@ -12,6 +12,8 @@
 //  - policy: `accounts` row FIRST (`lockAutonomyAccount` — the same parent
 //    row the shared settings writer locks), proposal SECOND (Run C, spec §6.4
 //    step 1). No business, review or response row lock follows the account.
+// Why neither order deadlocks with Restore:
+// .claude/reference/lab-notes/lock-order.md § "Owner Operator: Restore vs Apply".
 //
 // Invariant #15: `sql`/`tx` arrive as parameters; this module never imports
 // @/lib/db/server. Invariant #9: every statement carries an `account_id`
@@ -346,7 +348,8 @@ interface PolicyPlan {
 async function applyPolicyProposal(tx: Tx, input: ApplyProposalInput): Promise<ApplyResult> {
   // 1. The account row FIRST. `lockAutonomyAccount` locks the same guaranteed
   //    parent row as the shared writer's private `lockAccount`
-  //    (settings.ts:392-406), which then re-acquires it in this transaction.
+  //    (`src/lib/auto-approval/settings.ts`), which then re-acquires it in
+  //    this transaction.
   await lockAutonomyAccount(tx, input.accountId);
   // 2. The proposal row SECOND.
   const proposal = await lockProposalForAccount(tx, {

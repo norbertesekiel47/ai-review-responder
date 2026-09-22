@@ -494,6 +494,7 @@ async function acquirePersistLocks(
     `;
     // Fixed WS8 approval-lane order: reviews -> businesses -> entitlement,
     // before the responses INSERT (and every later account-FK child write).
+    // Owner of the global order: .claude/reference/lab-notes/lock-order.md.
     await acquireTierEntitlementLock(tx, accountId);
   }
 

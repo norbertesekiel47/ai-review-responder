@@ -8,7 +8,7 @@ paths:
 ## Read first
 
 - File map: `docs/directory/worker-root.md` (env, config, boot files), `docs/directory/worker-jobs-a.md` / `worker-jobs-b.md` / `worker-jobs-c.md` (job handlers), `docs/directory/worker-background.md` (pollers + schedulers), `docs/directory/worker-ingress.md` (webhook ingress).
-- Lab notes: `.claude/reference/lab-notes/worker-startup-sentry.md`, `.claude/reference/lab-notes/worker-crash-net-cost-guard.md`, `.claude/reference/lab-notes/ingress-rate-limiting.md`.
+- Lab notes: `.claude/reference/lab-notes/worker-startup-sentry.md`, `.claude/reference/lab-notes/worker-crash-net-cost-guard.md`, `.claude/reference/lab-notes/ingress-rate-limiting.md`, `.claude/reference/lab-notes/lock-order.md`.
 - Skills before writing: `outbox-pattern` (state change + `job_outbox` row in one transaction), `cost-guard` (any LLM or paid call).
 - Invariants that bind here (`.claude/CLAUDE.md`): #1, #2, #6, #11, #12, #15. Global gotchas (admission chokepoint, crash-net, cost-guard fail-open) stay in `.claude/CLAUDE.md`.
 

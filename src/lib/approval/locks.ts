@@ -68,10 +68,17 @@ export async function consumeLink(tx: TxClient, linkId: string): Promise<void> {
  *
  * The archived check lives HERE, inside the claim primitive, so that
  * "a pending response can only be acted on for a live location" holds for
- * every current and future lane by construction — and so the
- * responses FOR UPDATE always precedes the businesses FOR SHARE
- * (uniform lock order; a concurrent archive can never form a cycle).
- * The business_id comes from the response row itself, not the caller.
+ * every current and future lane by construction. The business_id comes
+ * from the response row itself, not the caller.
+ *
+ * Lock order: responses FOR UPDATE, then businesses FOR SHARE. This is the
+ * documented EXCEPTION to the review lane's businesses-before-responses order
+ * (owner: .claude/reference/lab-notes/lock-order.md). It is deadlock-free only
+ * because this lane is disjoint from the Judge lane: the businesses lock is
+ * reached only for a row read as pending_approval under its own lock, Judge
+ * acts only on posted auto-policy rows, and posted never returns to
+ * pending_approval. A new caller must keep that disjointness or take the
+ * review-lane order instead.
  */
 export async function lockPendingResponse(
   tx: TxClient,
@@ -133,8 +140,10 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
  * businesses row FOR UPDATE, so an in-flight archive blocks this gate and
  * the re-evaluated read sees the committed archived_at — no TOCTOU window.
  * Callers MUST run inside the same sql.begin() as the mutation (all do);
- * outside a transaction PgBouncer drops the lock immediately. Call it only
- * AFTER any responses FOR UPDATE in the same tx (uniform lock order).
+ * outside a transaction PgBouncer drops the lock immediately. Both callers
+ * take it AFTER their responses FOR UPDATE — the approval-lane exception to
+ * the global order, safe only by lane disjointness; see lockPendingResponse
+ * and .claude/reference/lab-notes/lock-order.md before adding a caller.
  *
  * Fails closed: a missing business row also rejects.
  */
