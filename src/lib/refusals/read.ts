@@ -331,7 +331,7 @@ export async function getRefusalLog(
   // — so the #520 microsecond trap does not apply and NO `date_trunc` belongs
   // here. That trap is fatal only when a row is compared against a window
   // derived FROM that row. Adding one would also make the predicate non-sargable
-  // against `idx_refusal_events_account_window`.
+  // against `idx_refusal_events_account_window_covering`.
   //
   // `subject_resolves` answers the question migration 116's `subject_id` comment
   // insists stay answerable: a NULL id means "this lane points at nothing", and a
@@ -347,6 +347,16 @@ export async function getRefusalLog(
   // `resp.business_id = r.business_id` proves the binding — and it is stronger
   // than a bare id match either way: a response belonging to another location
   // cannot resolve.
+  //
+  // `, r.id DESC` IS NOT A TIDY-UP — it is the whole tiebreak, and both arms
+  // carry it. `batch-builder.ts` writes a whole build's Refusals in ONE
+  // statement sharing ONE `Date`, up to 5,000 of them, so equal `occurred_at`
+  // is the writer's normal case rather than a coincidence. Without the
+  // tiebreak the 200 rows the tab prints are whichever 200 the plan happened
+  // to emit, and they can differ between two renders of the same window.
+  // Migration 123 put `id DESC` in the index key so the guarantee is free —
+  // before it, the plan carried an Incremental Sort whose presorted group was
+  // the entire tie. The read suite pins the guarantee, not the plan.
   //
   // The two arms are spelled out rather than composed from a shared fragment.
   // `ci:tenant-scope` reads QUERY BLOCKS, so every block carries its own tenant
@@ -444,6 +454,33 @@ export async function getRefusalLog(
   // sweeps, so this history outlives the 180-day ledger retention — which is
   // why the read is bounded by `ARCHIVAL_EVENT_LIMIT` and reversed rather than
   // ordered ascending in SQL.
+  //
+  // THE UPPER BOUND IS THE SAME RULE THE ENTRY QUERY STATES ABOVE, and this
+  // query was the one place in the module that did not obey it (#1081). It is
+  // not a clock-skew guard — `created_at` is the database's own insert stamp,
+  // not a writer's — it is a RANGE guard, and it matters twice.
+  // `pairArchivedPeriods` filters periods by INTERSECTION and does not clip the
+  // values it renders, so a reactivation dated after `windowEnd` CLOSED a period
+  // the window must show as still open: the tab printed one range and then
+  // answered outside it. And the read is `ORDER BY created_at DESC LIMIT
+  // ARCHIVAL_EVENT_LIMIT + 1`, so out-of-window rows are precisely the rows most
+  // able to push in-window ones out of the newest-first cut. There is
+  // deliberately NO lower bound: the state AT `windowStart` is only knowable
+  // from the last event BEFORE it.
+  //
+  // Sub-millisecond note, for the reader arriving from #520: `windowEnd` is a JS
+  // `Date` and carries no microseconds, so a row inserted inside the same
+  // millisecond can fall the wrong side of this comparison. It is not the #520
+  // class — nothing here is compared against a window derived FROM a row — and
+  // the cost is bounded at "an event less than a millisecond old is seen on the
+  // next render". A `date_trunc` would cost the index condition below, which is
+  // the worse trade by far.
+  //
+  // `idx_account_audit_location_window` (migration 123) serves this exactly:
+  // `(account_id, location_id, created_at DESC, id DESC)` is the WHERE and the
+  // ORDER BY in one, so the LIMIT stops the scan instead of sorting the whole
+  // match set, and `event_type` rides as an INCLUDE so the filter never leaves
+  // the index.
   const archivalEvents = scope.kind === 'location'
     ? await sql<{ event_type: 'location_archived' | 'location_reactivated'; created_at: Date }[]>`
           SELECT l.event_type, l.created_at
@@ -451,6 +488,7 @@ export async function getRefusalLog(
           WHERE l.account_id = ${scope.accountId}
             AND l.location_id = ${scope.businessId}
             AND l.event_type IN ('location_archived', 'location_reactivated')
+            AND l.created_at <= ${windowEnd}
           ORDER BY l.created_at DESC, l.id DESC
           LIMIT ${ARCHIVAL_EVENT_LIMIT + 1}
         `
@@ -468,8 +506,16 @@ export async function getRefusalLog(
   // `ENTRY_LIMIT`, so `entries.length` under-reports exactly when the window has
   // most to report. Two statements instead of a window function: the entry query
   // is the one that must stay sargable against
-  // `idx_refusal_events_account_window`, and a `COUNT(*) OVER ()` would make it
-  // carry the whole window's work to return 200 rows.
+  // `idx_refusal_events_account_window_covering`, and a `COUNT(*) OVER ()` would
+  // make it carry the whole window's work to return 200 rows.
+  //
+  // THIS COUNT IS AN INDEX ONLY SCAN, and one column is what makes it one
+  // (#1081). It returns a single row but touches EVERY row in the window, and
+  // its only non-indexed input was `business_id` — both arms filter on it, the
+  // location arm as `= $2 OR IS NULL` and the account arm through the `EXISTS`
+  // correlation. Migration 123 carries `business_id` as an `INCLUDE`, which took
+  // the measured account arm from 60,366 buffers to 586. Selecting any further
+  // column here silently puts the heap fetch per row back.
   //
   // Both arms re-spell their tenant keys literally, for the same reason the
   // entry arms do — `ci:tenant-scope` reads QUERY BLOCKS.

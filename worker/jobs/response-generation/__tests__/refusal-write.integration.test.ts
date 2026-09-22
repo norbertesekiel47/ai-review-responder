@@ -204,9 +204,20 @@ const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
   tables: ['refusal_events'],
   indexes: [
     'idx_refusal_events_archival',
-    'idx_refusal_events_account_window',
     'refusal_events_subject_uniq',
   ],
+};
+
+/**
+ * Migration 123 (#1081) SUPERSEDED 116's `idx_refusal_events_account_window`
+ * with `idx_refusal_events_account_window_covering` — the same leading keys plus
+ * `id DESC` and an `INCLUDE (business_id)`. Its own requirement, never folded
+ * into 116's, so a database carrying the 116 index and not this one fails with
+ * the migration that fixes it named.
+ */
+const MIGRATION_123_REFUSAL_READ_INDEXES: SchemaRequirement = {
+  migration: '123_refusal_read_indexes',
+  indexes: ['idx_refusal_events_account_window_covering'],
 };
 
 let db: postgresType.Sql | undefined;
@@ -446,7 +457,7 @@ async function responseIdFor(reviewId: string): Promise<string | undefined> {
 describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres)', { timeout: 60_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS]);
+    await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS, MIGRATION_123_REFUSAL_READ_INDEXES]);
 
     tenant = await seedTenantAccount(db, {
       userName: 'Refusal Lane Owner',
