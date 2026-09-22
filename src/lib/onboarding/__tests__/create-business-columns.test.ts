@@ -87,7 +87,7 @@ function parseInsert(call: RecordedSqlCall): InsertRow {
   const bound = [...call.values];
   const columns: Record<string, Cell> = {};
   names.forEach((name, i) => {
-    const sql = items[i];
+    const sql = items[i] ?? '';
     const placeholders = (sql.match(/\?/g) ?? []).length;
     expect(placeholders).toBeLessThanOrEqual(1);
     columns[name] = placeholders === 1 ? { sql, value: bound.shift() } : { sql };
@@ -96,7 +96,7 @@ function parseInsert(call: RecordedSqlCall): InsertRow {
   expect(bound).toEqual([]);
 
   return {
-    table: head[1],
+    table: head[1] ?? '',
     columns,
     tail: squash(text.slice(afterValues)),
     inTransaction: call.inTransaction,
@@ -271,8 +271,8 @@ describe('createBusinessTx — column → value characterization (#1356)', () =>
       { mode: 'self_serve', authId: 'auth-abc' },
     );
     const [, businesses, users] = harness.sqlCalls.map(parseInsert);
-    expect(businesses.columns.owner_phone).toEqual({ sql: '?', value: null });
-    expect(users.columns.phone).toEqual({ sql: '?', value: null });
+    expect(businesses?.columns.owner_phone).toEqual({ sql: '?', value: null });
+    expect(users?.columns.phone).toEqual({ sql: '?', value: null });
   });
 
   it('founding window writes the founding Copilot snapshot on accounts (both modes)', async () => {
