@@ -34,19 +34,29 @@ type WrappedNextHandler<TArgs extends unknown[] = [], TRes extends Response = Re
  * bare-Response handler is NOT, so re-pinning `TRes` fails the typecheck row.
  *
  * A HANDLER OPTS ITSELF OUT TWO WAYS, and both are inference, not the wrapper.
+ * This comment is the single owner of that pair.
+ *
  * (a) The handler ANNOTATES ITSELF `: Promise<Response>`, which pins
- * `TRes = Response`. (b) A guard type the handler returns from declares
- * `response: Response`, which puts a bare `Response` in the inferred union and
- * widens it just as hard — dropping the annotation alone does not fix that one.
- * Three wrapped handlers opted out via (a), and import-offer's local
- * `ScopeOutcome` also via (b); #1327 closed all four, so NO wrapped handler is
- * pinned today. The fix is always the HANDLER's own types, never a cast at the
- * export (that was #865 D5's mistake): drop the annotation and let `TRes` infer,
- * or annotate `: Promise<NextResponse>`. `route-helpers.test.ts` holds the three
- * routes to `NextResponse` by type assertion, so a re-added annotation fails the
- * typecheck row. Counting opt-outs by grepping `: Promise<Response>` under
- * src/app/api overcounts to ten — the other seven are GETs or inline
- * `assertSameOrigin` callers that this wrapper never wraps.
+ * `TRes = Response`. Three wrapped handlers did; #1327 closed them. The fix is
+ * always the HANDLER's own types, never a cast at the export (that was #865
+ * D5's mistake): drop the annotation and let `TRes` infer, or annotate
+ * `: Promise<NextResponse>`. Mechanism (a) is now caught MECHANICALLY at every
+ * call site by the `same-origin-handler-return-type` rule in
+ * scripts/ci/static-policy-audit.ts (#1331), which replaced the three-route type
+ * assertion route-helpers.test.ts used to carry — one owner for that fact, and
+ * it covers all 49 call sites rather than three. Counting opt-outs by grepping
+ * `: Promise<Response>` under src/app/api overcounts to ten — the other seven
+ * are GETs or inline `assertSameOrigin` callers that this wrapper never wraps.
+ *
+ * (b) A guard type the handler returns from declares `response: Response`, which
+ * puts a bare `Response` in the inferred union and widens it just as hard —
+ * dropping the annotation alone does not fix that one. import-offer's local
+ * `ScopeOutcome` did; #1327 closed it. Mechanism (b) is now STRUCTURALLY
+ * IMPOSSIBLE for the route guards (#1332): `Guard<TOk>` below declares
+ * `response: NextResponse` once and `RoleAuthResult`, `OwnerAccountResult`,
+ * `EditReplyGuard<T>` and `ScopeOutcome` are all aliases of it, so there is no
+ * per-guard `response:` annotation left to get wrong. A NEW guard type that
+ * re-spells the shape by hand can still reintroduce (b); write it as `Guard<T>`.
  */
 export function withSameOrigin(): <TArgs extends unknown[], TRes extends Response>(
   handler: NextHandler<TArgs, TRes>
@@ -79,9 +89,27 @@ export function errorResponse(code: string, status: number): NextResponse {
   return jsonResponse({ error: code }, status);
 }
 
-export type RoleAuthResult =
-  | { ok: true; user: AppUser }
+/**
+ * The single owner of the `{ ok: true, …payload } | { ok: false, response }`
+ * route-guard shape (#1332). Four types declared it by hand — `RoleAuthResult`,
+ * `OwnerAccountResult`, `EditReplyGuard<T>` and import-offer's `ScopeOutcome` —
+ * and one of the four spelled the failure member `response: Response`, which is
+ * opt-out mechanism (b) in the `withSameOrigin` comment above: a bare `Response`
+ * reaching a wrapped handler's inferred return union widens the route export.
+ * One declaration of `response: NextResponse` makes that unrepeatable for these
+ * guards; a fifth copy would re-arm it, so new guards alias this type.
+ *
+ * PAYLOAD-GENERIC, not `{ value: T }`: the success member is intersected in, so
+ * `Guard<{ user: AppUser }>` keeps `result.user` and `Guard<{ value: T }>` keeps
+ * `result.value`. Collapsing every guard onto a single `value` field would have
+ * renamed the accessor at ~60 call sites for no safety gain — the failure member
+ * is the part that had to be shared, and it is.
+ */
+export type Guard<TOk extends object> =
+  | ({ ok: true } & TOk)
   | { ok: false; response: NextResponse };
+
+export type RoleAuthResult = Guard<{ user: AppUser }>;
 
 /**
  * The single role-auth gate shared by every admin/owner/channel API route.
@@ -124,9 +152,7 @@ export async function requireRoleOr401(
   }
 }
 
-export type OwnerAccountResult =
-  | { ok: true; user: AppUser; accountId: string }
-  | { ok: false; response: NextResponse };
+export type OwnerAccountResult = Guard<{ user: AppUser; accountId: string }>;
 
 /**
  * Owner gate for account-scoped READ routes: requireRoleOr401(_, 'owner') →

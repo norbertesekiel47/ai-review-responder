@@ -15,6 +15,14 @@ const ARCHIVAL_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 // agent_outcomes). Uniform 180-day window. The binding constraint is the
 // dashboard team-summary, which reads agent_outcomes up to 90 days back — the
 // retention window MUST exceed that read window, so 180 > 90.
+//
+// There is a SECOND reader (#1382): the Owner Operator's provenance read
+// (`src/lib/agents/operator/policy-state.ts`, the "ORIGIN IS NEVER INFERRED"
+// note) resolves a review's ingestion origin from its initial `review_ingested`
+// marker on `agent_run_steps` over a 30-day cohort, so it clears 180 with a
+// 150-day margin and does not bind — but a third reader whose window exceeded
+// 180 would silently read `unknown` for every old review, and nothing would
+// fail.
 export const AGENT_SPINE_RETENTION_DAYS = 180;
 
 // Outreach body retention (migration 091: solicitation_outreach). 90 days sits

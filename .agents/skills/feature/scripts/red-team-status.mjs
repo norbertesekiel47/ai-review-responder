@@ -122,8 +122,16 @@ const TOP_LEVEL_KEYS = new Set([
   'authorizations',
   'operatorVerifierCorrection',
   'operatorSelectionCorrection',
+  'remeasurement',
   'counts',
   'status',
+]);
+
+/** Present only on the sidecars that carry them; every other top-level key is required. */
+const OPTIONAL_TOP_LEVEL_KEYS = new Set([
+  'operatorVerifierCorrection',
+  'operatorSelectionCorrection',
+  'remeasurement',
 ]);
 
 const ROW_KEYS = new Set([
@@ -134,6 +142,29 @@ const ROW_KEYS = new Set([
   'reason',
   'inconclusive_class',
   'finding_id',
+  'type_check',
+]);
+
+// `type_check` RECORDS a measurement, so it belongs only on a row that carries
+// a measured, terminal outcome (#1343). See `validateTypeCheck`.
+const TYPE_CHECK_OUTCOMES = new Set(['killed', 'survived-confirmed-P0']);
+const TYPE_CHECK_KEYS = new Set(['command', 'mutants']);
+const TYPE_CHECK_MUTANT_KEYS = new Set(['mutation', 'exit_code', 'output_identical']);
+
+const REMEASUREMENT_KEYS = new Set(['of_round', 'at', 'prior_commit', 'fixes']);
+const REMEASUREMENT_FIX_KEYS = new Set(['finding_id', 'rows']);
+
+// Every branch-pinned grant states its own ceiling and none of them
+// contemplates a re-measurement round. `remeasure-start` refuses on each; this
+// is the checker's own copy of that refusal, for the reason the round-3 rule
+// gives — a sidecar must never be able to claim a round the runner would have
+// refused, and the runner's journal is scratch that is routinely gone by the
+// time this runs.
+const REMEASUREMENT_FORBIDDEN_BRANCHES = new Set([
+  'codex/owner-operator-run-d',
+  'codex/owner-operator-run-e',
+  'codex/operator-fallow-refactor',
+  'codex/owner-operator-run-c',
 ]);
 
 const FINDING_KEYS = new Set([
@@ -278,6 +309,198 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+/**
+ * A row whose ONLY oracle is the type checker (#1343).
+ *
+ * `inconclusive`/`oracle` is a claim that a row was NOT MEASURED — it was never
+ * a claim that the row is unmeasurable. A type-only change (an annotation, a
+ * narrowed predicate) has no vitest oracle at all, so no mutation could ever
+ * resolve it and `recomputeStatus` pinned `INCOMPLETE_ORACLE` forever: a branch
+ * that added one could never reach `CLEAR`, however clean it was. `type_check`
+ * is the missing measurement record. Both mutants, both exit codes, and whether
+ * the output was identical, so the row's terminal outcome is CORROBORATED by
+ * what is written down rather than asserted.
+ *
+ * THE GUARD THIS MUST NOT DISSOLVE: a row that records no measurement is still
+ * `inconclusive`/`oracle` and still pins the status. `recomputeStatus` is
+ * untouched — this field cannot appear on an unmeasured outcome at all.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO. It does not pin the measurement to a
+ * committed artifact the way the branch-scoped budget grants pin theirs. Every
+ * inventory outcome in this schema is already the runner's own report of what
+ * it observed — a row may say `killed` today with nothing corroborating it —
+ * so `type_check` records strictly MORE than the outcome it accompanies, not
+ * less. It is evidence written down, not a new class of trust.
+ */
+function validateTypeCheck(scope, row, errors) {
+  const measurement = row.type_check;
+  if (measurement === undefined) return;
+  if (!TYPE_CHECK_OUTCOMES.has(row.outcome)) {
+    errors.push(
+      `${scope}: type_check belongs only on a ${[...TYPE_CHECK_OUTCOMES].join(' or ')} row `
+      + '— it records a measurement, so it can never accompany an unmeasured outcome',
+    );
+    return;
+  }
+  if (!isPlainObject(measurement)) {
+    errors.push(`${scope}.type_check must be an object`);
+    return;
+  }
+  checkKeys(`${scope}.type_check`, measurement, TYPE_CHECK_KEYS, errors);
+  if (!nonEmptyString(measurement.command)) {
+    errors.push(`${scope}.type_check.command must name the type-check command that measured the row`);
+  }
+  // The claim "the type checker is this row's ONLY oracle" is not derivable
+  // from the schema, so it has to be STATED. A reviewer reading the sidecar can
+  // then disagree with it; an unstated premise nobody can see, nobody checks.
+  if (!nonEmptyString(row.reason)) {
+    errors.push(`${scope}: a type_check row must record why the type checker is its only oracle`);
+  }
+  // Exactly two: the standing per-test limit is two mutations, and ONE mutant
+  // that the type checker ignored is not enough evidence to leave the oracle
+  // class — the second is what distinguishes "nothing consumes this" from "that
+  // particular weakening happened to be invisible".
+  if (!Array.isArray(measurement.mutants) || measurement.mutants.length !== 2) {
+    errors.push(`${scope}.type_check.mutants must record exactly 2 measured mutants`);
+    return;
+  }
+  const reacted = [];
+  for (const [index, mutant] of measurement.mutants.entries()) {
+    const mutantScope = `${scope}.type_check.mutants[${index}]`;
+    if (!isPlainObject(mutant)) {
+      errors.push(`${mutantScope} must be an object`);
+      return;
+    }
+    checkKeys(mutantScope, mutant, TYPE_CHECK_MUTANT_KEYS, errors);
+    if (!nonEmptyString(mutant.mutation)) {
+      errors.push(`${mutantScope}.mutation must describe the mutant that was type-checked`);
+    }
+    if (!Number.isInteger(mutant.exit_code) || mutant.exit_code < 0) {
+      errors.push(`${mutantScope}.exit_code must be a non-negative integer`);
+    }
+    if (typeof mutant.output_identical !== 'boolean') {
+      errors.push(`${mutantScope}.output_identical must be a boolean`);
+    }
+    reacted.push(mutant.exit_code !== 0 || mutant.output_identical === false);
+  }
+  if (row.outcome === 'killed' && !reacted.every(Boolean)) {
+    errors.push(
+      `${scope}: a killed type_check row needs the type checker to have reacted to EVERY mutant `
+      + '— a non-zero exit or different output',
+    );
+  }
+  if (row.outcome === 'survived-confirmed-P0' && reacted.every(Boolean)) {
+    errors.push(
+      `${scope}: a survived type_check row needs at least one mutant the type checker did not `
+      + 'react to (exit 0, byte-identical output) — that survival IS the finding',
+    );
+  }
+}
+
+/**
+ * The re-measurement round's own record (#1342) — shape only; history below.
+ *
+ * `SKILL.md` § "The loop" owns the rule. What is enforced here is the bound:
+ * one entry per raised finding, every re-measured row named, and the round
+ * number unmoved. A re-measurement round is not a fourth round and matches no
+ * authorization prose, which is the whole point — the prose generalisation was
+ * tried on #1340 and reverted because `RUN_C_FOURTH_TEXT` contains the literal
+ * phrase "approve the scoped fourth round".
+ */
+function remeasurementShapeErrors(sidecar, rowIds, findingIds) {
+  const block = sidecar.remeasurement;
+  if (!isPlainObject(block)) return ['remeasurement must be an object'];
+  const errors = [];
+  checkKeys('remeasurement', block, REMEASUREMENT_KEYS, errors);
+  for (const key of REMEASUREMENT_KEYS) {
+    if (!(key in block)) errors.push(`remeasurement: missing required field '${key}'`);
+  }
+  if (sidecar.round !== 2 && sidecar.round !== 3) {
+    errors.push(
+      'remeasurement belongs only to a run that has spent its last fresh round (2, or an '
+      + 'authorized 3) — round 4 is the branch-pinned Run C contract and never carries one',
+    );
+  }
+  if (block.of_round !== sidecar.round) {
+    errors.push('remeasurement.of_round must equal round — a re-measurement round does not advance the round number');
+  }
+  if (REMEASUREMENT_FORBIDDEN_BRANCHES.has(sidecar.branch)) {
+    errors.push(`remeasurement: the branch-pinned grant on ${sidecar.branch} admits no re-measurement round`);
+  }
+  const authorizations = Array.isArray(sidecar.authorizations) ? sidecar.authorizations : [];
+  if (authorizations.some((authorization) => authorization?.id === RUN_E_GRANT)) {
+    errors.push('remeasurement: the Run E grant admits no re-measurement round');
+  }
+  // The same predicate `round-start` uses, read the same way — but here it can
+  // only REFUSE. A re-measurement round opens where the fresh-round cap closes;
+  // while the owner has granted a round that is still unspent, that round is
+  // the stronger instrument and this one is not available.
+  if (sidecar.round === 2
+    && authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {
+    errors.push('remeasurement: a fresh third round is authorized and still available — that round, not this');
+  }
+  if (block.at !== sidecar.head_sha) {
+    errors.push('remeasurement.at must equal head_sha — the re-measurement is measured at the sidecar head');
+  }
+  if (!SHA1_RE.test(String(block.prior_commit))) {
+    errors.push('remeasurement.prior_commit must be a full 40-character object id');
+  }
+  if (!Array.isArray(block.fixes) || block.fixes.length === 0) {
+    errors.push('remeasurement.fixes must name at least one raised finding whose fix was re-measured');
+    return errors;
+  }
+  const byFindingId = new Map((sidecar.findings ?? []).map((finding) => [finding.id, finding]));
+  const seenFindings = new Set();
+  const seenRows = new Set();
+  for (const [index, fix] of block.fixes.entries()) {
+    const scope = `remeasurement.fixes[${index}]`;
+    if (!isPlainObject(fix)) {
+      errors.push(`${scope} must be an object`);
+      continue;
+    }
+    checkKeys(scope, fix, REMEASUREMENT_FIX_KEYS, errors);
+    if (!nonEmptyString(fix.finding_id) || !findingIds.has(fix.finding_id)) {
+      errors.push(`${scope}.finding_id must resolve to a finding in this sidecar`);
+    } else if (seenFindings.has(fix.finding_id)) {
+      errors.push(`${scope}.finding_id duplicates '${fix.finding_id}' — one re-measurement per raised finding`);
+    } else {
+      seenFindings.add(fix.finding_id);
+      if (byFindingId.get(fix.finding_id).disposition === 'open') {
+        errors.push(
+          `${scope}: finding '${fix.finding_id}' is still open — a re-measurement round measures `
+          + 'a FIX, so the finding it names must carry a disposition',
+        );
+      }
+    }
+    if (!Array.isArray(fix.rows) || fix.rows.length === 0) {
+      errors.push(`${scope}.rows must name at least one re-measured inventory row`);
+      continue;
+    }
+    for (const id of fix.rows) {
+      if (!nonEmptyString(id) || !rowIds.has(id)) {
+        errors.push(`${scope}.rows: ${JSON.stringify(id)} resolves to no inventory row`);
+        continue;
+      }
+      if (seenRows.has(id)) errors.push(`${scope}.rows: '${id}' is claimed by more than one fix`);
+      seenRows.add(id);
+      // Naming a row exempts it from the byte-identity rule below, so naming
+      // one and then NOT measuring it is the way to launder an inventory row
+      // through a re-measurement round. `excluded` and `skipped-budget` are the
+      // two outcomes that mean "deliberately not measured" — a re-measurement
+      // round may not end on either. An honest `inconclusive` is allowed: it
+      // pins the status on its own, which is the correct outcome.
+      const row = (sidecar.inventory ?? []).find((candidate) => candidate.id === id);
+      if (row && (row.outcome === 'excluded' || row.outcome === 'skipped-budget')) {
+        errors.push(
+          `${scope}.rows: '${id}' ends '${row.outcome}' — a re-measurement round MEASURES `
+          + 'every row it names',
+        );
+      }
+    }
+  }
+  return errors;
+}
+
 /** Strict shape validation. Returns the error list; empty means the shape is legal. */
 export function validateShape(sidecar) {
   const errors = [];
@@ -285,7 +508,7 @@ export function validateShape(sidecar) {
 
   checkKeys('findings.json', sidecar, TOP_LEVEL_KEYS, errors);
   for (const key of TOP_LEVEL_KEYS) {
-    if (!['operatorVerifierCorrection', 'operatorSelectionCorrection'].includes(key) && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
+    if (!OPTIONAL_TOP_LEVEL_KEYS.has(key) && !(key in sidecar)) errors.push(`findings.json: missing required field '${key}'`);
   }
 
   if (sidecar.operatorSelectionCorrection !== undefined) {
@@ -366,11 +589,10 @@ export function validateShape(sidecar) {
   // never claim a round the runner would have refused. The one scoped Run C
   // fourth round also needs committed admission and journal proof below.
   //
-  // The cap moved from 2 to 3 in #1184, after #1178 and #1186 hit the same wall:
-  // a round-2 finding whose fix touches the tree makes the sidecar stale by
-  // construction, and with no third round the only ways out were to leave a known
-  // defect unfixed or to hand-edit `head_sha` — an evidence file rewriting its own
-  // provenance.
+  // The cap and the reasons for it have ONE owner: `red-team/SKILL.md` § "The
+  // loop". This cap is for FRESH adversarial rounds; the last round's own fixes
+  // are re-measured by the re-measurement round, which leaves `round` alone and
+  // records itself in `remeasurement` (validated above and below).
   const eGrant = Array.isArray(sidecar.authorizations)
     && sidecar.authorizations.some((authorization) => authorization?.id === RUN_E_GRANT);
   if (runEThirdRoundForbidden(sidecar.branch, eGrant ? RUN_E_GRANT : null, sidecar.round)) {
@@ -436,6 +658,7 @@ export function validateShape(sidecar) {
     if (row.outcome === 'survived-confirmed-P0' && !nonEmptyString(row.finding_id)) {
       errors.push(`${scope}: a confirmed survivor must reference the P0 finding it raised`);
     }
+    validateTypeCheck(scope, row, errors);
   }
 
   const findingIds = new Set();
@@ -509,6 +732,10 @@ export function validateShape(sidecar) {
     }
   }
 
+  if (sidecar.remeasurement !== undefined) {
+    errors.push(...remeasurementShapeErrors(sidecar, rowIds, findingIds));
+  }
+
   return errors;
 }
 
@@ -574,6 +801,142 @@ export function validateArbiterReasoning(sidecar) {
       errors.push(
         `finding ${finding.id}: a confirmed survivor needs the arbiter's recorded reasoning `
         + 'that the mutation is neither equivalent nor on an unexecuted branch',
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * The re-measurement round's bound, resolved against committed history (#1342).
+ *
+ * The shape rules above are self-consistency. THIS is the part that makes the
+ * round bounded rather than a fourth round by another name: the previous
+ * round's report is read out of the branch's own committed history, and every
+ * inventory row that is not named in `fixes` must be byte-identical to it. A
+ * re-measurement round therefore re-measures the fixes it names and opens no
+ * new adversarial front — and a finding it raises itself may not be `fixed`,
+ * because fixing one would move the tree past `at` with no further round left
+ * to measure that fix.
+ *
+ * The prior report is addressed by COMMIT, not by blob: a blob can be conjured
+ * with `git hash-object -w`, while a commit has to be in this branch's history.
+ */
+function validateRemeasurementHistory(root, sidecar, sidecarPath) {
+  const block = sidecar.remeasurement;
+  const git = makeGit(root);
+  let prior;
+  try {
+    git(['cat-file', '-e', `${block.prior_commit}^{commit}`], { quiet: true });
+    if (git(['merge-base', block.prior_commit, 'HEAD'], { quiet: true }) !== block.prior_commit) {
+      return [
+        `remeasurement.prior_commit ${String(block.prior_commit).slice(0, 12)} is not an ancestor `
+        + 'of HEAD — the round being re-measured must be this branch\'s committed history',
+      ];
+    }
+    prior = JSON.parse(git(['show', `${block.prior_commit}:${sidecarPath}`], { quiet: true }));
+  } catch {
+    return [`remeasurement.prior_commit does not carry a readable ${sidecarPath}`];
+  }
+  if (!isPlainObject(prior)) return ['remeasurement: the prior report is not one JSON object'];
+  // ONE per run, enforced where it survives: the runner's journal marker cannot
+  // be consulted here, and reading a single hop back would let a chain of
+  // re-measurements — each naming the last as its prior — raise a finding, fix
+  // it in the next link, and repeat without `round` ever moving. Requiring the
+  // prior report to be a FRESH round's report makes one hop the whole chain.
+  if (prior.remeasurement !== undefined) {
+    return ['remeasurement: the prior report is itself a re-measurement — a run gets ONE, and it re-measures a fresh round'];
+  }
+
+  const errors = [];
+  for (const key of ['mode', 'branch', 'run_id', 'fork_sha', 'merge_base_sha', 'round']) {
+    if (prior[key] !== sidecar[key]) {
+      errors.push(`remeasurement: the prior report's ${key} does not match this report's`);
+    }
+  }
+  if (prior.head_sha === sidecar.head_sha) {
+    errors.push('remeasurement: the prior report was measured at this same head — nothing was fixed, so there is nothing to re-measure');
+  } else {
+    try {
+      if (git(['merge-base', String(prior.head_sha), sidecar.head_sha], { quiet: true }) !== prior.head_sha) {
+        errors.push('remeasurement: head_sha does not descend from the head the prior round measured');
+      }
+    } catch {
+      errors.push('remeasurement: cannot relate head_sha to the head the prior round measured');
+    }
+  }
+
+  const named = new Set(
+    (block.fixes ?? []).flatMap((fix) => (Array.isArray(fix?.rows) ? fix.rows : [])),
+  );
+  const priorRows = Array.isArray(prior.inventory) ? prior.inventory : [];
+  if (sidecar.inventory.length < priorRows.length) {
+    errors.push('remeasurement: the inventory is shorter than the one the prior round measured');
+  }
+  for (const [index, priorRow] of priorRows.entries()) {
+    const current = sidecar.inventory[index];
+    if (!current || current.id !== priorRow?.id) {
+      errors.push(`remeasurement: inventory row ${index} is no longer '${priorRow?.id}' — prior rows keep their identity and order`);
+      continue;
+    }
+    if (!named.has(current.id) && JSON.stringify(current) !== JSON.stringify(priorRow)) {
+      errors.push(`remeasurement: inventory row '${current.id}' changed but no fix names it — a re-measurement round opens no new front`);
+    }
+    // A row the prior round chose not to measure is unmeasured INVENTORY, and
+    // measuring it is round work — a new front by another name. The round's
+    // scope is the fixes it names plus what those fixes added.
+    if (named.has(current.id)
+      && (priorRow.outcome === 'excluded' || priorRow.outcome === 'skipped-budget')) {
+      errors.push(
+        `remeasurement: inventory row '${current.id}' was '${priorRow.outcome}' before this round `
+        + '— a re-measurement round re-measures what the round MEASURED, it does not pick up '
+        + 'inventory the round left alone',
+      );
+    }
+  }
+  for (const row of sidecar.inventory.slice(priorRows.length)) {
+    if (!named.has(row.id)) {
+      errors.push(`remeasurement: inventory row '${row.id}' is new but no fix names it — a re-measurement round opens no new front`);
+    }
+  }
+
+  const priorFindings = new Map(
+    (Array.isArray(prior.findings) ? prior.findings : []).map((finding) => [finding?.id, finding]),
+  );
+  const remeasured = new Set((block.fixes ?? []).map((fix) => fix?.finding_id));
+  for (const [id, priorFinding] of priorFindings) {
+    const current = sidecar.findings.find((finding) => finding.id === id);
+    if (!current) {
+      errors.push(`remeasurement: finding '${id}' from the round being re-measured is gone`);
+      continue;
+    }
+    // A finding the round re-measured may move its disposition and reason —
+    // that is the point. Every OTHER prior finding stays byte-for-byte, or a
+    // re-measurement round becomes a way to quietly reject or accept-risk an
+    // unrelated open finding without anything in `fixes` recording it.
+    if (!remeasured.has(id)) {
+      if (JSON.stringify(current) !== JSON.stringify(priorFinding)) {
+        errors.push(`remeasurement: finding '${id}' changed but no fix names it — a re-measurement round adjudicates only what it re-measured`);
+      }
+      continue;
+    }
+    for (const key of ['severity', 'title', 'at', 'duty']) {
+      if (current[key] !== priorFinding[key]) {
+        errors.push(`remeasurement: finding '${id}' rewrote its ${key}`);
+      }
+    }
+  }
+  for (const fix of block.fixes ?? []) {
+    if (nonEmptyString(fix?.finding_id) && !priorFindings.has(fix.finding_id)) {
+      errors.push(`remeasurement: finding '${fix.finding_id}' was not raised by the round being re-measured`);
+    }
+  }
+  for (const finding of sidecar.findings) {
+    if (priorFindings.has(finding.id)) continue;
+    if (finding.disposition === 'fixed') {
+      errors.push(
+        `remeasurement: finding '${finding.id}' was raised by the re-measurement round and marked `
+        + 'fixed — that fix moves the tree past the measured head, and no further round can measure it',
       );
     }
   }
@@ -900,6 +1263,9 @@ function main(argv) {
   }
   if (sidecar.round === 4 && !validRunCFourthReport(root, sidecar, sidecarPath, readJournal(root))) {
     errors.push('Run C round 4 requires committed admission, unchanged historical evidence, and the matching 150-launch journal grant');
+  }
+  if (sidecar.remeasurement !== undefined) {
+    errors.push(...validateRemeasurementHistory(root, sidecar, sidecarPath));
   }
 
   // --- run binding -------------------------------------------------------

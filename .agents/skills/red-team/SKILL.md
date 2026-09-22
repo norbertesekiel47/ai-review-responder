@@ -67,20 +67,22 @@ Stop and report rather than proceed if any of these is false:
    swap:
    `node .agents/skills/red-team/scripts/mutation-runner.mjs round-start`
    It refuses over an unclean journal, resets the per-round time budget, and caps
-   the rounds: two open on their own, a THIRD opens only when the sidecar already
-   carries an owner authorization whose text names the third round. A fourth
-   opens only for the owner-approved Run C exception (`references/run-grants.md`);
-   a fifth never opens.
+   the FRESH adversarial rounds: two open on their own, a THIRD opens only when
+   the sidecar already carries an owner authorization whose text names the third
+   round. A fourth opens only for the owner-approved Run C exception
+   (`references/run-grants.md`); a fifth never opens.
    `red-team-status.mjs` re-checks that same condition, so a sidecar
    can never claim a round the runner would have refused.
 
    The exception exists because a round-2 finding whose fix touches the tree makes
-   the sidecar stale by construction. Under a hard cap of two, the only ways
-   forward were to leave a known defect unfixed or to hand-edit `head_sha` — an
-   evidence file rewriting its own provenance. #1184 hit that after #1178 and
-   #1186. Requiring the authorization to be IN the sidecar before the round opens
-   keeps a third round something the owner granted, not something a stuck agent
-   decided for itself.
+   the sidecar stale by construction. #1184 hit that after #1178 and #1186.
+   Requiring the authorization to be IN the sidecar before the round opens keeps
+   a third round something the owner granted, not something a stuck agent decided
+   for itself.
+
+   **The last round's own fixes are re-measured by the re-measurement round** —
+   "The loop" owns it. Leaving a defect unfixed and hand-editing `head_sha` are
+   not answers.
 
 ## Step 1 — pin the diff
 
@@ -116,6 +118,12 @@ Rules:
 - A production hunk with NO identified covering candidate is a **P1 (uncovered
   change)** and gets an inventory row with outcome `inconclusive`, class
   `oracle`, which forces `INCOMPLETE_ORACLE`.
+- A hunk with NO RUNTIME EFFECT — a type-only annotation, a narrowed predicate —
+  has no Vitest oracle, so no mutation could ever resolve its row. **Measure it
+  against the type checker and record that** in the row's `type_check` (Duty 1b);
+  the row then carries an ordinary terminal outcome. A row you did NOT measure
+  stays `inconclusive`/`oracle` and still forces `INCOMPLETE_ORACLE` — that
+  class means "not measured", never "not measurable" (#1343).
 - A DELETED test is **P1 (lost coverage)** unless the diff shows a replacement.
 - Out of scope, with the reason recorded on the row: Playwright and E2E specs
   (fragile-assertion review only) and `supabase/migrations/` (the database is
@@ -184,7 +192,10 @@ No Stryker, no new dependency. Per candidate test case:
 4. **Classify.**
    - The test FAILS → **killed**. The assertion is real.
    - An import error, setup failure, type error, or non-compiling mutation →
-     **inconclusive** (class `oracle`). Never a kill and never a P0.
+     **inconclusive** (class `oracle`). Never a kill and never a P0. This is
+     about a VITEST launch: the mutant never ran, so the test never measured it.
+     It does not apply to a row whose declared oracle IS the type checker: Duty
+     1b measures that row and records the measurement.
    - The test still PASSES → a **P0-candidate**, not yet a P0.
 5. **Arbiter confirmation for every P0-candidate.** Inspect the mutation and
    confirm it is semantically meaningful for the tested behaviour: not an
@@ -232,6 +243,24 @@ those branches, or as the precedent for a new owner-approved grant.
 
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.
+
+## Duty 1b — the type checker as the oracle
+
+For a row whose ONLY oracle is `tsc` (Step 2's no-runtime-effect rule), Duty 1's
+loop runs with `pnpm typecheck` in place of the Vitest launch: green baseline,
+then TWO journaled semantic mutants in different directions — replace the
+narrowing with the wide type, and drop one member of the declared union.
+Classify from the type checker's own reaction: a non-zero exit or different
+output is a **kill**; exit 0 with byte-identical output is a **survivor**,
+because nothing consumes the annotation, and that is the finding — adjudicated
+like any other P0 candidate, the arbiter's reasoning saying why the declaration
+is load bearing rather than decoration.
+
+Record it on the row as `type_check` (command, both mutants, exit codes,
+output-identical), and state in the row's `reason` why the type checker is its
+only oracle: the checker cannot derive that premise, so it goes where a reviewer
+can disagree. Both mutants are required — one weakening it happens not to notice
+is not evidence that nothing consumes the declaration.
 
 ## Duty 2 — fragile assertions
 
@@ -321,17 +350,26 @@ unknown field fails and any missing one fails, so this table is EXHAUSTIVE:
 | `fork_sha`, `merge_base_sha`, `head_sha` | full 40-character object ids |
 | `intake_sha256` | SHA-256 of `.feature/intake.json`, or `null` |
 | `risk` | `normal` or `high`, normalized from the intake |
-| `round` | 1 or 2 |
+| `round` | 1, 2, or an authorized 3 (the one Run C contract carries 4) |
 | `generated_at` | ISO timestamp of the pass |
 | `inventory` | EVERY candidate, one row each |
 | `findings` | severity, `file:line`, and exactly ONE disposition |
 | `authorizations` | the resolvable target of every authorization reference |
+| `remeasurement` | present ONLY on a re-measurement round — see "The loop" |
 | `counts`, `status` | derived — the checker recomputes both |
 
 **Inventory outcomes:** `killed`, `survived-confirmed-P0` (carries `finding_id`),
 `equivalent` (carries the proof as its reason, and NO `finding_id`),
 `inconclusive` (carries `inconclusive_class` of `oracle` or `infra`, plus a
 reason), `skipped-budget`, `excluded` (carries a reason).
+
+**`type_check`** (Duty 1b) belongs only on a `killed` or `survived-confirmed-P0`
+row — it RECORDS a measurement, so it never sits on an unmeasured outcome. It
+carries `command` and exactly two `mutants` (`mutation`, `exit_code`,
+`output_identical`); `killed` needs a reaction to both, a survivor needs at
+least one the checker ignored. It pins nothing to a committed artifact and is
+not meant to: every inventory outcome here is already the runner's own report of
+what it observed, so this records strictly more, not less.
 
 **Severities:** **P0** blocks the PR — a proven-fake test, a false doc claim, a
 correctness defect. **P1** needs adjudication — fragile assertion, uncovered
@@ -353,7 +391,8 @@ is RENDERED from that array and never parsed back out of the Markdown.
 `OPEN_P1` → `CLEAR`
 
 Any in-scope `inconclusive` row forces its incomplete status unless a later
-valid mutation resolves that row. An empty inventory is `INCOMPLETE_ORACLE`.
+valid mutation — or a recorded `type_check` measurement — resolves that row. An
+empty inventory is `INCOMPLETE_ORACLE`.
 
 Evidence excerpts follow the repository's logging redaction discipline: never
 quote raw review or response text, tokens, secrets, or environment values. Only
@@ -397,11 +436,56 @@ NOT grant it. PAUSE before the report commit for explicit, separately recorded
 user authorization. The Claude lane follows its session's existing commit
 conventions.
 
-## The loop — hard cap of 2 rounds
+## The loop — two fresh rounds, then one re-measurement
 
 Round 1 is the full pass. Round 2 verifies the fixes AND may report new findings
 inside the fix hunks and their directly affected callers; unrelated fronts
-against unchanged code stay forbidden.
+against unchanged code stay forbidden. A third fresh round opens only on the
+owner authorization already recorded in the sidecar (Preconditions, step 3).
+
+**This file owns the cap.** `round-start` and `red-team-status.mjs` enforce it
+and point back here; never restate it in a third place.
+### The re-measurement round
+
+The last permitted round's own findings have nowhere to go: fixing one moves the
+tree, so that round's sidecar is stale by construction — the argument that
+justified the third round, one round later — and no further round can measure
+the fix. #1340 and #1359 both shipped under a waiver for exactly this (#1342).
+
+The exit is a **re-measurement round**: not a fresh round, not a fourth, not an
+authorization. It matches no prose, deliberately — a prose rule was tried on
+#1340 and reverted, because the Run C fourth-round approval contains the literal
+phrase "approve the scoped fourth round", so a match on the round number admits
+a tampered admission the cap had refused outright.
+
+```bash
+node .agents/skills/red-team/scripts/mutation-runner.mjs remeasure-start
+```
+Its rules. The runner refuses to OPEN one against any of them, and the checker
+re-derives the same refusals from committed evidence — a hand-authored sidecar
+cannot claim a round the runner would have refused:
+
+- **It opens exactly where the fresh-round cap closes.** While a fresh round is
+  reachable — round 1, round 2 with a third-round authorization, the granted Run
+  C fourth — you open that instead. A branch-pinned grant (Run C, Run D, Run E,
+  the Operator continuation) closes this exit: those admit no further round.
+- **Once per run.** No fresh round opens after one, and `prior_commit` must name
+  a FRESH round's report — a chain of re-measurements is refused.
+- **Something must have been committed since the round's own report**, or there
+  is no fix to re-measure.
+- **It re-measures fixes; it opens no new front.** The round number does not
+  move. The sidecar records a `remeasurement` object — `of_round`, `at` (the new
+  `head_sha`), `prior_commit` (the commit that recorded the round being
+  re-measured), and `fixes`: one entry per raised finding, naming the rows
+  re-measured for it. The checker reads the prior report out of that commit and
+  requires every row and finding no fix names to be **byte-identical** to it. A
+  named row must actually be measured — never left `excluded` or
+  `skipped-budget` — and a row the prior round left `excluded` or
+  `skipped-budget` may not be picked up at all.
+- **It cannot raise a finding that needs another round.** A finding it raises
+  itself may be `open`, `rejected` or `accepted-risk`, never `fixed`: that fix
+  moves the tree past `at` with nothing left to measure it. An open P0 there
+  blocks the PR and wakes the user — the correct end of the line.
 
 At the cap: `OPEN_P0` blocks the PR and wakes the user. For `OPEN_P1`, the
 INVOKING ROOT AGENT is arbiter on normal-risk work; any high-risk `OPEN_P1`

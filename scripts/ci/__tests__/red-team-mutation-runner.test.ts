@@ -276,6 +276,32 @@ describe('the owner-approved Run C fourth round', () => {
     },
   );
 
+  // #1342 added a re-measurement round. It must buy a Run C admission NOTHING,
+  // tampered or not: it reads no authorization text at all, so the prose that
+  // defeated the earlier attempt ("approve the scoped fourth round") is not on
+  // any path it takes, and the granted fourth round remains the only way this
+  // branch reaches a further measurement.
+  it('gives the canonical admission no re-measurement round — the granted fourth round is still available', () => {
+    prepare();
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('the granted fourth round is still available');
+    expect(JSON.parse(read('.feature/red-team-journal.json'))).toMatchObject({ round: 3, runs: 22 });
+  });
+
+  it('gives a TAMPERED admission no re-measurement round either', () => {
+    prepare();
+    const sidecar = JSON.parse(read(report));
+    sidecar.authorizations.at(-1).text = 'third round authorized';
+    write(report, JSON.stringify(sidecar));
+    git('add', report);
+    git('commit', '-qm', 'tampered approval');
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('there is no fix to re-measure');
+    expect(JSON.parse(read('.feature/red-team-journal.json'))).toMatchObject({ round: 3, runs: 22 });
+  });
+
   it('pins the grant before releasing the first supervisor', () => {
     prepare();
     fourthJournal();
@@ -3002,4 +3028,186 @@ describe('Operator same-round continuation safeguards', () => {
     expect(admissionCheck().stdout.trim()).toBe('null');
 
   }, 30000);
+});
+
+// #1342. A finding raised in the last permitted round has no way to have its
+// OWN fix measured: fixing it moves HEAD and the sidecar goes stale by
+// construction. `remeasure-start` is the exit, and it is deliberately NOT a
+// fourth round — generalising the round-3 PROSE rule was tried on #1340 and
+// reverted, because RUN_C_FOURTH_TEXT contains the literal phrase "approve the
+// scoped fourth round" and a prose match on the round number therefore admits
+// a TAMPERED Run C admission. Nothing below reads any authorization text.
+describe('the re-measurement round', () => {
+  const reportDir = 'docs/reviews/red-team/fixture-run';
+  const report = `${reportDir}/findings.json`;
+
+  function sidecarJson(round: number, headSha: string, authorizations: unknown[]): string {
+    return JSON.stringify({
+      branch: git('branch', '--show-current'), round, head_sha: headSha, authorizations,
+    }, null, 2);
+  }
+
+  /**
+   * A run that spent `round` rounds and committed its report.
+   *
+   * The authorization has to be on disk BEFORE the third `round-start`, which
+   * is the real ordering: `round-start` reads the sidecar to decide whether the
+   * owner granted the round it is being asked to open.
+   */
+  function spent(round: number, authorizations: unknown[] = []): void {
+    write(report, sidecarJson(round, 'x'.repeat(40), authorizations));
+    for (let index = 0; index < round; index += 1) expect(run('round-start').status).toBe(0);
+    write(report, sidecarJson(round, git('rev-parse', 'HEAD'), authorizations));
+    git('add', report);
+    git('commit', '-qm', `round ${round} report`);
+  }
+
+  /** …and then committed the fix for what that round raised. */
+  function spentAndFixed(round: number, authorizations: unknown[] = []): void {
+    spent(round, authorizations);
+    write('src/gate.ts', 'export const allow = (n: number) => n >= 0;\n');
+    git('add', 'src/gate.ts');
+    git('commit', '-qm', 'fix what the round raised');
+  }
+
+  const THIRD_ROUND_GRANT = [{
+    id: 'AUTH-1', date: '2026-09-21', finding_ids: ['F1'],
+    text: 'owner 2026-09-21: third round authorized',
+  }];
+
+  it('opens after an authorized third round and resets the counter', () => {
+    spentAndFixed(3, THIRD_ROUND_GRANT);
+    const result = run('remeasure-start');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('re-measurement of round 3 open');
+    const value = journal() as unknown as {
+      round: number; runs: number; remeasurement: { ofRound: number };
+    };
+    expect(value.round).toBe(3);
+    expect(value.runs).toBe(0);
+    expect(value.remeasurement.ofRound).toBe(3);
+  });
+
+  it('opens after round 2 when no third round is authorized', () => {
+    spentAndFixed(2);
+    expect(run('remeasure-start').status).toBe(0);
+    expect((journal() as unknown as { remeasurement: { ofRound: number } }).remeasurement.ofRound).toBe(2);
+  });
+
+  // It opens exactly where the fresh-round cap closes. A fresh round is the
+  // stronger instrument and must be used while one is still reachable.
+  it('refuses while a fresh third round is authorized and unspent', () => {
+    spentAndFixed(2, THIRD_ROUND_GRANT);
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a fresh third round is authorized and still available');
+  });
+
+  // `round-start` reads the working tree. An uncommitted edit stripping the
+  // authorization would open this exit while a fresh round was still reachable,
+  // so the COMMITTED copy is consulted too — it is the one the checker
+  // re-derives the same refusal from.
+  it('refuses on the committed grant even after the working tree is edited', () => {
+    spentAndFixed(2, THIRD_ROUND_GRANT);
+    write(report, sidecarJson(2, git('rev-parse', 'HEAD'), []));
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a fresh third round is authorized and still available');
+  });
+
+  it('refuses after round 1, where a fresh round is always available', () => {
+    spentAndFixed(1);
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a re-measurement round follows round 2 or 3');
+  });
+
+  // THE BOUND that makes this an exit rather than a raised cap.
+  it('refuses a SECOND re-measurement round', () => {
+    spentAndFixed(3, THIRD_ROUND_GRANT);
+    expect(run('remeasure-start').status).toBe(0);
+    const second = run('remeasure-start');
+    expect(second.status).toBe(1);
+    expect(second.stderr).toContain('already spent its one re-measurement round');
+  });
+
+  // THE OTHER BOUND: it can never be used to open a fresh adversarial round.
+  it('cannot be used to open a fresh round', () => {
+    spentAndFixed(3, THIRD_ROUND_GRANT);
+    expect(run('remeasure-start').status).toBe(0);
+    const fresh = run('round-start');
+    expect(fresh.status).toBe(1);
+    expect(fresh.stderr).toContain('no fresh round follows one');
+    expect((journal() as unknown as { remeasurement: unknown }).remeasurement).toBeDefined();
+  });
+
+  // Committing the round's own report already moves HEAD past the head it
+  // measured, so "head_sha is behind HEAD" proves nothing. Work committed
+  // AFTER the report commit is what proves a fix exists to re-measure.
+  it('refuses when nothing was committed after the round report', () => {
+    spent(3, THIRD_ROUND_GRANT);
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('there is no fix to re-measure');
+  });
+
+  it('refuses over a sidecar that is not committed', () => {
+    write(report, sidecarJson(3, 'x'.repeat(40), THIRD_ROUND_GRANT));
+    for (let index = 0; index < 3; index += 1) expect(run('round-start').status).toBe(0);
+    write(report, sidecarJson(3, git('rev-parse', 'HEAD'), THIRD_ROUND_GRANT));
+    write('src/gate.ts', 'export const allow = (n: number) => n >= 0;\n');
+    git('add', 'src/gate.ts');
+    git('commit', '-qm', 'fix');
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('no committed red-team sidecar');
+  });
+
+  it('refuses over an unrestored mutation', () => {
+    spentAndFixed(3, THIRD_ROUND_GRANT);
+    write('mutant.ts', 'export const allow = () => true;\n');
+    expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, 'mutant.ts')).status).toBe(0);
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('did not finalize');
+  });
+
+  it('ignores a sidecar recorded for a DIFFERENT branch', () => {
+    write(report, sidecarJson(3, 'x'.repeat(40), THIRD_ROUND_GRANT));
+    for (let index = 0; index < 3; index += 1) expect(run('round-start').status).toBe(0);
+    git('rm', '-q', '--cached', '--ignore-unmatch', report);
+    rmSync(join(repo, report));
+    write('docs/reviews/red-team/other-run/findings.json', JSON.stringify({
+      branch: 'some-other-branch', round: 3, head_sha: git('rev-parse', 'HEAD'), authorizations: [],
+    }, null, 2));
+    git('add', 'docs/reviews/red-team/other-run/findings.json');
+    git('commit', '-qm', 'foreign report');
+    write('src/gate.ts', 'export const allow = (n: number) => n >= 0;\n');
+    git('add', 'src/gate.ts');
+    git('commit', '-qm', 'fix');
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('no committed red-team sidecar');
+  });
+
+  it.each(['codex/owner-operator-run-d', 'codex/owner-operator-run-e'])(
+    'refuses on %s, whose grant admits no further round', (branch) => {
+      spentAndFixed(3, THIRD_ROUND_GRANT);
+      git('branch', '-m', branch);
+      const result = run('remeasure-start');
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('admits no further round of any kind');
+    },
+  );
+
+  it('refuses while a branch-pinned budget grant is in force', () => {
+    spentAndFixed(3, THIRD_ROUND_GRANT);
+    writeJournal({
+      ...journal(),
+      budgetAuthorization: { id: 'owner-run-c-fourth-round-prompt-regression', maxRuns: 150, firstRun: 1 },
+    });
+    const result = run('remeasure-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('admits no re-measurement round');
+  });
 });

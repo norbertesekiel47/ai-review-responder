@@ -98,7 +98,10 @@ function makeItem({
   } as unknown as Stripe.SubscriptionItem;
 }
 
-const OPTS = { storedOveragePriceCents: 2500 };
+// Default fixture account: stored overage cents DIFFER from stored base cents,
+// so the unit-amount pass (Priority 3) stays enabled for every test that does
+// not deliberately exercise the equal-amounts guard.
+const OPTS = { storedOveragePriceCents: 2500, storedBasePriceCents: 7900 };
 
 function resolvedItem(items: Stripe.SubscriptionItem[], opts = OPTS) {
   const res = resolveOverageItem(items, opts);
@@ -117,7 +120,8 @@ describe('resolveOverageItem — selection', () => {
 
   it('resolves none when price ID is not in the env overage set and nothing else matches', () => {
     const item = makeItem({ id: 'si_1', priceId: 'price_unrelated' });
-    expect(resolveOverageItem([item], { storedOveragePriceCents: 0 })).toEqual({ kind: 'none' });
+    expect(resolveOverageItem([item], { storedOveragePriceCents: 0, storedBasePriceCents: 7900 }))
+      .toEqual({ kind: 'none' });
   });
 
   it('matches by lookup_key containing "overage"', () => {
@@ -186,6 +190,146 @@ describe('resolveOverageItem — selection', () => {
     const a = makeItem({ id: 'si_a', priceId: 'price_a', unit_amount: 1100, nickname: 'support' });
     const b = makeItem({ id: 'si_b', priceId: 'price_b', unit_amount: 9900 });
     expect(resolveOverageItem([a, b], OPTS)).toEqual({ kind: 'none' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1298 — base/overage price collision after the 2026-09-14 reprice
+// ---------------------------------------------------------------------------
+//
+// The list-variant reprice made the extra-location price EQUAL to the list base
+// price (Copilot 7900/7900, Autopilot 14900/14900). Base-exclusion by Price ID
+// is the only thing that kept the base item out of the unit-amount pass, and it
+// holds only while every base Price ID is registered. A base Price ID that is
+// NOT registered (a rotation that forgot RETAINED_STRIPE_PRICE_HISTORY, a
+// misconfigured env, a hand-made Price) would otherwise match Priority 3 and be
+// returned as `trusted` — which UpdateStripeOverageWorker may re-quantity,
+// re-price or delete.
+//
+// The fix DOWNGRADES that match to `untrusted` rather than dropping it (a hybrid
+// of the issue's options 1 and 3). Dropping it returns `{kind:'none'}`, which both
+// mutating callers read as "no overage item exists" and answer by CREATING one —
+// a duplicate overage line. `untrusted` makes them refuse instead. The two
+// caller-level tests that pin that are in
+// worker/jobs/billing/__tests__/UpdateStripeOverageWorker.test.ts and
+// src/lib/accounts/__tests__/tier-change.test.ts.
+
+describe('resolveOverageItem — equal stored base/overage cents (#1298)', () => {
+  const LIST_COLLISION = { storedOveragePriceCents: 7900, storedBasePriceCents: 7900 };
+
+  it('never returns an UNREGISTERED base item as trusted when stored base cents equal stored overage cents', () => {
+    // price_base_rotated is NOT in the env base set, so base-exclusion cannot
+    // remove it. Its unit_amount equals the stored overage cents, and `find`
+    // reaches it before the real overage line — this is the #1298 defect.
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 7900 });
+    const legacyOverage = makeItem({ id: 'si_over', priceId: 'price_overage_rotated', unit_amount: 7900 });
+
+    const res = resolveOverageItem([unregisteredBase, legacyOverage], LIST_COLLISION);
+
+    expect(res.kind).not.toBe('trusted');
+    // UNTRUSTED, not none: `none` means "no overage item exists" to every caller,
+    // and both mutating callers answer that by creating a duplicate overage line.
+    expect(res).toEqual({ kind: 'untrusted', item: unregisteredBase, matchedBy: 'unit_amount' });
+  });
+
+  it('keeps the descriptor pass reachable when no candidate carries the stored cents', () => {
+    // Neither line sits at the colliding amount, so Priority 3 finds nothing and
+    // the descriptor pass is what labels the real overage line — unchanged by the
+    // guard, and still untrusted (flag-only) as it always was.
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 6900 });
+    const legacyOverage = makeItem({
+      id: 'si_over',
+      priceId: 'price_overage_rotated',
+      unit_amount: 6900,
+      nickname: 'additional location',
+    });
+
+    expect(resolveOverageItem([unregisteredBase, legacyOverage], LIST_COLLISION)).toEqual({
+      kind: 'untrusted',
+      item: legacyOverage,
+      matchedBy: 'descriptor',
+    });
+  });
+
+  it('still matches the stamped overage item by metadata_role when the amounts are equal (Priority 2 is unaffected)', () => {
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 7900 });
+    const stampedOverage = makeItem({
+      id: 'si_over',
+      priceId: 'price_overage_rotated',
+      unit_amount: 7900,
+      itemMetadata: { billing_role: OVERAGE_BILLING_ROLE },
+    });
+
+    expect(resolveOverageItem([unregisteredBase, stampedOverage], LIST_COLLISION)).toEqual({
+      kind: 'trusted',
+      item: stampedOverage,
+      matchedBy: 'metadata_role',
+    });
+  });
+
+  it('still matches the env overage Price ID when the amounts are equal (Priority 1 is unaffected)', () => {
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 7900 });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 7900 });
+
+    expect(resolveOverageItem([unregisteredBase, overage], LIST_COLLISION)).toEqual({
+      kind: 'trusted',
+      item: overage,
+      matchedBy: 'price_id',
+    });
+  });
+
+  it('keeps the unit-amount pass for a FOUNDING account, whose stored base cents differ from its stored overage cents', () => {
+    // Founding Copilot: base 4900, extra location 7900 — no collision, so the
+    // long-standing legacy/rotated-price recovery must still work.
+    const founding = { storedOveragePriceCents: 7900, storedBasePriceCents: 4900 };
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 4900 });
+    const legacyOverage = makeItem({ id: 'si_over', priceId: 'price_overage_rotated', unit_amount: 7900 });
+
+    expect(resolveOverageItem([unregisteredBase, legacyOverage], founding)).toEqual({
+      kind: 'trusted',
+      item: legacyOverage,
+      matchedBy: 'unit_amount',
+    });
+  });
+
+  it('keeps the unit-amount pass TRUSTED for a comped account whose stored base price is a real 0', () => {
+    // accounts.base_price_cents is NOT NULL with a >= 0 check, so 0 is a stored
+    // price (a comped/beta base line), not an "unknown" sentinel. 0 never equals
+    // a positive stored overage price, so there is no collision to guard against.
+    const compedBase = { storedOveragePriceCents: 7900, storedBasePriceCents: 0 };
+    const other = makeItem({ id: 'si_other', priceId: 'price_other', unit_amount: 1100 });
+    const legacyOverage = makeItem({ id: 'si_over', priceId: 'price_overage_rotated', unit_amount: 7900 });
+
+    expect(resolveOverageItem([other, legacyOverage], compedBase)).toEqual({
+      kind: 'trusted',
+      item: legacyOverage,
+      matchedBy: 'unit_amount',
+    });
+  });
+
+  it('never reaches the unit-amount pass for a 0/0 account, so the equal-cents guard cannot fire there', () => {
+    // A fully comped account (base 0, overage 0) is formally "equal", but the
+    // pre-existing `storedOveragePriceCents > 0` gate rejects it first: a $0
+    // overage line has no amount worth matching on. Pinned so the guard is never
+    // credited (or blamed) for this case.
+    const fullyComped = { storedOveragePriceCents: 0, storedBasePriceCents: 0 };
+    const zeroA = makeItem({ id: 'si_a', priceId: 'price_a', unit_amount: 0 });
+    const zeroB = makeItem({ id: 'si_b', priceId: 'price_b', unit_amount: 0 });
+
+    expect(resolveOverageItem([zeroA, zeroB], fullyComped)).toEqual({ kind: 'none' });
+  });
+
+  it('applies the guard through resolveSubscriptionBilling, whose base item stays comparable for drift detection', () => {
+    const unregisteredBase = makeItem({ id: 'si_base', priceId: 'price_base_rotated', unit_amount: 7900 });
+    const legacyOverage = makeItem({ id: 'si_over', priceId: 'price_overage_rotated', unit_amount: 7900 });
+
+    const res = resolveSubscriptionBilling([unregisteredBase, legacyOverage], LIST_COLLISION);
+
+    expect(res.overage).toEqual({ kind: 'untrusted', item: unregisteredBase, matchedBy: 'unit_amount' });
+    // Read-only drift detection accepts any confidence, so the poller still has a
+    // line to compare unit_amounts against — here the remaining non-overage item,
+    // carried by the INFERRED fallback because its price is not in the map.
+    expect(res.base).toEqual({ item: legacyOverage, tier: null, inferred: true });
   });
 });
 

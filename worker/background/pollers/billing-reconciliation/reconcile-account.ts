@@ -249,6 +249,7 @@ export async function reconcileAccount(
   // untrusted descriptor matches — flagging is exactly what this poller is for.
   const billing = resolveSubscriptionBilling(subscription.items?.data ?? [], {
     storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
+    storedBasePriceCents: expectedInvoice.baseCents,
   });
   const overageResolution = billing.overage;
   const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
