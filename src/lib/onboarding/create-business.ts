@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   SubscriptionTier,
@@ -93,12 +93,13 @@ export interface SelfServeBusinessTxInput {
 }
 
 /**
- * Mode discriminator. The two modes still differ in ways that keep them
- * separate transactions:
+ * Mode discriminator. The two modes differ only in the values
+ * `OwnerRowValues` carries plus one extra row:
  *   - users.auth_id — admin=NULL (patched after inviteUserByEmail returns an
  *     identity), self_serve=<authId> (the owner already authenticated).
  *   - businesses.name / accounts.display_name — admin writes the real name
  *     the admin typed, self_serve writes PLACEHOLDER_BUSINESS_NAME.
+ *   - businesses.owner_phone / users.phone — self_serve only (admin=NULL).
  *   - businesses.onboarded_by — admin only; it is the beta-invite marker
  *     downstream (coupon eligibility, funnel routing).
  *   - channel_enrollments — admin inserts a verified email row at creation
@@ -115,7 +116,6 @@ export interface CreateBusinessResult {
   businessId: string;
   userId: string;
   accountId: string;
-  paymentUrl: string | null;
 }
 
 export async function createBusinessTx(
@@ -141,8 +141,8 @@ export async function createBusinessTx(
  * empty voice arrays and the default tone, and NEITHER enqueues anything: the
  * owner's /api/onboarding/start (place) and /api/onboarding/business (wizard)
  * fill those fields in and enqueue validate_place_id when a place arrives.
- * The only content difference is `name` — real in admin mode,
- * PLACEHOLDER_BUSINESS_NAME in self_serve.
+ * Both modes go through the one `insertOwnerRows`, so each table's column
+ * list exists exactly once (#1356).
  *
  * On PG 23505 (unique_violation, typically users.email), throws
  * DuplicateEmailError so the caller can return 409.
@@ -164,8 +164,6 @@ export async function createBusinessTx(
   const userId = uuidv7();
   const accountId = uuidv7();
 
-  const authId = options.mode === 'self_serve' ? options.authId : null;
-  const onboardedBy = options.mode === 'admin' ? options.onboardedBy : null;
   const priceVariant: PriceVariant = isFoundingWindowOpen() ? 'founding' : 'list';
 
   // Both modes create on the safe Copilot pending snapshot. Admin
@@ -178,37 +176,50 @@ export async function createBusinessTx(
   const billingSnapshot = resolveTierSnapshot(subscriptionTier, priceVariant);
   assertTierPriceConfiguration(subscriptionTier, priceVariant);
 
-  // Self-serve signups no longer build a Payment Link URL here.
-  // The select-plan route (/api/onboarding/select-plan) creates a Checkout
-  // Session instead. Admin signups also skip this — paymentUrl is always null.
-  const paymentUrl = null;
+  const shared = { accountId, businessId, userId, ownerEmail, priceVariant, billingSnapshot };
+  let rows: OwnerRowValues;
+  if (options.mode === 'admin') {
+    const adminInput = input as AdminBusinessTxInput;
+    rows = {
+      ...shared,
+      businessName: adminInput.businessName,
+      ownerName: adminInput.ownerName,
+      ownerPhone: null,
+      authId: null,
+      onboardedBy: options.onboardedBy,
+    };
+  } else {
+    const selfServeInput = input as SelfServeBusinessTxInput;
+    rows = {
+      ...shared,
+      businessName: PLACEHOLDER_BUSINESS_NAME,
+      ownerName: selfServeInput.ownerName,
+      ownerPhone: selfServeInput.ownerPhone ?? null,
+      authId: options.authId,
+      onboardedBy: null,
+    };
+  }
 
   try {
-    if (options.mode === 'admin') {
-      const adminInput = input as AdminBusinessTxInput;
-      await runAdminTx(sql, {
-        adminInput,
-        accountId,
-        businessId,
-        userId,
-        ownerEmail,
-        onboardedBy: onboardedBy!,
-        priceVariant,
-        billingSnapshot,
-      });
-    } else {
-      const selfServeInput = input as SelfServeBusinessTxInput;
-      await runSelfServeTx(sql, {
-        selfServeInput,
-        accountId,
-        businessId,
-        userId,
-        ownerEmail,
-        authId: authId!,
-        priceVariant,
-        billingSnapshot,
-      });
-    }
+    await sql.begin(async (tx) => {
+      await insertOwnerRows(tx, rows);
+
+      if (options.mode === 'admin') {
+        // An admin vouches for the address, so the email channel is verified
+        // at creation. Self-serve defers this row to /api/auth/verify-otp:
+        // until the owner enters the OTP they have only typed the email, and a
+        // 'verified' row would mis-state the data model.
+        await tx`
+          INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+          VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW())
+          ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
+        `;
+      }
+
+      // No job_outbox INSERT in either mode — there is no place at creation
+      // time. /api/onboarding/start and /api/onboarding/business enqueue
+      // validate_place_id once the owner supplies one.
+    });
   } catch (err) {
     if (isDuplicateEmailViolation(err)) {
       throw new DuplicateEmailError();
@@ -216,259 +227,119 @@ export async function createBusinessTx(
     throw err;
   }
 
-  return { businessId, userId, accountId, paymentUrl };
+  return { businessId, userId, accountId };
 }
 
-async function runAdminTx(
-  sql: Sql,
-  args: {
-    adminInput: AdminBusinessTxInput;
-    accountId: string;
-    businessId: string;
-    userId: string;
-    ownerEmail: string;
-    onboardedBy: string;
-    priceVariant: PriceVariant;
-    billingSnapshot: ResolvedTierSnapshot;
-  },
-): Promise<void> {
-  const {
-    adminInput,
-    accountId,
-    businessId,
-    userId,
-    ownerEmail,
-    onboardedBy,
-    priceVariant,
-    billingSnapshot,
-  } = args;
-
-  await sql.begin(async (tx) => {
-    // Create accounts row (source of truth for subscription state after
-    // migration 034). owner_user_id references the users row we create
-    // below — FK is satisfied by the time the transaction commits.
-    await tx`
-      INSERT INTO accounts (
-        id, owner_user_id, display_name,
-        subscription_tier, price_variant, subscription_status,
-        base_price_cents, locations_overage_price_cents,
-        locations_included, locations_paid
-      ) VALUES (
-        ${accountId}::uuid,
-        ${userId}::uuid,
-        ${adminInput.businessName},
-        ${billingSnapshot.tier},
-        ${priceVariant},
-        ${SubscriptionStatus.PENDING_PAYMENT},
-        ${billingSnapshot.baseCents},
-        ${billingSnapshot.overageCents},
-        ${billingSnapshot.included},
-        ${0}
-      )
-    `;
-
-    // Identity-only row: same shape as the self-serve placeholder (NULL place
-    // fields, empty voice arrays, default tone) except `name` is the real one
-    // the admin typed and `onboarded_by` marks this as an invited account.
-    // place_id_verified is passed as FALSE explicitly so the column INSERT
-    // order matches the self-serve path verbatim.
-    await tx`
-      INSERT INTO businesses (
-        id,
-        account_id,
-        is_primary,
-        name,
-        category,
-        google_place_id,
-        place_id_verified,
-        google_maps_url,
-        tone,
-        products_services,
-        staff_names,
-        highlight_facts,
-        avoid_facts,
-        sample_responses,
-        owner_name,
-        owner_email,
-        owner_phone,
-        subscription_tier,
-        subscription_status,
-        website,
-        onboarded_by
-      ) VALUES (
-        ${businessId}::uuid,
-        ${accountId}::uuid,
-        TRUE,
-        ${adminInput.businessName},
-        ${null},
-        ${null},
-        ${false},
-        ${null},
-        ${'professional and friendly'},
-        ${null},
-        ${[]},
-        ${[]},
-        ${[]},
-        ${[]},
-        ${adminInput.ownerName},
-        ${ownerEmail},
-        ${null},
-        ${billingSnapshot.tier},
-        ${SubscriptionStatus.PENDING_PAYMENT},
-        ${null},
-        ${onboardedBy}
-      )
-    `;
-
-    await tx`
-      INSERT INTO users (id, auth_id, name, email, phone, role, account_id)
-      VALUES (
-        ${userId}::uuid,
-        ${null},
-        ${adminInput.ownerName},
-        ${ownerEmail},
-        ${null},
-        'owner',
-        ${accountId}::uuid
-      )
-    `;
-
-    await tx`
-      INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW())
-      ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
-    `;
-
-    // No job_outbox INSERT — there is no place at creation time. The owner's
-    // /api/onboarding/start enqueues validate_place_id when they capture one,
-    // exactly as it does for a self-serve owner.
-  });
+/** The per-mode values `insertOwnerRows` writes; every other column is fixed. */
+interface OwnerRowValues {
+  accountId: string;
+  businessId: string;
+  userId: string;
+  ownerEmail: string;
+  /** accounts.display_name + businesses.name. */
+  businessName: string;
+  ownerName: string;
+  /** businesses.owner_phone + users.phone. */
+  ownerPhone: string | null;
+  authId: string | null;
+  onboardedBy: string | null;
+  priceVariant: PriceVariant;
+  billingSnapshot: ResolvedTierSnapshot;
 }
 
-async function runSelfServeTx(
-  sql: Sql,
-  args: {
-    selfServeInput: SelfServeBusinessTxInput;
-    accountId: string;
-    businessId: string;
-    userId: string;
-    ownerEmail: string;
-    authId: string;
-    priceVariant: PriceVariant;
-    billingSnapshot: ResolvedTierSnapshot;
-  },
-): Promise<void> {
-  const {
-    selfServeInput,
-    accountId,
-    businessId,
-    userId,
-    ownerEmail,
-    authId,
-    priceVariant,
-    billingSnapshot,
-  } = args;
+/**
+ * The accounts + businesses + users rows both modes write. The one place each
+ * column list is spelled — a column added here reaches both modes, so the two
+ * can no longer drift into a wrong-column write.
+ */
+async function insertOwnerRows(tx: TransactionSql, v: OwnerRowValues): Promise<void> {
+  // Create accounts row (source of truth for subscription state after
+  // migration 034). owner_user_id references the users row we create
+  // below — FK is satisfied by the time the transaction commits. The billing
+  // columns are the point-in-time snapshot invariant #9a reads.
+  await tx`
+    INSERT INTO accounts (
+      id, owner_user_id, display_name,
+      subscription_tier, price_variant, subscription_status,
+      base_price_cents, locations_overage_price_cents,
+      locations_included, locations_paid
+    ) VALUES (
+      ${v.accountId}::uuid,
+      ${v.userId}::uuid,
+      ${v.businessName},
+      ${v.billingSnapshot.tier},
+      ${v.priceVariant},
+      ${SubscriptionStatus.PENDING_PAYMENT},
+      ${v.billingSnapshot.baseCents},
+      ${v.billingSnapshot.overageCents},
+      ${v.billingSnapshot.included},
+      ${0}
+    )
+  `;
 
-  await sql.begin(async (tx) => {
-    // Create accounts row (source of truth for subscription state after
-    // migration 034). owner_user_id references the users row we create
-    // below — FK is satisfied by the time the transaction commits.
-    await tx`
-      INSERT INTO accounts (
-        id, owner_user_id, display_name,
-        subscription_tier, price_variant, subscription_status,
-        base_price_cents, locations_overage_price_cents,
-        locations_included, locations_paid
-      ) VALUES (
-        ${accountId}::uuid,
-        ${userId}::uuid,
-        ${PLACEHOLDER_BUSINESS_NAME},
-        ${billingSnapshot.tier},
-        ${priceVariant},
-        ${SubscriptionStatus.PENDING_PAYMENT},
-        ${billingSnapshot.baseCents},
-        ${billingSnapshot.overageCents},
-        ${billingSnapshot.included},
-        ${0}
-      )
-    `;
+  // Identity-only row: NULL place fields, empty voice arrays, default tone.
+  // The /api/onboarding/business handler UPDATEs these once the owner
+  // completes the wizard. place_id_verified is passed FALSE explicitly so the
+  // row is unambiguously "not yet verified". onboarded_by is the Admin invite
+  // marker (non-NULL only in admin mode).
+  await tx`
+    INSERT INTO businesses (
+      id,
+      account_id,
+      is_primary,
+      name,
+      category,
+      google_place_id,
+      place_id_verified,
+      google_maps_url,
+      tone,
+      products_services,
+      staff_names,
+      highlight_facts,
+      avoid_facts,
+      sample_responses,
+      owner_name,
+      owner_email,
+      owner_phone,
+      subscription_tier,
+      subscription_status,
+      website,
+      onboarded_by
+    ) VALUES (
+      ${v.businessId}::uuid,
+      ${v.accountId}::uuid,
+      TRUE,
+      ${v.businessName},
+      ${null},
+      ${null},
+      ${false},
+      ${null},
+      ${'professional and friendly'},
+      ${null},
+      ${[]},
+      ${[]},
+      ${[]},
+      ${[]},
+      ${v.ownerName},
+      ${v.ownerEmail},
+      ${v.ownerPhone},
+      ${v.billingSnapshot.tier},
+      ${SubscriptionStatus.PENDING_PAYMENT},
+      ${null},
+      ${v.onboardedBy}
+    )
+  `;
 
-    // Placeholder row — name = PLACEHOLDER_BUSINESS_NAME, all place + profile
-    // fields NULL or empty array. The /api/onboarding/business handler
-    // UPDATEs these once the owner completes the wizard after Stripe payment.
-    // place_id_verified intentionally left to its DB default of FALSE; we
-    // pass FALSE explicitly here so the column INSERT order matches the
-    // admin path verbatim and the row is unambiguously "not yet verified".
-    await tx`
-      INSERT INTO businesses (
-        id,
-        account_id,
-        is_primary,
-        name,
-        category,
-        google_place_id,
-        place_id_verified,
-        google_maps_url,
-        tone,
-        products_services,
-        staff_names,
-        highlight_facts,
-        avoid_facts,
-        sample_responses,
-        owner_name,
-        owner_email,
-        owner_phone,
-        subscription_tier,
-        subscription_status,
-        website,
-        onboarded_by
-      ) VALUES (
-        ${businessId}::uuid,
-        ${accountId}::uuid,
-        TRUE,
-        ${PLACEHOLDER_BUSINESS_NAME},
-        ${null},
-        ${null},
-        ${false},
-        ${null},
-        ${'professional and friendly'},
-        ${null},
-        ${[]},
-        ${[]},
-        ${[]},
-        ${[]},
-        ${selfServeInput.ownerName},
-        ${ownerEmail},
-        ${selfServeInput.ownerPhone ?? null},
-        ${billingSnapshot.tier},
-        ${SubscriptionStatus.PENDING_PAYMENT},
-        ${null},
-        ${null}
-      )
-    `;
-
-    await tx`
-      INSERT INTO users (id, auth_id, name, email, phone, role, account_id)
-      VALUES (
-        ${userId}::uuid,
-        ${authId},
-        ${selfServeInput.ownerName},
-        ${ownerEmail},
-        ${selfServeInput.ownerPhone ?? null},
-        'owner',
-        ${accountId}::uuid
-      )
-    `;
-
-    // channel_enrollments INSERT deliberately deferred to /api/auth/verify-otp.
-    // At this point the owner has only typed the email — they haven't proven
-    // control of it. Marking the row 'verified' before OTP would mis-state the
-    // data model and would mean any owner who never confirms still appears as
-    // a verified email recipient until cleanup. Created post-OTP instead.
-
-    // No job_outbox INSERT here — the /api/onboarding/business handler
-    // enqueues validate_place_id (Maps URL path) once the owner supplies
-    // real Place ID / Maps URL data. Verified PlaceAutocomplete path needs
-    // no enqueue (review ingestion is webhook-driven via Zernio).
-  });
+  await tx`
+    INSERT INTO users (id, auth_id, name, email, phone, role, account_id)
+    VALUES (
+      ${v.userId}::uuid,
+      ${v.authId},
+      ${v.ownerName},
+      ${v.ownerEmail},
+      ${v.ownerPhone},
+      'owner',
+      ${v.accountId}::uuid
+    )
+  `;
 }

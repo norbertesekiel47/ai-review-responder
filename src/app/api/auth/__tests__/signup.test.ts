@@ -164,7 +164,6 @@ describe('POST /api/auth/signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-1',
       userId: 'u-1',
-      paymentUrl: 'https://buy.example.com',
     });
 
     const res = await POST(mkReq(validBody));
@@ -242,7 +241,6 @@ describe('POST /api/auth/signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-empty-identities',
       userId: 'u-empty-identities',
-      paymentUrl: null,
     });
 
     const res = await POST(mkReq(validBody));
@@ -272,7 +270,6 @@ describe('POST /api/auth/signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-null-user',
       userId: 'u-null-user',
-      paymentUrl: null,
     });
 
     const res = await POST(mkReq(validBody));
@@ -385,7 +382,6 @@ describe('POST /api/auth/signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'b',
       userId: 'u',
-      paymentUrl: null,
     });
 
     const res = await POST(mkReq({ ...validBody, ownerPhone: '+1-555-0100' }));

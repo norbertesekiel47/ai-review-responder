@@ -229,7 +229,6 @@ describe('POST /api/auth/finish-signup', () => {
       businessId: 'biz-1',
       userId: 'u-1',
       accountId: 'acct-1',
-      paymentUrl: 'https://buy.example.com',
     });
 
     const res = await POST(mkReq(validBody));
@@ -275,7 +274,6 @@ describe('POST /api/auth/finish-signup', () => {
       businessId: 'biz-2',
       userId: 'u-2',
       accountId: 'acct-2',
-      paymentUrl: null,
     });
     // Pre-check SELECTs succeed; the INSERT INTO channel_enrollments (issued by
     // enrollOwnerEmailChannel) rejects — the route must log and still 201.
@@ -353,7 +351,6 @@ describe('POST /api/auth/finish-signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'b',
       userId: 'u',
-      paymentUrl: null,
     });
 
     const res = await POST(mkReq({ ownerName: 'Jane', ownerPhone: '+1-555-0100' }));
@@ -383,7 +380,6 @@ describe('POST /api/auth/finish-signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'b',
       userId: 'u',
-      paymentUrl: null,
     });
 
     const res = await POST(mkReq(validBody));
@@ -405,7 +401,6 @@ describe('POST /api/auth/finish-signup — schema tolerance', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'b',
       userId: 'u',
-      paymentUrl: null,
     });
 
     const legacyBody = {
