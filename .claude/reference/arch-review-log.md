@@ -350,75 +350,11 @@ increment. Review and validation: `docs/reviews/codex-agent-setup-reliability/va
 
 2026-09-07 — **docs/1169-admin-retirement-order (counter unchanged):** The LAST decision ticket on wayfinder map #1159 resolved as ADR 0031, closing the map. **The ticket's retirement checklist was wrong in both directions.** Its five cited tests are three different kinds of thing, and only some break on deletion: `console-admin-palette`, `runbook-empty-polish` and `no-yellow-star-colors` `readFileSync` the file (hard pins, all three cited line numbers resolve); `server-client-value-imports` and `scanAdminPageFile` are DERIVED and self-adjust; and the `admin-aal2-audit.test.ts` "fixtures" plus `db-imports-audit.test.ts:103` pass a path STRING with synthetic page text (`ungatedPage`/`plainPage`/`aal2Page`) and never read a real file — so the checklist asked all sixteen retirement PRs to update two things that cannot fail. **Two hard pins were missing**: `src/app/admin/__tests__/page-chrome.test.ts` (a static page+client table read from disk) and `runbook-import-consent.test.ts` (the LARGER of the two runbook tests; the ticket cites only the smaller). Two more corrections: `ci:directory-map` does not scan `src/app/**` (`directory-map-audit.ts:51`), so the ticket's named enforcement for the `docs/directory/app-admin.md` row does not exist; and `src/components/admin/nav-config.ts`'s fifteen hrefs were absent from the checklist. **That last claim was overstated in the merged ADR and corrected the same day** (`docs/1169-nav-guard-correction`): `AdminSidebar.test.tsx` already carries four nav-versus-filesystem cases that walk `src/app/admin` for `page.tsx` files, and `points every nav href at a real page` (`:221-225`) fails on exactly this, so a stale entry turns CI red rather than shipping a 404. Looking for the guard also found a pin nobody had listed: `NON_NAV_PAGES` (`:189`) names `/admin/businesses/new`, and `keeps the excluded-page list honest` (`:227-231`) fails when that page is deleted, so tranche 3 drops that entry too. The lesson generalises past this branch — **the finding was 'absent from the checklist', and it was published as 'unguarded' without checking**; the two are different claims and only the first was measured. `/admin/businesses/[id]` is ELEVEN client components, not seven. Decisions of record: sixteen pages retire in **four tranches**, and the first (`/admin/security` + `/admin/runbook`) needs no Admin API at all, so deletions start before the bearer path opens; **Page parity** is coined with a machine half (route-set equality read from the generated **Admin API contract**) and a human half (screenshots at 390/1440 + sign-off), and a dropped route is a spec change said out loud; the silently-stale references are swept ONCE at the end rather than sixteen times, with a recorded owner reservation about `app-admin.md` rows aging in place; and the cookie-mode removal is cut NOW (#1203) blocked by the last tranche, which graduates the map's second fog patch. Four tickets cut, ten pages recorded rather than pre-cut — sixteen near-identical tickets before an owner priority exists is tracker noise. Closing this releases #1192 and #1193, which both carried `Blocked by: #1169`. Documentation only — no production TypeScript, migration, dependency, flag, or writer, so the counter is unchanged. Cut: #1200, #1201, #1202, #1203.
 
-Entropy counter for the `/feature` workflow (feature.md step 8): every merged
-feature increments the counter. At **≥ 5 merges** since the last architecture
-pass, the orchestrator reminds the user to schedule an architecture review
-session (the user's call — never started automatically). A completed pass
-resets the counter to 0 and adds a row below.
-
-**Merges since last architecture pass: 0** — reset by the **2026-09-20 pass**
-(entry at the top of this file). That pass measured the window it closed at
-**19 counting merges against a stated 5** — the eighth consecutive wrong
-count. It filed no findings document; its artifacts are issues **#1378-#1386**
-plus a verdict comment on **#1300**.
-
-**Do not increment this line by hand and trust it.** The fix — one owner, the
-bottom table, keyed by merge SHA, with a `counts` boolean set by
-`isProductionFile` — is filed as **#1383**. Until it lands, the number below is
-a claim, and the block that follows explains why it has been wrong eight
-times.
-
-**A pass is DUE at 5.** Scheduling one is the user's call and is never started
-automatically.
-
-> ## The counting rule is STILL under repair — do NOT hand-count this file
->
-> The 2026-09-12 pass measured the prior window at **83** against a stated
-> **21** — a 177-merge window, the largest yet, and the **seventh consecutive
-> wrong counter**. H7 (filed 2026-08-26) did not land; the error grew from 4
-> to **62** in seventeen days.
->
-> All four reasons the 2026-08-26 pass measured still hold at HEAD:
->
-> 1. **Two accepted locations** — the bullet list and the bottom table.
-> 2. **No stable key.** Entries appear under PR number, issue number, branch
->    name, or bare prose.
-> 3. **The audit's trigger is WIDER than the counting rule.** `ci:merge-ledger`
->    fires on production **OR GOVERNANCE** files; the rule counts production
->    **only**. **17 merges in the 2026-09-12 window** were each *required* by
->    CI to add a line and must *not* increment. They sit in the bottom table
->    beside counting merges, unmarked.
-> 4. **"Lines added" is not a unit** — it ranged 1 to 36 per merge.
->
-> **This file predicted its own failure twice inside that window**, which is
-> the strongest evidence yet that the defect is structural rather than one of
-> discipline: the 2026-09-01 note below ("*recovered MECHANICALLY rather than
-> by reading this file*") and the 2026-09-03 bullet ("*The count lags reality
-> — #1069, #1071, #1073, #1074, #1075, #1097, #1098 and #1099 all merged with
-> production changes and no entry… reconciling them is the next architecture
-> pass's job*"). **The reconciliation was 62, not 8.** The bullet list stopped
-> being maintained entirely after 2026-09-04 — the last **39** counted merges
-> (#1140 → #1270) have no bullet at all, including the whole Admin split wave
-> and Owner Operator Run A.
->
-> **One refinement the 2026-09-12 window adds:** only **3 of 83** counting
-> merges had a comment-only production diff. **80 of 83 changed executable
-> code.** The file rule over-counts by **3.6%** — cheap. Keep the file rule.
->
-> **The fix is unchanged (H2, formerly H7):** one owner — the bottom table —
-> keyed by **merge SHA**, with a `counts` boolean set by `isProductionFile`
-> (`scripts/ci/merge-ledger-audit.ts:96`). `classifyDiff` (`:111-117`) already
-> computes it on every run and discards it. Then the counter is a `grep -c`,
-> and the governance-only rows classify themselves.
-> `docs/reviews/PATHFINDER-2026-09-12/04-handoff-prompts.md` H2.
->
-> **The record, unchanged and worth keeping:** the 2026-08-24 pass reported
-> this counter correct for the first time in five passes and credited
-> `ci:merge-ledger`. That audit's own header
-> (`merge-ledger-audit.ts:38-43`) explicitly declines to own the number.
-> **The audit works exactly as designed; the counter was never in its scope.**
-> Seven passes, six wrong counts, is the expected output of the current
-> design — not a discipline failure.
+**No merge counter.** The entropy counter that stood here was deleted on
+2026-09-22 (#1383, #1409): it was wrong at eight consecutive passes and its
+reminder had no procedure behind it. An architecture pass runs when the owner
+asks for one — procedure: `docs/runbooks/architecture-pass.md`. The
+"Merges since …" lists below are closed windows, retained as record.
 
 Prior passes: **2026-09-20** (issues #1378-#1386, no artifacts directory - see the top of
 this file), `PATHFINDER-2026-09-12/`, `-08-26/`, `-08-24/`, `-08-22/`, `-08-18/`, `-08-15/`,
@@ -2123,3 +2059,4 @@ in the workflow as a required precondition. Two further findings:
 | 2026-09-22 | #1298 (`fix/1298-overage-base-collision`; small change, no `/feature` lane) — the 2026-09-14 reprice (`103d38043`) made the list extra-location price EQUAL the list base price on both tiers, so `resolveOverageItem`'s unit-amount pass could no longer tell the two lines apart; base-exclusion is by Price ID, so an UNREGISTERED base Price ID would have been returned `trusted` and re-quantitied by `UpdateStripeOverageWorker` | `src/lib/payments/overage-item.ts` (required `storedBasePriceCents` on `ResolveOverageItemOptions`; the unit-amount pass DOWNGRADES to `untrusted` on equal stored cents instead of matching `trusted`; untrusted `matchedBy` widens to `'descriptor' \| 'unit_amount'`; header rewritten — the old text claimed base-exclusion alone made a colliding base item unselectable, true only for REGISTERED base Price IDs) · `src/lib/accounts/tier-change.ts` + `worker/jobs/billing/{UpdateStripeOverageWorker,overage-sync}.ts` (`base_price_cents` added to two locked-account SELECTs, threaded to the resolver) · `worker/ingress/stripe/subscription-updated.ts` + `worker/background/pollers/billing-reconciliation/reconcile-account.ts` (forward the value they already had) · `scripts/ws8-staging-smoke.ts` (a fifth caller the brief did not list; typecheck found it) · `scripts/ci/tenant-scope-allowlist.ts` (the `UpdateStripeOverageWorker` snippet is a byte-match, so it gained the column; baseline 383 unchanged) · `__tests__/overage-item.test.ts` (+8) · `UpdateStripeOverageWorker.test.ts` and `tier-change.test.ts` (one caller-level wiring test each, both fixtures now set `base_price_cents`) | **No new module, seam, dependency, flag, env var or migration; five production files change behaviour.** The issue proposed three options and the shape shipped is a HYBRID of its option 1 (feed the stored base cents in) and option 3 (an ambiguous unit-amount match is untrusted, never mutated). Option 1 alone — skip the pass — was implemented first and REJECTED on evidence: `{kind:'none'}` means "no overage item exists" to both mutating callers, which answer it by CREATING a second overage line, and it turned 13 `StripeLocationsReconcilePoller` cases red (77/77 green under the hybrid). Mutation check: with the ternary disarmed to always-`trusted`, both new caller tests fail. Migration 077's column defaults left untouched, as the issue records. |
 | 2026-09-22 | #1342 + #1343 (`fix/run-e-red-team-cap`; small change, no `/feature` lane) — the two structural causes of #1340's and #1359's `reviewed` waivers (#1386 scope item 4). A finding raised in the LAST permitted round could never have its own fix measured (fixing it moves HEAD, the sidecar goes stale, there is no further round), and an `oracle`-class inconclusive row pinned `INCOMPLETE_ORACLE` forever because a type-only change has no Vitest oracle at all | `.agents/skills/red-team/scripts/mutation-runner.mjs` (new `remeasure-start` + `committedBranchSidecar`; `round-start` refuses after a re-measurement; its cap comment now points at SKILL.md) · `.agents/skills/feature/scripts/red-team-status.mjs` (row field `type_check`; top-level `remeasurement` + its committed-history validation) · both `red-team/SKILL.md` copies (new Duty 1b, "The loop" rewritten, report table) · `scripts/ci/__tests__/red-team-status.test.ts` (+30 cases) · `scripts/ci/__tests__/red-team-mutation-runner.test.ts` (+18 cases) · `.claude/reference/lab-notes/history/2026-09-19-to-30.md` | **Governance-only — does NOT count.** No production file, no module, seam, dependency, flag, env var or migration. Two deliberate loosenings, both bounded: (1) `type_check` lets a `tsc`-measured row carry a terminal outcome, so `oracle` means "not measured" rather than "not measurable" — the guard survives intact and is pinned first in the suite: a row with NO recorded measurement still pins `INCOMPLETE_ORACLE`, and `recomputeStatus` is untouched. (2) The re-measurement round re-measures the last round's fixes without advancing `round`; it matches NO prose (the reverted #1340 attempt matched `RUN_C_FOURTH_TEXT`), opens once, only where the fresh-round cap closes, and the checker requires every row and finding no fix names to be byte-identical to the prior report read out of its own commit. The checker RE-DERIVES the runner's refusals from the sidecar rather than trusting that the runner ran — the branch-pinned grants, the unspent third round — because the journal is scratch and gone by then; and it refuses a `prior_commit` that is itself a re-measurement, which is what makes "once per run" hold against a hand-authored chain rather than only against `remeasure-start`. All 13 Run C tampering checks stay green, and two new ones pin that a tampered admission gets no re-measurement round either. |
 | 2026-09-22 | #1300 + #1382 (`fix/run-d-rls-registry`; small lane, no `/feature` run) — **#1300:** `ci:rls-audit` and `ci:tenant-scope` both read `TENANT_TABLES`, so "must carry RLS" and "is tenant-scope audited" could not be expressed independently, and the ten tables on `REVIEWED_NOT_TENANT_SCOPED` (`job_outbox`, `admin_audit_log`, `poller_heartbeats`, `poller_cursors`, `analytics_events`, `flagged_responses`, `impersonation_sessions`, `owner_leads`, `solicitation_send_breaker`, `users`) had no RLS coverage at all. Migration 122 (#1176) also left SELECT/INSERT/UPDATE/DELETE in the client-role default privileges, so the deny-all gap recurs on the next such table. **#1382:** the 180-day spine-retention comment named one reader | `scripts/ci/rls-tables.ts` (new: `RLS_REQUIRED_TABLES`, 58 entries, a LITERAL list — a derived one would re-create the coupling the ticket removes) · `scripts/ci/rls-audit.ts` (reads the new registry; `stripSqlComments` + `analyzeRlsPosture` + `findDenyAllRevokeFailures` — a static, DB-free deny-all recurrence guard, wired as arm 2 of `main()`; `readMigrationsSql` now `.sort()`s because the replay is order-sensitive) · `scripts/ci/__tests__/rls-audit.test.ts` (12 → 30 cases) · `docs/security/rls-inventory.md` (preamble rewritten to the new registry + the three arms; 9 new rows incl. `job_outbox`; `admin_audit_log`'s "`ci:rls-audit` does not cover it" corrected) · `docs/directory/repo-surfaces.md` (2 rows) · `.claude/reference/lab-notes/history/2026-09-19-to-30.md` (1 entry) · `worker/background/pollers/ArchivalPoller.ts` (comment only) | **No migration, no schema change, no env var, no flag, no dependency, no new `ci:*` script** — the guard rides inside `ci:rls-audit`, so `lefthook.yml`, the workflows and `ci-audit-wiring.test.ts` are untouched. The guard is STATIC by necessity, not preference: `test-db-bootstrap.sql` never reproduces Supabase's default client-role table grants, so a live `has_table_privilege` probe passes vacuously (root cause in the lab-notes entry above). It fails ZERO tables at this HEAD and was mutation-proved four ways against the real corpus. One production file (`ArchivalPoller.ts`), comment-only. The counter is the next pass's business. |
+| 2026-09-22 | #1383 + #1409 (`chore/1383-1409-drop-entropy-counter`, docs and governance only; no `/feature` lane) — the owner chose to **delete** the entropy counter rather than repair it an eighth time | `.claude/commands/feature.md` step 8 · `.claude/skills/document-feature/SKILL.md` (+ `.agents/` mirror) · `.claude/skills/preflight/SKILL.md` · this file's counter block · `.claude/CLAUDE.md` · new `docs/runbooks/architecture-pass.md` | **Deleted concept: the merge counter.** Step 8's reminder, `document-feature`'s "Measure the entropy counter" section and the counter block above the closed "Merges since …" lists are gone; historical pass entries, closed lists and table rows (including "Counter X→Y" text) are kept as record, and no row is asked to state a count going forward. **The ledger stays:** `ci:merge-ledger` never read the counter — it requires a trace line for any production or governance merge (the #803 class), which is independent of counting, so the audit and its tests are unchanged. **New single owner:** `docs/runbooks/architecture-pass.md` is the pass procedure (window, agenda from `Next pass:` lines, issues not prose, record the window, score the previous pass's issues), run only when the owner asks; routed from `.claude/CLAUDE.md`. **New standing rule** in CLAUDE.md § Working rules: a follow-up named in a review document gets an issue number in the same PR, or it is not named. #1383 closes as superseded by the deletion. |

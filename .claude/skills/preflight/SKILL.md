@@ -71,10 +71,6 @@ Append a row to the table at the end of the file:
 `| <date> | <trigger> | <scope reviewed> | <outcome> |`. No shape is enforced
 beyond leaving a trace, so write what a reader would need.
 
-The audit never reads or writes the **entropy counter** at the top of that
-file. That number is a judgement about which merges count; bump it by hand
-during an architecture pass only.
-
 Verify: `pnpm ci:merge-ledger`
 
 ### Step 4 — Run the pre-push audit subset
