@@ -160,7 +160,10 @@ review on a light lane):
 ```text
 Run `pnpm ci:weakened-checks`. For EVERY REVIEW row, state whether protection
 was lost and cite where it now lives (a moved assertion, a stronger replacing
-test, a justified allowlist entry) — or report it as a finding. Then ask of
+test, a justified allowlist entry) — or report it as a finding. The audit FAILS
+until each REVIEW rule has a row in `.claude/reference/verifier-exceptions.md`
+under the key it prints (`<branch>::<rule>`); that row is the answer, and the
+full reasoning stays in this review record (#1386). Then ask of
 the new tests: can they pass while the promised behavior is wrong? Where the
 change crosses a trust boundary, confirm a negative test exists for wrong
 tenant, missing authorization, and replayed or stale input. List every

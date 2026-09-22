@@ -1,0 +1,64 @@
+# Verifier exceptions registry
+
+Every accepted exception to a verifier, in one place, with a key a gate can look
+up. #1386.
+
+Two kinds of row live here, and they are the same kind of debt:
+
+- **An answered `ci:weakened-checks` REVIEW row.** The audit detects a reduction
+  and assigns the explanation to a human; it never fails on the REVIEW tier, by
+  design, because a gate that failed on "assertions decreased" would be answered
+  with meaningless assertions. What it DOES fail on is a REVIEW row whose key has
+  no row here — the explanation is the acceptance, and an acceptance recorded in
+  a per-branch review file is read exactly once.
+- **An owner-granted waiver** of a gate, abort criterion, verifier cap or review
+  transition, recorded in a `/feature` deviations file.
+
+Before #1386 there was no index. A pass that wanted to count the live exceptions
+had to `rg` the repo, so every pass since 2026-09-13 re-asked the same question
+and re-derived the same scattered answer.
+
+## Row format
+
+| Cell | What goes in it |
+|---|---|
+| **Key** | `<branch>::<check>`. `<branch>` is the head branch with every `/` replaced by `-`. `<check>` is the `ci:weakened-checks` rule name for an audit row (`test-file-deleted`, `assertions-removed`, `suppression-added`, `unfinished-work`, `quality-config-changed`, `focused-test-waived`, `disabled-test-waived`), or the deviation ID / short slug for an owner waiver. Unique; never re-keyed. |
+| **Date** | The date the exception was granted, not the merge date. |
+| **PR** | The pull request the exception rode in on. |
+| **Check** | The named check, criterion or transition that was weakened or waived. |
+| **Reason** | One clause, then the path to the full write-up. The prose stays owned by the review or deviations file; this cell is the index into it. |
+| **Live?** | `yes` — the relaxation is still in force on `main`, or its structural cause is still open. `no` — spent: the check was restored, the waiver was bounded to a branch that has merged, or nothing was actually relaxed. Either way, state the evidence. |
+
+**Append-only.** A row is never deleted and never re-keyed. The one cell that may
+be edited in place is **Live?**, and retiring a row states what was checked.
+
+`ci:weakened-checks` reads the **Key** column only: the first cell of a row,
+inside backticks. Everything else is for the reader. The audit never checks
+`Live?` — a branch's own row is live by construction at PR time, and a gate that
+read that cell would wedge an old branch the day someone retired its row.
+
+## The register
+
+| Key | Date | PR | Check | Reason | Live? |
+|---|---|---|---|---|---|
+| `feat-541-contacts-csv::surface-amendment-abort-criterion` | 2026-07-24 | #564 | `/feature` abort criterion, on surface amendments #2 and #3 | User-approved with an explicit waiver both times: the criterion targets scope drift, and a one-line addition is not drift — `docs/superpowers/plans/feat-541-contacts-csv-deviations.md` | no — bounded to a merged branch |
+| `feat-719-drip-dropped-column::D12` | 2026-08-09 | #740 | teardown trigger on surface amendment #2 (`scripts/ci/tenant-scope-allowlist.ts`) | Offered minimal-amendment+waiver / re-run step 0 / abort, the owner chose the waiver, for that one file — `docs/superpowers/plans/feat-719-drip-dropped-column-deviations.md` D12 | no — bounded to a merged branch |
+| `feat-719-drip-dropped-column::D13` | 2026-08-09 | #740 | `estimated_prod_lines` reclassify WARN (~3× under) | A measurement-units error rather than scope creep, and the lane the rule would have moved it to was already in force — same file, D13 | no — bounded to a merged branch |
+| `feat-898-solicitation-send-governors::surface-amendment-2` | 2026-08-19 | #904 | abort criterion on surface amendment 2 of 2 (`src/components/admin/nav-config.ts`) | Owner sign-off on the argument that the criterion catches design drift, and a nav row is not that — `docs/superpowers/plans/feat-898-solicitation-send-governors-deviations.md` | no — bounded to a merged branch |
+| `feat-899-solicitation-send-worker::D10` | 2026-08-22 | #912 | abort trigger on `allowed_edit_surface` amendment 2 of 2 | Amend and continue, trigger explicitly WAIVED; the amended test finished 4/4 green — `docs/superpowers/plans/feat-899-solicitation-send-worker-deviations.md` D10 | no — bounded to a merged branch |
+| `feat-refusal-lane-vocabulary::D6` | 2026-08-30 | #1034 | abort criterion on surface amendment 2 (a `docs/directory.md` row) | Waived for that one row: the criterion exists to catch scope drift, and a map row the lane itself requires is not drift — `docs/superpowers/plans/feat-refusal-lane-vocabulary-deviations.md` D6 | no — bounded to a merged branch |
+| `feat-1010-refusal-solicitation-singles::surface-amendment-2` | 2026-08-31 | #1044 | abort criterion on surface amendment 2 | Waived so the fix could land — `docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md` | no — bounded to a merged branch |
+| `feat-1013-refusal-policy-gate-held::D11` | 2026-08-31 | #1055 | the `/feature` `reviewed` transition, taken over a standing `INCOMPLETE_ORACLE` | 37 inventory rows, 27 killed, every finding fixed or rejected with stated reasoning; the blocker is that `OUTCOMES` has no member meaning "unfalsifiable by design" — `docs/superpowers/plans/feat-1013-refusal-policy-gate-held-deviations.md` D11 | **yes** — the `OUTCOMES` gap is #1343, still open |
+| `feat-1185::D3` | 2026-09-09 | #1229 | red-team verifier cap of 30 mutation runs per round | Owner approved a ticket-scoped continuation to 1,400 launches for `feat/1185` and its original 453-row inventory only; every other branch and round keeps 30 — `docs/superpowers/plans/feat-1185-deviations.md` D3 | no — the grant named one branch and one round |
+| `codex-operator-fallow-refactor::D1` | 2026-09-15 | #1297 | red-team verifier cap of 30 launches per round | Grant `operator-fallow-round-1-continuation-2026-09-15` continues round 1 to at most 1,500 cumulative supervised launches at 120s each — `docs/superpowers/plans/codex-operator-fallow-refactor-deviations.md` D1 | no — the grant named one branch and one round |
+| `codex-owner-operator-run-e::release-verification` | 2026-09-15 | #1293 | the full local verify-gate re-run before merge | Owner accepted the passing GitHub checks plus the earlier full local pass on identical application code; the only diff from the verified parent was two review reports — `docs/reviews/codex-owner-operator-run-e/release-verification-approval.md` | no — bounded to PR #1293 at one SHA |
+| `codex-owner-operator-run-e::E-S2` | 2026-09-15 | #1293 | the one-adversarial-pass limit | Owner approved a scoped second pass plus a post-admission correction clause — `docs/superpowers/plans/codex-owner-operator-run-e-deviations.md` E-S2 / E-S3 | no — bounded to PR #1293 |
+| `refactor-616-fallow-complexity::D11` | 2026-09-19 | #1340 | the `/feature` `reviewed` transition, waived entirely | Round 3's own fixes moved the tree past the sidecar's `head_sha` and `rt-078` is an `oracle`-class inconclusive, so `CLEAR` was unreachable; bounded by no CI job reading the sidecar and both waived findings being fixed in the committed diff — `docs/superpowers/plans/refactor-616-fallow-complexity-deviations.md` D11 | **yes** — both structural causes are open, #1342 and #1343 |
+| `fix-batch-e-screens-vs-runtime::surface-amendment-abort-criterion` | 2026-09-20 | #1359 | the second-amendment restart trigger, twice | Owner waived both on the reasoning that the problem was an incomplete checklist, not a misunderstood design — `docs/superpowers/plans/fix-batch-e-screens-vs-runtime-deviations.md` | no — bounded to a merged branch |
+| `fix-1301-migration-guard-execution::test-file-deleted` | 2026-09-20 | #1376 | `ci:weakened-checks` REVIEW ×5 — five migration text-guard suites deleted | Each has a named successor that executes the migration instead of matching its SQL text; three assertion classes were retired with written reasons — `docs/reviews/fix-1301-migration-guard-execution/weakened-checks-reasons.md` rows 1–5 | **yes** — the five text suites are still absent on `main` and the reduction is permanent |
+| `fix-1301-migration-guard-execution::quality-config-changed` | 2026-09-20 | #1376 | `ci:weakened-checks` REVIEW ×3 — `.github/workflows/ci.yml`, `scripts/ci/live-db-suites-audit.ts`, `vitest.config.ts` | All three tighten or are comment-only: `postgres:16` → `:17` so migration 122's `MAINTAIN` statements finally execute, seven additive `MIGRATION_SHAPE_FILES` entries, and a comment — same file, rows 6–8 | no — nothing was relaxed; `postgres:17` verified in `ci.yml` and `e2e.yml` at HEAD |
+| `fix-1301-migration-guard-execution::suppression-added` | 2026-09-20 | #1376 | `ci:weakened-checks` REVIEW ×2 — two `@ts-expect-error` directives | They ARE the assertion: TS2578 fails the build when the error stops existing, pinning that `DegradeTarget` rejects an empty selector list — same file, rows 9–10 | **yes** — both directives are still in `src/lib/shared/__tests__/helpers/migration-guard.test.ts` |
+| `fix-1301-migration-guard-execution::D4` | 2026-09-20 | #1376 | `/feature` abort trigger on surface amendment 2 | Owner amended and waived it; a third amendment has no waiver behind it and returns to the abort criteria as written — `docs/superpowers/plans/fix-1301-migration-guard-execution-deviations.md` D4 | no — bounded to a merged branch |
+| `fix-1301-migration-guard-execution::D11` | 2026-09-20 | #1376 | test-bucket re-classification trigger (2.03× the estimate) | Owner waived; surfaced rather than waived silently, and both intake copies carry the measured number — same file, D11 | no — bounded to a merged branch |
+| `fix-1352-operator-posting-block-context::amendment-3` | 2026-09-21 | #1405 | `/feature` step-5 abort gate | Owner waived it after T2 and T3 returned; the amendment added zero production files — `docs/superpowers/plans/fix-1352-operator-posting-block-context-deviations.md` | no — bounded to a merged branch |
+| `fix-1386-verifier-exceptions-registry::quality-config-changed` | 2026-09-22 | #1386 | `ci:weakened-checks` REVIEW — `scripts/ci/weakened-checks-audit.ts` and `.github/workflows/ci.yml` | The diff ADDS a failing condition to the audit and corrects the workflow comment that said REVIEW rows never fail. No rule, threshold, escape hatch or detection path was relaxed; every existing case in `scripts/ci/__tests__/weakened-checks-audit.test.ts` still passes unchanged | no — nothing was relaxed |

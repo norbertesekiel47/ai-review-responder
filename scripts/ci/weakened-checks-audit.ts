@@ -24,21 +24,46 @@
 //              - a change to the quality configuration itself
 //              - a FAIL waived with the marker below
 //
-// WHY REVIEW NEVER FAILS. An assertion moves into a shared helper; three unit
-// tests are replaced by one stronger integration test; an allowlist entry is
-// legitimate. A gate that failed on "assertions decreased" would be answered
-// with meaningless assertions — the opposite of what it is for. The reviewer
-// brief (`review-prompts.md` § Weakened checks) owns the judgement; this file
-// owns only that the question gets asked.
+// WHY REVIEW NEVER FAILS ON ITS OWN CONTENT. An assertion moves into a shared
+// helper; three unit tests are replaced by one stronger integration test; an
+// allowlist entry is legitimate. A gate that failed on "assertions decreased"
+// would be answered with meaningless assertions — the opposite of what it is
+// for. The reviewer brief (`review-prompts.md` § Weakened checks) owns the
+// judgement; this file owns only that the question gets asked.
+//
+// WHAT IT DOES FAIL ON (#1386): a REVIEW row whose EXPLANATION was never
+// written down. The audit detected the reduction and assigned the answer to a
+// human; before #1386 that answer landed in a per-branch review file that
+// nothing read afterwards, so every architecture pass since 2026-09-13
+// re-derived the same scattered list with a repo-wide `rg`. The requirement is
+// therefore the same shape as `ci:merge-ledger`'s: one row in an append-only
+// registry, `.claude/reference/verifier-exceptions.md`.
+//
+// THE MATCH KEY is `<branch>::<check>` — the branch with every `/` replaced by
+// `-`, then the REVIEW rule name. Per BRANCH, because an exception is a fact
+// about one change and a key that outlived its branch would be satisfied
+// forever by one ancient row. Per RULE rather than per FILE, because that is
+// the granularity reviewers already answer at: the ten-row precedent in
+// `docs/reviews/fix-1301-migration-guard-execution/weakened-checks-reasons.md`
+// is written as three sections, one per rule.
+//
+// The registry's `Live?` column is deliberately NOT read. A branch's own row is
+// live by construction at PR time, and a gate that read that cell would wedge
+// an old branch the day someone retired its row.
 //
 // ESCAPE HATCH for a FAIL: end the added line with
 //   // weakened-check-ok: <reason>
-// The line then reports as REVIEW with the reason, so a waiver is never silent.
+// The line then reports as REVIEW with the reason — so a waiver is never
+// silent, and it now needs a registry row like any other REVIEW row.
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { baseRefFor, isTestFile } from './merge-ledger-audit';
+
+/** The append-only registry every REVIEW row's explanation must appear in. */
+export const REGISTRY_PATH = '.claude/reference/verifier-exceptions.md';
 
 export interface DiffLine {
   file: string;
@@ -198,22 +223,139 @@ export function evaluateDiff(parsed: ParsedDiff): Finding[] {
   return [...all.filter((f) => f.tier === 'FAIL'), ...all.filter((f) => f.tier === 'REVIEW')];
 }
 
-export function formatReport(findings: readonly Finding[]): { text: string; exitCode: number } {
+/** One REVIEW rule on one branch: the key, and the files that raised it. */
+export interface RegistryGap {
+  /** `<branch>::<rule>` — what the registry row's first cell must spell. */
+  key: string;
+  rule: string;
+  files: string[];
+}
+
+/**
+ * The key a REVIEW row carries and a registry row repeats.
+ *
+ * `/` becomes `-` so the key is one word in a Markdown cell and matches the
+ * `/feature` deviations filenames the historical rows were reconciled from
+ * (`feat/899-…` and `feat-899-…` were the same branch, spelled both ways).
+ */
+export function exceptionKey(branch: string, rule: string): string {
+  return `${branch.replaceAll('/', '-')}::${rule}`;
+}
+
+/**
+ * The head branch for this diff, or null when it cannot be determined.
+ *
+ * `GITHUB_HEAD_REF` first: CI checks a PR out detached, so `rev-parse
+ * --abbrev-ref HEAD` there is the literal string `HEAD`, which is not a branch.
+ */
+export function branchFor(githubHeadRef: string | undefined, gitBranch: string): string | null {
+  const head = githubHeadRef?.trim();
+  if (head) return head;
+  const local = gitBranch.trim();
+  return local && local !== 'HEAD' ? local : null;
+}
+
+/**
+ * Every key the registry declares — the first cell of a table row, in
+ * backticks. Prose and the format table are ignored for free: their first
+ * cells do not start with a backtick.
+ */
+export function parseRegistryKeys(markdown: string): Set<string> {
+  const keys = new Set<string>();
+  for (const line of markdown.split('\n')) {
+    const key = /^\|\s*`([^`]+)`\s*\|/.exec(line)?.[1]?.trim();
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * REVIEW rules on this branch with no registry row, one gap per rule.
+ *
+ * FAIL rows are excluded on purpose: a prohibited relaxation is not an
+ * exception to be registered, it is a change to be reverted. A waived FAIL is
+ * already a REVIEW row (`*-waived`) and is included.
+ */
+export function registryGaps(
+  findings: readonly Finding[],
+  branch: string,
+  declaredKeys: ReadonlySet<string>,
+): RegistryGap[] {
+  const filesByRule = new Map<string, string[]>();
+  for (const finding of findings) {
+    if (finding.tier !== 'REVIEW') continue;
+    const files = filesByRule.get(finding.rule) ?? [];
+    if (!files.includes(finding.file)) files.push(finding.file);
+    filesByRule.set(finding.rule, files);
+  }
+  return [...filesByRule.entries()]
+    .map(([rule, files]) => ({ key: exceptionKey(branch, rule), rule, files }))
+    .filter((gap) => !declaredKeys.has(gap.key));
+}
+
+/** At most three paths, so the failure names the trigger without a wall of text. */
+function sample(paths: readonly string[]): string {
+  const shown = paths.slice(0, 3).join(', ');
+  return paths.length > 3 ? `${shown} (+${paths.length - 3} more)` : shown;
+}
+
+function gapLines(gaps: readonly RegistryGap[]): string[] {
+  if (gaps.length === 0) return [];
+  return [
+    '',
+    `  No row in ${REGISTRY_PATH} for:`,
+    ...gaps.map((gap) => `    ${gap.key}  — ${gap.files.length} file(s): ${sample(gap.files)}`),
+    '',
+    '  A REVIEW row is a question; the registry row is the written ANSWER. An',
+    '  answer kept in a per-branch review file is read exactly once (#1386).',
+    '  Add one row per key: date, PR, the check, the reason, and whether it is live.',
+  ];
+}
+
+export function formatReport(
+  findings: readonly Finding[],
+  gaps: readonly RegistryGap[] = [],
+): { text: string; exitCode: number } {
   const fails = findings.filter((finding) => finding.tier === 'FAIL');
   if (findings.length === 0) return { text: 'weakened-checks-audit: passed (no finding)', exitCode: 0 };
   const rows = findings.map((f) => `  ${f.tier.padEnd(6)} ${f.rule}  ${f.file}  — ${f.detail}`);
   const head = fails.length > 0
     ? `weakened-checks-audit: failed (${fails.length} prohibited relaxation(s))`
-    : `weakened-checks-audit: passed (${findings.length} row(s) for the reviewer)`;
+    : gaps.length > 0
+      ? `weakened-checks-audit: failed (${gaps.length} REVIEW rule(s) with no registry entry)`
+      : `weakened-checks-audit: passed (${findings.length} row(s) for the reviewer)`;
   const foot = fails.length > 0
     ? ['', '  Fix the code, not the check. A genuine exception ends the line with',
       '  `// weakened-check-ok: <reason>` and is then reported for review.']
-    : ['', '  REVIEW rows never fail. The reviewer gives a reason for each one.'];
-  return { text: [head, ...rows, ...foot].join('\n'), exitCode: fails.length > 0 ? 1 : 0 };
+    : gaps.length > 0
+      ? []
+      : ['', `  REVIEW rows are answered in ${REGISTRY_PATH}, one row per key.`];
+  return {
+    text: [head, ...rows, ...gapLines(gaps), ...foot].join('\n'),
+    exitCode: fails.length > 0 || gaps.length > 0 ? 1 : 0,
+  };
 }
 
 function git(...args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+}
+
+/** The registry's text, or '' when it is missing — then every REVIEW row gaps, naming the path. */
+function readRegistry(): string {
+  try {
+    return readFileSync(join(git('rev-parse', '--show-toplevel').trim(), REGISTRY_PATH), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** The branch this diff belongs to, or '' when git cannot say. */
+function currentBranch(): string {
+  try {
+    return git('rev-parse', '--abbrev-ref', 'HEAD');
+  } catch {
+    return '';
+  }
 }
 
 function main(): never {
@@ -235,7 +377,23 @@ function main(): never {
 
   // Working tree vs merge-base, so an uncommitted `.only` is caught before the
   // commit and not only at push time.
-  const report = formatReport(evaluateDiff(parseUnifiedDiff(git('diff', '-U0', '--no-renames', mergeBase))));
+  const findings = evaluateDiff(parseUnifiedDiff(git('diff', '-U0', '--no-renames', mergeBase)));
+
+  // The registry check needs a branch name to build the key from. Same policy
+  // as an unresolvable base ref: a gate that cannot see its input says so in
+  // CI rather than passing, and skips on a detached local checkout.
+  const branch = branchFor(process.env.GITHUB_HEAD_REF, currentBranch());
+  if (branch === null) {
+    const message = 'weakened-checks-audit: cannot determine the head branch — the registry key needs it';
+    if (process.env.CI) {
+      console.error(`${message}. Set GITHUB_HEAD_REF (it is set on every pull_request run).`);
+      process.exit(1);
+    }
+    console.log(`${message}; the ${REGISTRY_PATH} check is skipped on this detached checkout.`);
+  }
+  const gaps = branch === null ? [] : registryGaps(findings, branch, parseRegistryKeys(readRegistry()));
+
+  const report = formatReport(findings, gaps);
   if (report.exitCode === 0) console.log(report.text);
   else console.error(report.text);
   process.exit(report.exitCode);

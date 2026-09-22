@@ -236,9 +236,14 @@ jobs:
         if: github.actor != 'dependabot[bot]'
         run: pnpm ci:merge-ledger
       # Reads the DIFF, not the tree: a skipped test or a lowered coverage
-      # floor is invisible once it lands. FAIL rows block; REVIEW rows print
-      # for the reviewer and never fail (scripts/ci/weakened-checks-audit.ts).
-      - name: Run weakened-checks audit (focused/disabled tests, lowered coverage floor)
+      # floor is invisible once it lands. FAIL rows block. REVIEW rows never
+      # fail on their CONTENT — the audit cannot judge whether a moved
+      # assertion lost protection — but they do fail when the reviewer's
+      # written answer is missing: one row per `<branch>::<rule>` key in
+      # .claude/reference/verifier-exceptions.md, the same shape as the arch
+      # log line ci:merge-ledger asks for (#1386,
+      # scripts/ci/weakened-checks-audit.ts).
+      - name: Run weakened-checks audit (focused/disabled tests, floor, registry)
         run: pnpm ci:weakened-checks
       # #1374. CI is the ONLY pinned install: this step fixes the version
       # below and verifies its sha256 BEFORE the archive is extracted or used,

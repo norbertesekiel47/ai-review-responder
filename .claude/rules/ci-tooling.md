@@ -12,6 +12,7 @@ paths:
 
 - `.claude/CLAUDE.md` § Dev commands (the `ci:*` entries in `package.json` are the authoritative list) and § CI & repo (PR-only CI, required checks, runner routing, draft PRs run no CI, lefthook mirrors the `lint` job).
 - `src/__tests__/ci-audit-wiring.test.ts` (#590) keeps `package.json`, the workflows, and `lefthook.yml` from drifting apart; runbook `docs/runbooks/self-hosted-ci-runner.md` § Routing.
+- `.claude/reference/verifier-exceptions.md` — the append-only registry of accepted verifier exceptions (answered `ci:weakened-checks` REVIEW rows and owner-granted waivers). Its own header owns the row format and the key grammar.
 - Lab notes: `.claude/reference/lab-notes/ci-tooling.md` (nested-worktree poisoning, `MOCK_EXTERNAL_APIS=false` in CI, tenant-scope allowlist drift, test-DB provisioning), `.claude/reference/lab-notes/false-coverage-mutation.md`.
 - File map: `docs/directory/repo-surfaces.md` § `scripts/`.
 - Rule tooling: `pnpm agent:rules <path>` (`scripts/agent-rules.ts`) lists the `.claude/rules/*.md` files whose `paths:` match; `ci:agent-config` audits the rules directory. Layout: `docs/agents/context-layout.md`.
@@ -19,6 +20,7 @@ paths:
 ## Traps
 
 - No trap clauses were moved from `.claude/CLAUDE.md` for this area; the live-DB test gotchas (`pnpm test` is the gate, fallow coverage, `TEST_DATABASE_POOL_URL` fallback) are in `.claude/rules/live-db-tests.md`.
+- `ci:weakened-checks` FAILS on a REVIEW rule with no row in `.claude/reference/verifier-exceptions.md` under the key it prints, `<branch>::<rule>` (branch with `/` → `-`). Touching any `scripts/ci/*-audit.ts`, `lefthook.yml`, `vitest.config.ts`, `eslint.config.mjs`, `.fallowrc.jsonc`, `scripts/verify-gate.sh`, `scripts/diff-coverage.ts` or `.github/workflows/ci.yml` raises `quality-config-changed`, so those PRs need a registry row (#1386).
 - Do NOT add a `ci:*` script without wiring it into the `lint` job AND `lefthook.yml` — `ci-audit-wiring.test.ts` fails otherwise; `ci:fallow:coverage` is the one sanctioned lefthook exemption (`CI_ONLY_BY_DESIGN`).
 
 - A test that spawns `git` (or a script that calls git) in a throwaway repo MUST pass `env: GIT_FREE_ENV` (`process.env` minus every `GIT_*` key). Git exports `GIT_DIR` into hook processes; under lefthook `test-changed` from a worktree the test otherwise commits INTO the pushing branch and writes `core.bare=true` into the shared `.git/config` (2026-09-05, lab-notes/history/2026-09.md).

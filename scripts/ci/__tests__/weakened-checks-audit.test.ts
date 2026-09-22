@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  branchFor,
   evaluateDiff,
+  exceptionKey,
   formatReport,
   isQualityConfig,
+  parseRegistryKeys,
+  REGISTRY_PATH,
+  registryGaps,
   parseUnifiedDiff,
 } from '../weakened-checks-audit';
 
@@ -186,5 +191,144 @@ describe('formatReport', () => {
 
   it('passes an empty diff', () => {
     expect(formatReport([])).toEqual({ text: 'weakened-checks-audit: passed (no finding)', exitCode: 0 });
+  });
+});
+
+// #1386. The audit detected the reduction and assigned the explanation to a
+// human; the explanation then landed in a per-branch review file nothing read.
+// A REVIEW row now needs a row in the append-only registry carrying the same
+// key, the way `ci:merge-ledger` needs a line in the arch log.
+//
+// Every fixture is registry markdown passed in as a STRING — this suite reads
+// no repo document, which is what its entry in ci-audit-wiring.test.ts says.
+describe('registry key (#1386)', () => {
+  const BRANCH = 'fix/1386-verifier-exceptions-registry';
+  const SLUG = 'fix-1386-verifier-exceptions-registry';
+
+  it('replaces every / in the branch, so the key is one word in a Markdown cell', () => {
+    expect(exceptionKey(BRANCH, 'quality-config-changed')).toBe(`${SLUG}::quality-config-changed`);
+    expect(exceptionKey('codex/owner/operator-run-e', 'D11')).toBe('codex-owner-operator-run-e::D11');
+  });
+
+  it('leaves a branch that is already a slug alone', () => {
+    expect(exceptionKey('feat-899-solicitation-send-worker', 'D10'))
+      .toBe('feat-899-solicitation-send-worker::D10');
+  });
+
+  describe('branchFor', () => {
+    it('prefers GITHUB_HEAD_REF — CI checks a PR out detached', () => {
+      expect(branchFor(BRANCH, 'HEAD')).toBe(BRANCH);
+    });
+
+    it('falls back to the local branch', () => {
+      expect(branchFor(undefined, `${BRANCH}\n`)).toBe(BRANCH);
+      expect(branchFor('', BRANCH)).toBe(BRANCH);
+    });
+
+    it('returns null when neither names a branch', () => {
+      expect(branchFor(undefined, 'HEAD')).toBeNull();
+      expect(branchFor(undefined, '')).toBeNull();
+      expect(branchFor('  ', '  ')).toBeNull();
+    });
+  });
+
+  describe('parseRegistryKeys', () => {
+    const REGISTRY = [
+      '# Verifier exceptions registry',
+      '',
+      '| Cell | What goes in it |',
+      '|---|---|',
+      '| **Key** | `<branch>::<check>`, the branch with every / replaced by - |',
+      '',
+      '| Key | Date | PR | Check | Reason | Live? |',
+      '|---|---|---|---|---|---|',
+      `| \`${SLUG}::quality-config-changed\` | 2026-09-22 | #1386 | the audit itself | nothing relaxed | no |`,
+      '| `refactor-616-fallow-complexity::D11` | 2026-09-19 | #1340 | reviewed transition | #1342 / #1343 | yes |',
+    ].join('\n');
+
+    it('reads the backticked first cell of every register row', () => {
+      expect([...parseRegistryKeys(REGISTRY)].sort()).toEqual([
+        `${SLUG}::quality-config-changed`,
+        'refactor-616-fallow-complexity::D11',
+      ]);
+    });
+
+    it('ignores the format table and prose — their first cells are not a backtick', () => {
+      expect(parseRegistryKeys(REGISTRY).has('<branch>::<check>')).toBe(false);
+      expect(parseRegistryKeys('A key looks like `feat-1::D1` in prose.').size).toBe(0);
+    });
+
+    it('reads a missing registry as no keys at all', () => {
+      expect(parseRegistryKeys('').size).toBe(0);
+    });
+  });
+
+  describe('registryGaps', () => {
+    const reviewFindings = findingsFor(diffFor('.fallowrc.jsonc', ['"a": 1'], ['"a": 2']));
+
+    it('finds no gap when the registry carries the key — this direction PASSES', () => {
+      const keys = new Set([`${SLUG}::quality-config-changed`]);
+      const gaps = registryGaps(reviewFindings, BRANCH, keys);
+      expect(gaps).toEqual([]);
+      expect(formatReport(reviewFindings, gaps).exitCode).toBe(0);
+    });
+
+    it('fails a REVIEW row the registry does not carry — this direction FAILS', () => {
+      const gaps = registryGaps(reviewFindings, BRANCH, new Set());
+      expect(gaps).toEqual([
+        { key: `${SLUG}::quality-config-changed`, rule: 'quality-config-changed', files: ['.fallowrc.jsonc'] },
+      ]);
+      const report = formatReport(reviewFindings, gaps);
+      expect(report.exitCode).toBe(1);
+      expect(report.text).toContain('failed (1 REVIEW rule(s) with no registry entry)');
+      expect(report.text).toContain(REGISTRY_PATH);
+      expect(report.text).toContain(`${SLUG}::quality-config-changed`);
+    });
+
+    it('does not match a key minted for a different branch', () => {
+      const keys = new Set(['feat-1-other::quality-config-changed']);
+      expect(registryGaps(reviewFindings, BRANCH, keys)).toHaveLength(1);
+    });
+
+    it('a branch with no REVIEW rows passes unchanged', () => {
+      expect(registryGaps([], BRANCH, new Set())).toEqual([]);
+      expect(formatReport([], [])).toEqual({
+        text: 'weakened-checks-audit: passed (no finding)',
+        exitCode: 0,
+      });
+    });
+
+    it('groups one rule across files into ONE key, listing each file once', () => {
+      const findings = findingsFor([
+        diffFor('.fallowrc.jsonc', ['"a": 1'], ['"a": 2']),
+        diffFor('vitest.config.ts', ['const a = 1;'], ['const a = 2;']),
+      ].join('\n'));
+      const gaps = registryGaps(findings, BRANCH, new Set());
+      expect(gaps).toHaveLength(1);
+      expect(gaps[0]).toMatchObject({ files: ['.fallowrc.jsonc', 'vitest.config.ts'] });
+    });
+
+    it('needs a key for a WAIVED fail too — a waiver is the thing most worth registering', () => {
+      const findings = findingsFor(diffFor(TEST_FILE, [], [`${SKIP} // weakened-check-ok: flaky upstream, #1400`]));
+      const gaps = registryGaps(findings, BRANCH, new Set());
+      expect(gaps.map((gap) => gap.key)).toEqual([`${SLUG}::disabled-test-waived`]);
+      expect(formatReport(findings, gaps).exitCode).toBe(1);
+    });
+
+    it('never asks a registry row for a FAIL — that is a revert, not an exception', () => {
+      const findings = findingsFor(diffFor(TEST_FILE, [], [ONLY]));
+      expect(registryGaps(findings, BRANCH, new Set())).toEqual([]);
+    });
+
+    it('keeps the prohibited-relaxation headline when a FAIL and a gap coincide', () => {
+      const findings = findingsFor([
+        diffFor('.fallowrc.jsonc', ['"a": 1'], ['"a": 2']),
+        diffFor(TEST_FILE, [], [ONLY]),
+      ].join('\n'));
+      const report = formatReport(findings, registryGaps(findings, BRANCH, new Set()));
+      expect(report.text).toContain('failed (1 prohibited relaxation(s))');
+      expect(report.text).toContain('Fix the code, not the check.');
+      expect(report.exitCode).toBe(1);
+    });
   });
 });

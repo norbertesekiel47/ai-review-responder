@@ -475,9 +475,11 @@ const NOT_DOC_READING: Record<string, string> = {
   // findings' detail text.
   'scripts/ci/__tests__/static-policy-audit.test.ts':
     'scans source STRINGS; doc names sit in finding detail text',
-  // Builds synthetic diffs in memory; the doc paths are diff headers.
+  // Builds synthetic diffs and registry markdown in memory; the doc paths are
+  // diff headers and the verifier-exceptions registry is passed in as a STRING
+  // (only main() opens the real file).
   'scripts/ci/__tests__/weakened-checks-audit.test.ts':
-    'doc paths are synthetic DIFF headers; reads no file',
+    'doc paths are synthetic DIFF headers and registry STRINGS; reads no file',
   // --- deferred on COST (these DO read repo docs) --------------------------
   // Reads docs/reviews/red-team/**/findings.json fixtures committed in-repo
   // and .agents|.claude/skills/red-team/SKILL.md. Measured at 71s standalone —
