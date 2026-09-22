@@ -4,14 +4,20 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LIVE_DB_LOCK_KEY } from '../../src/lib/shared/__tests__/helpers/live-db-lock';
-import { TENANT_TABLES } from './tenant-tables';
+import { RLS_REQUIRED_TABLES } from './rls-tables';
 
 export interface RlsRow {
   relname: string;
   relrowsecurity: boolean;
 }
 
-export const REQUIRED_RLS_TABLES = TENANT_TABLES;
+/**
+ * The tables this audit requires RLS on. Owned by `./rls-tables.ts` since
+ * #1300 — deliberately NOT `TENANT_TABLES`, so "must carry RLS" and "is
+ * tenant-scope audited" can be answered independently. That file's header
+ * carries the reasoning.
+ */
+export const REQUIRED_RLS_TABLES = RLS_REQUIRED_TABLES;
 
 export function findRlsFailures(
   rows: RlsRow[],
@@ -30,7 +36,7 @@ export function findRlsFailures(
 const MIGRATIONS_DIR = resolve(process.cwd(), 'supabase/migrations');
 
 const ENABLE_RLS_RE =
-  /ALTER\s+TABLE\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/gi;
+  /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/gi;
 
 /**
  * Tables that receive `ENABLE ROW LEVEL SECURITY` anywhere in the given
@@ -70,9 +76,242 @@ export function findRlsCoverageFailures(
 }
 
 export function readMigrationsSql(dir: string = MIGRATIONS_DIR): string[] {
+  // Sorted: the deny-all guard REPLAYS policy creates and drops in migration
+  // order, and readdirSync's order is filesystem-defined, not lexical.
   return readdirSync(dir)
     .filter((file) => file.endsWith('.sql'))
+    .sort()
     .map((file) => readFileSync(join(dir, file), 'utf8'));
+}
+
+// ---------------------------------------------------------------------------
+// Deny-all recurrence guard (#1300).
+//
+// A "deny-all" table is RLS-on with ZERO policies. RLS filters ROWS; it removes
+// no TABLE PRIVILEGE, so a deny-all table that still carries the Supabase
+// default `anon`/`authenticated` grants stays on the PostgREST surface, and any
+// policy later added to it opens it instantly because the grant was never
+// taken away. Migration 122 (#1176) swept the twenty that existed and removed
+// TRUNCATE/REFERENCES/TRIGGER/MAINTAIN from the default privileges — but
+// SELECT, INSERT, UPDATE and DELETE stay in those defaults, so the gap comes
+// straight back on the NEXT deny-all table. This guard is what stops that.
+//
+// WHY STATIC AND NOT LIVE. The obvious check is `has_table_privilege` for
+// `anon`/`authenticated` against the test database. It would pass vacuously:
+// `scripts/ci/test-db-bootstrap.sql` creates the three Supabase roles and
+// grants them `USAGE ON SCHEMA public`, and nothing else — the container never
+// reproduces Supabase's default TABLE privileges, so no grant ever exists there
+// to detect. Reading the checked-in migrations is the only place the guard can
+// actually fire, and it needs no database, so it runs in CI's `lint` job.
+//
+// WHAT IT ACCEPTS as the revoke. Exactly the shape migrations 117-120 and 122
+// use: `REVOKE ALL ON <tables> FROM <roles>` naming BOTH `anon` and
+// `authenticated`. Deliberately narrow — a partial revoke would need this
+// guard to model which privileges matter, and the repo has one spelling.
+
+/**
+ * Removes SQL comments so the scanners below never read a `REVOKE` or
+ * `CREATE POLICY` out of prose. RepWorth's migration headers quote their own
+ * statements (migration 120's header contains the literal
+ * `REVOKE ALL ... FROM anon, authenticated`), so this is load-bearing rather
+ * than hygiene.
+ *
+ * Lexes the four states Postgres does: line comment, block comment (nestable),
+ * single-quoted string, and dollar-quoted body. Comments ARE recognised inside
+ * a dollar-quoted body (that is how PL/pgSQL is parsed) and are NOT recognised
+ * inside a single-quoted string.
+ */
+export function stripSqlComments(sql: string): string {
+  let out = '';
+  let i = 0;
+  let dollarTag: string | null = null;
+
+  while (i < sql.length) {
+    if (dollarTag && sql.startsWith(dollarTag, i)) {
+      out += ' ';
+      i += dollarTag.length;
+      dollarTag = null;
+      continue;
+    }
+    if (sql.startsWith('--', i)) {
+      const end = sql.indexOf('\n', i);
+      i = end === -1 ? sql.length : end;
+      out += ' ';
+      continue;
+    }
+    if (sql.startsWith('/*', i)) {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.startsWith('/*', i)) { depth += 1; i += 2; continue; }
+        if (sql.startsWith('*/', i)) { depth -= 1; i += 2; continue; }
+        i += 1;
+      }
+      out += ' ';
+      continue;
+    }
+    if (sql[i] === "'") {
+      const start = i;
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") { i += 2; continue; }
+        if (sql[i] === "'") { i += 1; break; }
+        i += 1;
+      }
+      out += sql.slice(start, i);
+      continue;
+    }
+    if (!dollarTag && sql[i] === '$') {
+      const tag = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+      if (tag) {
+        dollarTag = tag[0];
+        out += ' ';
+        i += tag[0].length;
+        continue;
+      }
+    }
+    out += sql[i];
+    i += 1;
+  }
+  return out;
+}
+
+const DISABLE_RLS_RE =
+  /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s+DISABLE\s+ROW\s+LEVEL\s+SECURITY/gi;
+
+const DROP_TABLE_RE =
+  /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?((?:\s*(?:public\.)?"?[a-z_][a-z0-9_]*"?\s*,?)+?)\s*(?:CASCADE|RESTRICT)?\s*;/gi;
+
+const CREATE_POLICY_RE =
+  /CREATE\s+POLICY\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+ON\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+
+const DROP_POLICY_RE =
+  /DROP\s+POLICY\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+ON\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+
+/**
+ * `REVOKE ALL [PRIVILEGES] ON <table list> FROM <role list>;`. The negative
+ * lookahead excludes `ON ALL TABLES IN SCHEMA …`, whose first token would
+ * otherwise parse as a table named `ALL`.
+ *
+ * The trailing `;` is required, and that fails CLOSED: an unterminated revoke
+ * is simply not seen, so its table stays flagged rather than silently excused.
+ * `DROP_TABLE_RE` above requires one for the same reason.
+ */
+const REVOKE_ALL_RE =
+  /REVOKE\s+ALL(?:\s+PRIVILEGES)?\s+ON\s+(?!ALL\s+TABLES\b)((?:\s*(?:public\.)?"?[a-z_][a-z0-9_]*"?\s*,?)+?)\s*FROM\s+([^;]+);/gi;
+
+/**
+ * A revoke counts only when BOTH client roles are named. Word-boundary
+ * matched, so `service_role` never satisfies `anon` and a role list is read
+ * however it is spaced.
+ */
+const CLIENT_ROLE_PATTERNS = [/\banon\b/, /\bauthenticated\b/] as const;
+
+export interface TableRlsPosture {
+  rlsEnabled: boolean;
+  policies: Set<string>;
+  clientRolesRevoked: boolean;
+}
+
+interface OrderedEvent {
+  order: number;
+  apply: (posture: Map<string, TableRlsPosture>) => void;
+}
+
+/** `public."a", b , c` → `['a', 'b', 'c']`. */
+function splitTableList(list: string): string[] {
+  return list
+    .split(',')
+    .map((t) => t.trim().replace(/^public\./i, '').replace(/"/g, '').toLowerCase())
+    .filter(Boolean);
+}
+
+function postureFor(posture: Map<string, TableRlsPosture>, table: string): TableRlsPosture {
+  let entry = posture.get(table);
+  if (!entry) {
+    entry = { rlsEnabled: false, policies: new Set(), clientRolesRevoked: false };
+    posture.set(table, entry);
+  }
+  return entry;
+}
+
+/**
+ * Replays every RLS-relevant statement in the given migrations, in order, and
+ * returns the resulting per-table posture.
+ *
+ * ORDER MATTERS, which is why this replays rather than counting. Seven
+ * migrations use the idempotent `DROP POLICY IF EXISTS …; CREATE POLICY …`
+ * re-create pattern; a presence-only policy count would read those drops as
+ * policy REMOVALS (or ignore them and miss a real drop). Replaying by policy
+ * NAME gets both right.
+ */
+export function analyzeRlsPosture(
+  migrationsSql: readonly string[],
+): Map<string, TableRlsPosture> {
+  const posture = new Map<string, TableRlsPosture>();
+
+  for (const raw of migrationsSql) {
+    const sql = stripSqlComments(raw);
+    const events: OrderedEvent[] = [];
+
+    for (const m of sql.matchAll(ENABLE_RLS_RE)) {
+      const table = m[1]?.toLowerCase();
+      if (table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).rlsEnabled = true; } });
+    }
+    for (const m of sql.matchAll(DISABLE_RLS_RE)) {
+      const table = m[1]?.toLowerCase();
+      if (table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).rlsEnabled = false; } });
+    }
+    // A dropped table takes its posture with it — otherwise a deny-all table
+    // removed by a later migration would fail this guard forever (migration
+    // 061 dropped two such tables).
+    for (const m of sql.matchAll(DROP_TABLE_RE)) {
+      for (const table of splitTableList(m[1] ?? '')) {
+        events.push({ order: m.index, apply: (p) => { p.delete(table); } });
+      }
+    }
+    for (const m of sql.matchAll(CREATE_POLICY_RE)) {
+      const name = m[1] ?? m[2];
+      const table = m[3]?.toLowerCase();
+      if (name && table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).policies.add(name); } });
+    }
+    for (const m of sql.matchAll(DROP_POLICY_RE)) {
+      const name = m[1] ?? m[2];
+      const table = m[3]?.toLowerCase();
+      if (name && table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).policies.delete(name); } });
+    }
+    for (const m of sql.matchAll(REVOKE_ALL_RE)) {
+      const roles = (m[2] ?? '').toLowerCase();
+      if (!CLIENT_ROLE_PATTERNS.every((pattern) => pattern.test(roles))) continue;
+      for (const table of splitTableList(m[1] ?? '')) {
+        events.push({ order: m.index, apply: (p) => { postureFor(p, table).clientRolesRevoked = true; } });
+      }
+    }
+
+    events.sort((a, b) => a.order - b.order);
+    for (const event of events) event.apply(posture);
+  }
+
+  return posture;
+}
+
+/**
+ * Deny-all tables (RLS on, zero policies) with no `REVOKE ALL … FROM anon,
+ * authenticated` in any migration. Covers EVERY table the migrations create,
+ * not only the registry: the failure mode #1300 names is a NEW table landing
+ * deny-all, and a new table is exactly the one nobody has added to a list yet.
+ */
+export function findDenyAllRevokeFailures(
+  posture: ReadonlyMap<string, TableRlsPosture>,
+): string[] {
+  return [...posture.entries()]
+    .filter(([, entry]) => entry.rlsEnabled && entry.policies.size === 0 && !entry.clientRolesRevoked)
+    .map(([table]) => table)
+    .sort()
+    .map(
+      (table) =>
+        `${table} is deny-all (RLS on, zero policies) with no REVOKE ALL ON ${table} FROM anon, authenticated in any migration`,
+    );
 }
 
 function reportFailures(label: string, failures: readonly string[]): void {
@@ -214,24 +453,37 @@ async function auditLiveRls(databaseUrl: string): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
+  const migrationsSql = readMigrationsSql();
+
   // 1. Static coverage gate — DB-free and the authoritative CI check. Every
-  //    TENANT_TABLES entry must enable RLS in some migration.
-  const coverageFailures = findRlsCoverageFailures(
-    collectRlsEnabledTables(readMigrationsSql()),
-  );
+  //    RLS_REQUIRED_TABLES entry must enable RLS in some migration.
+  const coverageFailures = findRlsCoverageFailures(collectRlsEnabledTables(migrationsSql));
   if (coverageFailures.length > 0) {
     reportFailures('static RLS coverage', coverageFailures);
     process.exitCode = 1;
     return;
   }
   console.log(
-    `rls-audit: static coverage passed (${REQUIRED_RLS_TABLES.length} tenant tables enable RLS in migrations)`,
+    `rls-audit: static coverage passed (${REQUIRED_RLS_TABLES.length} registered tables enable RLS in migrations)`,
   );
 
-  // 2. Live relrowsecurity check — only when an explicit test database is set.
+  // 2. Deny-all recurrence guard — also DB-free, and for the reason in the
+  //    section header it CANNOT be a live check: the test container never
+  //    carries Supabase's default client-role grants.
+  const denyAllFailures = findDenyAllRevokeFailures(analyzeRlsPosture(migrationsSql));
+  if (denyAllFailures.length > 0) {
+    reportFailures('deny-all client-role revoke', denyAllFailures);
+    process.exitCode = 1;
+    return;
+  }
+  console.log('rls-audit: deny-all client-role revoke guard passed');
+
+  // 3. Live relrowsecurity check — only when an explicit test database is set.
   //    We require TEST_DATABASE_POOL_URL (not the always-present DATABASE_POOL_URL
   //    placeholder) so CI runs the static gate without attempting a connection.
-  //    The gate above already fails closed, so this path can never silently pass.
+  //    The gates above already fail closed, so this path can never silently pass.
+  //    It is also the only arm that sees a STALE registry entry: a table dropped
+  //    from the schema still has its ENABLE RLS in the migration that made it.
   const databaseUrl = process.env.TEST_DATABASE_POOL_URL;
   if (!databaseUrl) {
     console.log(
