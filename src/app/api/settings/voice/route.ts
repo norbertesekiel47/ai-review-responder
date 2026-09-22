@@ -15,6 +15,7 @@ import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import { jsonResponse, requireOwnerWithAccount, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { isValidUuid } from '@/lib/shared/ids';
 import {
   readVoiceConfig,
   updateVoiceConfig,
@@ -41,6 +42,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // display label is the one genuine difference and it is a different concern
   // (`getDisplayLabel`), so it is read on its own, account-scoped the same way.
   if (locationId) {
+    // #1362: a malformed id reached `${locationId}::uuid` in the reader and
+    // surfaced as a 22P02 500. Refuse it before the first query, as a 400.
+    if (!isValidUuid(locationId)) {
+      return jsonResponse({ error: 'Invalid location ID' }, 400);
+    }
+
     const voice = await readVoiceConfig(sql, {
       accountId: owner.accountId,
       locationId,

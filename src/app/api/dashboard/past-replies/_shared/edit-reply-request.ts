@@ -28,6 +28,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
+import { isValidUuid } from '@/lib/shared/ids';
 import { mapEditReplyError } from './edit-reply-errors';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 
@@ -96,6 +97,16 @@ export async function authorizeEditReplyResponse(
   responseId: string,
   scope: { accountId: string; locationId: string },
 ): Promise<EditReplyGuard<{ reviewId: string }>> {
+  // #1362: the `[responseId]` param reached `WHERE id = ${responseId}` and a
+  // malformed value surfaced as a 22P02 500 on retry, restore-original and
+  // draft PATCH (publish already validates its body id with z.uuid()).
+  if (!isValidUuid(responseId)) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'invalid_response_id' }, { status: 400 }),
+    };
+  }
+
   const responseRows = await sql<{ review_id: string }[]>`
     SELECT review_id FROM responses
     WHERE id = ${responseId} AND business_id = ${scope.locationId}

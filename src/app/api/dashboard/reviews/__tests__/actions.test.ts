@@ -118,7 +118,9 @@ function installSessionClaimSimulators() {
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
 const _OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
 const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
-const REVIEW_ID = 'rev-001';
+// A real UUID: runDashboardReviewAction refuses anything else with a 400
+// before its first query (#1362).
+const REVIEW_ID = 'c0000000-0000-4000-8000-000000000001';
 const RESPONSE_ID = 'resp-001';
 const APP_URL = 'http://localhost:3000';
 
@@ -782,5 +784,47 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     );
 
     expect(res.status).toBe(409);
+  });
+});
+
+// ── #1362: a malformed reviewId is a 400, never a 22P02 500 ─────────
+
+describe('malformed reviewId on the session action routes (#1362)', () => {
+  const routes = {
+    approve: () => import('../[reviewId]/approve/route'),
+    edit: () => import('../[reviewId]/edit/route'),
+    regenerate: () => import('../[reviewId]/regenerate/route'),
+  } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installSessionClaimSimulators();
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    sqlQueryTexts.length = 0;
+    mockBeginCallback.fn = null;
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+    mockRequireRole.mockResolvedValue(ownerUser());
+  });
+
+  it.each([
+    ['approve', undefined],
+    ['edit', { editedText: 'Thanks for the review!' }],
+    ['regenerate', undefined],
+  ] as const)('POST /%s returns no-store 400 before any query', async (actionName, body) => {
+    const { POST } = await routes[actionName]();
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/not-a-uuid/${actionName}`, body),
+      makeParams('not-a-uuid'),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid review ID' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(sqlCallCounter.value).toBe(0);
+    expect(mockBeginCallback.fn).toBeNull();
+    expect(mockApproveBySession).not.toHaveBeenCalled();
+    expect(mockEditBySession).not.toHaveBeenCalled();
+    expect(mockRegenerateBySession).not.toHaveBeenCalled();
   });
 });
