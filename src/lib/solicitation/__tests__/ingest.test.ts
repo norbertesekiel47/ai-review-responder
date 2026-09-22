@@ -108,6 +108,22 @@ const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
  * a string or regex literal is treated as a comment. That can only ever hide
  * text AFTER the `//` on that line; it never drops code that follows a `*\/`
  * or a line that opens with `*`, which is the failure mode that mattered.
+ *
+ * A SEPARATE, wider case (RT16-12): a string or regex literal holding `/*`
+ * (`const marker = '/*';`) is indistinguishable to this regex from a real
+ * block comment opening, so it starts consuming there and blanks every
+ * character — across as many lines as it takes — up to the NEXT `*\/`
+ * anywhere later in the file, real or itself inside a literal. That span can
+ * swallow genuine code, including a `csv_ingest_` respelling this guard
+ * exists to catch. No file in `LANE_ROOTS` does this today (`laneFilesBuildingTheLockKey`'s
+ * own scan would otherwise be a false negative for the widened span, not just
+ * a false positive for the marker itself, which is the more dangerous
+ * direction and the reason this is called out rather than left to the `//`
+ * sentence above). Accepted, not fixed: turning this into a real tokenizer is
+ * a bigger change than a source-scanning guard test warrants; the smaller
+ * correct fix is disclosing the failure mode plus a test that pins the exact
+ * shape of it (below), so a future change to this function has to notice the
+ * case it must not regress.
  * Comments are replaced space-for-space so line and column positions survive.
  */
 function stripComments(source: string): string {
@@ -115,6 +131,30 @@ function stripComments(source: string): string {
     comment.replace(/[^\n]/g, ' '),
   );
 }
+
+// Pins the disclosed multi-line failure mode (RT16-12), so a future change to
+// `stripComments` has to notice the case it must not silently regress.
+describe('stripComments', () => {
+  it('blanks a real multi-line span — including genuine code — when a string literal holds a bare /*', () => {
+    const source = [
+      "const marker = '/*';",
+      "const hidden = 'csv_ingest_' + id; // swallowed: inside the fake block comment",
+      '/* actual comment closes it */',
+      "const visible = 'csv_ingest_' + id2; // after the real close, unaffected",
+    ].join('\n');
+
+    const stripped = stripComments(source);
+
+    // The fake `/*` on line 1 is indistinguishable from a real one to this
+    // regex, so everything through the NEXT real `*/` on line 3 — including
+    // line 2's genuine csv_ingest_ construction — is blanked: a false
+    // negative for the very guard this file exists to run.
+    expect(stripped).not.toContain("hidden = 'csv_ingest_'");
+    // Code after the real close is unaffected — the span is bounded, not a
+    // total blackout for the rest of the file.
+    expect(stripped).toContain("visible = 'csv_ingest_'");
+  });
+});
 
 function* walkLaneSources(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
