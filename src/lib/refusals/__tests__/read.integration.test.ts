@@ -6,6 +6,12 @@
 // later tracers: the two archived-location footnote titles are T3's, and the
 // two archived-period titles are T4's. Never delete one to match a pass count.
 //
+// THREE TITLES BELOW ARE #1081's AND ARE NOT IN THAT LIST — the tie-order case,
+// the `windowEnd` bound on the archival-event read, and the shape pin for
+// migration 123's `account_audit_log` index. They are ADDITIONS, so #1014's 22
+// still resolve verbatim; they are named here so a later reader does not go
+// looking for them in an intake that predates them.
+//
 // WHY THE LIVE-DB LANE. `getRefusalLog` is three sequential queries whose whole
 // contract is scoping, ordering and bounds against real rows: the account /
 // location scope predicate, the account-wide suspension that must appear once
@@ -62,8 +68,23 @@ const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
   tables: ['refusal_events'],
   indexes: [
     'idx_refusal_events_archival',
-    'idx_refusal_events_account_window',
     'refusal_events_subject_uniq',
+  ],
+};
+
+/**
+ * Migration 123 (#1081). It SUPERSEDED 116's `idx_refusal_events_account_window`
+ * with a covering, fully-ordered replacement, and gave `account_audit_log` the
+ * per-location index the archived-period read never had. Asserted as its OWN
+ * requirement rather than folded into 116's: a database carrying the 116 index
+ * and not these is BEHIND head, and the failure must name the migration that
+ * fixes it.
+ */
+const MIGRATION_123_REFUSAL_READ_INDEXES: SchemaRequirement = {
+  migration: '123_refusal_read_indexes',
+  indexes: [
+    'idx_refusal_events_account_window_covering',
+    'idx_account_audit_location_window',
   ],
 };
 
@@ -174,6 +195,12 @@ async function seedArchivalEvent(
 }
 
 interface SeedRefusalInput {
+  /**
+   * Overrides the minted row id. Only the tie case needs it, and it needs it
+   * for one reason: the `id DESC` tiebreak can only be PROVEN by a fixture
+   * whose insert order is the OPPOSITE of the order the read must return.
+   */
+  id?: string;
   accountId: string;
   /** null denotes an account-wide lane (C3). */
   businessId: string | null;
@@ -193,7 +220,7 @@ interface SeedRefusalInput {
  * than producing a row the read then reports on.
  */
 async function seedRefusal(input: SeedRefusalInput): Promise<string> {
-  const id = randomUUID();
+  const id = input.id ?? randomUUID();
   const source: RefusalSource = input.source
     ?? (input.businessId === null ? 'autonomy_suspended' : 'held_draft');
 
@@ -261,7 +288,7 @@ describeWithDb(
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
-      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS]);
+      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS, MIGRATION_123_REFUSAL_READ_INDEXES]);
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterEach(async () => {
@@ -589,6 +616,82 @@ describeWithDb(
       expect(times[0]).toBe(base - 60_000);
     });
 
+    it('breaks an occurred_at tie on id DESC, so rows sharing one decision time order deterministically', async () => {
+      // THE TIE IS THE WRITER'S NORMAL CASE, not an edge one. A solicitation
+      // build writes every Refusal it proposes in ONE statement sharing ONE
+      // `Date` — up to 5,000 of them — so `occurred_at` collides by design, and
+      // `, r.id DESC` is the only thing standing between the tab and a list
+      // that reshuffles between two renders of the same window. Before #1081
+      // nothing here tied two `occurred_at` values, so deleting the tiebreak
+      // left all 139 blocks green.
+      //
+      // THE SCANS ARE TURNED OFF, AND THAT IS THE WHOLE TEST. Migration 123 put
+      // `id DESC` in the index key, so a plan that USES that index emits the
+      // tie in the right order whether or not the query asks for it — a fixture
+      // measured against the default plan therefore passes with the tiebreak
+      // DELETED, which was verified on this branch before this comment was
+      // written. What must be pinned is the CLAUSE, so the read runs on a
+      // connection where the only available plan is a Seq Scan feeding a Sort:
+      // a sort keyed on `occurred_at` alone has nothing to order the tie by.
+      // The settings ride a DEDICATED `max: 1` client that is ended in the same
+      // case, because a `SET` on the shared pooled handle would leak to whatever
+      // ran next and `sql.begin`'s `TransactionSql` is not a `Sql`, which is
+      // what `getRefusalLog` takes. They are planner GUCs, never DDL, so
+      // `ci:live-db-suites` R2 is untouched.
+      //
+      // The ids are seeded ASCENDING for the same reason: an unstable sort over
+      // twelve equal keys emits them in some order that is not the one it was
+      // asked for, and ascending input makes the most likely wrong answer the
+      // exact reverse of the assertion.
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const sharedOccurredAt = new Date(Date.now() - 5 * 60_000);
+      const ids = Array.from({ length: 12 }, () => randomUUID()).sort();
+
+      for (const id of ids) {
+        await seedRefusal({
+          id, accountId, businessId, category: 'unsafe_content',
+          occurredAt: sharedOccurredAt, subjectId: randomUUID(),
+        });
+      }
+
+      // uuid ordering in Postgres is bytewise over the same lowercase hex these
+      // ids are spelled in, so a descending string sort IS the expected order.
+      const expected = [...ids].reverse();
+
+      const sortOnly = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl), {
+        max: 1,
+        prepare: false,
+        connection: { statement_timeout: 30_000 },
+      });
+      try {
+        await sortOnly`SET enable_indexscan = off`;
+        await sortOnly`SET enable_indexonlyscan = off`;
+        await sortOnly`SET enable_bitmapscan = off`;
+
+        const log = await getRefusalLog(sortOnly, { kind: 'account', accountId }, '30d');
+        const location = await getRefusalLog(
+          sortOnly,
+          { kind: 'location', accountId, businessId },
+          '30d',
+        );
+
+        expect(log.entries.map((entry) => entry.occurredAt))
+          .toEqual(Array(ids.length).fill(sharedOccurredAt.toISOString()));
+        expect(log.entries.map((entry) => entry.id)).toEqual(expected);
+        // BOTH ARMS carry the tiebreak; a fixture that only proved the account
+        // arm would leave the location arm's copy free to lose it.
+        expect(location.entries.map((entry) => entry.id)).toEqual(expected);
+      } finally {
+        await sortOnly.end({ timeout: 5 });
+      }
+
+      // And once more on the ordinary pooled handle, so the guarantee is pinned
+      // for the plan an owner actually gets rather than only for the crippled
+      // one.
+      const served = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      expect(served.entries.map((entry) => entry.id)).toEqual(expected);
+    });
+
     it('returns an empty log without error when refusal_events holds no rows', async () => {
       const { accountId } = await seedAccountWithLocation();
 
@@ -910,6 +1013,53 @@ describeWithDb(
       // location's gaps, and an account view is not showing one location.
       const account = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
       expect(account.archivedPeriods).toEqual([]);
+    });
+
+    it('bounds the archival-event read at windowEnd, so an event after the window neither closes a period nor spends a slot', async () => {
+      // THE ONLY QUERY IN THE MODULE THAT DID NOT BIND ITS UPPER EDGE (#1081),
+      // against the rule the entry query states in this same file. It matters
+      // twice. Correctness: `pairArchivedPeriods` renders whatever reactivation
+      // it is handed, so an event dated after `windowEnd` closed a period the
+      // window must show as STILL OPEN — the tab printing a range and then
+      // answering outside it. Budget: the read is `ORDER BY created_at DESC`
+      // `LIMIT ARCHIVAL_EVENT_LIMIT + 1`, so out-of-window rows are exactly the
+      // rows most able to push in-window ones out of the cut.
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const day = 24 * 60 * 60 * 1000;
+      await seedArchivalEvent(accountId, businessId, 'location_archived', new Date(Date.now() - 10 * day));
+      // AFTER `windowEnd`, which is `Date.now()` at the call below.
+      await seedArchivalEvent(accountId, businessId, 'location_reactivated', new Date(Date.now() + day));
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      expect(log.archivedPeriods).toHaveLength(1);
+      expect(log.archivedPeriods[0]?.reactivatedAt).toBeNull();
+      expect(log.archivedPeriodsTruncated).toBe(false);
+    });
+
+    it('serves the archival-event read from a partial per-location index rather than filtering location_id after the fact', async () => {
+      // Pinned HERE because `read.ts` is this index's only reader and
+      // `account_audit_log` has no migration suite of its own. Presence alone
+      // is already asserted by `MIGRATION_123_REFUSAL_READ_INDEXES`; what this
+      // case adds is the SHAPE, and every clause of it is load-bearing:
+      // `location_id` second makes it an index condition instead of a heap
+      // filter (#1081's second defect); `created_at DESC, id DESC` is the
+      // ORDER BY, so the LIMIT stops the scan rather than sorting the match
+      // set; the INCLUDE keeps the `event_type` filter inside the index; and
+      // the partial predicate — which `location_id = $2` implies — keeps every
+      // account-level row out of an index only a location read ever touches.
+      // A rebuild dropping any one of them still satisfies a presence check.
+      const [index] = await sql()<{ indexdef: string }[]>`
+        SELECT indexdef FROM pg_indexes
+         WHERE schemaname = 'public'
+           AND indexname = 'idx_account_audit_location_window'
+      `;
+
+      expect(index?.indexdef).toContain(
+        'ON public.account_audit_log USING btree (account_id, location_id, created_at DESC, id DESC) INCLUDE (event_type)',
+      );
+      expect(index?.indexdef).toContain('WHERE (location_id IS NOT NULL)');
+      expect(index?.indexdef).not.toContain('CREATE UNIQUE INDEX');
     });
 
     it('bounds the archival-event read and keeps the NEWEST events, not the oldest', async () => {

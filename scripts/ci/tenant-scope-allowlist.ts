@@ -1317,7 +1317,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_tier, subscription_status, price_variant, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid FOR UPDATE",
+    sqlSnippet: "SELECT id, subscription_tier, subscription_status, price_variant, stripe_subscription_id, locations_included, locations_overage_price_cents, base_price_cents FROM accounts WHERE id = ${account_id}::uuid FOR UPDATE",
     category: 'background-global-scan',
     reason: "Worker follows a durable job payload account id and reads the account only after the shared billing advisory lock; the scanner cannot establish that job ownership boundary.",
   },

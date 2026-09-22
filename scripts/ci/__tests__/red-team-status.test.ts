@@ -122,6 +122,7 @@ interface Sidecar {
   inventory: Record<string, unknown>[];
   findings: Record<string, unknown>[];
   authorizations: Record<string, unknown>[];
+  remeasurement?: Record<string, unknown>;
   counts: Record<string, number>;
   status: string;
 }
@@ -2256,5 +2257,524 @@ describe('Operator continuation evidence corroboration', () => {
     expect(result.stderr).not.toContain('Operator continuation');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('WAIVED');
+  });
+});
+
+// #1343. A type-only change has no vitest oracle at all, so no mutation could
+// ever resolve its row and `recomputeStatus` pinned INCOMPLETE_ORACLE forever —
+// a branch that added one could never reach CLEAR, however clean it was. What
+// `type_check` changes is that `inconclusive`/`oracle` now means "not
+// measured", not "not measurable"; the guard it may NOT dissolve is that an
+// unmeasured oracle row still pins the status, so that direction is pinned
+// first and hardest.
+describe('the tsc-measured inventory row', () => {
+  const SURVIVED = {
+    id: 'T1',
+    test: 'narrows claimResult to the three terminal states',
+    file: 'worker/jobs/OnboardingDemoWorker.ts',
+    outcome: 'survived-confirmed-P0',
+    finding_id: 'RT-009',
+    reason: 'nothing consumes the narrowing',
+    type_check: {
+      command: 'pnpm typecheck',
+      mutants: [
+        { mutation: "replace the predicate with `: boolean`", exit_code: 0, output_identical: true },
+        { mutation: 'drop `race_lost` from the declared type', exit_code: 0, output_identical: true },
+      ],
+    },
+  };
+  const FINDING = {
+    id: 'RT-009',
+    severity: 'P0',
+    title: 'the claimResult narrowing has no consumer',
+    at: 'worker/jobs/OnboardingDemoWorker.ts:211',
+    duty: 1,
+    disposition: 'fixed',
+    reason: 'the narrowing now drives the branch that reports the outcome',
+    arbiter_reasoning:
+      'both weakenings compile identically, so no consumer depends on the union; '
+      + 'the mutation is neither equivalent nor on an unexecuted branch',
+  };
+
+  // THE GUARD. Delete this and the whole mechanism becomes a way to declare
+  // CLEAR over an inventory that was never executed.
+  it('still pins INCOMPLETE_ORACLE for an oracle row that records no measurement', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        id: 'T0',
+        test: SURVIVED.test,
+        file: SURVIVED.file,
+        outcome: 'inconclusive',
+        inconclusive_class: 'oracle',
+        reason: 'no vitest oracle exists for a type-only change',
+      });
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'INCOMPLETE_ORACLE';
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('red-team status is INCOMPLETE_ORACLE');
+  });
+
+  it('refuses a type_check attached to an unmeasured inconclusive row', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        id: 'T0',
+        test: SURVIVED.test,
+        file: SURVIVED.file,
+        outcome: 'inconclusive',
+        inconclusive_class: 'oracle',
+        reason: 'no vitest oracle exists for a type-only change',
+        type_check: SURVIVED.type_check,
+      });
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'INCOMPLETE_ORACLE';
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('type_check belongs only on a killed or survived-confirmed-P0 row');
+  });
+
+  it('reaches CLEAR for a tsc-measured survivor whose finding is fixed', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({ ...SURVIVED });
+      sidecar.findings.push({ ...FINDING });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('status CLEAR');
+  });
+
+  it('refuses a survivor whose type checker reacted to every mutant', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        ...SURVIVED,
+        type_check: {
+          command: 'pnpm typecheck',
+          mutants: [
+            { ...SURVIVED.type_check.mutants[0], exit_code: 2, output_identical: false },
+            { ...SURVIVED.type_check.mutants[1], exit_code: 2, output_identical: false },
+          ],
+        },
+      });
+      sidecar.findings.push({ ...FINDING });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('needs at least one mutant the type checker did not');
+  });
+
+  it('refuses a killed row whose type checker ignored a mutant', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        id: 'T2',
+        test: SURVIVED.test,
+        file: SURVIVED.file,
+        outcome: 'killed',
+        reason: 'a type-only widening with no runtime surface; tsc is the only oracle',
+        type_check: {
+          command: 'pnpm typecheck',
+          mutants: [
+            { mutation: 'widen the parameter to string', exit_code: 2, output_identical: false },
+            { mutation: 'drop the readonly modifier', exit_code: 0, output_identical: true },
+          ],
+        },
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('needs the type checker to have reacted to EVERY mutant');
+  });
+
+  // The premise "tsc is this row's only oracle" is not derivable from the
+  // schema, so it has to be stated where a reviewer can disagree with it.
+  it('refuses a type_check row that never says why tsc is its only oracle', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      const { reason, ...rest } = SURVIVED;
+      void reason;
+      sidecar.inventory.push({ ...rest });
+      sidecar.findings.push({ ...FINDING });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must record why the type checker is its only oracle');
+  });
+
+  it.each([
+    ['one mutant', { command: 'pnpm typecheck', mutants: [SURVIVED.type_check.mutants[0]] },
+      'must record exactly 2 measured mutants'],
+    ['no command', { mutants: SURVIVED.type_check.mutants }, 'must name the type-check command'],
+    ['an unknown field', { ...SURVIVED.type_check, notes: 'extra' }, "unknown field 'notes'"],
+    ['a non-boolean identity claim', {
+      command: 'pnpm typecheck',
+      mutants: [
+        { ...SURVIVED.type_check.mutants[0], output_identical: 'yes' },
+        SURVIVED.type_check.mutants[1],
+      ],
+    }, 'output_identical must be a boolean'],
+  ])('refuses a type_check with %s', (_label, typeCheck, message) => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({ ...SURVIVED, type_check: typeCheck as Record<string, unknown> });
+      sidecar.findings.push({ ...FINDING });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(message);
+  });
+});
+
+// #1342. A finding raised in the last permitted round has no way to have its
+// OWN fix measured: the fix moves HEAD and the sidecar goes stale by
+// construction. The re-measurement round is the exit, and it is deliberately
+// NOT a fourth round — a prose rule was tried on #1340 and reverted because
+// RUN_C_FOURTH_TEXT contains the literal phrase "approve the scoped fourth
+// round". Every case here pins a bound, because a bounded exit that is not
+// bound is just the cap moved one notch.
+describe('the re-measurement round', () => {
+  const ROW = {
+    id: 'RM1',
+    test: 'rejects a claim once the row is terminal',
+    file: 'src/lib/thing/__tests__/thing.test.ts',
+    outcome: 'killed',
+  };
+  const FINDING = {
+    id: 'RT-010',
+    severity: 'P0',
+    title: 'the guard never executed',
+    at: 'src/thing.ts:1',
+    duty: 1,
+    disposition: 'fixed',
+    reason: 'the guard now runs on every path',
+    arbiter_reasoning: 'the mutant changed the returned value and no test noticed',
+  };
+
+  /**
+   * A branch that spent round 3, fixed the finding it raised, and re-measured.
+   *
+   * The commit order is the real one: the round-3 report lands, THEN the fix,
+   * THEN the re-measured report. `prior_commit` is the first of those, which is
+   * why it can be resolved out of history rather than asserted by the file.
+   */
+  function seedRemeasured(
+    patch: (sidecar: Sidecar) => void = () => {},
+    priorPatch: (sidecar: Sidecar) => void = () => {},
+    branch?: string,
+  ): { reportDir: string; priorCommit: string; fixHead: string } {
+    const { reportDir } = seedRepo({ intake: { risk: 'normal' }, branch });
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.round = 3;
+      sidecar.inventory.push({ ...ROW, outcome: 'survived-confirmed-P0', finding_id: FINDING.id });
+      sidecar.findings.push({ ...FINDING, disposition: 'open' });
+      sidecar.authorizations.push({
+        id: 'AUTH-3', date: '2026-09-21', finding_ids: [FINDING.id],
+        text: 'owner 2026-09-21: third round authorized',
+      });
+      priorPatch(sidecar);
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'OPEN_P0';
+    });
+    const priorCommit = git('rev-parse', 'HEAD');
+
+    write('src/thing.ts', 'export const thing = 3;\n');
+    git('add', 'src/thing.ts');
+    git('commit', '-qm', 'fix RT-010');
+    const fixHead = git('rev-parse', 'HEAD');
+
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.head_sha = fixHead;
+      sidecar.inventory[1] = { ...ROW };
+      sidecar.findings[0] = { ...FINDING };
+      sidecar.remeasurement = {
+        of_round: 3, at: fixHead, prior_commit: priorCommit,
+        fixes: [{ finding_id: FINDING.id, rows: [ROW.id] }],
+      } as unknown as Record<string, unknown>;
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'CLEAR';
+      patch(sidecar);
+    });
+    return { reportDir, priorCommit, fixHead };
+  }
+
+  it('reaches CLEAR when the last round\'s fix is re-measured at the new head', () => {
+    seedRemeasured();
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('status CLEAR');
+  });
+
+  // It opens exactly where the fresh-round cap closes. While a fresh round is
+  // still reachable, the fresh round is the stronger instrument.
+  it('refuses a re-measurement while a fresh round is still reachable', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.round = 1;
+      (sidecar.remeasurement as { of_round: number }).of_round = 1;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('belongs only to a run that has spent its last fresh round');
+  });
+
+  // The Run C fourth round is its own branch-pinned contract. A re-measurement
+  // block buys it nothing: the hard cap refuses the round before any of the
+  // rules above are reached, which is what keeps RUN_C_FOURTH_TEXT out of this
+  // mechanism entirely.
+  it('buys a round 4 nothing — the hard cap still refuses it', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.round = 4;
+      (sidecar.remeasurement as { of_round: number }).of_round = 4;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('round must be 1, 2, or an authorized 3 (hard cap)');
+  });
+
+  it('refuses a second re-measurement of the same raised finding', () => {
+    seedRemeasured((sidecar) => {
+      (sidecar.remeasurement as { fixes: unknown[] }).fixes.push({
+        finding_id: FINDING.id, rows: [ROW.id],
+      });
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('one re-measurement per raised finding');
+  });
+
+  it('refuses a new adversarial front — a row no fix names', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.inventory.push({
+        id: 'RM-NEW', test: 'an unrelated assertion', file: ROW.file, outcome: 'killed',
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("inventory row 'RM-NEW' is new but no fix names it");
+  });
+
+  it('refuses a silent rewrite of a row the prior round measured', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.inventory[0] = { ...KILLED_ROW, outcome: 'excluded', reason: 'rewritten after the fact' };
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('changed but no fix names it');
+  });
+
+  it('refuses a finding the re-measurement round raised and then fixed', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.inventory[1] = { ...ROW, outcome: 'survived-confirmed-P0', finding_id: 'RT-012' };
+      sidecar.findings.push({
+        id: 'RT-012', severity: 'P0', title: 'the fix was only half a fix',
+        at: 'src/thing.ts:2', duty: 1, disposition: 'fixed',
+        reason: 'corrected in the same pass',
+        arbiter_reasoning: 'the second branch was never restored',
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('no further round can measure it');
+  });
+
+  it('refuses a finding that the round being re-measured never raised', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.findings.push({
+        id: 'RT-099', severity: 'P1', title: 'invented after the fact',
+        at: 'src/thing.ts:3', duty: 2, disposition: 'rejected', reason: 'not a defect',
+      });
+      (sidecar.remeasurement as { fixes: unknown[] }).fixes.push({
+        finding_id: 'RT-099', rows: [ROW.id],
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('is claimed by more than one fix');
+  });
+
+  // A blob can be conjured with `git hash-object -w`, so the prior report is
+  // addressed by COMMIT — and the commit has to be in this branch's own
+  // history, not merely reachable from somewhere in the object database.
+  it("refuses a prior_commit outside this branch's history", () => {
+    const { reportDir, priorCommit } = seedRemeasured();
+    const branch = git('branch', '--show-current');
+    git('checkout', '-q', '-b', 'side', priorCommit);
+    write('src/side.ts', 'export const side = 1;\n');
+    git('add', 'src/side.ts');
+    git('commit', '-qm', 'a report that never reached this branch');
+    const sideCommit = git('rev-parse', 'HEAD');
+    git('checkout', '-q', branch);
+    rewriteSidecar(reportDir, (sidecar) => {
+      (sidecar.remeasurement as { prior_commit: string }).prior_commit = sideCommit;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('is not an ancestor of HEAD');
+  });
+
+  it('refuses a prior_commit that resolves to no commit at all', () => {
+    const { reportDir } = seedRemeasured();
+    rewriteSidecar(reportDir, (sidecar) => {
+      (sidecar.remeasurement as { prior_commit: string }).prior_commit = 'b'.repeat(40);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('does not carry a readable');
+  });
+
+  it('refuses a re-measurement whose head never moved', () => {
+    const { reportDir, priorCommit } = seedRemeasured();
+    const priorHead = JSON.parse(
+      spawnSync('git', ['show', `${priorCommit}:${reportDir}/findings.json`], {
+        cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV,
+      }).stdout,
+    ).head_sha as string;
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.head_sha = priorHead;
+      (sidecar.remeasurement as { at: string }).at = priorHead;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('nothing was fixed, so there is nothing to re-measure');
+  });
+
+  // Naming a row exempts it from the byte-identity rule, so naming one and not
+  // measuring it is how an inventory row would get laundered through the round.
+  it('refuses a named row that ends deliberately unmeasured', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.inventory[1] = {
+        ...ROW, outcome: 'excluded', reason: 'decided out of scope after the fix',
+      };
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a re-measurement round MEASURES every row it names');
+  });
+
+  // A row the prior round left unmeasured is unmeasured INVENTORY, and
+  // measuring it is round work — a new front wearing a fix's name.
+  it('refuses picking up inventory the round being re-measured left alone', () => {
+    const skipped = {
+      id: 'RM-SKIP', test: 'never reached the clock', file: ROW.file, outcome: 'skipped-budget',
+    };
+    seedRemeasured(
+      (sidecar) => {
+        sidecar.inventory[2] = { ...skipped, outcome: 'killed' };
+        (sidecar.remeasurement as { fixes: { rows: string[] }[] }).fixes[0]!.rows = [
+          ROW.id, skipped.id,
+        ];
+        sidecar.counts = countsFor(sidecar);
+      },
+      (prior) => { prior.inventory.push({ ...skipped }); },
+    );
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('it does not pick up inventory the round left alone');
+  });
+
+  // A re-measurement round adjudicates what it re-measured. Flipping an
+  // unrelated finding to rejected or accepted-risk under cover of the round is
+  // exactly the laundering this bound exists to stop.
+  it('refuses a silent disposition change on a finding no fix names', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.findings[0] = {
+        ...FINDING, disposition: 'rejected', reason: 'reconsidered, not a defect',
+      };
+      (sidecar.remeasurement as { fixes: { finding_id: string }[] }).fixes[0]!.finding_id = 'RT-020';
+      sidecar.findings.push({
+        id: 'RT-020', severity: 'P1', title: 'a second raised finding',
+        at: 'src/thing.ts:9', duty: 2, disposition: 'fixed', reason: 'fixed in the same pass',
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("finding 'RT-010' changed but no fix names it");
+  });
+
+  // THE BOUND THAT ONLY THE CHECKER CAN HOLD. `remeasure-start` refuses to OPEN
+  // a second one, but the journal is scratch and gone by the time the checker
+  // runs, and nothing stops a sidecar being hand-authored. Reading one hop back
+  // would let a chain — each link naming the last as its prior — raise a
+  // finding, fix it in the next link, and repeat, with `round` never moving.
+  it('refuses a chain — the prior report may not itself be a re-measurement', () => {
+    const { reportDir, fixHead } = seedRemeasured();
+    const firstRemeasurement = git('rev-parse', 'HEAD');
+    write('src/thing.ts', 'export const thing = 4;\n');
+    git('add', 'src/thing.ts');
+    git('commit', '-qm', 'fix what the re-measurement raised');
+    const secondHead = git('rev-parse', 'HEAD');
+    void fixHead;
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.head_sha = secondHead;
+      sidecar.remeasurement = {
+        of_round: 3, at: secondHead, prior_commit: firstRemeasurement,
+        fixes: [{ finding_id: FINDING.id, rows: [ROW.id] }],
+      } as unknown as Record<string, unknown>;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('the prior report is itself a re-measurement');
+  });
+
+  // The runner refuses to open one on these branches, and the checker holds the
+  // same line without it — a sidecar can never claim a round the runner would
+  // have refused, and the journal that recorded the refusal is long gone. Run E
+  // and the Operator continuation are refused EARLIER, by their own pinned
+  // proofs, which is why only these two reach this rule.
+  it.each(['codex/owner-operator-run-d', 'codex/owner-operator-run-c'])(
+    'refuses a hand-authored re-measurement on %s', (branch) => {
+      seedRemeasured(() => {}, () => {}, branch);
+      const result = check();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('admits no re-measurement round');
+    },
+  );
+
+  // Run E is refused by its own pinned proof before this rule is reached, and
+  // the Operator continuation refuses before the report path is even derivable
+  // — which is why neither needs this one. Run E is pinned here anyway, because
+  // "something else already refuses it" is a claim worth re-measuring.
+  it('refuses a hand-authored re-measurement on the Run E branch', () => {
+    seedRemeasured(() => {}, () => {}, 'codex/owner-operator-run-e');
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('grants round 2 only');
+  });
+
+  it('refuses a hand-authored re-measurement while an unspent third round is granted', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.round = 2;
+      (sidecar.remeasurement as { of_round: number }).of_round = 2;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a fresh third round is authorized and still available');
+  });
+
+  it('refuses a re-measurement that names a still-open finding', () => {
+    seedRemeasured((sidecar) => {
+      sidecar.findings[0] = { ...FINDING, disposition: 'open' };
+      delete (sidecar.findings[0] as Record<string, unknown>).reason;
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'OPEN_P0';
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('a re-measurement round measures a FIX');
   });
 });

@@ -40,7 +40,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin, type Guard } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import {
@@ -115,9 +115,7 @@ async function selfHealImportOffer(locationId: string, accountId: string): Promi
  * surface and is deliberately left alone. Two in-file callers justify the helper
  * on their own — the cross-file clone dissolving is a side effect, not the reason.
  */
-type ScopeOutcome =
-  | { ok: true; scope: Awaited<ReturnType<typeof resolveOwnerScope>> }
-  | { ok: false; response: NextResponse };
+type ScopeOutcome = Guard<{ scope: Awaited<ReturnType<typeof resolveOwnerScope>> }>;
 
 async function resolveScopeOrResponse(
   request: NextRequest,

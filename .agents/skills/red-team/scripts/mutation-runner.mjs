@@ -1859,8 +1859,9 @@ export async function reapGroup(supervisor) {
 
 function usage(message) {
   console.error('usage: mutation-runner.mjs <command> [options]');
-  console.error('  commands: round-start | env | watchers | escape-test-name | assert-one-test |');
-  console.error('            mutate | run | reap | finalize | dotenv-swap | dotenv-restore | status');
+  console.error('  commands: round-start | remeasure-start | env | watchers | escape-test-name |');
+  console.error('            assert-one-test | mutate | run | reap | finalize | dotenv-swap |');
+  console.error('            dotenv-restore | status');
   if (message) console.error(`  ${message}`);
   process.exit(2);
 }
@@ -1946,6 +1947,171 @@ function hasThirdRoundAuthorization(root) {
 }
 
 /**
+ * This branch's COMMITTED red-team sidecar, with its repository-relative path.
+ *
+ * Matched on `branch` rather than by re-deriving the checker's slug, for the
+ * reason `hasThirdRoundAuthorization` gives: two derivations of one path can
+ * disagree. Read through `git show HEAD:` rather than the filesystem, because
+ * the re-measurement round admits itself against committed evidence — a
+ * working-tree sidecar is something a stuck agent can write for itself.
+ *
+ * Fails CLOSED on anything it cannot read.
+ */
+function committedBranchSidecar(root) {
+  const reviewsDir = join(root, 'docs', 'reviews', 'red-team');
+  if (!existsSync(reviewsDir)) return null;
+  let branch;
+  let entries;
+  try {
+    branch = git(root, ['branch', '--show-current']);
+    entries = readdirSync(reviewsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  if (!branch) return null;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const path = `docs/reviews/red-team/${entry.name}/findings.json`;
+    let sidecar;
+    try {
+      sidecar = JSON.parse(git(root, ['show', `HEAD:${path}`]));
+    } catch {
+      continue;
+    }
+    if (sidecar?.branch !== branch) continue;
+    return { path, sidecar };
+  }
+  return null;
+}
+
+/**
+ * Open the ONE re-measurement round — `SKILL.md` § "The loop" owns the rule.
+ *
+ * It is deliberately NOT a fourth round and matches no authorization prose.
+ * Generalising the round-3 prose rule was tried on #1340 and reverted:
+ * `RUN_C_FOURTH_TEXT` literally contains "approve the scoped fourth round", so
+ * a prose match on the round number admits a TAMPERED Run C admission that the
+ * `round > 3` cap refused outright. This command reads no text at all, and it
+ * leaves the round NUMBER where it is, so every round rule, every branch-pinned
+ * grant and the checker's round validation stay exactly as they are.
+ *
+ * Fails closed on every denial the fresh-round cap already carries, and on its
+ * own three: a fresh round still being available, a re-measurement already
+ * spent, and a sidecar whose head has not moved (nothing was fixed).
+ */
+function cmdRemeasureStart(root) {
+  const journal = readJournal(root);
+  const branch = git(root, ['branch', '--show-current']);
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  const refuse = (reason) => {
+    console.error(`remeasure-start: REFUSED — ${reason}`);
+    return 1;
+  };
+
+  if (requiresOperatorContinuation(root, journal)) {
+    return refuse('Operator continuation retains round 1 and its thirty-launch checkpoint');
+  }
+  if (requiresRunEStagingAdmission(root, journal, headSha)
+    || requiresRunECorrectiveAdmission(root, journal, headSha)
+    || afterRunEOriginalAdmission(root, headSha)
+    || branch === RUN_E_BRANCH || journal.budgetAuthorization?.id === RUN_E_AUTHORIZATION) {
+    return refuse('the Run E grant admits no further round of any kind');
+  }
+  if (branch === RUN_D_BRANCH || journal.budgetAuthorization?.id === RUN_D_AUTHORIZATION) {
+    return refuse('the Run D grant admits no further round of any kind');
+  }
+  // Every branch-pinned budget grant states its own ceiling. None of them
+  // contemplates a re-measurement round, so a pinned grant closes this exit too.
+  if (journal.budgetAuthorization) {
+    return refuse('a branch-pinned budget grant is already in force and admits no re-measurement round');
+  }
+  if (journal.remeasurement) {
+    return refuse('this run has already spent its one re-measurement round');
+  }
+  if (journal.round !== 2 && journal.round !== 3) {
+    return refuse(`a re-measurement round follows round 2 or 3, not round ${journal.round}`);
+  }
+  // It opens exactly where the fresh-round cap closes. While `round-start` would
+  // still succeed, a fresh round is the stronger instrument and must be used.
+  //
+  // BOTH sources are consulted. `round-start` reads the working tree, so an
+  // uncommitted edit that strips the authorization would otherwise open this
+  // exit while a fresh round was still reachable; the committed copy is what
+  // the checker re-derives the same refusal from. Either one showing the grant
+  // closes this command.
+  const committedSidecar = committedBranchSidecar(root);
+  if (journal.round === 2 && (hasThirdRoundAuthorization(root)
+    || (Array.isArray(committedSidecar?.sidecar?.authorizations)
+      && committedSidecar.sidecar.authorizations.some(
+        (entry) => /third round/i.test(String(entry?.text ?? '')),
+      )))) {
+    return refuse('a fresh third round is authorized and still available — open that instead');
+  }
+  if (journal.round === 3 && authorizedRunCFourthBudget(
+    root, { ...journal, round: 4, runs: 0, budgetAuthorization: undefined },
+  )) {
+    return refuse('the granted fourth round is still available — open that instead');
+  }
+
+  const blockers = [];
+  if (journal.dotenv?.open === true) blockers.push('the dotenv swap is still open');
+  for (const entry of journal.mutations ?? []) {
+    if (entry.state !== 'restored') {
+      blockers.push(`mutation of ${entry.path} is journaled '${entry.state}', not 'restored'`);
+    }
+  }
+  for (const supervisor of journal.supervisors ?? []) {
+    if (supervisor.active === true) {
+      blockers.push(`supervisor pgid ${supervisor.pgid} is still journaled active`);
+    }
+  }
+  if (blockers.length > 0) {
+    console.error('remeasure-start: REFUSED — the previous round did not finalize');
+    for (const blocker of blockers) console.error(`  ${blocker}`);
+    return 1;
+  }
+
+  const committed = committedSidecar;
+  if (!committed) {
+    return refuse('this branch has no committed red-team sidecar to re-measure against');
+  }
+  if (committed.sidecar.round !== journal.round) {
+    return refuse(`the committed sidecar records round ${committed.sidecar.round}, the journal round ${journal.round}`);
+  }
+  // The premise is that a finding's FIX needs measuring. `head_sha !== HEAD`
+  // does not establish that: committing the round's own report already moves
+  // HEAD past the head it measured. What does establish it is work committed
+  // AFTER the report commit.
+  const priorHead = committed.sidecar.head_sha;
+  let priorCommit;
+  try {
+    priorCommit = git(root, ['rev-list', '-1', 'HEAD', '--', committed.path]);
+    if (!priorCommit) {
+      return refuse('cannot locate the commit that recorded the previous round');
+    }
+    if (priorCommit === headSha) {
+      return refuse('nothing has been committed since the round\'s own report — there is no fix to re-measure');
+    }
+    if (priorHead === headSha || git(root, ['merge-base', priorHead, headSha]) !== priorHead) {
+      return refuse('HEAD does not descend from the head the round measured');
+    }
+  } catch {
+    return refuse('cannot relate HEAD to the committed sidecar');
+  }
+
+  writeJournal(root, {
+    ...emptyJournal(journal.round),
+    remeasurement: { ofRound: journal.round, priorCommit, priorHeadSha: priorHead, headSha },
+  });
+  console.log(`remeasure-start: re-measurement of round ${journal.round} open, `
+    + `${ROUND_TIME_BUDGET_MS / 60_000} min of test time available `
+    + `(≤${MAX_RUNS_PER_ROUND} launches, ≤${RUN_TIMEOUT_MS / 1000}s each). `
+    + 'Re-measure only the fixes of findings the round raised; it opens no new front '
+    + 'and no further round follows it.');
+  return 0;
+}
+
+/**
  * Open a round: verify the journal is closed, then reset the run budget.
  *
  * The budget is per ROUND, and the journal outlives a round — so without this
@@ -1999,6 +2165,14 @@ function cmdRoundStart(root) {
     console.error('  Run `finalize` and resolve any abort before opening a new round.');
     return 1;
   }
+  // A re-measurement round is the END of a run's rounds, not a step in them.
+  // Opening a fresh round over one would measure past evidence the
+  // re-measurement already closed, and would discard the marker that makes it
+  // one-per-run.
+  if (journal.remeasurement) {
+    console.error('round-start: REFUSED — this run spent its re-measurement round; no fresh round follows one');
+    return 1;
+  }
   const round = (journal.round ?? 0) + 1;
   if (runEThirdRoundForbidden(git(root, ['branch', '--show-current']), journal.budgetAuthorization?.id, round)) {
     console.error('round-start: REFUSED — Run E authorization grants no third round');
@@ -2013,15 +2187,12 @@ function cmdRoundStart(root) {
   }
   // Two rounds is still what a run reaches on its own. A THIRD opens only on an
   // owner authorization already recorded in the sidecar. Only the explicitly
-  // approved Run C fourth-round contract below extends that ceiling.
-  //
-  // Why the exception exists (#1184, after the same wall on #1178 and #1186): a
-  // round-2 finding whose fix touches the tree makes the sidecar stale by
-  // construction, and with no third round the only ways out were to leave a known
-  // defect unfixed or to hand-edit `head_sha` — an evidence file rewriting its own
-  // provenance. The escape is deliberately not free: the authorization must ALREADY
-  // be in the sidecar before the round opens, so a third round is something the
-  // owner granted rather than something a stuck agent decided for itself.
+  // approved Run C fourth-round contract below extends that ceiling. The rule and
+  // the reasons behind it have ONE owner: `SKILL.md` § "The loop". The mechanical
+  // part that has to live here is that the authorization must ALREADY be in the
+  // sidecar before the round opens, so a third round is something the owner
+  // granted rather than something a stuck agent decided for itself. The last
+  // round's own fixes are re-measured by `remeasure-start`, never by a round.
   const fourthGrant = round === 4
     ? authorizedRunCFourthBudget(root, { ...journal, round: 4, runs: 0, budgetAuthorization: undefined })
     : null;
@@ -2540,6 +2711,7 @@ async function main(argv) {
 
   switch (command) {
     case 'round-start': return cmdRoundStart(root);
+    case 'remeasure-start': return cmdRemeasureStart(root);
     case 'env': return cmdEnv(root, parsed);
     case 'watchers': return cmdWatchers(root, parsed);
     case 'escape-test-name': {

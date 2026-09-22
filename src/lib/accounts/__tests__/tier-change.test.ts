@@ -61,7 +61,12 @@ function account(overrides: Record<string, unknown> = {}) {
     stripe_subscription_id: SUBSCRIPTION_ID,
     subscription_status: 'active',
     subscription_tier: 'copilot',
+    // The real list-variant Copilot snapshot since the 2026-09-14 reprice: the
+    // extra-location price EQUALS the base price. Set explicitly (not left
+    // undefined) so a dropped `storedBasePriceCents` forward can no longer be
+    // masked by `undefined !== <cents>` silently keeping the guard off (#1298).
     locations_overage_price_cents: 7900,
+    base_price_cents: 7900,
     ...overrides,
   };
 }
@@ -921,6 +926,40 @@ describe('applyTierChange', () => {
     expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
     expectEntitlementThenBillingBeforeReads(5);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  // #1298 — this path resolves the base item by registered Price ID FIRST, so the
+  // subscription must still carry a registered base line to get here at all. The
+  // colliding line is a second, UNREGISTERED item sitting at the stored cents (a
+  // stale line left by a price rotation). Base-exclusion is by Price ID, so it
+  // survives into the candidate set, and on a list-variant account its
+  // unit_amount equals the stored overage cents — the resolver would have called
+  // it `trusted` and this route would have re-priced it. The downgrade to
+  // `untrusted` makes the route refuse; `create` staying uncalled is what proves
+  // the downgrade did not become a `{kind:'none'}` blind create.
+  it('#1298 fails closed on an unregistered line at the colliding amount when stored base/overage cents are equal', async () => {
+    queueApply(account(), 2);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce(subscription([
+      baseItem('price_copilot_list'),
+      {
+        id: 'si_rotated',
+        quantity: 1,
+        metadata: {},
+        price: { id: 'price_copilot_rotated', unit_amount: 7900, metadata: {} },
+      },
+    ]));
+
+    const result = await applyTierChange(sql, {
+      accountId: ACCOUNT_ID,
+      tier: 'autopilot',
+      operationKey: 'collision-1298',
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'ambiguous_overage_item' });
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 

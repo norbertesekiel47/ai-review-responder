@@ -72,9 +72,21 @@ const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
   tables: ['refusal_events'],
   indexes: [
     'idx_refusal_events_archival',
-    'idx_refusal_events_account_window',
     'refusal_events_subject_uniq',
   ],
+};
+
+/**
+ * Migration 123 (#1081) SUPERSEDED 116's `idx_refusal_events_account_window`
+ * with `idx_refusal_events_account_window_covering` — the same leading keys
+ * plus `id DESC` and an `INCLUDE (business_id)`. It is asserted as its OWN
+ * requirement rather than folded into 116's: a database carrying the 116 index
+ * and not this one is BEHIND head, and the failure must name the migration
+ * that fixes it.
+ */
+const MIGRATION_123_REFUSAL_READ_INDEXES: SchemaRequirement = {
+  migration: '123_refusal_read_indexes',
+  indexes: ['idx_refusal_events_account_window_covering'],
 };
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
@@ -197,7 +209,7 @@ describeWithDb(
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
-      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS]);
+      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS, MIGRATION_123_REFUSAL_READ_INDEXES]);
       tenant = await seedTenantAccount(db, {
         userName: 'Refusal Write Owner',
         accountDisplayName: 'Refusal Write Account',

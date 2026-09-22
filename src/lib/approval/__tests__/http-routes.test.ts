@@ -450,6 +450,20 @@ describe('requireDashboardReviewOwner', () => {
 
     await expect(requireDashboardReviewOwner(request())).rejects.toBe('database unavailable');
   });
+
+  // #1399: an AuthError LOOK-ALIKE — `name: 'AuthError'`, no `statusCode`. The
+  // guard must be `instanceof`, not a name comparison; under the name variant
+  // this value takes the refusal arm and the gate returns a NextResponse built
+  // with `status: undefined`, which renders 200 on the eight routes it fronts.
+  // The string row above does not catch that (a string has no `.name`). Why it
+  // matters, once, for all four gates:
+  // src/lib/auth/__tests__/route-helpers.test.ts, requireRoleOr401.
+  it('re-throws an AuthError look-alike (name, no statusCode) rather than rendering it 2xx', async () => {
+    const lookAlike = { name: 'AuthError', message: 'Unauthorized' };
+    mockRequireRole.mockRejectedValueOnce(lookAlike);
+
+    await expect(requireDashboardReviewOwner(request())).rejects.toBe(lookAlike);
+  });
 });
 
 describe('runDashboardReviewAction', () => {

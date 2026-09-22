@@ -175,6 +175,19 @@ describe('location owner route helpers', () => {
     await expect(readOwnerForMultiLocationRoute(fakeSql, req())).rejects.toBe('redis down');
   });
 
+  // #1399: an AuthError LOOK-ALIKE — `name: 'AuthError'`, no `statusCode`. The
+  // guard must be `instanceof`, not a name comparison; under the name variant
+  // this value takes the refusal arm and the route response is built with
+  // `status: undefined`, which renders 200. The string row above does not catch
+  // that (a string has no `.name`). Why it matters, once, for all four gates:
+  // src/lib/auth/__tests__/route-helpers.test.ts, requireRoleOr401.
+  it('re-throws an AuthError look-alike (name, no statusCode) rather than rendering it 2xx', async () => {
+    const lookAlike = { name: 'AuthError', message: 'Unauthorized' };
+    mockRequireRole.mockRejectedValueOnce(lookAlike);
+
+    await expect(readOwnerForMultiLocationRoute(fakeSql, req())).rejects.toBe(lookAlike);
+  });
+
   it('builds the canonical account mismatch response', async () => {
     const response = ownerAccountMismatchResponse();
 

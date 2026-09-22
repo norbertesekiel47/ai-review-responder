@@ -42,6 +42,12 @@ export interface OverageSyncInput {
   subscriptionId: string;
   tier: SubscriptionTierValue;
   storedOveragePriceCents: number;
+  /**
+   * Stored BASE unit price in cents from the same accounts row. Feeds the
+   * resolver's #1298 guard: when it equals storedOveragePriceCents the
+   * unit-amount pass cannot tell the base line from the overage line.
+   */
+  storedBasePriceCents: number;
   /** Canonical overage Price ID for the account's stored tier + variant. */
   overagePriceId: string | null;
   newQuantity: number;
@@ -272,6 +278,7 @@ export async function syncStripeOverageItem(
   // the env overage price has been rotated away from the one on the sub.
   const resolution = resolveOverageItem(subscription.items.data, {
     storedOveragePriceCents: input.storedOveragePriceCents,
+    storedBasePriceCents: input.storedBasePriceCents,
   });
 
   // An untrusted (descriptor-only keyword) match is enough to FLAG an item,

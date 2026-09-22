@@ -407,6 +407,7 @@ function resolveProjectionBilling(input: {
 }): ProjectionBillingResult {
   const billing = resolveSubscriptionBilling(input.subscription.items?.data ?? [], {
     storedOveragePriceCents: Number(input.account.locations_overage_price_cents),
+    storedBasePriceCents: Number(input.account.base_price_cents),
   });
   const base = validateMappedBase({ ...input, base: billing.base });
   if (!base.ok) return base;

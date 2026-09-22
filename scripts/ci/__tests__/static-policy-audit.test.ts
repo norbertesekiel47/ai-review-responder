@@ -8,6 +8,7 @@ import {
   auditRailwayConfig,
   scanSqlExecutorTagNames,
   scanWorkerNodeEnvReads,
+  scanSameOriginHandlerReturnTypes,
 } from '../static-policy-audit';
 import { SQL_TAG_NAMES } from '../lib/sql-tag-scan';
 
@@ -823,5 +824,105 @@ describe('scanWorkerNodeEnvReads — the deployment lane owns the lane question 
     // No exemption set exists in the audit any more.
     const auditSource = await readFile('scripts/ci/static-policy-audit.ts', 'utf8');
     expect(auditSource).not.toContain('NODE_ENV_READ_EXEMPT_FILES');
+  });
+});
+
+describe('scanSameOriginHandlerReturnTypes — no wrapped handler opts itself out (#1331)', () => {
+  const ROUTE = 'src/app/api/dashboard/thing/route.ts';
+
+  // FLAGGED — opt-out mechanism (a). Each fixture is a real call-site shape from
+  // src/app: an inline arrow, a named `function`, and a `const` arrow. #1327 had
+  // to fix three of these by hand; nothing caught the fourth until this rule.
+  it.each([
+    [
+      'inline arrow annotated Promise<Response>',
+      'export const POST = withSameOrigin()(async (req: NextRequest): Promise<Response> => json());',
+    ],
+    [
+      'named function declaration annotated Promise<Response>',
+      'async function handler(req: NextRequest): Promise<Response> { return json(); }\n'
+      + 'export const POST = withSameOrigin()(handler);',
+    ],
+    [
+      'const arrow annotated Promise<Response>',
+      'const handler = async (req: NextRequest): Promise<Response> => json();\n'
+      + 'export const PUT = withSameOrigin()(handler);',
+    ],
+    [
+      'union containing a bare Response',
+      'async function handler(req: NextRequest): Promise<NextResponse | Response> { return json(); }\n'
+      + 'export const POST = withSameOrigin()(handler);',
+    ],
+    [
+      'synchronous bare Response',
+      'export const POST = withSameOrigin()((req: NextRequest): Response => json());',
+    ],
+    [
+      'escape hatch via Promise<any>',
+      'async function handler(req: NextRequest): Promise<any> { return json(); }\n'
+      + 'export const POST = withSameOrigin()(handler);',
+    ],
+  ])('flags %s', (_label, source) => {
+    const findings = scanSameOriginHandlerReturnTypes(ROUTE, source);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('same-origin-handler-return-type');
+    expect(findings[0]!.detail).toContain('wider than NextResponse');
+  });
+
+  // CLEAN — the other direction, and it is what keeps the rule from being a
+  // blunt ban on annotations. A handler with NO annotation (the preferred form,
+  // #879) and one annotated NextResponse both infer correctly.
+  it.each([
+    [
+      'no return annotation at all',
+      'export const POST = withSameOrigin()(async (req: NextRequest) => json());',
+    ],
+    [
+      'annotated Promise<NextResponse>',
+      'async function handler(req: NextRequest): Promise<NextResponse> { return json(); }\n'
+      + 'export const POST = withSameOrigin()(handler);',
+    ],
+    [
+      'annotated with a parameterized NextResponse',
+      'export const POST = withSameOrigin()(\n'
+      + '  async (req: NextRequest): Promise<NextResponse<{ error: string }>> => json(),\n'
+      + ');',
+    ],
+    [
+      'a bare Response annotation on a handler this wrapper never wraps',
+      'export async function GET(req: NextRequest): Promise<Response> { return json(); }',
+    ],
+    [
+      'a bare Response nested inside an unrelated generic in the annotation',
+      'async function handler(req: NextRequest): Promise<NextResponse<Awaited<Response>>> { return json(); }\n'
+      + 'export const POST = withSameOrigin()(handler);',
+    ],
+  ])('leaves %s alone', (_label, source) => {
+    expect(scanSameOriginHandlerReturnTypes(ROUTE, source)).toEqual([]);
+  });
+
+  it('does not scan outside src/app (the wrapper is only applied to route handlers)', () => {
+    const source = 'export const POST = withSameOrigin()(async (): Promise<Response> => json());';
+    expect(scanSameOriginHandlerReturnTypes('src/lib/auth/route-helpers.ts', source)).toEqual([]);
+    expect(scanSameOriginHandlerReturnTypes('worker/index.ts', source)).toEqual([]);
+  });
+
+  it('reports the annotation line, not the call site', () => {
+    const source = [
+      '// header',
+      'async function handler(',
+      '  req: NextRequest,',
+      '): Promise<Response> {',
+      '  return json();',
+      '}',
+      'export const POST = withSameOrigin()(handler);',
+    ].join('\n');
+    expect(scanSameOriginHandlerReturnTypes(ROUTE, source)[0]!.line).toBe(4);
+  });
+
+  it('is reached through scanFile, so the audit binary enforces it', () => {
+    const source = 'export const POST = withSameOrigin()(async (): Promise<Response> => json());';
+    expect(scanFile(ROUTE, source).map((finding) => finding.rule))
+      .toContain('same-origin-handler-return-type');
   });
 });
