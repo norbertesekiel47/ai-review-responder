@@ -13,9 +13,10 @@
  *    Outreach row calls it in the SAME transaction, so there is no window
  *    between terminalizing and joining; the releaser tick calls the same
  *    function as a backstop. One implementation, two callers, no join poller.
- *  - `insertOutreachRender` / `supersedeLiveRender` — the ONLY writers of a
- *    render-lane `solicitation_outreach` row, plus the three read-boundary
- *    parsers for its JSONB columns.
+ *  - `insertOutreachRender` / `insertOutreachRenders` / `supersedeLiveRender` —
+ *    the ONLY writers of a render-lane `solicitation_outreach` row (single-row
+ *    and set arms, `refusals/write.ts`'s two-arm precedent), plus the three
+ *    read-boundary parsers for its JSONB columns.
  *
  * Domain module: the caller supplies the transaction (invariant #15) and the
  * tenant ids (invariant #8). A batch id is a bare UUID carrying no tenant
@@ -611,6 +612,138 @@ export async function insertOutreachRender(
     )
   `;
   return outreachId;
+}
+
+/**
+ * Persist N render attempts in ONE statement (#1112).
+ *
+ * WHY THIS ARM EXISTS, and it is not a convenience. `settleGenerationExhaustion`
+ * (`ask-generation.ts`) fills every hole a terminal generation failure left
+ * behind — one withheld `render_failed` row per send ask with no live
+ * attempt — inside the transaction that already holds the per-Business
+ * advisory lock AND the `solicitation_batches` row lock. Looping
+ * `insertOutreachRender` put one round trip per hole behind BOTH locks; on
+ * staging, 25 single-row inserts measured 1754 ms against 141 ms for one set
+ * insert of the same rows (median of three, both rolled back) — the drill
+ * that argued for this ticket:
+ * `docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md`.
+ * #1082 already batched that transaction's OTHER per-hole write
+ * (`writeRefusalEvents`, `refusals/write.ts`) and deliberately left this one,
+ * because a set insert built anywhere else would be a second writer of
+ * `solicitation_outreach` — this file's own docblock names
+ * `insertOutreachRender` and (now) this function as the ONLY two. This ticket
+ * is that follow-up, on `writeRefusalEvents`' precedent exactly: same file as
+ * the single-row arm, same `jsonb_to_recordset` idiom, same reasons.
+ *
+ * THE BOUND IS `BATCH_CAP` (25), NOT `MAX_DATA_ROWS` (5,000) — #1082 shipped
+ * that error once already and `settleGenerationExhaustion`'s own comment
+ * corrects it at length; do not re-derive the 5,000 figure here either. This
+ * function's only known caller passes at most 25 rows.
+ *
+ * EVERY GUARANTEE OF THE SINGLE-ROW ARM HOLDS, and for the same reasons — read
+ * that function's contract first. Deliberately UNCONDITIONAL, exactly like
+ * it: no `ON CONFLICT` against `solicitation_outreach_one_live_per_ask`, so a
+ * race past the upstream existence check surfaces as 23505 and aborts the
+ * whole set rather than being silently absorbed. Two differences, both
+ * deliberate:
+ *
+ *   1. AN EMPTY INPUT ISSUES NO STATEMENT, on `writeRefusalEvents`' contract:
+ *      an `INSERT` of zero rows is not a fill, and a `jsonb_to_recordset`
+ *      round trip over `[]` records nothing.
+ *   2. IT ASSERTS THE AFFECTED-ROW COUNT, unlike `writeRefusalEvents`'s set
+ *      arm — correctly so HERE, because this statement carries no
+ *      `ON CONFLICT`, so every row it is given is a row it must insert or
+ *      raise trying. `commitAskDecisions`'s `askRows` insert
+ *      (`batch-builder.ts`) is the precedent this follows, not the Refusal
+ *      ledger's conflict-tolerant one.
+ *
+ * Returns the new rows' ids, one per input, IN INPUT ORDER. Each id is a
+ * UUIDv7 minted in JS BEFORE the statement runs (same convention as
+ * `commitAskDecisions`'s `askRows`) — this arm has no `ON CONFLICT` to make a
+ * row's presence conditional, so the id this function hands back is always
+ * the id the row was given, and the caller never has to read `RETURNING`
+ * output back into an unordered array to know which hole got which id.
+ *
+ * @param tx the DECIDING transaction — invariant #15, never `@/lib/db/server`.
+ */
+export async function insertOutreachRenders(
+  tx: TransactionSql,
+  inputs: readonly InsertOutreachRenderInput[],
+): Promise<string[]> {
+  if (inputs.length === 0) return [];
+
+  const ids = inputs.map(() => uuidv7());
+  const rows = inputs.map((input, index) => ({
+    id: ids[index]!,
+    account_id: input.accountId,
+    business_id: input.businessId,
+    batch_id: input.batchId,
+    ask_id: input.askId,
+    contact_id: input.contactId,
+    attempt_no: input.attemptNo,
+    rendered_subject: input.renderedSubject,
+    rendered_body: input.renderedBody,
+    prompt_version: input.promptVersion,
+    prompt_hash: input.promptHash,
+    interpolation_inputs: input.interpolationInputs,
+    // ISO 8601, never the `Date` object — same rule `writeRefusalEvents`
+    // states for `occurred_at`: this value is JSON, and the `timestamptz`
+    // column of the recordset parses the string back at full precision.
+    rendered_at: input.renderedAt.toISOString(),
+    ask_lint_version: input.askLintVersion,
+    lint_detail: input.lintDetail,
+    moderation_status: input.moderationStatus,
+    moderation_detail: input.moderationDetail,
+    delivery_status: input.deliveryStatus,
+    disposition_reason: input.dispositionReason ?? null,
+    agent_run_id: input.agentRunId,
+  }));
+
+  const inserted = await tx<{ id: string }[]>`
+    INSERT INTO solicitation_outreach (
+      id, account_id, business_id, batch_id, ask_id, contact_id,
+      attempt_no, rendered_subject, rendered_body,
+      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
+      ask_lint_version, lint_detail, moderation_status, moderation_detail,
+      delivery_status, disposition_reason, agent_run_id
+    )
+    SELECT
+      row.id, row.account_id, row.business_id, row.batch_id, row.ask_id,
+      row.contact_id, row.attempt_no, row.rendered_subject, row.rendered_body,
+      row.prompt_version, row.prompt_hash, row.interpolation_inputs,
+      row.rendered_at, row.ask_lint_version, row.lint_detail,
+      row.moderation_status, row.moderation_detail, row.delivery_status,
+      row.disposition_reason, row.agent_run_id
+    FROM jsonb_to_recordset(${tx.json(rows as never)}) AS row(
+      id uuid,
+      account_id uuid,
+      business_id uuid,
+      batch_id uuid,
+      ask_id uuid,
+      contact_id uuid,
+      attempt_no smallint,
+      rendered_subject text,
+      rendered_body text,
+      prompt_version text,
+      prompt_hash text,
+      interpolation_inputs jsonb,
+      rendered_at timestamptz,
+      ask_lint_version text,
+      lint_detail jsonb,
+      moderation_status text,
+      moderation_detail jsonb,
+      delivery_status text,
+      disposition_reason text,
+      agent_run_id uuid
+    )
+    RETURNING id
+  `;
+  if (inserted.count !== rows.length) {
+    throw new Error(
+      `insertOutreachRenders: expected ${rows.length} rows, inserted ${inserted.count}`,
+    );
+  }
+  return ids;
 }
 
 export interface SupersedeLiveRenderInput {

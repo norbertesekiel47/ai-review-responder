@@ -28,6 +28,7 @@ import {
 import type { AskInterpolationInputs } from '../ask-prompt-policy';
 import {
   insertOutreachRender,
+  insertOutreachRenders,
   parseOutreachInterpolationInputs,
   parseOutreachLintDetail,
   parseOutreachModerationDetail,
@@ -431,6 +432,103 @@ describeWithDb(
       await expect(
         sql().begin((tx) =>
           insertOutreachRender(tx, renderInput(askId, contactId, { attemptNo: 2 })),
+        ),
+      ).rejects.toThrow(/solicitation_outreach_one_live_per_ask/);
+    });
+
+    // ── insertOutreachRenders — the set arm (#1112) ────────────────────────
+
+    it('insertOutreachRenders writes rows byte-identical to the single-row arm for the same inputs', async () => {
+      // One 'rendered' row and one 'withheld render_failed' row — the shape
+      // `settleGenerationExhaustion` actually fills — so the pin covers both
+      // members of the discriminated union, not only the hole-fill shape.
+      const shapes: Array<Partial<InsertOutreachRenderInput>> = [
+        { renderedAt: new Date('2026-09-22T00:00:00.000Z'), promptHash: 'pin-test-hash' },
+        {
+          renderedAt: new Date('2026-09-22T00:00:00.000Z'),
+          promptHash: 'pin-test-hash',
+          deliveryStatus: 'withheld',
+          dispositionReason: 'render_failed',
+          renderedSubject: null,
+          renderedBody: null,
+          moderationStatus: 'error',
+          lintDetail: [],
+          moderationDetail: {},
+          interpolationInputs: {},
+        },
+      ];
+
+      const singleAskIds = [await seedAsk(), await seedAsk()];
+      const batchAskIds = [await seedAsk(), await seedAsk()];
+
+      await sql().begin(async (tx) => {
+        for (const [index, shape] of shapes.entries()) {
+          const contactId = await contactIdOfAsk(singleAskIds[index]!);
+          await insertOutreachRender(tx, renderInput(singleAskIds[index]!, contactId, shape));
+        }
+      });
+
+      const batchInputs = await Promise.all(
+        shapes.map(async (shape, index) =>
+          renderInput(
+            batchAskIds[index]!,
+            await contactIdOfAsk(batchAskIds[index]!),
+            shape,
+          ),
+        ),
+      );
+      const outreachIds = await sql().begin((tx) => insertOutreachRenders(tx, batchInputs));
+      expect(outreachIds).toHaveLength(batchInputs.length);
+
+      // Every column BUT the id (each arm mints its own uuidv7 — `readAskRows`
+      // does not select it) must match byte-for-byte between the two arms.
+      for (let index = 0; index < shapes.length; index += 1) {
+        const [singleRow] = await readAskRows(singleAskIds[index]!);
+        const [batchRow] = await readAskRows(batchAskIds[index]!);
+        expect(batchRow).toEqual(singleRow);
+      }
+    });
+
+    it('insertOutreachRenders persists exactly one row per input and returns ids in input order', async () => {
+      const askIds = [await seedAsk(), await seedAsk(), await seedAsk()];
+      const contactIds = await Promise.all(askIds.map(contactIdOfAsk));
+      const inputs = askIds.map((askId, index) => renderInput(askId, contactIds[index]!));
+
+      const outreachIds = await sql().begin((tx) => insertOutreachRenders(tx, inputs));
+      expect(outreachIds).toHaveLength(inputs.length);
+
+      // Round-trip: every returned id resolves to the row minted for the SAME
+      // position's input — proof the ids are not merely N values but the
+      // right value at each index, and that no row was dropped or doubled.
+      for (let index = 0; index < inputs.length; index += 1) {
+        const [row] = await sql()<{ id: string; ask_id: string }[]>`
+          SELECT id::text, ask_id::text FROM solicitation_outreach
+          WHERE id = ${outreachIds[index]!}::uuid
+        `;
+        expect(row).toBeDefined();
+        expect(row!.ask_id).toBe(askIds[index]);
+      }
+
+      const [countRow] = await sql()<{ count: string }[]>`
+        SELECT COUNT(*)::text AS count FROM solicitation_outreach
+        WHERE ask_id = ANY(${askIds}::uuid[])
+      `;
+      expect(Number(countRow!.count)).toBe(inputs.length);
+    });
+
+    it('insertOutreachRenders issues no statement and returns [] for an empty input', async () => {
+      const result = await sql().begin((tx) => insertOutreachRenders(tx, []));
+      expect(result).toEqual([]);
+    });
+
+    it('insertOutreachRenders is unconditional — a live-render collision is rejected by the one-live-per-ask unique index', async () => {
+      const askId = await seedAsk();
+      const contactId = await contactIdOfAsk(askId);
+      await sql().begin((tx) => insertOutreachRender(tx, renderInput(askId, contactId)));
+
+      await expect(
+        sql().begin((tx) =>
+          insertOutreachRenders(tx, [renderInput(askId, contactId, { attemptNo: 2 })]),
         ),
       ).rejects.toThrow(/solicitation_outreach_one_live_per_ask/);
     });
