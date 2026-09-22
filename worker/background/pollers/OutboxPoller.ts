@@ -328,10 +328,13 @@ async function failUnknownTopic(entry: OutboxEntry, logger: WorkerLogger): Promi
       extra: { outbox_id: entry.id, attempts: entry.attempts },
     },
   );
+  // Every terminal write sets completed_at (#1395). Not markOutboxFailed:
+  // that matches only a 'dispatched' row, and this one is still 'dispatching'.
   await sql`
     UPDATE job_outbox
     SET status = 'failed',
-        last_error = ${'Unknown topic: ' + entry.topic}
+        last_error = ${'Unknown topic: ' + entry.topic},
+        completed_at = NOW()
     WHERE id = ${entry.id}
       AND status = 'dispatching'
       AND attempts = ${entry.attempts}

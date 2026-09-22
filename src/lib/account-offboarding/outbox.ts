@@ -24,8 +24,47 @@ type TxClient = postgres.TransactionSql;
 
 const JOB_OUTBOX_STATUS_PENDING = 'pending';
 export const AGGREGATE_TYPE_ACCOUNT_OFFBOARDING = 'account_offboarding';
+
 const ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE = 'repworth:account-offboarding-email-outbox:v1';
 const ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE = 'repworth:account-offboarding-reactivation-outbox:v1';
+
+type AccountOffboardingTopic =
+  (typeof QUEUE_NAMES)[Extract<keyof typeof QUEUE_NAMES, `ACCOUNT_OFFBOARDING_${string}`>];
+
+/**
+ * Whether each offboarding topic is a lifecycle STAGE: work the offboarding
+ * waits on, so a `failed` row that no handler marked leaves it stranded
+ * (`checkStrandedAccountOffboardings`, #1413). Typed over every
+ * `ACCOUNT_OFFBOARDING_*` queue name, so a new offboarding topic fails
+ * typecheck here until it is classified (#1395). That is complete only while
+ * this module keeps every offboarding enqueue under that prefix — all five
+ * inserts below do; a topic enqueued under another name escapes it.
+ *
+ * - `email`: every email type is a notice, so a lost one stops nothing.
+ *   Several (`cancel_only_confirmation`, `delete_data_purge_reminder`) run
+ *   while the offboarding is legitimately non-terminal.
+ * - `reactivation`: a failed reversal leaves the offboarding on its scheduled
+ *   path, which still proceeds; a stale claim is released by
+ *   `AccountOffboardingReactivationResetPoller`.
+ */
+const OFFBOARDING_TOPIC_IS_STAGE = {
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: true,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: true,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE]: true,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: false,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION]: false,
+} as const satisfies Record<AccountOffboardingTopic, boolean>;
+
+/**
+ * The offboarding topics whose failure can strand an offboarding, derived from
+ * `OFFBOARDING_TOPIC_IS_STAGE` above (read its comment for why each topic is
+ * in or out). Bound by `checkStrandedAccountOffboardings`.
+ */
+export const OFFBOARDING_STAGE_TOPICS: readonly AccountOffboardingTopic[] = (
+  // Safe: `satisfies Record<AccountOffboardingTopic, boolean>` makes the keys
+  // exactly that union, and `Object.keys` only widens them to `string`.
+  Object.keys(OFFBOARDING_TOPIC_IS_STAGE) as AccountOffboardingTopic[]
+).filter((topic) => OFFBOARDING_TOPIC_IS_STAGE[topic]);
 
 export interface EnqueueAccountOffboardingInput {
   outboxId?: string;
