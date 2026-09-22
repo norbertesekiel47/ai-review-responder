@@ -121,57 +121,71 @@ export function readMigrationsSql(dir: string = MIGRATIONS_DIR): string[] {
  * a dollar-quoted body (that is how PL/pgSQL is parsed) and are NOT recognised
  * inside a single-quoted string.
  */
+/** Index just past the `--` comment that starts at `i`. */
+function endOfLineComment(sql: string, i: number): number {
+  const end = sql.indexOf('\n', i);
+  return end === -1 ? sql.length : end;
+}
+
+/** Index just past the nestable slash-star comment that starts at `i`. */
+function endOfBlockComment(sql: string, i: number): number {
+  let depth = 1;
+  let j = i + 2;
+  while (j < sql.length && depth > 0) {
+    if (sql.startsWith('/*', j)) { depth += 1; j += 2; }
+    else if (sql.startsWith('*/', j)) { depth -= 1; j += 2; }
+    else j += 1;
+  }
+  return j;
+}
+
+/** Index just past the single-quoted literal that starts at `i` (`''` escapes). */
+function endOfSingleQuoted(sql: string, i: number): number {
+  let j = i + 1;
+  while (j < sql.length) {
+    if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+    if (sql[j] === "'") return j + 1;
+    j += 1;
+  }
+  return j;
+}
+
+const DOLLAR_TAG_RE = /^\$\$|^\$[A-Za-z_][A-Za-z0-9_]*\$/;
+
+interface LexStep {
+  /** Index to continue scanning from. */
+  next: number;
+  /** Text to keep — a single space for anything elided. */
+  emit: string;
+  /** The dollar-quote tag in force AFTER this step, if any. */
+  tag: string | null;
+}
+
+/** One lexer step at `i`, given the dollar-quote tag currently in force. */
+function lexStep(sql: string, i: number, tag: string | null): LexStep {
+  if (tag && sql.startsWith(tag, i)) return { next: i + tag.length, emit: ' ', tag: null };
+  if (sql.startsWith('--', i)) return { next: endOfLineComment(sql, i), emit: ' ', tag };
+  if (sql.startsWith('/*', i)) return { next: endOfBlockComment(sql, i), emit: ' ', tag };
+  if (sql[i] === "'") {
+    const end = endOfSingleQuoted(sql, i);
+    return { next: end, emit: sql.slice(i, end), tag };
+  }
+  // The `$` guard keeps the regex off the hot path: without it every ordinary
+  // character would pay for a `sql.slice(i)` copy.
+  const opened = !tag && sql[i] === '$' ? DOLLAR_TAG_RE.exec(sql.slice(i))?.[0] : undefined;
+  if (opened) return { next: i + opened.length, emit: ' ', tag: opened };
+  return { next: i + 1, emit: sql[i] ?? '', tag };
+}
+
 export function stripSqlComments(sql: string): string {
   let out = '';
   let i = 0;
-  let dollarTag: string | null = null;
-
+  let tag: string | null = null;
   while (i < sql.length) {
-    if (dollarTag && sql.startsWith(dollarTag, i)) {
-      out += ' ';
-      i += dollarTag.length;
-      dollarTag = null;
-      continue;
-    }
-    if (sql.startsWith('--', i)) {
-      const end = sql.indexOf('\n', i);
-      i = end === -1 ? sql.length : end;
-      out += ' ';
-      continue;
-    }
-    if (sql.startsWith('/*', i)) {
-      let depth = 1;
-      i += 2;
-      while (i < sql.length && depth > 0) {
-        if (sql.startsWith('/*', i)) { depth += 1; i += 2; continue; }
-        if (sql.startsWith('*/', i)) { depth -= 1; i += 2; continue; }
-        i += 1;
-      }
-      out += ' ';
-      continue;
-    }
-    if (sql[i] === "'") {
-      const start = i;
-      i += 1;
-      while (i < sql.length) {
-        if (sql[i] === "'" && sql[i + 1] === "'") { i += 2; continue; }
-        if (sql[i] === "'") { i += 1; break; }
-        i += 1;
-      }
-      out += sql.slice(start, i);
-      continue;
-    }
-    if (!dollarTag && sql[i] === '$') {
-      const tag = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
-      if (tag) {
-        dollarTag = tag[0];
-        out += ' ';
-        i += tag[0].length;
-        continue;
-      }
-    }
-    out += sql[i];
-    i += 1;
+    const step = lexStep(sql, i, tag);
+    out += step.emit;
+    i = step.next;
+    tag = step.tag;
   }
   return out;
 }
@@ -249,50 +263,80 @@ export function analyzeRlsPosture(
   migrationsSql: readonly string[],
 ): Map<string, TableRlsPosture> {
   const posture = new Map<string, TableRlsPosture>();
-
   for (const raw of migrationsSql) {
     const sql = stripSqlComments(raw);
-    const events: OrderedEvent[] = [];
-
-    for (const m of sql.matchAll(ENABLE_RLS_RE)) {
-      const table = m[1]?.toLowerCase();
-      if (table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).rlsEnabled = true; } });
-    }
-    for (const m of sql.matchAll(DISABLE_RLS_RE)) {
-      const table = m[1]?.toLowerCase();
-      if (table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).rlsEnabled = false; } });
-    }
-    // A dropped table takes its posture with it — otherwise a deny-all table
-    // removed by a later migration would fail this guard forever (migration
-    // 061 dropped two such tables).
-    for (const m of sql.matchAll(DROP_TABLE_RE)) {
-      for (const table of splitTableList(m[1] ?? '')) {
-        events.push({ order: m.index, apply: (p) => { p.delete(table); } });
-      }
-    }
-    for (const m of sql.matchAll(CREATE_POLICY_RE)) {
-      const name = m[1] ?? m[2];
-      const table = m[3]?.toLowerCase();
-      if (name && table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).policies.add(name); } });
-    }
-    for (const m of sql.matchAll(DROP_POLICY_RE)) {
-      const name = m[1] ?? m[2];
-      const table = m[3]?.toLowerCase();
-      if (name && table) events.push({ order: m.index, apply: (p) => { postureFor(p, table).policies.delete(name); } });
-    }
-    for (const m of sql.matchAll(REVOKE_ALL_RE)) {
-      const roles = (m[2] ?? '').toLowerCase();
-      if (!CLIENT_ROLE_PATTERNS.every((pattern) => pattern.test(roles))) continue;
-      for (const table of splitTableList(m[1] ?? '')) {
-        events.push({ order: m.index, apply: (p) => { postureFor(p, table).clientRolesRevoked = true; } });
-      }
-    }
-
-    events.sort((a, b) => a.order - b.order);
+    const events = [
+      ...rlsFlagEvents(sql),
+      ...policyEvents(sql),
+      ...lifecycleEvents(sql),
+    ].sort((a, b) => a.order - b.order);
     for (const event of events) event.apply(posture);
   }
-
   return posture;
+}
+
+/** One event per regex match, for a pattern whose group 1 is a single table. */
+function singleTableEvents(
+  sql: string,
+  pattern: RegExp,
+  mutate: (entry: TableRlsPosture) => void,
+): OrderedEvent[] {
+  return [...sql.matchAll(pattern)].flatMap((m) => {
+    const table = m[1]?.toLowerCase();
+    return table ? [{ order: m.index, apply: (p) => mutate(postureFor(p, table)) }] : [];
+  });
+}
+
+/** `ALTER TABLE … {ENABLE,DISABLE} ROW LEVEL SECURITY`. */
+function rlsFlagEvents(sql: string): OrderedEvent[] {
+  return [
+    ...singleTableEvents(sql, ENABLE_RLS_RE, (entry) => { entry.rlsEnabled = true; }),
+    ...singleTableEvents(sql, DISABLE_RLS_RE, (entry) => { entry.rlsEnabled = false; }),
+  ];
+}
+
+/** `{CREATE,DROP} POLICY <name> ON <table>`, tracked by policy NAME. */
+function policyEvents(sql: string): OrderedEvent[] {
+  const events = (pattern: RegExp, mutate: (policies: Set<string>, name: string) => void) =>
+    [...sql.matchAll(pattern)].flatMap((m) => {
+      const name = m[1] ?? m[2];
+      const table = m[3]?.toLowerCase();
+      if (!name || !table) return [];
+      return [{
+        order: m.index,
+        apply: (p: Map<string, TableRlsPosture>) => mutate(postureFor(p, table).policies, name),
+      }];
+    });
+  return [
+    ...events(CREATE_POLICY_RE, (policies, name) => { policies.add(name); }),
+    ...events(DROP_POLICY_RE, (policies, name) => { policies.delete(name); }),
+  ];
+}
+
+/**
+ * `DROP TABLE` and `REVOKE ALL … FROM <roles>`, both over a comma list.
+ *
+ * A dropped table takes its posture with it — otherwise a deny-all table
+ * removed by a later migration would fail this guard forever (migration 061
+ * dropped two such tables). A revoke counts only when both client roles are
+ * named.
+ */
+function lifecycleEvents(sql: string): OrderedEvent[] {
+  const drops = [...sql.matchAll(DROP_TABLE_RE)].flatMap((m) =>
+    splitTableList(m[1] ?? '').map((table) => ({
+      order: m.index,
+      apply: (p: Map<string, TableRlsPosture>) => { p.delete(table); },
+    })));
+
+  const revokes = [...sql.matchAll(REVOKE_ALL_RE)]
+    .filter((m) => CLIENT_ROLE_PATTERNS.every((p) => p.test((m[2] ?? '').toLowerCase())))
+    .flatMap((m) =>
+      splitTableList(m[1] ?? '').map((table) => ({
+        order: m.index,
+        apply: (p: Map<string, TableRlsPosture>) => { postureFor(p, table).clientRolesRevoked = true; },
+      })));
+
+  return [...drops, ...revokes];
 }
 
 /**
@@ -452,42 +496,57 @@ async function auditLiveRls(databaseUrl: string): Promise<string[]> {
   }
 }
 
-async function main(): Promise<void> {
-  const migrationsSql = readMigrationsSql();
+/** A failing audit arm: the label `reportFailures` prints, and its lines. */
+export interface RlsArmFailure {
+  label: string;
+  failures: string[];
+}
 
-  // 1. Static coverage gate — DB-free and the authoritative CI check. Every
-  //    RLS_REQUIRED_TABLES entry must enable RLS in some migration.
-  const coverageFailures = findRlsCoverageFailures(collectRlsEnabledTables(migrationsSql));
-  if (coverageFailures.length > 0) {
-    reportFailures('static RLS coverage', coverageFailures);
+/**
+ * The two DB-free arms, in order, short-circuiting on the first that fails —
+ * these are the authoritative CI checks, since `lint` has no database.
+ *
+ * 1. Coverage: every `RLS_REQUIRED_TABLES` entry enables RLS in some migration.
+ * 2. The deny-all recurrence guard, which for the reason in its section header
+ *    CANNOT be a live check — the test container never carries Supabase's
+ *    default client-role grants.
+ */
+export function findStaticRlsFailures(
+  migrationsSql: readonly string[],
+  requiredTables: readonly string[] = REQUIRED_RLS_TABLES,
+): RlsArmFailure | undefined {
+  const coverage = findRlsCoverageFailures(collectRlsEnabledTables(migrationsSql), requiredTables);
+  if (coverage.length > 0) return { label: 'static RLS coverage', failures: coverage };
+
+  const denyAll = findDenyAllRevokeFailures(analyzeRlsPosture(migrationsSql));
+  if (denyAll.length > 0) return { label: 'deny-all client-role revoke', failures: denyAll };
+
+  return undefined;
+}
+
+async function main(): Promise<void> {
+  const staticFailure = findStaticRlsFailures(readMigrationsSql());
+  if (staticFailure) {
+    reportFailures(staticFailure.label, staticFailure.failures);
     process.exitCode = 1;
     return;
   }
   console.log(
     `rls-audit: static coverage passed (${REQUIRED_RLS_TABLES.length} registered tables enable RLS in migrations)`,
   );
-
-  // 2. Deny-all recurrence guard — also DB-free, and for the reason in the
-  //    section header it CANNOT be a live check: the test container never
-  //    carries Supabase's default client-role grants.
-  const denyAllFailures = findDenyAllRevokeFailures(analyzeRlsPosture(migrationsSql));
-  if (denyAllFailures.length > 0) {
-    reportFailures('deny-all client-role revoke', denyAllFailures);
-    process.exitCode = 1;
-    return;
-  }
   console.log('rls-audit: deny-all client-role revoke guard passed');
 
-  // 3. Live relrowsecurity check — only when an explicit test database is set.
-  //    We require TEST_DATABASE_POOL_URL (not the always-present DATABASE_POOL_URL
-  //    placeholder) so CI runs the static gate without attempting a connection.
-  //    The gates above already fail closed, so this path can never silently pass.
-  //    It is also the only arm that sees a STALE registry entry: a table dropped
-  //    from the schema still has its ENABLE RLS in the migration that made it.
+  // Live relrowsecurity check — only when an explicit test database is set. We
+  // require TEST_DATABASE_POOL_URL (not the always-present DATABASE_POOL_URL
+  // placeholder) so CI's lint job runs the static gates without attempting a
+  // connection. Those gates already fail closed, so this path can never
+  // silently pass. It is also the only arm that sees a STALE registry entry: a
+  // table dropped from the schema still has its ENABLE RLS in the migration
+  // that made it.
   const databaseUrl = process.env.TEST_DATABASE_POOL_URL;
   if (!databaseUrl) {
     console.log(
-      'rls-audit: live DB check skipped (TEST_DATABASE_POOL_URL unset); static coverage gate enforced above',
+      'rls-audit: live DB check skipped (TEST_DATABASE_POOL_URL unset); static gates enforced above',
     );
     return;
   }

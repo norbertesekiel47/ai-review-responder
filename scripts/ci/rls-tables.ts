@@ -109,5 +109,3 @@ export const RLS_REQUIRED_TABLES = [
   'google_connections',
   'owner_leads',
 ] as const;
-
-export type RlsRequiredTable = (typeof RLS_REQUIRED_TABLES)[number];

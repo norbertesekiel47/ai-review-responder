@@ -6,6 +6,7 @@ import {
   findDenyAllRevokeFailures,
   findRlsCoverageFailures,
   findRlsFailures,
+  findStaticRlsFailures,
   readMigrationsSql,
   REQUIRED_RLS_TABLES,
   stripSqlComments,
@@ -236,5 +237,36 @@ describe('findDenyAllRevokeFailures', () => {
 
   it('every deny-all table in the real migrations already revokes the client roles', () => {
     expect(findDenyAllRevokeFailures(analyzeRlsPosture(readMigrationsSql()))).toEqual([]);
+  });
+});
+
+// The two DB-free arms as `main()` runs them — the authoritative CI checks,
+// since the `lint` job has no database.
+describe('findStaticRlsFailures', () => {
+  it('reports the coverage arm first when a registered table never enables RLS', () => {
+    expect(findStaticRlsFailures(['ALTER TABLE t ENABLE ROW LEVEL SECURITY;'], ['other'])).toEqual({
+      label: 'static RLS coverage',
+      failures: ['other has no ENABLE ROW LEVEL SECURITY in any migration'],
+    });
+  });
+
+  it('reports the deny-all arm once coverage is satisfied', () => {
+    expect(findStaticRlsFailures(['ALTER TABLE t ENABLE ROW LEVEL SECURITY;'], ['t'])).toEqual({
+      label: 'deny-all client-role revoke',
+      failures: [
+        't is deny-all (RLS on, zero policies) with no REVOKE ALL ON t FROM anon, authenticated in any migration',
+      ],
+    });
+  });
+
+  it('returns undefined when both arms pass', () => {
+    expect(findStaticRlsFailures(
+      ['ALTER TABLE t ENABLE ROW LEVEL SECURITY;', 'REVOKE ALL ON t FROM anon, authenticated;'],
+      ['t'],
+    )).toBeUndefined();
+  });
+
+  it('passes over the real migration corpus with the real registry', () => {
+    expect(findStaticRlsFailures(readMigrationsSql())).toBeUndefined();
   });
 });
