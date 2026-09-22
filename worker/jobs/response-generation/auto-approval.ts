@@ -200,7 +200,8 @@ export async function loadAutoApprovalRuntimeState(
   // caller re-introduces the deadlock risk, but never a cap overshoot).
   // Global lock order: reviews → businesses → child rows, where "first"
   // means before ANY statement that takes an implicit FK lock on the row —
-  // explicit FOR UPDATE statement order alone is not enough.
+  // explicit FOR UPDATE statement order alone is not enough
+  // (owner: .claude/reference/lab-notes/lock-order.md).
   // FP: ordered on purpose — the lock must be held BEFORE the count below or
   // two concurrent persists both read a below-cap count and overshoot the cap.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await

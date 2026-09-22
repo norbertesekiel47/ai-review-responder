@@ -78,8 +78,9 @@ export async function handleJudgeFailed(
     }
 
     await sql.begin(async (tx) => {
-      // Binding review-lane lock order: the anchor is the transaction's FIRST
-      // lock, before the verdict INSERT's implicit FK locks.
+      // Review-lane lock order, step 1 (owner:
+      // .claude/reference/lab-notes/lock-order.md): the anchor is the
+      // transaction's FIRST lock, before the verdict INSERT's implicit FK locks.
       const reviewId = await anchorReviewLockOrder(
         tx,
         context.response_id,
@@ -90,10 +91,12 @@ export async function handleJudgeFailed(
         return;
       }
 
-      // Binding lane order continues reviews -> businesses -> responses:
-      // without this explicit lock, the verdict INSERT's implicit businesses
-      // FK lock would be the first businesses acquisition, after the response
-      // FK lock — inverting the lane order.
+      // Step 2, businesses, explicitly — otherwise the verdict INSERT's
+      // implicit businesses FK lock would come after its response FK lock
+      // (lock-order.md, implicit-FK-lock rule). The owner-approval lane's
+      // opposite order is safe only by lane disjointness: a Judge job targets
+      // a posted auto-policy row, which never returns to pending_approval
+      // (lock-order.md, "The exception").
       const [lockedBusiness] = await tx<{ id: string }[]>`
         SELECT id
         FROM businesses

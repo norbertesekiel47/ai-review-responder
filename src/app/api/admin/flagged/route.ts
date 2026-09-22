@@ -145,9 +145,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
           FOR UPDATE
         `;
-        // Archived-location gate AFTER the responses lock — uniform
-        // responses → businesses lock order with the owner-facing approval
-        // lanes. Without it the supersede commits, the flag closes, and the
+        // Archived-location gate AFTER the responses lock — the same
+        // responses → businesses FOR SHARE order as the owner-approval lane,
+        // which is the EXCEPTION to the global businesses-before-responses
+        // order (owner: .claude/reference/lab-notes/lock-order.md). Safe only
+        // by invariant #4: a held flagged draft is never auto-approved, so no
+        // review-lane transaction (Judge, downgrade) targets it while its flag
+        // is open. Never extend this lane to posted auto-policy responses.
+        // Without the gate the supersede commits, the flag closes, and the
         // enqueued generate job skips-as-success — review left with no
         // draft, silently.
         await assertFlagLocationActive(tx, flag.business_id);
