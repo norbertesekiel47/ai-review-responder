@@ -89,6 +89,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 - No new top-level directories, no near-duplicate dependencies, no abstractions for a single caller, no npm/yarn lockfiles. Default is "no new file" — check `docs/directory.md` (Pages table) + the folder's `docs/directory/<page>.md` first (CI-complete for `worker/` + `src/lib/`: `ci:directory-map` fails on a production file with no row, or a row whose file is gone — a new file under those roots ships with its row in the same PR).
 - **Next.js 16 moved things** — APIs, conventions, and file structure differ from most training data. Before writing or debugging Next-specific code (routing, caching, `next.config`, server/client boundaries), read the matching guide under `node_modules/next/dist/docs/`; it is version-matched to the installed `next` and mirrors the structure of nextjs.org/docs. Next's own auto-generated `AGENTS.md` block is deliberately off (`agentRules: false`, #798) — this bullet is that guidance's single owner.
 - **Context and skill routing:** read relevant glossary entries via `CONTEXT-MAP.md`, not a whole context page. Start RepWorth UI work with `repworth-brand-design`; add design/motion skills for a concrete need and preserve project tokens. Honor explicitly requested skills. Do not add a second progress ledger or completion workflow to `$feature`.
+- A follow-up named in a review document (arch-log entry, review record, deviations file, findings doc) gets an issue number in the same PR, or it is not named (#1383).
 - When deleting a doc or ticking a checklist item, fix its audit tick and grep the filename to clean every cross-reference in the same change.
 - **This file is shape-guarded** (`src/__tests__/claude-md-shape.test.ts`): "Where things live" rows ≤ 80 words, gotcha bullets ≤ 60, total ≤ 6,000. A row says WHERE to read + ≤ 3 one-clause traps; the WHY lives in `docs/directory/<page>.md` § folder, `docs/context/<context>.md`, or `.claude/reference/lab-notes/<topic>.md`; area traps live in `.claude/rules/`.
 
@@ -123,6 +124,7 @@ Detailed inventories load on demand — read the matching file before the work:
 | harden bot-protection / edge rate-limiting / WAF / Attack Mode | rule `.claude/rules/security-edge.md` + runbook `docs/runbooks/vercel-waf-rate-limiting.md` |
 | build/debug worker health alerting, the `HealthAlertPoller`, or the `SENTRY_DSN` boot gate (`assertAlertSinkEnv`) | rule `.claude/rules/alerting.md` + runbook `docs/runbooks/beta-launch-alerting.md` |
 | verify a spec / plan / launch doc against the codebase, or answer "what's remaining" on a checklist | invoke the `verify-spec` skill — evidence table + mandatory `VERDICT: PASS/FAIL` |
+| run an architecture pass (owner-requested only — there is no merge counter or reminder) | runbook `docs/runbooks/architecture-pass.md` — window, agenda, issues not prose |
 
 Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
 `cost-guard`, `onboarding-demo-cost-guard`, `new-migration` (before any
