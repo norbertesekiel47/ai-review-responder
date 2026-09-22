@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
+import {
+  DEMO_GENERATION_STATUS,
+  NO_DEMO_SENTINEL_STATUS,
+  type OnboardingDemoViewStatus,
+} from '@/lib/demos/types';
 // `m` only — this client always renders inside OnboardingFunnelShell, whose
 // LazyMotion(domAnimation) provider supplies the animation features.
 import { m } from 'motion/react';
@@ -16,7 +21,9 @@ import {
 
 interface DemoPayload {
   id: string;
-  generation_status: string;
+  // A persisted status (migration 032's CHECK set) or the page-synthesized
+  // `NO_DEMO_SENTINEL_STATUS`, which never reaches Postgres (#1104).
+  generation_status: OnboardingDemoViewStatus;
   completed_at: string | null;
   source: string | null;
   reviews_snapshot: NormalizedReview[] | string | null;
@@ -103,7 +110,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   }, [pollCount, demo.generation_status, router]);
 
   useEffect(() => {
-    if (demo.generation_status === 'queued' || demo.generation_status === 'running') {
+    if (
+      demo.generation_status === DEMO_GENERATION_STATUS.QUEUED ||
+      demo.generation_status === DEMO_GENERATION_STATUS.RUNNING
+    ) {
       const interval = setInterval(poll, 2000);
       return () => clearInterval(interval);
     }
@@ -149,10 +159,12 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
     }
   }
 
-  const isLoading = demo.generation_status === 'queued' || demo.generation_status === 'running';
-  const isFailed = demo.generation_status === 'failed';
-  const isCompleted = demo.generation_status === 'completed';
-  const isSkipped = demo.generation_status === 'skipped';
+  const isLoading =
+    demo.generation_status === DEMO_GENERATION_STATUS.QUEUED ||
+    demo.generation_status === DEMO_GENERATION_STATUS.RUNNING;
+  const isFailed = demo.generation_status === DEMO_GENERATION_STATUS.FAILED;
+  const isCompleted = demo.generation_status === DEMO_GENERATION_STATUS.COMPLETED;
+  const isSkipped = demo.generation_status === NO_DEMO_SENTINEL_STATUS;
   const isFallback = demo.source === 'curated_fallback';
   const staleAgeDays =
     nowMs !== null && demo.completed_at

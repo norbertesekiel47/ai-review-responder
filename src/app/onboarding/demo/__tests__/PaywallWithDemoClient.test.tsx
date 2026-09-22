@@ -9,8 +9,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { PaywallWithDemoClient } from '../PaywallWithDemoClient';
+import { NO_DEMO_SENTINEL_STATUS, type OnboardingDemoViewStatus } from '@/lib/demos/types';
 
-function demo(status: string) {
+function demo(status: OnboardingDemoViewStatus) {
   return {
     id: 'demo-1',
     generation_status: status,
@@ -134,5 +135,32 @@ describe('PaywallWithDemoClient — regenerate has a busy state and mapped failu
     const label = screen.getByText('RepWorth draft reply');
     expect(label.className).toContain('text-rw-teal-strong');
     expect(label.className).not.toMatch(/(?:^|\s)text-rw-teal(?:\s|$)/);
+  });
+});
+
+describe('PaywallWithDemoClient — no-demo sentinel (#1104)', () => {
+  it('renders the paywall with the on-the-way copy, offers no retry, and never polls', () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(
+        <PaywallWithDemoClient initialDemo={demo(NO_DEMO_SENTINEL_STATUS)} isStale={false} />,
+      );
+
+      expect(screen.getByText(/live demo is on the way after signup/i)).toBeInTheDocument();
+      expect(screen.getByText('Choose your RepWorth plan')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Try the demo again' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Regenerate demo' })).toBeNull();
+      expect(screen.queryByText(/generating your demo/i)).toBeNull();
+
+      // The status poller only arms for queued/running; the sentinel has no row
+      // to poll (the status route answers 404), so no request may go out.
+      vi.advanceTimersByTime(2000 * 3 + 100);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(routerRefresh).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
