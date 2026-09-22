@@ -101,14 +101,28 @@ export async function getAdminJobsData(
   // Both callers race this against `fetchQueueHealth`, which remains safe only
   // because that is an HTTP call to the worker and takes no `sql` connection;
   // do not swap it for a DB-backed reader.
+  //
+  // BOUNDED, never a whole-table count (#1365). The WHERE admits only rows some
+  // counter reads, one equality arm per status, so the planner BitmapOrs one
+  // partial index per arm: `idx_jo_pending`, `idx_jo_recovery` (065),
+  // `idx_jo_failed_created` and `idx_jo_completed_at` (124). Do not fold the
+  // arms into `status IN (…)`: a ScalarArrayOp implies none of those partial
+  // predicates, so the plan falls back to a sequential scan of a table that is
+  // mostly `completed` rows (7-day retention) — and the list would have to
+  // spell the in-flight tuple byte-for-byte (`ci:outbox-status`).
   const summaryRows = await sql<OutboxSummaryRow[]>`
       SELECT
-        COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending,
-        COUNT(CASE WHEN status = 'dispatching' THEN 1 END)::int AS dispatching,
-        COUNT(CASE WHEN status = 'dispatched' THEN 1 END)::int AS dispatched,
-        COUNT(CASE WHEN status = 'failed' THEN 1 END)::int AS failed,
-        COUNT(CASE WHEN status = 'completed' AND completed_at >= CURRENT_DATE THEN 1 END)::int AS completed_today
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+        COUNT(*) FILTER (WHERE status = 'dispatching')::int AS dispatching,
+        COUNT(*) FILTER (WHERE status = 'dispatched')::int AS dispatched,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+        COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_today
       FROM job_outbox
+      WHERE status = 'pending'
+         OR status = 'dispatching'
+         OR status = 'dispatched'
+         OR status = 'failed'
+         OR (status = 'completed' AND completed_at >= CURRENT_DATE)
     `;
   // Same predicate on the page and its count so the footer total is the
   // filtered total. Empty fragment when no topic is asked for.

@@ -49,6 +49,16 @@ describe('getAdminJobsData', () => {
 
     expect(sqlCalls).toHaveLength(4);
     expect(sqlCalls[0]!.text).toContain('FROM job_outbox');
+    // #1365: the summary is BOUNDED — one equality arm per counter, so each
+    // arm can use its own partial index. No whole-table CASE count, and no
+    // `status IN (…)` list (a ScalarArrayOp implies no partial predicate).
+    // Plan-level proof is admin-panel-bounds.integration.test.ts.
+    const summaryText = sqlCalls[0]!.text.replace(/\s+/g, ' ');
+    expect(summaryText).toContain(
+      "WHERE status = 'pending' OR status = 'dispatching' OR status = 'dispatched' OR status = 'failed' OR (status = 'completed' AND completed_at >= CURRENT_DATE)",
+    );
+    expect(summaryText).not.toContain('CASE WHEN');
+    expect(summaryText).not.toMatch(/status IN/i);
     // The page resolves the business through the payload id, UUID-guarded
     // before the cast so a platform-wide payload yields NULL, not 22P02.
     expect(sqlCalls[1]!.text).toContain('FROM job_outbox jo');
