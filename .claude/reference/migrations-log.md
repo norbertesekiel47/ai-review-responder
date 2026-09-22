@@ -2533,9 +2533,16 @@ Revisit triggers:
   added in the same PR.
 
 - **124** — admin jobs-panel `job_outbox` indexes (#1365, audit H1).
-  **LOCAL-ONLY** — applied and verified only against the rebuildable local test
-  container; promotion is staging first, then production, in lockstep, and
-  removing this marker is that change. **Index-only: no table, no column, no
+  **Applied to staging (`kubdiqdhqbhwmqfditeg`) 2026-09-22T11:22Z, then
+  production (`udeyaqnvpojbwgoaxwdg`) 2026-09-22T11:23Z**, via `supabase db
+  query --linked`, one `CONCURRENTLY` statement per call (a lone statement
+  runs outside a transaction). Verified by introspection on both, PG 17.6:
+  both definitions byte-identical to this file, `indisvalid` and `indisready`
+  true, zero INVALID indexes. Staging `EXPLAIN` with no planner overrides: the
+  failed page, failed total and topic list all read `idx_jo_failed_created`;
+  production's failed page is an Index Scan on it. No longer LOCAL-ONLY, so
+  `migration-immutability-guard.sh` now protects it — **124 is immutable; any
+  change is a new migration.** **Index-only: no table, no column, no
   constraint, no data, no RLS posture.** Two statements, `CONCURRENTLY` and
   therefore **non-transactional** (uncheck the Supabase SQL editor's
   single-transaction box; a partial failure can leave an INVALID index — check
