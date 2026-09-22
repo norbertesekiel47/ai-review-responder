@@ -14,9 +14,12 @@
 //     FAILED yesterday, a failed job created 80 days ago, a job completed
 //     today that was created 10 days ago — so e.g. a `created_at >= 7 days`
 //     bound on email health fails here instead of silently under-counting.
-//  3. PLAN: with sequential scans priced out, the failed-row reads and the
-//     summary resolve to migration 124's indexes (a bare-status `IN (…)` list
-//     in the summary would not — it implies no partial predicate).
+//  3. PLAN: the SQL the service actually sends, planned with sequential scans
+//     priced out, is index-served, and the summary is a five-arm BitmapOr (a
+//     bare-status `IN (…)` list would collapse it — a ScalarArrayOp implies
+//     no partial predicate). Which index wins an arm is statistics-dependent
+//     on a shared test table and is NOT pinned; the measured plans live in
+//     migration 124's header.
 //
 // No DDL and no migration SQL at run time (`ci:live-db-suites`): `pnpm
 // test:db:setup` provisions the schema, `assertSchemaReady` asserts it, and
@@ -83,18 +86,32 @@ async function fetchIndex(name: string): Promise<IndexCatalogRow | undefined> {
   return row;
 }
 
-/** Every index name in a JSON plan, depth-first. */
-function planIndexNames(node: unknown): string[] {
-  if (!node || typeof node !== 'object') return [];
-  const record = node as Record<string, unknown>;
-  const own = typeof record['Index Name'] === 'string' ? [record['Index Name']] : [];
-  const children = Array.isArray(record.Plans) ? record.Plans : [];
-  return [...own, ...children.flatMap(planIndexNames)];
+interface PlanNode {
+  type: string;
+  index: string | undefined;
+  children: number;
 }
 
-/** EXPLAIN (FORMAT JSON) with sequential scans priced out, in a rolled-back tx. */
-async function explainIndexes(query: string, params: unknown[]): Promise<string[]> {
-  let names: string[] = [];
+/** Every node of a JSON plan, depth-first. */
+function flattenPlan(node: unknown): PlanNode[] {
+  if (!node || typeof node !== 'object') return [];
+  const record = node as Record<string, unknown>;
+  const children = Array.isArray(record.Plans) ? record.Plans : [];
+  const own: PlanNode = {
+    type: String(record['Node Type']),
+    index: typeof record['Index Name'] === 'string' ? record['Index Name'] : undefined,
+    children: children.length,
+  };
+  return [own, ...children.flatMap(flattenPlan)];
+}
+
+/**
+ * EXPLAIN (FORMAT JSON) with sequential scans priced out, in a rolled-back tx.
+ * `enable_seqscan = off` only PENALISES a Seq Scan — so a Seq Scan that
+ * survives it means no index path exists for that read at all.
+ */
+async function explainPlan(query: string, params: unknown[]): Promise<PlanNode[]> {
+  let nodes: PlanNode[] = [];
   await sql()
     .begin(async (tx) => {
       await tx`SET LOCAL enable_seqscan = off`;
@@ -105,13 +122,13 @@ async function explainIndexes(query: string, params: unknown[]): Promise<string[
       const raw = rows[0]?.['QUERY PLAN'];
       const plan: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const top = Array.isArray(plan) ? (plan[0] as { Plan?: unknown }).Plan : undefined;
-      names = planIndexNames(top);
+      nodes = flattenPlan(top);
       throw new RollbackSignal();
     })
     .catch((error: unknown) => {
       if (!(error instanceof RollbackSignal)) throw error;
     });
-  return names;
+  return nodes;
 }
 
 class RollbackSignal extends Error {}
@@ -237,7 +254,7 @@ describeWithDb('admin panel bounded reads (#1365)', { enabled: Boolean(testDatab
     });
   });
 
-  it("getAdminJobsData's own summary, failed page, failed total and topic reads resolve to migration 124 indexes", async () => {
+  it("getAdminJobsData's own summary and failed-row reads are index-served", async () => {
     // Capture the SQL the service ACTUALLY sends (postgres.js `debug` hook), so
     // this plans the shipped text rather than a copy of it that could drift.
     const captured: { query: string; params: unknown[] }[] = [];
@@ -257,13 +274,24 @@ describeWithDb('admin panel bounded reads (#1365)', { enabled: Boolean(testDatab
     // service's four statements only.
     const reads = captured.filter((c) => c.query.includes('job_outbox'));
     expect(reads).toHaveLength(4);
-    const [summary, page, total, topics] = reads;
+    const [summary, ...failedReads] = reads;
 
-    expect(await explainIndexes(summary!.query, summary!.params)).toEqual(
-      expect.arrayContaining(['idx_jo_pending', 'idx_jo_recovery', 'idx_jo_failed_created', 'idx_jo_completed_at']),
-    );
-    expect(await explainIndexes(page!.query, page!.params)).toContain('idx_jo_failed_created');
-    expect(await explainIndexes(total!.query, total!.params)).toContain('idx_jo_failed_created');
-    expect(await explainIndexes(topics!.query, topics!.params)).toContain('idx_jo_failed_created');
+    // WHICH index serves an arm is the planner's call and moves with the
+    // shared test table's statistics (on a near-empty table `idx_jo_topic`
+    // can undercut `idx_jo_completed_at`), so it is not pinned here — the
+    // measured plans are in migration 124's header and the PR. What IS
+    // structural: one bitmap arm per counter under a BitmapOr, and no
+    // Seq Scan. Folding the arms into `status IN (…)` collapses the
+    // BitmapOr to fewer arms and fails this.
+    const summaryPlan = await explainPlan(summary!.query, summary!.params);
+    expect(summaryPlan.map((n) => n.type)).not.toContain('Seq Scan');
+    const bitmapOr = summaryPlan.find((n) => n.type === 'BitmapOr');
+    expect(bitmapOr?.children).toBe(5);
+
+    for (const read of failedReads) {
+      const plan = await explainPlan(read.query, read.params);
+      expect(plan.map((n) => n.type)).not.toContain('Seq Scan');
+      expect(plan.some((n) => n.index !== undefined)).toBe(true);
+    }
   });
 });
