@@ -140,7 +140,16 @@ const CATEGORY_ENUM_CHECK = 'refusal_events_refusal_category_check';
 const SUBJECT_TYPE_ENUM_CHECK = 'refusal_events_subject_type_check';
 
 const ARCHIVAL_INDEX = 'idx_refusal_events_archival';
-const ACCOUNT_WINDOW_INDEX = 'idx_refusal_events_account_window';
+/**
+ * 116 shipped `idx_refusal_events_account_window (account_id, occurred_at DESC)`.
+ * Migration 123 (#1081) SUPERSEDED it: the covering replacement has that pair as
+ * a strict prefix, adds `id DESC` so `read.ts`'s tiebreak needs no Incremental
+ * Sort, and INCLUDEs `business_id` so the Restraint tab's `total` COUNT is an
+ * Index Only Scan instead of one heap fetch per row in the window. The old name
+ * is gone from the database, so the assertions below name the new one — 116 is
+ * immutable, and 123 is the new migration its own closing line required.
+ */
+const ACCOUNT_WINDOW_INDEX = 'idx_refusal_events_account_window_covering';
 const SUBJECT_UNIQ_INDEX = 'refusal_events_subject_uniq';
 
 const CHECK_VIOLATION = '23514';
@@ -150,7 +159,7 @@ const UNDEFINED_TABLE = '42P01';
 const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
   migration: '116_refusal_events',
   tables: ['refusal_events'],
-  indexes: [ARCHIVAL_INDEX, ACCOUNT_WINDOW_INDEX, SUBJECT_UNIQ_INDEX],
+  indexes: [ARCHIVAL_INDEX, SUBJECT_UNIQ_INDEX],
   constraints: [
     C1_SOURCE_SUBJECT,
     C2_SUBJECT_COMPLETENESS,
@@ -158,6 +167,16 @@ const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
     C4_CODE_PAIRING,
     C5_ALL_CODES_PAIRING,
   ].map((name) => ({ table: 'refusal_events', name })),
+};
+
+/**
+ * The window index is 123's now, not 116's, so it is asserted under the
+ * migration that owns it: a database still carrying 116's narrower index is
+ * BEHIND head, and the failure must name the migration that fixes it.
+ */
+const MIGRATION_123_REFUSAL_READ_INDEXES: SchemaRequirement = {
+  migration: '123_refusal_read_indexes',
+  indexes: [ACCOUNT_WINDOW_INDEX],
 };
 
 /**
@@ -517,7 +536,7 @@ describeWithDb(
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
-      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS]);
+      await assertSchemaReady(db, [MIGRATION_116_REFUSAL_EVENTS, MIGRATION_123_REFUSAL_READ_INDEXES]);
       tenant = await seedTenantAccount(db, {
         userName: 'Refusal 116 Owner',
         accountDisplayName: 'Refusal 116 Account',
@@ -716,10 +735,18 @@ describeWithDb(
       // skip scan and the purge DELETE filters account-first. Unpartial on
       // purpose — it must cover the account-wide rows (business_id IS NULL)
       // without a second index.
+      //
+      // MIGRATION 123 (#1081) WIDENED IT, and the assertion widened with it
+      // rather than loosening: `id DESC` is a KEY column, not a suffix the
+      // planner may ignore, because `read.ts` orders `occurred_at DESC, id DESC`
+      // over a writer that creates 5,000-row ties by design; `business_id` is
+      // INCLUDEd so the `total` COUNT reads the index alone. Both halves are
+      // pinned verbatim — a rebuild that drops the INCLUDE would still satisfy
+      // a prefix-only assertion while silently restoring one heap fetch per row.
       const accountWindow = await indexDefinition(ACCOUNT_WINDOW_INDEX);
       expect(accountWindow).not.toContain('CREATE UNIQUE INDEX');
       expect(accountWindow).toContain(
-        'ON public.refusal_events USING btree (account_id, occurred_at DESC)',
+        'ON public.refusal_events USING btree (account_id, occurred_at DESC, id DESC) INCLUDE (business_id)',
       );
       expect(accountWindow).not.toContain('WHERE');
 

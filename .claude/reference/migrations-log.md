@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **122** — next migration is **123**
+Current head: **123** — next migration is **124**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2532,6 +2532,52 @@ Revisit triggers:
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
 
+- **123** — Restraint tab read indexes (#1081). **LOCAL-ONLY** — applied and
+  verified only against the rebuildable local test container; promotion is
+  staging first, then production, in lockstep, and removing this marker is that
+  change. **Index-only: no table, no column, no constraint, no data, no RLS
+  posture.** Three statements, `CONCURRENTLY` and therefore **non-transactional**
+  (uncheck the Supabase SQL editor's single-transaction box; a partial failure
+  can leave an INVALID index — check `pg_index WHERE NOT indisvalid`, DROP, and
+  re-run). 079's shape and its reason: `account_audit_log` is one of the tables
+  #996 found NOTHING sweeps, so its build must not take a write lock.
+  (1) `idx_refusal_events_account_window_covering` on
+  `refusal_events (account_id, occurred_at DESC, id DESC) INCLUDE (business_id)`;
+  (2) **DROP** of 116's `idx_refusal_events_account_window`, which the new index
+  has as a strict prefix — create first, drop second, so no window exists with
+  neither; (3) `idx_account_audit_location_window` on
+  `account_audit_log (account_id, location_id, created_at DESC, id DESC)
+  INCLUDE (event_type) WHERE location_id IS NOT NULL`.
+  **WHY.** `src/lib/refusals/read.ts` has three reads and each had a plan
+  defect. The `total` COUNT returns one row but touches every row in the window,
+  and its ONE non-indexed input was `business_id` — so it ran as an `Index Scan`
+  with a heap fetch per row. The per-location archived-period read had no
+  `location_id` index at all and filtered it after the fact on a table with no
+  retention sweep, so the scan got monotonically worse forever. And
+  `ORDER BY occurred_at DESC, id DESC` had no `id` in any index, so the plan
+  carried an Incremental Sort over ties the writer creates BY DESIGN
+  (`batch-builder.ts` shares one `Date` across up to 5,000 rows).
+  **MEASURED, PG 17, local container** — 256,000 `refusal_events` (60,000 in the
+  measured 90-day window) and 200,000 `account_audit_log` rows, `VACUUM
+  (ANALYZE)` on both sides: account-arm COUNT `Index Scan` 60,366 buffers /
+  373.6 ms → `Index Only Scan` 586 buffers / 111.5 ms; location-arm COUNT
+  `Bitmap Heap Scan` 1,613 / 5.39 ms → `Index Only Scan` 568 / 3.37 ms;
+  archived periods 3,242 buffers / 3.79 ms with a Sort → 15 buffers / 0.09 ms
+  with none; entry read loses its Incremental Sort. Full plans in the PR and in
+  `lab-notes/history/2026-09-19-to-30.md`.
+  **`SchemaRequirement`:** `MIGRATION_123_REFUSAL_READ_INDEXES`, declared inline
+  in `src/lib/refusals/__tests__/{read,write}.integration.test.ts` and
+  `src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts` —
+  its own requirement, never folded into 116's, so a database still carrying
+  116's narrower index fails with the migration that fixes it named. The 116
+  suite's index-shape case now asserts the WIDENED definition byte-for-byte,
+  INCLUDE and all; `read.integration.test.ts` pins
+  `idx_account_audit_location_window`'s definition for the same reason, because
+  `account_audit_log` has no migration suite of its own.
+  **Not fixed here:** the silent `ARCHIVAL_EVENT_LIMIT` truncation is #1077. The
+  missing `created_at <= windowEnd` bound on the same query IS fixed, in
+  `read.ts` — a query bug, not a schema one.
+
 - **116** — `refusal_events`: the **Refusal ledger**'s table (#1008; map #994,
   schema locked in #1001). Slice 1 of 7 and the only one that is pure schema.
   **New table**, twelve columns, five named CHECKs, three column-level enum
@@ -2597,7 +2643,8 @@ Revisit triggers:
   `idx_refusal_events_account_window (account_id, occurred_at DESC)` for the
   owner read AND the purge delete; `account_id` leads because PG16 has no skip
   scan and the purge filters account-first, and it covers `business_id IS NULL`
-  rows without a second index. `refusal_events_subject_uniq` UNIQUE on
+  rows without a second index. **SUPERSEDED AND DROPPED BY 123** — see that
+  entry; the replacement keeps this pair as a strict prefix. `refusal_events_subject_uniq` UNIQUE on
   `(refusal_source, subject_id) WHERE subject_id IS NOT NULL` — **partial**, so
   `autonomy_suspended`'s NULL subject is never deduplicated and two suspensions
   of one account stay two distinct **Refusals**. #1009's helper must re-spell
