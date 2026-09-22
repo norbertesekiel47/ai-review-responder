@@ -148,12 +148,17 @@ describe('health-alert checks', () => {
       expect(text).toMatch(/a\.status <> 'failed'/);
       expect(text).toMatch(/NOT EXISTS[\s\S]*n\.created_at > o\.created_at/);
       expect(text).toMatch(/o\.status = 'failed'/);
+      // Exactly the three lifecycle stages, bound as one array: `email` and
+      // `reactivation` cannot strand an offboarding (OFFBOARDING_STAGE_TOPICS).
+      expect(text).toMatch(/o\.topic = ANY\(\?::text\[\]\)/);
       expect(mockSql.mock.calls[0]?.slice(1)).toEqual(
         expect.arrayContaining([
           'account_offboarding',
-          QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
-          QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
-          QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+          [
+            QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
+            QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
+            QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+          ],
         ]),
       );
     });

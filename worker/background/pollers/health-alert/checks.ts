@@ -27,7 +27,10 @@ import { JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS } from '../../../../src/lib/response
 import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
 import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
 import { evaluateSendBreaker } from '../../../../src/lib/solicitation/send-breaker';
-import { AGGREGATE_TYPE_ACCOUNT_OFFBOARDING } from '../../../../src/lib/account-offboarding/outbox';
+import {
+  AGGREGATE_TYPE_ACCOUNT_OFFBOARDING,
+  OFFBOARDING_STAGE_TOPICS,
+} from '../../../../src/lib/account-offboarding/outbox';
 import type { HealthFinding } from '../../../../src/lib/shared/health-finding';
 
 // The finding shape lives in src/lib/shared/health-finding.ts (#910 B3.1) so
@@ -156,6 +159,11 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
 // enqueues a NEWER row for the same topic and offboarding, and the old failed
 // row is then history, not a finding. Ids and the already-scrubbed
 // `last_error` only — never owner text.
+//
+// The topic list is CLOSED on purpose (#1395): only a lifecycle stage leaves
+// an offboarding waiting on work nothing will redo. `OFFBOARDING_STAGE_TOPICS`
+// owns that classification beside the enqueue helpers; the non-stage topics
+// are still watched as rows by the topic-open `checkFailedOutboxByTopic`.
 export const STRANDED_OFFBOARDING_FINDING_PREFIX = 'account_offboarding_stranded';
 const STRANDED_OFFBOARDING_LIMIT = 50;
 
@@ -177,11 +185,7 @@ export async function checkStrandedAccountOffboardings(sql: postgres.Sql): Promi
     FROM job_outbox o
     JOIN account_offboardings a ON a.id = o.aggregate_id
     WHERE o.aggregate_type = ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING}
-      AND o.topic IN (
-        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE},
-        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN},
-        ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE}
-      )
+      AND o.topic = ANY(${[...OFFBOARDING_STAGE_TOPICS] as string[]}::text[])
       AND o.status = 'failed'
       AND a.terminal_at IS NULL
       AND a.status <> 'failed'

@@ -191,6 +191,8 @@ describe('OutboxPoller.pollOutbox', () => {
     const failedUpdate = findSql(mockSql.mock.calls, "status = 'failed'", 'last_error');
     expect(failedUpdate).toBeDefined();
     expect(String((failedUpdate as unknown[])[1])).toContain('Unknown topic');
+    // Every terminal write sets completed_at (#1395).
+    expect(((failedUpdate as unknown[])[0] as string[]).join('?')).toContain('completed_at = NOW()');
   });
 
   // ── Attempt-guard / dead-letter on dispatch failure ──

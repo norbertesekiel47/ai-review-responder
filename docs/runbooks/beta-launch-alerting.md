@@ -329,6 +329,36 @@ email shares the Resend provider with the product.
   deliberately, until production says what to tune them to, so they are absent
   from §5's table by design rather than by omission.
 
+- [ ] **Failed outbox rows, every topic (#1378, audited by #1395)** — finding
+  key `outbox_failed:<topic>` from `checkFailedOutboxByTopic`, routed by
+  **rule 1**. No new rule is needed. It has no topic list, so every topic
+  rides it, including the ~30 that first gained a Watchdog terminal path in
+  #1378. **It is the only signal every terminal path shares.** A terminal
+  `job_outbox` row reaches one of five ends:
+  1. **Handler throws on its last attempt** → BullMQ `failed` →
+     `reportJobFailure` (`worker/job-failure-sink.ts`) raises a
+     `subsystem:worker_job` issue, plus any domain hook registered with
+     `.on('failed', …)` in `worker/index.ts`. Rule 11 routes that issue for
+     `agent_turn` only.
+  2. **Handler marks the row `failed` and returns** → no BullMQ `failed`
+     event, so no sink. Row only (the offboarding stages also alert through
+     rules 16–18).
+  3. **Dispatch exhaustion** (`runOutboxDispatchFailure`) → a log line and a
+     breadcrumb. Row only.
+  4. **Watchdog terminalization** → no handler, no sink. Row only, except that
+     `agent_turn` is reconciled and a stranded offboarding stage raises
+     `account_offboarding_stranded:<account_offboarding_id>`.
+  5. **Unknown topic** → a `subsystem:outbox` `captureMessage` that no rule
+     routes. The row also carries it.
+  **The closed lists that remain are deliberate.** The zero-delivery and
+  owner-unreachable probes are about `send_notification` by definition. The
+  stranded-offboarding probe binds `OFFBOARDING_STAGE_TOPICS`
+  (`src/lib/account-offboarding/outbox.ts`), which records why `email` and
+  `reactivation` are not stages and fails typecheck for an unclassified
+  `ACCOUNT_OFFBOARDING_*` queue name. The finding title embeds the count, so
+  a first-seen trigger stays silent on a repeated count (see the rule-16
+  paragraph).
+
 - [ ] **Owner Operator `agent_turn` retry exhaustion routed to Discord (Run A,
   red-team P1-3)** — issues tagged `subsystem:worker_job` **and**
   `queue:agent_turn`, emitted by `reportJobFailure` in
@@ -346,8 +376,9 @@ email shares the Resend provider with the product.
   **every event**, Discord channel through the integration (click-path row 11). The companion signal — a `job_outbox` row for topic `agent_turn` that
   lands `failed`, by dispatch exhaustion or by the watchdog terminalising a
   long-`dispatched` row — is `outbox_failed:agent_turn` from
-  `checkFailedOutboxByTopic` and rides **rule 1**; the topic joined that CLOSED
-  allowlist in Run A (red-team P1-2 — the same omission class as #628). NOT
+  `checkFailedOutboxByTopic` and rides **rule 1**; the topic joined what was
+  then a CLOSED allowlist in Run A (red-team P1-2 — the same omission class as
+  #628), and the list has been open to every topic since #1378. NOT
   covered, by design and recorded in the Owner Operator spec §14: the six domain
   terminal reasons (`operator_disabled` through `budget_exceeded`) complete the
   job normally and emit structured logs only, and the watchdog's re-pend of a
