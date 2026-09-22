@@ -1,7 +1,6 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import * as Sentry from '@sentry/node';
 import {
   errorMessage,
   extractOutboxHandle,
@@ -12,6 +11,7 @@ import {
 import type { AccountOffboardingPurgePayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import {
+  type AccountOffboardingPurgeRow,
   finalizePurgeInTransaction,
   isStaleOutboxAttemptError,
   loadPurgeOffboarding,
@@ -30,36 +30,7 @@ import {
 } from './purge-stages';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
-
-const PURGE_ALERT_MESSAGE = 'account_offboarding_purge_failed';
-
-/**
- * The two Sentry issue groups a purge failure can land in.
- *
- * Without them the constant message and absent fingerprint put a retry
- * `warning` and the terminal `error` in ONE issue, so a first-seen rule fired
- * on an early retry and stayed silent for the terminal event that actually
- * means an unmet deletion obligation (#1016, red-team RT-08).
- *
- * The terminal arm carries a THIRD member — the offboarding id — so each
- * terminally failed offboarding is its own issue. Sentry's action throttle is
- * PER ISSUE, so one shared terminal issue would swallow a second account's
- * page inside the rule's 60-minute window (review finding Codex A1,
- * 2026-09-21). The retry arm stays shared: a retry is noise until it
- * terminalizes, and grouping it is the point.
- *
- * Both constants are exported because `docs/runbooks/beta-launch-alerting.md`
- * rule 16 names these exact members as its grouping (the rule itself filters
- * on tags and level, not on the fingerprint), and `PurgeWorker.test.ts` reads
- * both of them back out of that rule's own block — so renaming either member
- * turns the pin red.
- */
-export const PURGE_TERMINAL_FINGERPRINT_PREFIX = [PURGE_ALERT_MESSAGE, 'terminal'] as const;
-export const PURGE_RETRY_FINGERPRINT = [PURGE_ALERT_MESSAGE, 'retry'] as const;
-
-function purgeTerminalFingerprint(accountOffboardingId: string): string[] {
-  return [...PURGE_TERMINAL_FINGERPRINT_PREFIX, accountOffboardingId];
-}
+import { alertOffboardingFailure, OFFBOARDING_NOT_FOUND } from './failure-alert';
 
 export async function handleAccountOffboardingPurge(
   sql: postgres.Sql,
@@ -72,14 +43,45 @@ export async function handleAccountOffboardingPurge(
   );
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const offboarding = await loadPurgeOffboarding(
-    sql,
-    job.data.account_offboarding_id,
-    job.data.account_id,
-  );
+  // The load sits in its own try so a throw here still reaches rule 16 under
+  // the offboarding's own fingerprint (#1413). Left outside any try, it
+  // surfaced only as an `attachJobFailureSink` `captureException` on the
+  // exhausted attempt — an event rule 11's `queue = agent_turn` filter excludes
+  // and nothing else routes.
+  let offboarding: AccountOffboardingPurgeRow | null;
+  try {
+    offboarding = await loadPurgeOffboarding(
+      sql,
+      job.data.account_offboarding_id,
+      job.data.account_id,
+    );
+  } catch (err) {
+    const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
+    logger.error(
+      `Purge load failed for offboarding ${job.data.account_offboarding_id}: ${safeMessage}`,
+    );
+    if (!isTerminalAttempt(job)) {
+      alertPurgeFailure(job.data, safeMessage, false);
+      throw new Error(safeMessage);
+    }
+    // No loaded row to hand over, so the terminal marks go by the payload's
+    // ids — landing the SAME `failed` / `failed_step='purge'` state every other
+    // terminal purge failure lands, which is the state #1411's recovery targets.
+    await markPurgeTerminalFailure(
+      sql,
+      { id: job.data.account_offboarding_id, account_id: job.data.account_id },
+      safeMessage,
+    );
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertPurgeFailure(job.data, safeMessage, true);
+    return;
+  }
 
   if (!offboarding) {
-    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
+    // Absence does not prove there is no DELETION obligation (#1413): the
+    // event goes out terminal, under the id the job was dispatched for.
+    await markOutboxFailed(sql, outboxId, OFFBOARDING_NOT_FOUND, outboxAttempt);
+    alertPurgeFailure(job.data, OFFBOARDING_NOT_FOUND, true);
     return;
   }
 
@@ -91,13 +93,16 @@ export async function handleAccountOffboardingPurge(
   const validationError = validatePurgeableOffboarding(offboarding);
   if (validationError) {
     const safeMessage = scrubOffboardingErrorForStorage(validationError);
-    alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
+    // Durable marks first, alert after: the alert is best-effort work behind
+    // the side effect it reports (`.claude/rules/worker-layout.md`).
     if (!isTerminalAttempt(job)) {
       await markPurgeRetryableFailure(sql, offboarding, safeMessage);
+      alertPurgeFailure(job.data, safeMessage, false);
       throw new Error(safeMessage);
     }
     await markPurgeTerminalFailure(sql, offboarding, safeMessage);
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertPurgeFailure(job.data, safeMessage, true);
     return;
   }
 
@@ -152,36 +157,29 @@ export async function handleAccountOffboardingPurge(
 
     const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Purge failed for offboarding ${offboarding.id}: ${safeMessage}`);
-    alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
       await markPurgeRetryableFailure(sql, offboarding, safeMessage);
+      alertPurgeFailure(job.data, safeMessage, false);
       throw new Error(safeMessage);
     }
 
     await markPurgeTerminalFailure(sql, offboarding, safeMessage);
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertPurgeFailure(job.data, safeMessage, true);
   }
 }
 
+/** Rule 16 (`docs/runbooks/beta-launch-alerting.md`): grouping and levels live in `failure-alert.ts`. */
 function alertPurgeFailure(
   payload: AccountOffboardingPurgePayload,
   safeMessage: string,
   terminal: boolean,
 ): void {
-  Sentry.captureMessage(PURGE_ALERT_MESSAGE, {
-    level: terminal ? 'error' : 'warning',
-    fingerprint: terminal
-      ? purgeTerminalFingerprint(payload.account_offboarding_id)
-      : [...PURGE_RETRY_FINGERPRINT],
-    tags: {
-      subsystem: 'account_offboarding',
-      step: 'purge',
-      terminal: String(terminal),
-    },
-    extra: {
-      account_offboarding_id: payload.account_offboarding_id,
-      account_id: payload.account_id,
-      error: safeMessage,
-    },
+  alertOffboardingFailure({
+    step: 'purge',
+    accountOffboardingId: payload.account_offboarding_id,
+    accountId: payload.account_id,
+    safeMessage,
+    terminal,
   });
 }

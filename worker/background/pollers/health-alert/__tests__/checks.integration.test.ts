@@ -19,7 +19,9 @@ import { startOrGetActiveRun } from '@/lib/agents/run-spine';
 import {
   checkOwnerUnreachable,
   checkStalledSendBatches,
+  checkStrandedAccountOffboardings,
   checkZeroDeliveryNotifications,
+  STRANDED_OFFBOARDING_FINDING_PREFIX,
   type HealthAlertConfig,
 } from '../checks';
 
@@ -193,7 +195,57 @@ async function seedDelivery(
   `;
 }
 
+// #1413 path 3 fixture: an offboarding beside its outbox rows. The finding is
+// keyed by the offboarding id, so a sibling live-DB suite's rows can never
+// collide with these assertions; the delete below is by that id too.
+const strandedOffboardingId = randomUUID();
+
+async function seedStrandedOffboarding(status: string): Promise<void> {
+  const seed = tenant;
+  if (!seed) throw new Error('stranded offboarding fixture requires a seeded tenant');
+  // `account_offboardings_failed_step_check`: a `failed` row must name its step.
+  const failedStep = status === 'failed' ? 'purge' : null;
+  await sql()`
+    INSERT INTO account_offboardings (
+      id, account_id, mode, status, failed_step, purge_after, teardown_completed_at,
+      purge_started_at, location_ids, recipient_email
+    ) VALUES (
+      ${strandedOffboardingId}::uuid, ${seed.accountId}::uuid, 'delete_data', ${status}, ${failedStep},
+      NOW() - INTERVAL '1 hour', NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour',
+      ${[liveBusinessId]}::uuid[], ${seed.ownerEmail}
+    )
+  `;
+}
+
+async function seedOffboardingOutboxRow(
+  topic: string,
+  status: 'failed' | 'pending' | 'completed',
+  ageMinutes: number,
+): Promise<string> {
+  const outboxId = randomUUID();
+  await sql()`
+    INSERT INTO job_outbox (
+      id, topic, aggregate_type, aggregate_id, payload, status, attempts, max_attempts,
+      last_error, completed_at, created_at
+    ) VALUES (
+      ${outboxId}::uuid, ${topic}, 'account_offboarding', ${strandedOffboardingId}::uuid,
+      ${sql().json({ account_offboarding_id: strandedOffboardingId })}, ${status}, 5, 5,
+      ${status === 'failed' ? 'Stale dispatched entry exceeded max_attempts' : null},
+      ${status === 'pending' ? null : sql()`NOW()`},
+      NOW() - make_interval(mins => ${ageMinutes})
+    )
+  `;
+  return outboxId;
+}
+
+async function strandedFindingKeys(): Promise<string[]> {
+  const findings = await checkStrandedAccountOffboardings(sql());
+  return findings.map((f) => f.key).filter((k) => k.endsWith(strandedOffboardingId));
+}
+
 async function clearSeededRows(): Promise<void> {
+  await sql()`DELETE FROM job_outbox WHERE aggregate_id = ${strandedOffboardingId}::uuid`;
+  await sql()`DELETE FROM account_offboardings WHERE id = ${strandedOffboardingId}::uuid`;
   await sql()`DELETE FROM agent_runs WHERE business_id IN (${liveBusinessId}::uuid, ${archivedBusinessId}::uuid)`;
   for (const businessId of [liveBusinessId, archivedBusinessId]) {
     await sql()`
@@ -354,4 +406,59 @@ registerSuite('owner-unreachable health checks against live local Postgres', () 
     await seedCompletedSendNotification(plainResponse, null, NEW_COMPLETION);
     expect(await zeroDeliveryCount()).toBe(before + 1);
   });
+  // ── #1413 path 3: a watchdog-terminalized offboarding row names its offboarding ──
+  //
+  // Real-Postgres coverage for the JOIN and the newest-row `NOT EXISTS`, which a
+  // mocked `sql` can never prove. The finding key carries the offboarding id, so
+  // the assertions are exact rather than deltas.
+
+  it('names an offboarding whose newest purge outbox row failed while the offboarding was left purge_scheduled', async () => {
+    await seedStrandedOffboarding('purge_scheduled');
+    const outboxId = await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE, 'failed', 30);
+
+    const findings = await checkStrandedAccountOffboardings(sql());
+    const finding = findings.find((f) => f.key === `${STRANDED_OFFBOARDING_FINDING_PREFIX}:${strandedOffboardingId}`);
+
+    expect(finding).toBeDefined();
+    expect(finding?.level).toBe('error');
+    expect(finding?.title).toContain(strandedOffboardingId);
+    expect(finding?.detail).toEqual({
+      account_offboarding_id: strandedOffboardingId,
+      account_id: tenant?.accountId,
+      topic: QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+      outbox_id: outboxId,
+      offboarding_status: 'purge_scheduled',
+      last_error: 'Stale dispatched entry exceeded max_attempts',
+    });
+  });
+
+  it('stays quiet when the handler itself marked the offboarding failed (rules 16-18 already paged)', async () => {
+    await seedStrandedOffboarding('failed');
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE, 'failed', 30);
+
+    expect(await strandedFindingKeys()).toEqual([]);
+  });
+
+  it('stays quiet once a NEWER row for the same topic supersedes the failed one (a re-drive is in flight)', async () => {
+    await seedStrandedOffboarding('tearing_down');
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, 'failed', 30);
+    expect(await strandedFindingKeys()).toHaveLength(1);
+
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, 'pending', 1);
+
+    expect(await strandedFindingKeys()).toEqual([]);
+  });
+
+  it('ignores a completed row and a failed row of another topic than the one it supersedes', async () => {
+    await seedStrandedOffboarding('purge_scheduled');
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, 'completed', 60);
+    expect(await strandedFindingKeys()).toEqual([]);
+
+    // A failed TEARDOWN row is not superseded by a newer PURGE row: the
+    // newest-row guard is per topic.
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, 'failed', 30);
+    await seedOffboardingOutboxRow(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE, 'pending', 1);
+    expect(await strandedFindingKeys()).toHaveLength(1);
+  });
+
 });

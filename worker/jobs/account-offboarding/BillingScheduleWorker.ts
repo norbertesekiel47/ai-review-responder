@@ -1,7 +1,6 @@
 import type { Job } from 'bullmq';
 import type Stripe from 'stripe';
 import type postgres from 'postgres';
-import * as Sentry from '@sentry/node';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import {
   errorMessage,
@@ -14,6 +13,7 @@ import type { AccountOffboardingBillingSchedulePayload } from '../../../src/lib/
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
+import { alertOffboardingFailure, OFFBOARDING_NOT_FOUND } from './failure-alert';
 
 interface AccountOffboardingBillingRow {
   id: string;
@@ -54,7 +54,8 @@ export async function handleAccountOffboardingBillingSchedule(
   `;
 
   if (!offboarding) {
-    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, OFFBOARDING_NOT_FOUND, outboxAttempt);
+    alertBillingScheduleFailure(job.data, OFFBOARDING_NOT_FOUND, true);
     return;
   }
 
@@ -66,12 +67,15 @@ export async function handleAccountOffboardingBillingSchedule(
   const validationError = validateSchedulableOffboarding(offboarding);
   if (validationError) {
     const safeMessage = scrubOffboardingErrorForStorage(validationError);
-    alertBillingScheduleFailure(job.data, safeMessage, isTerminalAttempt(job));
+    // Durable marks first, alert after: the alert is best-effort work behind
+    // the side effect it reports (`.claude/rules/worker-layout.md`).
     if (!isTerminalAttempt(job)) {
+      alertBillingScheduleFailure(job.data, safeMessage, false);
       throw new Error(safeMessage);
     }
     await markBillingStepFailed(sql, job.data, safeMessage);
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertBillingScheduleFailure(job.data, safeMessage, true);
     return;
   }
 
@@ -126,13 +130,14 @@ export async function handleAccountOffboardingBillingSchedule(
   } catch (err) {
     const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Billing cancellation schedule failed for offboarding ${offboarding.id}: ${safeMessage}`);
-    alertBillingScheduleFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
+      alertBillingScheduleFailure(job.data, safeMessage, false);
       throw err;
     }
 
     await markBillingStepFailed(sql, job.data, safeMessage);
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertBillingScheduleFailure(job.data, safeMessage, true);
   }
 }
 
@@ -156,23 +161,18 @@ async function markBillingStepFailed(
   `;
 }
 
+/** Rule 18 (`docs/runbooks/beta-launch-alerting.md`): grouping and levels live in `failure-alert.ts`. */
 function alertBillingScheduleFailure(
   payload: AccountOffboardingBillingSchedulePayload,
   safeMessage: string,
   terminal: boolean,
 ): void {
-  Sentry.captureMessage('account_offboarding_billing_schedule_failed', {
-    level: terminal ? 'error' : 'warning',
-    tags: {
-      subsystem: 'account_offboarding',
-      step: 'billing',
-      terminal: String(terminal),
-    },
-    extra: {
-      account_offboarding_id: payload.account_offboarding_id,
-      account_id: payload.account_id,
-      error: safeMessage,
-    },
+  alertOffboardingFailure({
+    step: 'billing',
+    accountOffboardingId: payload.account_offboarding_id,
+    accountId: payload.account_id,
+    safeMessage,
+    terminal,
   });
 }
 

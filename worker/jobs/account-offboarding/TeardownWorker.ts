@@ -1,6 +1,5 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
-import * as Sentry from '@sentry/node';
 import {
   errorMessage,
   extractOutboxHandle,
@@ -22,6 +21,7 @@ import { runStripeTeardown, verifyCancelOnlyNaturalCancellation } from './teardo
 import { runZernioTeardown } from './teardown-zernio';
 import { runLocationTeardown } from './teardown-locations';
 import { runOutboxTerminalization } from './teardown-outbox';
+import { alertOffboardingFailure, OFFBOARDING_NOT_FOUND } from './failure-alert';
 
 interface AccountOffboardingTeardownRow {
   id: string;
@@ -73,7 +73,8 @@ export async function handleAccountOffboardingTeardown(
   `;
 
   if (!offboarding) {
-    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, OFFBOARDING_NOT_FOUND, outboxAttempt);
+    alertTeardownFailure(job.data, OFFBOARDING_NOT_FOUND, true);
     return;
   }
 
@@ -85,12 +86,15 @@ export async function handleAccountOffboardingTeardown(
   const validationError = validateTeardownableOffboarding(offboarding);
   if (validationError) {
     const safeMessage = scrubOffboardingErrorForStorage(validationError);
-    alertTeardownFailure(job.data, safeMessage, isTerminalAttempt(job));
+    // Durable marks first, alert after: the alert is best-effort work behind
+    // the side effect it reports (`.claude/rules/worker-layout.md`).
     if (!isTerminalAttempt(job)) {
+      alertTeardownFailure(job.data, safeMessage, false);
       throw new Error(safeMessage);
     }
     await markTeardownFailed(sql, offboarding, safeMessage, undefined);
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertTeardownFailure(job.data, safeMessage, true);
     return;
   }
 
@@ -120,13 +124,14 @@ export async function handleAccountOffboardingTeardown(
   } catch (err) {
     const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Teardown failed for offboarding ${offboarding.id}: ${safeMessage}`);
-    alertTeardownFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
+      alertTeardownFailure(job.data, safeMessage, false);
       throw new Error(safeMessage);
     }
 
     await markTeardownFailed(sql, offboarding, safeMessage, failureColumnForErrorStep(offboarding));
     await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
+    alertTeardownFailure(job.data, safeMessage, true);
     return;
   }
 
@@ -330,23 +335,18 @@ function requiresArrayStepSuccess(
   return (values ?? []).some((value) => value.trim().length > 0) && step !== 'success';
 }
 
+/** Rule 17 (`docs/runbooks/beta-launch-alerting.md`): grouping and levels live in `failure-alert.ts`. */
 function alertTeardownFailure(
   payload: AccountOffboardingTeardownPayload,
   safeMessage: string,
   terminal: boolean,
 ): void {
-  Sentry.captureMessage('account_offboarding_teardown_failed', {
-    level: terminal ? 'error' : 'warning',
-    tags: {
-      subsystem: 'account_offboarding',
-      step: 'teardown',
-      terminal: String(terminal),
-    },
-    extra: {
-      account_offboarding_id: payload.account_offboarding_id,
-      account_id: payload.account_id,
-      error: safeMessage,
-    },
+  alertOffboardingFailure({
+    step: 'teardown',
+    accountOffboardingId: payload.account_offboarding_id,
+    accountId: payload.account_id,
+    safeMessage,
+    terminal,
   });
 }
 

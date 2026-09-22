@@ -260,4 +260,99 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
       2,
     );
   });
+
+  // ── The billing alert splits terminal from retry (#1412) ─────────────────
+  //
+  // The RT-08 shape #1016 removed from the purge worker: one constant message
+  // with no fingerprint grouped a retry `warning` and the terminal `error`
+  // into ONE Sentry issue, so a first-seen rule fired on an early retry and
+  // never on the terminal event. Spelled out rather than imported — see the
+  // note in failure-alert.test.ts, which also pins runbook rule 18.
+  describe('billing-failure alert fingerprints', () => {
+    it('a terminal Stripe failure carries [message, terminal, <offboarding id>] at error, emitted AFTER the marks', async () => {
+      sqlReturnQueue.push([offboardingRow()]);
+      sqlReturnQueue.push([{ id: OFFBOARDING_ID }]);
+      mockStripeSubscriptionsUpdate.mockRejectedValueOnce(new Error('Stripe down'));
+
+      await handleAccountOffboardingBillingSchedule(mockSql,
+        makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingBillingSchedulePayload>>),
+      );
+
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_billing_schedule_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_billing_schedule_failed', 'terminal', OFFBOARDING_ID],
+          tags: expect.objectContaining({ step: 'billing', terminal: 'true' }),
+        }),
+      );
+      // Best-effort work behind the side effect it reports: the page never
+      // precedes the marks it describes.
+      expect(mockMarkOutboxFailed.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockCaptureMessage.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it('a retryable Stripe failure carries the shared [message, retry] at warning', async () => {
+      sqlReturnQueue.push([offboardingRow()]);
+      mockStripeSubscriptionsUpdate.mockRejectedValueOnce(new Error('Stripe temporarily unavailable'));
+
+      await expect(
+        handleAccountOffboardingBillingSchedule(mockSql, makeJob()),
+      ).rejects.toThrow('Stripe temporarily unavailable');
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_billing_schedule_failed',
+        expect.objectContaining({
+          level: 'warning',
+          fingerprint: ['account_offboarding_billing_schedule_failed', 'retry'],
+        }),
+      );
+    });
+
+    it('a terminal validation failure takes the same terminal fingerprint, after the marks', async () => {
+      sqlReturnQueue.push([offboardingRow({ stripe_subscription_id: null })]);
+
+      await handleAccountOffboardingBillingSchedule(mockSql,
+        makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingBillingSchedulePayload>>),
+      );
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_billing_schedule_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_billing_schedule_failed', 'terminal', OFFBOARDING_ID],
+        }),
+      );
+      expect(mockMarkOutboxFailed.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockCaptureMessage.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it('a not-found dispatch alerts as TERMINAL under the id it was dispatched for (#1413 shape)', async () => {
+      // The branch returns after marking, so it is terminal by construction;
+      // before #1412 it raised nothing at all.
+      sqlReturnQueue.push([]);
+
+      await expect(handleAccountOffboardingBillingSchedule(mockSql, makeJob())).resolves.toBeUndefined();
+
+      expect(mockStripeSubscriptionsUpdate).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
+        'outbox-billing-1',
+        'account_offboarding_not_found',
+        2,
+      );
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'account_offboarding_billing_schedule_failed',
+        expect.objectContaining({
+          level: 'error',
+          fingerprint: ['account_offboarding_billing_schedule_failed', 'terminal', OFFBOARDING_ID],
+          extra: expect.objectContaining({ error: 'account_offboarding_not_found' }),
+        }),
+      );
+    });
+  });
 });
