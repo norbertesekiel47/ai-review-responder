@@ -10,7 +10,6 @@ import { createWorkerLogger } from '../../src/lib/shared/logger';
 interface ExceptionRow {
   id: string;
   type: string;
-  status: string;
   payload: Record<string, unknown> | string;
   review_id: string | null;
   reviewer_name: string | null;
@@ -95,7 +94,7 @@ export async function handleAdminException(
 
   // Read exception with review + business info
   const [exception] = await sql<ExceptionRow[]>`
-    SELECT re.id, re.type, re.status, re.payload, re.review_id,
+    SELECT re.id, re.type, re.payload, re.review_id,
            r.reviewer_name, r.star_rating, r.review_text,
            b.name AS business_name
     FROM review_exceptions re
@@ -110,12 +109,12 @@ export async function handleAdminException(
     return;
   }
 
-  // Already resolved — another worker got there first
-  if (exception.status !== 'open') {
-    logger.log(`Exception ${review_exception_id} already ${exception.status}`);
-    await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    return;
-  }
+  // There is deliberately NO `status !== 'open'` guard here (#1393). Nothing in
+  // `src/` or `worker/` ever writes `review_exceptions.status` — every insert
+  // uses the 'open' default and the only UPDATE (`purge-stages.ts`) nulls FK
+  // columns — so a guard on it could never fire and only LOOKED like retry
+  // protection. Retry protection is the Send idempotency key below. If a
+  // resolve/dismiss flow lands, add the guard back with that write.
 
   // JSONB parsing guard (PgBouncer may return string)
   const payload = typeof exception.payload === 'string'
@@ -135,17 +134,41 @@ export async function handleAdminException(
     ${renderExceptionBody(exception, payload)}
   `;
 
+  // ── Send idempotency key (#1393) ────────────────────────────────────────
+  // This handler sends, THEN completes the outbox row. OutboxPoller is
+  // at-least-once, so a crash in that gap replays the job and would send the
+  // alert twice. The key lets Resend return the ORIGINAL response instead.
+  //
+  // Scope is the domain identity — the exception row — not the outbox row id:
+  // the publisher's `ON CONFLICT … DO UPDATE` re-hits return the SAME open
+  // exception id and enqueue a fresh outbox row for it, so an outbox-scoped key
+  // could not dedupe them. The consequence is deliberate: one alert per open
+  // exception per 24h key window, instead of one per re-hit of the same
+  // still-open exception.
+  //
+  // Body stability (the key's precondition): the payload is frozen at insert
+  // (the upsert keeps the existing payload), and `business_name`,
+  // `reviewer_name`, `star_rating`, `review_text` come from a per-attempt read.
+  // A same-window edit of those draws a 409 → Idempotent replay, which is still
+  // proof of delivery. No delivery row is written here, so the synthetic replay
+  // id can never reach the bounce-webhook correlation in `ingress/resend.ts`.
+  let idempotentReplay: boolean | undefined;
   try {
-    await sendInternalEmail({
+    ({ idempotentReplay } = await sendInternalEmail({
       to: adminEmail,
       subject: `Review exception: ${exception.business_name} — ${exception.type}`,
       bodyHtml,
       category: 'internal',
-    });
+      idempotencyKey: `review_exception:${exception.id}`,
+    }));
   } catch (err) {
     // Throw for BullMQ retry
     logger.error(`Failed to send alert for exception ${review_exception_id}: ${err instanceof Error ? err.message : err}`);
     throw err;
+  }
+
+  if (idempotentReplay) {
+    logger.log(`Alert for exception ${review_exception_id} already delivered under its idempotency key`);
   }
 
   await markOutboxCompleted(sql, outboxId, outboxAttempt);

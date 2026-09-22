@@ -55,7 +55,6 @@ function mockExceptionRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'exc-1',
     type: 'review_edited_after_response',
-    status: 'open',
     payload: { response_status: 'posted' },
     review_id: 'rev-1',
     reviewer_name: 'Jane',
@@ -91,14 +90,19 @@ describe('AdminExceptionWorker – handleAdminException', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-exc-1', undefined);
   });
 
-  // 2. Already resolved — idempotent skip
-  it('completes outbox without email when exception already resolved', async () => {
-    sqlReturnQueue.push([mockExceptionRow({ status: 'resolved' })]);
+  // 2. The former `status !== 'open'` guard is gone (#1393). Nothing writes
+  //    `review_exceptions.status`, so the guard could never fire and only looked
+  //    like retry protection. Pin that the handler no longer reads the column:
+  //    re-adding the guard must come with the write that makes it real.
+  it('does not read review_exceptions.status — nothing writes it, so a guard on it is dead (#1393)', async () => {
+    sqlReturnQueue.push([mockExceptionRow()]);
 
     await handleAdminException(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-exc-1', undefined);
-    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    const selectSql = (mockSql.mock.calls[0]![0] as TemplateStringsArray).raw.join('');
+    expect(selectSql).toContain('FROM review_exceptions');
+    expect(selectSql).not.toMatch(/re\.status/);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
   });
 
   // 3. Email failure — throws for BullMQ retry
@@ -113,12 +117,105 @@ describe('AdminExceptionWorker – handleAdminException', () => {
   });
 });
 
+// ── Send idempotency key (#1393) ───────────────────────────────────────────
+// The handler sends, THEN completes the outbox row. OutboxPoller is
+// at-least-once, so a crash in that gap replays the job. The key is scoped to
+// the exception row (domain identity), not the outbox row: the publisher's
+// upsert re-hits return the same open exception id under a NEW outbox row.
+
+describe('AdminExceptionWorker – Send idempotency key', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    process.env.RESEND_FROM_EMAIL = 'RepWorth <test@test.com>';
+  });
+
+  it('sends with an idempotency key scoped to the review exception', async () => {
+    sqlReturnQueue.push([mockExceptionRow()]);
+
+    await handleAdminException(makeJob());
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'review_exception:exc-1' }),
+    );
+  });
+
+  it('a replay after a crash-after-send carries the SAME key, so Resend sends no second email', async () => {
+    // Attempt 1: Resend accepts, then the worker dies before the outbox row is
+    // completed (simulated by markOutboxCompleted rejecting). BullMQ retries.
+    sqlReturnQueue.push([mockExceptionRow()]);
+    mockMarkOutboxCompleted.mockRejectedValueOnce(new Error('connection terminated'));
+    await expect(handleAdminException(makeJob())).rejects.toThrow('connection terminated');
+
+    // Attempt 2: same job, same exception row.
+    sqlReturnQueue.push([mockExceptionRow()]);
+    await handleAdminException(makeJob());
+
+    expect(mockSendInternalEmail).toHaveBeenCalledTimes(2);
+    const keys = (mockSendInternalEmail.mock.calls as unknown[][]).map(
+      (c) => (c[0] as { idempotencyKey?: string }).idempotencyKey,
+    );
+    expect(keys).toEqual(['review_exception:exc-1', 'review_exception:exc-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenLastCalledWith(mockSql, 'outbox-exc-1', undefined);
+  });
+
+  it('a second outbox row for the same open exception reuses the domain-scoped key', async () => {
+    // The publisher's ON CONFLICT … DO UPDATE returns the existing exception id
+    // and enqueues a fresh outbox row for it. An outbox-scoped key would not
+    // dedupe that; the domain scope does.
+    sqlReturnQueue.push([mockExceptionRow()]);
+    await handleAdminException(makeJob());
+    sqlReturnQueue.push([mockExceptionRow()]);
+    await handleAdminException({
+      data: { review_exception_id: 'exc-1', business_id: 'biz-1', outbox_id: 'outbox-exc-2' },
+      id: 'outbox-exc-2',
+    } as unknown as Job<NotifyAdminExceptionPayload>);
+
+    const keys = (mockSendInternalEmail.mock.calls as unknown[][]).map(
+      (c) => (c[0] as { idempotencyKey?: string }).idempotencyKey,
+    );
+    expect(keys).toEqual(['review_exception:exc-1', 'review_exception:exc-1']);
+  });
+
+  it('an Idempotent replay completes the outbox row and logs that the alert was already delivered', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    sqlReturnQueue.push([mockExceptionRow()]);
+    mockSendInternalEmail.mockResolvedValueOnce({
+      messageId: 'idempotent-replay:review_exception:exc-1',
+      idempotentReplay: true,
+    });
+
+    await handleAdminException(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-exc-1', undefined);
+    const logged = logSpy.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+    expect(logged).toContain('already delivered under its idempotency key');
+    logSpy.mockRestore();
+  });
+
+  it('writes no delivery row, so a replay can never store a synthetic idempotent-replay: id', async () => {
+    sqlReturnQueue.push([mockExceptionRow()]);
+    mockSendInternalEmail.mockResolvedValueOnce({
+      messageId: 'idempotent-replay:review_exception:exc-1',
+      idempotentReplay: true,
+    });
+
+    await handleAdminException(makeJob());
+
+    const allSql = (mockSql.mock.calls as unknown[][])
+      .map((c) => (c[0] as TemplateStringsArray).raw.join(''))
+      .join('\n');
+    expect(allSql).not.toContain('notification_deliveries');
+    expect(allSql).not.toContain('idempotent-replay');
+  });
+});
+
 // ── renderExceptionBody unit tests ─────────────────────────────────────
 
 const baseException = {
   id: 'exc-1',
   type: 'review_edited_after_post',
-  status: 'open',
   payload: {} as Record<string, unknown>,
   review_id: 'rev-1',
   reviewer_name: 'Jane Doe',
