@@ -12,6 +12,7 @@ import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { isValidUuid } from '@/lib/shared/ids';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getRequestIp } from '@/lib/shared/request-ip';
 import {
@@ -173,6 +174,13 @@ export async function runDashboardReviewAction(
   successMessage: string,
   action: (ctx: DashboardReviewActionContext) => Promise<void>,
 ): Promise<NextResponse> {
+  // #1362: the raw `[reviewId]` param reached `WHERE rv.id = ${reviewId}` and
+  // a malformed value surfaced as a 22P02 500 on approve/edit/regenerate.
+  // Refuse it before the first query, the way timeline/route.ts does.
+  if (!isValidUuid(reviewId)) {
+    return NextResponse.json({ error: 'Invalid review ID' }, { status: 400, headers: NO_STORE_HEADERS });
+  }
+
   const rows = await sql`
     SELECT r.id, r.business_id, r.status
     FROM responses r

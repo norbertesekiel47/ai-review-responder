@@ -28,7 +28,7 @@ vi.mock('@/lib/responses/edit-existing', () => ({
   ResponseChangedError: class extends Error {},
 }));
 
-import { resolveEditReplyRequest } from '../edit-reply-request';
+import { authorizeEditReplyResponse, resolveEditReplyRequest } from '../edit-reply-request';
 
 const db = (() => Promise.resolve([])) as never;
 const request = () => new NextRequest('https://app.example.com/api/test', {
@@ -79,5 +79,24 @@ describe('resolveEditReplyRequest', () => {
     const paramResult = await resolveEditReplyRequest(db, request(), Promise.resolve({ responseId: '' }));
     expect(paramResult.ok).toBe(false);
     if (!paramResult.ok) expect(paramResult.response.status).toBe(400);
+  });
+});
+
+describe('authorizeEditReplyResponse', () => {
+  it('returns 400 invalid_response_id before any query when the id is not a UUID (#1362)', async () => {
+    const sql = vi.fn(async () => []);
+
+    const result = await authorizeEditReplyResponse(
+      sql as unknown as Parameters<typeof authorizeEditReplyResponse>[0],
+      'not-a-uuid',
+      { accountId: 'account-1', locationId: 'location-1' },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(400);
+      await expect(result.response.json()).resolves.toEqual({ error: 'invalid_response_id' });
+    }
+    expect(sql).not.toHaveBeenCalled();
   });
 });
