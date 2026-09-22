@@ -144,6 +144,16 @@
       "**/*.spec.ts",
       "**/*.spec.tsx",
 
+      // `scripts/ws8-staging-smoke.ts` drives a LIVE staging stack: it signs
+      // in, mutates real rows and asserts against the deployed worker, so it is
+      // 0% unit-tested by design and cannot reasonably be otherwise. At zero
+      // coverage CRAP collapses to c² + c, so any scenario at cyclomatic 5
+      // breaches and no refactor clears it (the worst function at 9 → 7 still
+      // scores 56). A file-class exclusion, like the runbook runners in
+      // `ignorePatterns` — health-scoped only, so dead-code and dupes still see
+      // the file (#1406).
+      "scripts/ws8-staging-smoke.ts",
+
       // Existing orchestration handlers touched mechanically by the
       // auto-approval lane/outbox threading. Splitting these is separate
       // refactor work; the new auto-approval predicate itself remains covered

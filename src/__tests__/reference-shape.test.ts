@@ -212,4 +212,62 @@ describe('reference-layer shape (2026-09-05 restructure)', () => {
       );
     });
   });
+  // `.claude/reference/arch-review-log.md` is the governance record that
+  // `ci:merge-ledger` asks every triggering merge to add a row to. That audit
+  // checks a line was ADDED, not that it renders: ten rows (2026-08-30 to
+  // 2026-09-19) carried an unescaped `|` inside a code span, or had only three
+  // cells, and a Markdown renderer dropped everything past the fourth cell —
+  // invisible to CI and to anyone reading the rendered view (#1408). GFM splits
+  // a row on every unescaped pipe, code spans included, so a pipe in a cell's
+  // prose is written `\|`. Leading and trailing pipes are the file's convention.
+  describe('arch review log', () => {
+    const ARCH_LOG = '.claude/reference/arch-review-log.md';
+    const UNESCAPED_PIPE = /(?<!\\)\|/;
+    const DELIMITER_ROW = /^\|\s*:?-+/;
+
+    /** Cells in a `| a | b |` row, splitting on unescaped pipes only. */
+    function cellCount(row: string): number {
+      return row.split(UNESCAPED_PIPE).length - 2;
+    }
+
+    interface Table {
+      readonly headerLine: number;
+      readonly columns: number;
+      readonly rows: readonly (readonly [line: number, row: string])[];
+    }
+
+    /** Every GFM table in `text`: a header row, a delimiter row, then contiguous `|` rows. */
+    function tables(text: string): Table[] {
+      const lines = text.split('\n');
+      const found: Table[] = [];
+      for (let i = 0; i + 1 < lines.length; i += 1) {
+        const header = lines[i] ?? '';
+        if (!header.startsWith('|') || !DELIMITER_ROW.test(lines[i + 1] ?? '')) continue;
+        const rows: (readonly [number, string])[] = [];
+        let j = i + 2;
+        for (; j < lines.length; j += 1) {
+          const row = lines[j] ?? '';
+          if (!row.startsWith('|')) break;
+          rows.push([j + 1, row]);
+        }
+        found.push({ headerLine: i + 1, columns: cellCount(header), rows });
+        i = j - 1;
+      }
+      return found;
+    }
+
+    const archTables = tables(read(ARCH_LOG)).map((table) => [table.headerLine, table] as const);
+
+    it('finds at least one table with rows', () => {
+      expect(archTables.length).toBeGreaterThan(0);
+      expect(archTables.some(([, table]) => table.rows.length > 0)).toBe(true);
+    });
+
+    it.each(archTables)('every row of the table headed at line %i has the header\'s cell count', (_line, table) => {
+      const misfits = table.rows
+        .filter(([, row]) => cellCount(row) !== table.columns)
+        .map(([line, row]) => `line ${line}: ${cellCount(row)} cells, header has ${table.columns} — a pipe in prose is written \\|, and every row fills every column`);
+      expect(misfits).toEqual([]);
+    });
+  });
 });
