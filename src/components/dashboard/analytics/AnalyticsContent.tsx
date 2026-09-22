@@ -48,7 +48,9 @@ export function AnalyticsContent() {
   }
 
   if (isAggregate(data)) {
-    return <AnalyticsAggregateView data={data} refresh={refresh} periodToolbar={periodToolbar} />;
+    return (
+      <AnalyticsAggregateView data={data} refresh={refresh} periodToolbar={periodToolbar} window={period} />
+    );
   }
 
   const active = perLocationActive(data);
@@ -62,5 +64,7 @@ export function AnalyticsContent() {
     );
   }
 
-  return <AnalyticsPerLocationView active={active} refresh={refresh} periodToolbar={periodToolbar} />;
+  return (
+    <AnalyticsPerLocationView active={active} refresh={refresh} periodToolbar={periodToolbar} window={period} />
+  );
 }

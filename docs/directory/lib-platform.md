@@ -2,12 +2,11 @@
 
 ### `kpi/`
 
-Analytics window vocabulary and the Review-time anchor fragments the dashboard payload composes.
-No service layer — the consumer-less Stack A KPI service was deleted in #757.
+Analytics window vocabulary and the Review-time anchor fragments the dashboard payload composes (no service layer — rule `dashboard-kpi.md`).
 
 | File | What it does |
 |------|--------------|
-| `types.ts` | `DASHBOARD_WINDOWS` / `DashboardWindow` / `resolveDashboardWindow` / `dashboardWindowParams` — the only window values that may reach windowed SQL, as bound integers (#403). |
+| `types.ts` | `DASHBOARD_WINDOWS`, `DashboardWindow`, `resolveDashboardWindow`, `dashboardWindowParams`: the only window values that reach windowed SQL, as bound integers (#403). `DASHBOARD_WINDOW_LABELS`: the one human label per window (`PeriodToolbar`, `RecentRatingBreakdown`, #991). |
 | `fragments.ts` | `reviewTimeAnchor` / `reviewTimeWindowFilter` — single owner of the Review-time anchor `LEAST(review_date, detected_at)` (ADR 0019). Composed by `dashboard/service.ts` + `dashboard/aggregate-queries.ts`; carries no FROM/JOIN and no tenant predicate. |
 
 

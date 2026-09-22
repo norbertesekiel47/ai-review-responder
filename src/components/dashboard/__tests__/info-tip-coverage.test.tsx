@@ -81,7 +81,7 @@ describe('info tip coverage (#1086)', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(
       <QueryClientProvider client={client}>
-        <AnalyticsAggregateView data={aggregateData()} refresh={vi.fn()} />
+        <AnalyticsAggregateView data={aggregateData()} refresh={vi.fn()} window="30d" />
       </QueryClientProvider>,
     );
 

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
 import type { LocationScope } from '@/contexts/LocationContext';
 import {
+  DASHBOARD_WINDOW_LABELS,
   DEFAULT_DASHBOARD_WINDOW,
   type DashboardWindow,
 } from '@/lib/kpi/types';
@@ -49,13 +50,6 @@ const AGENTS: readonly AgentDefinition[] = [
   },
 ];
 
-const WINDOW_LABELS: Record<DashboardWindow, string> = {
-  '7d': 'Last 7 days',
-  '30d': 'Last 30 days',
-  '90d': 'Last 90 days',
-  '12w': 'Last 12 weeks',
-};
-
 interface Props {
   scope: LocationScope;
   window?: DashboardWindow;
@@ -91,7 +85,7 @@ export function AgentTeamStrip({
     );
   }
 
-  const windowLabel = WINDOW_LABELS[query.data.window];
+  const windowLabel = `Last ${DASHBOARD_WINDOW_LABELS[query.data.window]}`;
   return (
     <section className="agent-team" aria-labelledby="agent-team-heading">
       <div className="agent-team-head">

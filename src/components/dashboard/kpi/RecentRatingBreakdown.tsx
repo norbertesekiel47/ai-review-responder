@@ -1,5 +1,6 @@
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { RatingBreakdown } from '@/lib/dashboard/types';
+import { type DashboardWindow, DASHBOARD_WINDOW_LABELS } from '@/lib/kpi/types';
 import { tierForStars } from './sentiment-tier';
 
 interface Props {
@@ -9,6 +10,15 @@ interface Props {
    * scopes (per-location and account aggregate) feed the same shape.
    */
   breakdown: RatingBreakdown;
+  /**
+   * The analytics window the breakdown was queried for — `windowDays` of
+   * `dashboardWindowParams`, NOT the `trendWeeks` span the velocity and trend
+   * charts beside it cover (#991: 30 days vs 8 weeks on the default). The
+   * card states its own span in days so the two never read as one period.
+   * `useDashboardData` only surfaces data fetched for exactly this window
+   * (VAL-DASH-025), so the page's period state IS the payload's window.
+   */
+  window: DashboardWindow;
 }
 
 /**
@@ -17,11 +27,12 @@ interface Props {
  * rated review, so the caller can drop the slot cleanly. Bar color is
  * sentiment-cued — tiers derive from classifySentiment.
  */
-export function RecentRatingBreakdown({ breakdown }: Props) {
+export function RecentRatingBreakdown({ breakdown, window }: Props) {
   const { counts, total } = breakdown;
   if (total === 0) return null;
 
   const reviewWord = (n: number) => (n === 1 ? 'review' : 'reviews');
+  const span = `last ${DASHBOARD_WINDOW_LABELS[window]}`;
   const rows = counts.map(({ stars, count }) => ({
     stars,
     count,
@@ -35,7 +46,7 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
         <h2>Reviews by rating</h2>
       </div>
       <p className="rating-breakdown-sub">
-        Across {total} {reviewWord(total)} in the selected period.
+        Across {total} {reviewWord(total)} in the {span}.
       </p>
       {/* The chart-level name (#1088 G6). The rows used to carry the only
           labels, and a row label names a ROW — the chart itself was anonymous,
@@ -49,7 +60,7 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
         {/* Worded so it does NOT repeat the visible sub-label verbatim: an
             `sr-only` copy of the same sentence makes `getByText` ambiguous and
             gives a reader the line twice over. */}
-        <caption>{`Reviews by rating: ${total} rated ${reviewWord(total)} in the selected period`}</caption>
+        <caption>{`Reviews by rating: ${total} rated ${reviewWord(total)} in the ${span}`}</caption>
         <thead>
           <tr>
             <th scope="col">Rating</th>

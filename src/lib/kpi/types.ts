@@ -16,6 +16,20 @@ export type DashboardWindow = (typeof DASHBOARD_WINDOWS)[number];
 /** Absent / invalid `?window=` resolves here — keeps today's behavior. */
 export const DEFAULT_DASHBOARD_WINDOW: DashboardWindow = '30d';
 
+/**
+ * Human label per window — the ONE owner of the phrase (#991). The period
+ * toolbar renders it bare ("30 days"); an element that states its own span
+ * composes it ("in the last 30 days"). One owner, so a card can never
+ * disagree with the control that drove its request. `types.test.ts` pins each
+ * label to the `windowDays` it describes.
+ */
+export const DASHBOARD_WINDOW_LABELS: Record<DashboardWindow, string> = {
+  '7d': '7 days',
+  '30d': '30 days',
+  '90d': '90 days',
+  '12w': '12 weeks',
+};
+
 /** The two integers a window drives. Both are compile-time constants. */
 export interface DashboardWindowParams {
   /** Rolling window in days (response rate, avg star, time-to-respond, current-vs-prior buckets). */

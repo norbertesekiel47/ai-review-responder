@@ -3,6 +3,7 @@
 import {
   type DashboardWindow,
   DASHBOARD_WINDOWS,
+  DASHBOARD_WINDOW_LABELS,
 } from '@/lib/kpi/types';
 
 interface Props {
@@ -11,14 +12,6 @@ interface Props {
   /** Fired with the new window when the owner picks a different range. */
   onChange: (window: DashboardWindow) => void;
 }
-
-/** Human labels for the canonical window set (#403). */
-const WINDOW_LABELS: Record<DashboardWindow, string> = {
-  '7d': '7 days',
-  '30d': '30 days',
-  '90d': '90 days',
-  '12w': '12 weeks',
-};
 
 /**
  * Console segmented control for the analytics time-range (#403). Reuses the
@@ -40,7 +33,7 @@ export function PeriodToolbar({ value, onChange }: Props) {
               if (!active) onChange(window);
             }}
           >
-            {WINDOW_LABELS[window]}
+            {DASHBOARD_WINDOW_LABELS[window]}
           </button>
         );
       })}
