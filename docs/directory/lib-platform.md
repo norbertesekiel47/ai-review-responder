@@ -129,19 +129,6 @@ LLM cost tracking and enforcement.
 | `tier-cost-limits.ts` | Per-tier daily cost ceiling env vars (`DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT`): `tierDailyCostLimitCents(tier)`, `parseRequiredPositiveCostLimitCents`, `assertTierDailyCostLimitsConfigured` (boot-time check), and `optionalNonnegativeCostLimitCents` for the optional global ceiling with fallback. |
 
 
-### `demos/`
-
-| File | What it does |
-|------|--------------|
-| `generator.ts` | `generateDemoResponses(reviews, context)` — calls `generateResponse` in `demo` mode for each review. |
-| `types.ts` | Demo-specific types (`DemoRequest`, `DemoResult`). |
-| `fallback-content.ts` | `getFallbackDemo(category)` — curated fallback reviews + responses for the demo when live content is unusable; normalizes a free-text category to a canonical key, every key currently sharing the general-business fixture (`__fixtures__/fallback-source-reviews`). |
-| `fetch-reviews.ts` | `fetchSerpApiReviews(placeId)` — up to 15 reviews via `SerpApiSource`, or `MockReviewSource` when `MOCK_EXTERNAL_APIS=true`; fails fast at module load if `SERPAPI_API_KEY` is missing outside mock mode. Extracted from `generator.ts` so the worker does not choose the source. |
-| `generate-responses.ts` | `generateResponsesForReviews(sql, reviews, businessContext)` — `Promise.allSettled` over `generateResponse` in `demo` mode (or `generateMockResponse`), mapping a failed review to `null` and returning success/failure/cost/duration metadata. Extracted from `generator.ts`. |
-| `lifecycle.ts` | Demo-row state machine over `onboarding_demos` / `prospect_demos`: `claimDemo` (queued → running CAS, >5-min stale-running reset; returns `claimed` / `already_terminal` / `not_found` / `reset_to_queued` / `race_lost`), `completeDemo` (row + outbox in one tx; the 23505 race-loser archives itself and closes its outbox), `failDemo`. Called by `DemoGenerationWorker`. |
-| `select-qualifying.ts` | `selectQualifyingReviews(reviews, opts)` — picks ≤3 demo reviews: `newest` (first three) or `positive-with-moderate-tail` (rating ≥3; a substantive 5-star anchor, up to two 4-stars, one trailing 3-star; returns `[]` when no ≥4 anchor so the caller falls back to curated content). |
-
-
 ### `publishing/`
 
 GBP reply publishing logic.

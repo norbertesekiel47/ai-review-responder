@@ -9,12 +9,17 @@ import {
 } from '@/lib/shared/subscription-status';
 import { PaywallWithDemoClient } from './PaywallWithDemoClient';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import {
+  DEMO_GENERATION_STATUS,
+  NO_DEMO_SENTINEL_STATUS,
+  type DemoGenerationStatus,
+} from '@/lib/demos/types';
 
 export const dynamic = 'force-dynamic';
 
 interface DemoRow {
   id: string;
-  generation_status: string;
+  generation_status: DemoGenerationStatus;
   completed_at: Date | null;
   source: string | null;
   reviews_snapshot: unknown;
@@ -76,7 +81,7 @@ export default async function OnboardingDemoPage() {
     FROM onboarding_demos
     WHERE user_id = ${row.user_id}::uuid
       AND business_id = ${row.business_id}::uuid
-      AND generation_status <> 'archived'
+      AND generation_status <> ${DEMO_GENERATION_STATUS.ARCHIVED}
     ORDER BY created_at DESC
     LIMIT 1
   `;
@@ -86,14 +91,15 @@ export default async function OnboardingDemoPage() {
     // the demo enqueue was skipped (cost ceiling, rate limit, or future
     // staff-allowlist gating). Without this branch we'd ping-pong between
     // /start (place_id_verified → /demo) and /demo (no demo → /start).
-    // Render the paywall standalone with a sentinel "skipped" status so the
-    // user can still subscribe.
+    // Render the paywall standalone with the in-memory NO_DEMO sentinel so the
+    // user can still subscribe. The sentinel is a view state, never a row:
+    // nothing persists it, and migration 032's CHECK omits it on purpose (#1104).
     if (row.place_id_verified || row.google_maps_url) {
       return (
         <PaywallWithDemoClient
           initialDemo={{
             id: 'no-demo-sentinel',
-            generation_status: 'skipped',
+            generation_status: NO_DEMO_SENTINEL_STATUS,
             completed_at: null,
             source: null,
             reviews_snapshot: null as never,

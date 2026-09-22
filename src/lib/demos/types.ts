@@ -48,6 +48,40 @@ export interface DemoListItem {
   expiresAt: string;
 }
 
+// ── generation_status vocabulary ──────────────────────────────────────
+
+/**
+ * The persisted `generation_status` values of `onboarding_demos` — byte-for-byte
+ * the CHECK constraint in migration 032 (`prospect_demos` shares the set minus
+ * `archived`, which it never writes). `generation-status-contract.test.ts`
+ * fails when this object and the migration's CHECK list drift apart.
+ */
+export const DEMO_GENERATION_STATUS = {
+  QUEUED: 'queued',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  ARCHIVED: 'archived',
+} as const;
+
+export type DemoGenerationStatus =
+  (typeof DEMO_GENERATION_STATUS)[keyof typeof DEMO_GENERATION_STATUS];
+
+/**
+ * UI-only sentinel for `/onboarding/demo` when the owner has a captured
+ * location but NO `onboarding_demos` row (the enqueue was skipped: cost
+ * ceiling, rate limit, allowlist). The page synthesizes it in memory so the
+ * paywall still renders; it is NEVER written to Postgres, which is why it is
+ * absent from migration 032's CHECK on purpose (#1104). Keep it out of
+ * `DemoGenerationStatus` so no write site can type-check with it.
+ */
+export const NO_DEMO_SENTINEL_STATUS = 'skipped' as const;
+
+/** What `PaywallWithDemoClient` can receive: a persisted status or the sentinel. */
+export type OnboardingDemoViewStatus =
+  | DemoGenerationStatus
+  | typeof NO_DEMO_SENTINEL_STATUS;
+
 // ── Lifecycle table parameter ─────────────────────────────────────────
 
 export type DemoTable = 'prospect_demos' | 'onboarding_demos';
