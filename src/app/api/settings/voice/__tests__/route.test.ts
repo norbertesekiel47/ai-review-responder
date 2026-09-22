@@ -230,6 +230,13 @@ describe('GET /api/settings/voice', () => {
     expect(res.status).toBe(404);
   });
 
+  it('returns 400 for a malformed locationId before any query runs (#1362)', async () => {
+    const res = await GET(makeGetRequest({ locationId: 'not-a-uuid' }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid location ID' });
+    expect(mockSqlQuery).not.toHaveBeenCalled();
+  });
+
   it('returns 401 when not authenticated', async () => {
     mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
 

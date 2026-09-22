@@ -251,6 +251,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(await res.json()).toEqual({ error: 'response_not_found' });
   });
 
+  it('returns 400 invalid_response_id for a malformed responseId before the response lookup (#1362)', async () => {
+    const POST = await importPOST();
+    const res = await POST(makeRequest(), ctx('not-a-uuid'));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_response_id' });
+    const lookups = topLevelMock.mock.calls.filter(([strings]) => (strings ?? []).join('').includes('FROM responses'));
+    expect(lookups).toHaveLength(0);
+  });
+
   it('returns 409 already_recovered when status !== failed', async () => {
     seedTopLevel([{ review_id: REVIEW_ID }]);
     seedTxRows(

@@ -90,6 +90,9 @@ import {
 
 const RAW_TOKEN = 'raw-token-123';
 const TOKEN_HASH = createHash('sha256').update(RAW_TOKEN).digest('hex');
+// The dashboard runner refuses a non-UUID reviewId before its first query
+// (#1362), so the fixture has to be a real UUID.
+const REVIEW_ID = 'c0000000-0000-4000-8000-000000000001';
 const ACTIVE_ACCOUNT_ROW = {
   subscription_status: 'active',
   past_due_at: null,
@@ -450,6 +453,26 @@ describe('requireDashboardReviewOwner', () => {
 });
 
 describe('runDashboardReviewAction', () => {
+  it('returns no-store 400 before any query when the reviewId is not a UUID (#1362)', async () => {
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      sql,
+      request(),
+      'not-a-uuid',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid review ID' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(sqlCalls).toHaveLength(0);
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
@@ -462,7 +485,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -471,9 +494,9 @@ describe('runDashboardReviewAction', () => {
 
     expect(res.status).toBe(200);
     const responseLookup = sqlCalls.find((call) => call.text.includes('FROM responses r'));
-    expect(responseLookup?.values).toEqual(['rev-1', 'acct-1']);
+    expect(responseLookup?.values).toEqual([REVIEW_ID, 'acct-1']);
     expect(mockRecoverCorrelationId).toHaveBeenCalledWith(mockSql, {
-      reviewId: 'rev-1',
+      reviewId: REVIEW_ID,
       responseId: 'resp-1',
     });
     expect(action).toHaveBeenCalledWith(expect.objectContaining({
@@ -508,7 +531,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -533,7 +556,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'edit',
       'Response updated.',
@@ -560,7 +583,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -583,7 +606,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -606,7 +629,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -625,7 +648,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -648,7 +671,7 @@ describe('runDashboardReviewAction', () => {
     const staleRes = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -668,7 +691,7 @@ describe('runDashboardReviewAction', () => {
     const unexpectedRes = await runDashboardReviewAction(
       sql,
       request(),
-      'rev-1',
+      REVIEW_ID,
       { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
@@ -703,7 +726,7 @@ describe('runDashboardReviewAction', () => {
       const res = await runDashboardReviewAction(
         sql,
         request(),
-        'rev-1',
+        REVIEW_ID,
         { id: 'owner-1', accountId: 'acct-1' },
         actionName,
         'Done.',
@@ -718,7 +741,7 @@ describe('runDashboardReviewAction', () => {
       expect(firstTxStatement).toBeDefined();
       expect(firstTxStatement!.text).toContain('FROM reviews');
       expect(firstTxStatement!.text).toContain('FOR UPDATE');
-      expect(firstTxStatement!.values).toEqual(['rev-1', 'biz-1']);
+      expect(firstTxStatement!.values).toEqual([REVIEW_ID, 'biz-1']);
 
       const responsesLockIndex = txCalls.findIndex(
         (call) => call.text.includes('FROM responses') && call.text.includes('FOR UPDATE'),

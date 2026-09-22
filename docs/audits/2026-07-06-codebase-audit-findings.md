@@ -99,9 +99,9 @@ Mature, well-engineered codebase with genuinely strong security and reliability 
 
 `worker/background/pollers/ZernioRecentReviewPoller.ts:220-236` marks reviews `'deleted'` (UPDATE #1) and fails their responses (UPDATE #2) as **two separate `await sql` statements, no `sql.begin`**. If #2 fails or the process dies between them, the next cycle's SELECT (`status <> 'deleted'`) never returns those reviews again → responses stranded forever in `pending_approval`/`approved` pointing at a source-deleted review; an `approved` orphan can even reach the publisher. **Fix:** wrap both UPDATEs in one `sql.begin`. **Fixed (#1360):** both UPDATEs run in one `db.begin`; rollback + next-cycle recovery proven by `ZernioRecentReviewPoller.tombstone.integration.test.ts`.
 
-### [ ] M-B — Malformed-UUID params → uncaught `22P02` 500s across ~8 owner routes · **Verified** · Effort: S
+### [x] M-B — Malformed-UUID params → uncaught `22P02` 500s across ~8 owner routes · **Verified** · Effort: S
 
-`src/app/api/settings/voice/route.ts:28` interpolates `${locationId}::uuid` with no `isValidUuid` guard and no try/catch in GET; same gap at `src/lib/approval/http-routes.ts:160-170` and `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:88-92`. Tenant scoping is intact — this is an error-contract bug (500 + Sentry noise instead of 400). The guard pattern already exists at `dashboard/route.ts:364-369`. **Fix:** `isValidUuid` guard at the two shared helpers + the voice GET (3 edits fix 8 routes).
+`src/app/api/settings/voice/route.ts:28` interpolates `${locationId}::uuid` with no `isValidUuid` guard and no try/catch in GET; same gap at `src/lib/approval/http-routes.ts:160-170` and `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts:88-92`. Tenant scoping is intact — this is an error-contract bug (500 + Sentry noise instead of 400). The guard pattern already exists at `dashboard/route.ts:364-369`. **Fix:** `isValidUuid` guard at the two shared helpers + the voice GET (3 edits fix 8 routes). **Fixed (#1362):** the guard sits at the voice GET, `runDashboardReviewAction` and `authorizeEditReplyResponse`; a malformed id is a 400 before the first query, pinned by route tests on all eight routes.
 
 ### [ ] M-C — StripeCheckoutReconcileWorker marks outbox terminally failed on transient errors, then rethrows · **Verified (bounded)** · Effort: S
 

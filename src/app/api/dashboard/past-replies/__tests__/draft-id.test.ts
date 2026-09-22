@@ -278,6 +278,17 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     expect(await res.json()).toEqual({ error: 'response_not_found' });
   });
 
+  it('returns 400 invalid_response_id for a malformed responseId before the response lookup (#1362)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    const { PATCH } = await importHandlers();
+    const res = await PATCH(makeRequest({ body: validPatchBody() }), ctx('not-a-uuid'));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_response_id' });
+    const lookups = topLevelMock.mock.calls.filter(([strings]) => (strings ?? []).join('').includes('FROM responses'));
+    expect(lookups).toHaveLength(0);
+    expect(beginMock).not.toHaveBeenCalled();
+  });
+
   it('returns 403 account_offboarding_blocked after authorization and before PATCH mutation', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     seedTopLevel([{ review_id: REVIEW_ID }]);
