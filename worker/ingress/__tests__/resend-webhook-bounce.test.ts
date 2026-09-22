@@ -299,6 +299,45 @@ describe('handleResendWebhook — bounce handling', () => {
     // Admin was already alerted on the first transition — do not spam
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
+
+  // ── #1393: the hard-bounce alert is mark-before-send, so it carries NO key ──
+  // The issue filed this alert as a send-then-mark duplicate. It is not: the
+  // `owner_email_bounced` transition (the mark) commits BEFORE Resend is called,
+  // so a Svix redelivery after a crash-after-send reclaims the inbound event,
+  // finds the flag already TRUE, and sends nothing — the case pinned above.
+  // Per the Send idempotency key contract a mark-before-send site carries no
+  // key. Pin BOTH facts: a reorder to send-then-flag, or a key appearing here,
+  // would mean that reasoning was reversed without this test noticing.
+  it('flags the business BEFORE sending the admin alert and passes no idempotency key (#1393)', async () => {
+    sqlReturnQueue.push({ count: 1 });
+    sqlReturnQueue.push([{ business_id: 'biz-1', template: 'approval_request' }]);
+    sqlReturnQueue.push([]); // UPDATE notification_deliveries
+    sqlReturnQueue.push([{ id: 'biz-1' }]); // UPDATE businesses RETURNING (transition)
+    sqlReturnQueue.push([]); // UPDATE inbound_events
+
+    // At the moment Resend is called, the businesses transition must already
+    // be on the SQL call log. `Once` so no implementation leaks past this test.
+    let flaggedBeforeSend: boolean | undefined;
+    mockSendInternalEmail.mockImplementationOnce(() => {
+      flaggedBeforeSend = mockSql.mock.calls.some((c) =>
+        (c[0] as TemplateStringsArray).raw.join('').includes('UPDATE businesses'),
+      );
+      return Promise.resolve({ messageId: 'msg-bounce-1' });
+    });
+
+    const body = {
+      type: 'email.bounced',
+      data: { email_id: 'msg-abc', bounce: { type: 'Permanent' } },
+    };
+    const { reply, captured } = makeReply();
+    await handleResendWebhook(makeReq(body), reply);
+
+    expect(captured.status).toBe(200);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+    expect(flaggedBeforeSend).toBe(true);
+    const sendArg = mockSendInternalEmail.mock.calls[0]?.[0] as { idempotencyKey?: string };
+    expect(sendArg.idempotencyKey).toBeUndefined();
+  });
 });
 
 // #631 Task 5 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md,
@@ -306,6 +345,13 @@ describe('handleResendWebhook — bounce handling', () => {
 // hard bounce on the Auto-approval lane's Veto notice flags
 // businesses.owner_email_bounced the same as every other owner email.
 describe('solicitation veto notice bounce classification (#631)', () => {
+  // This block previously ran without clearing and only passed because the
+  // preceding case happened to make no send call (#1393 added one before it).
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+  });
+
   it('a hard bounce for solicitation_veto_notice marks owner_email_bounced', async () => {
     sqlReturnQueue.push({ count: 1 });
     sqlReturnQueue.push([{ business_id: 'biz-1', template: 'solicitation_veto_notice' }]);

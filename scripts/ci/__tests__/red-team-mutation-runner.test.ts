@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// #1393: this suite spawns a git repo and the runner per case, so its wall time
+// is dominated by process start-up. It passes in isolation but timed out twice
+// under `pnpm test`'s parallel load during #1363's gate runs, and read 300s
+// total at load average 50. Every case gets the same generous budget: a vitest
+// timeout only bounds wall time and changes no assertion.
+const SUITE_TIMEOUT_MS = 120_000;
+vi.setConfig({ testTimeout: SUITE_TIMEOUT_MS, hookTimeout: SUITE_TIMEOUT_MS });
+
 // Here rather than beside the script: vitest's include roots are scripts/ci/**,
 // src/**, worker/**, tests/** and e2e/**, so a suite under .agents/ would never
 // run. Same reason as edit-surface-guard.test.ts.
@@ -1083,7 +1091,7 @@ describe('the owner-approved Run E second pass', () => {
           expect(observed.supervisors.slice(0, stagingRuns)).toEqual(fixture.checkpoint.supervisors);
           expect(observed.supervisors[stagingRuns]?.active).toBe(true);
           expect(stagingJournal().supervisors[stagingRuns]?.active).toBe(false);
-        }, 30_000);
+        }, SUITE_TIMEOUT_MS);
 
         it('requires a clean first staging baseline and restores a later journaled diagnostic mutant', () => {
           prepareStaging();
@@ -1105,7 +1113,7 @@ describe('the owner-approved Run E second pass', () => {
           expect(run('finalize').status).toBe(0);
           expect(read(diagnosticPath)).toBe(diagnosticCode);
           expect(stagingJournal().mutations.at(-1)?.state).toBe('restored');
-        }, 30_000);
+        }, SUITE_TIMEOUT_MS);
 
         it('rejects altered staging checkpoint history, diagnostic blobs, and unreviewed paths without a child', () => {
           const variants: Array<Parameters<typeof prepareStaging>[0]> = [
@@ -1121,7 +1129,7 @@ describe('the owner-approved Run E second pass', () => {
             write(reviewDocument, fixture.document);
             expectCorrectiveRefused(`live repair cannot replace committed evidence ${index}`);
           }
-        }, 30_000);
+        }, SUITE_TIMEOUT_MS);
 
         it('refuses staging counter rollback, changed old pins, stripped admissions, and renamed round resets', () => {
           prepareStaging();
@@ -1152,7 +1160,7 @@ describe('the owner-approved Run E second pass', () => {
             expect(run('round-start').status).toBe(1);
             expect(read('.feature/red-team-journal.json')).toBe(before);
           }
-        }, 30_000);
+        }, SUITE_TIMEOUT_MS);
 
         it('allows staging launch 1600 but refuses 1601, third-round prose, and a second staging candidate', () => {
           prepareStaging();
@@ -1180,7 +1188,7 @@ describe('the owner-approved Run E second pass', () => {
           git('add', reviewDocument);
           git('commit', '-qm', 'second staging candidate below cap');
           expectCorrectiveRefused('second staging candidate');
-        }, 30_000);
+        }, SUITE_TIMEOUT_MS);
       });
 
       it('pins the finite Run E correction before launch N+1 and preserves both earlier admissions', () => {
@@ -1201,7 +1209,7 @@ describe('the owner-approved Run E second pass', () => {
         expect(observed.supervisors.slice(0, checkpointRuns)).toEqual(fixture.checkpoint.supervisors);
         expect(observed.supervisors[checkpointRuns]?.active).toBe(true);
         expect(correctiveJournal().supervisors[checkpointRuns]?.active).toBe(false);
-      }, 20_000);
+      }, SUITE_TIMEOUT_MS);
 
       it('runs and restores a later corrective journaled mutant while refusing a dirty first baseline', () => {
         const fixture = prepareCorrective();
@@ -1226,7 +1234,7 @@ describe('the owner-approved Run E second pass', () => {
         expect(correctiveJournal().correctiveAdmission).toBeUndefined();
         expect(run('finalize').status).toBe(0);
         expectCorrectiveRefused('restoration cannot erase the extra pre-admission mutation');
-      }, 30_000);
+      }, SUITE_TIMEOUT_MS);
 
       it('rejects uncommitted or altered corrective checkpoint evidence, exact test blobs, and extra paths', () => {
         const variants: Array<{ label: string; options: Parameters<typeof prepareCorrective>[0] }> = [
@@ -1247,7 +1255,7 @@ describe('the owner-approved Run E second pass', () => {
             expectCorrectiveRefused(`${variant.label} with a repaired live document`);
           }
         }
-      }, 45_000);
+      }, SUITE_TIMEOUT_MS);
 
       it('refuses corrective pin stripping, prefix changes, counter rollback, and renamed round downgrades', () => {
         const fixture = prepareCorrective();
@@ -1289,7 +1297,7 @@ describe('the owner-approved Run E second pass', () => {
           expect(run('round-start').status, branch).toBe(1);
           expect(read('.feature/red-team-journal.json')).toBe(before);
         }
-      }, 30_000);
+      }, SUITE_TIMEOUT_MS);
 
       it('allows corrective launch 1600 but refuses 1601, third-round prose, and another candidate', () => {
         const fixture = prepareCorrective();
@@ -1319,7 +1327,7 @@ describe('the owner-approved Run E second pass', () => {
         git('add', reviewDocument);
         git('commit', '-qm', 'additional candidate after corrective pin');
         expectCorrectiveRefused('additional candidate below the cap');
-      }, 30_000);
+      }, SUITE_TIMEOUT_MS);
     });
 
   });
@@ -1869,7 +1877,7 @@ describe('the paused supervisor', () => {
 
     expect(run('reap').status).toBe(0);
     expect(journal().supervisors[0]!.active).toBe(false);
-  }, 20_000);
+  }, SUITE_TIMEOUT_MS);
 
   // CRASH CASE 2 — the group LEADER exits while a descendant survives. POSIX
   // forbids reusing a PGID while any member lives, so targeting the group is
@@ -1882,7 +1890,7 @@ describe('the paused supervisor', () => {
     expect(result.status).toBe(0);
     const { pgid } = journal().supervisors[0]!;
     expect(await waitFor(() => groupIsEmpty(pgid))).toBe(true);
-  }, 20_000);
+  }, SUITE_TIMEOUT_MS);
 
   // The PID-reuse guard. A stale journal entry must never let the finalizer
   // signal a process the OS has since handed to something else.
@@ -1895,7 +1903,7 @@ describe('the paused supervisor', () => {
     expect(result.stderr).toContain('was reused');
     expect(groupIsEmpty(pgid)).toBe(false);
     expect(journal().supervisors[0]!.active).toBe(true);
-  }, 20_000);
+  }, SUITE_TIMEOUT_MS);
 
   it('reaps a live journaled group whose identity does match', async () => {
     const { pgid } = adoptLiveGroup({});
@@ -1904,7 +1912,7 @@ describe('the paused supervisor', () => {
     expect(run('reap').status).toBe(0);
     expect(groupIsEmpty(pgid)).toBe(true);
     expect(journal().supervisors[0]!.active).toBe(false);
-  }, 20_000);
+  }, SUITE_TIMEOUT_MS);
 
   // The finalizer must not restore files while a run could still be writing.
   it('refuses to restore files while a process group is still live', async () => {
@@ -1917,7 +1925,7 @@ describe('the paused supervisor', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('files were NOT restored');
     expect(read('src/gate.ts')).toContain('=> true');
-  }, 20_000);
+  }, SUITE_TIMEOUT_MS);
 });
 
 // `kill(-1)` reaches every process the user owns. The journal is a file, so a
