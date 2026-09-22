@@ -19,6 +19,12 @@ TEST_DATABASE_POOL_URL=postgres://test:test@localhost:5433/test pnpm test:db:set
 
 (CI does the same via the shared composite action `.github/actions/test-db`.)
 
+The image major is not a free choice: `REQUIRED_PG_MAJOR` in
+`scripts/test-db-setup.sh` owns it (17 — CI and both Supabase projects), and
+both that script and `assertSchemaReady` refuse a lower server (#1379). The
+developer-default container for `.env.local`'s `TEST_DATABASE_POOL_URL` is
+`repworth-testdb-pg17` on port 5500.
+
 `pnpm test:db:setup` (`scripts/test-db-setup.sh`) is the single owner of "the
 test DB is at head" — it drops and recreates schema `public`, then applies the
 bootstrap and every migration in order. Re-run it whenever a migration lands:

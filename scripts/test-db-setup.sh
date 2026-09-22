@@ -39,6 +39,19 @@
 # (`RESET ALL` restores configuration parameters; it does not release the
 # session's advisory lock.)
 #
+# POSTGRES MAJOR (#1379): this script is the single owner of the test DB's
+# PostgreSQL major, REQUIRED_PG_MAJOR below — the major both Supabase projects
+# run. The container is `postgres:17`, CI's service image
+# (`.github/workflows/ci.yml`, `e2e.yml`) is the same, and the driver refuses a
+# server below it BEFORE any DDL. Developer default: container
+# `repworth-testdb-pg17` on port 5500 (create one per
+# docs/runbooks/e2e-local-setup.md). A lower major is not a harmless drift:
+# migration 122's MAINTAIN branch is version-guarded, so a PG16 container
+# passes its suite while asserting less. assertSchemaReady
+# (src/lib/shared/__tests__/helpers/schema-ready.ts) re-checks the same floor
+# at suite time; its unit test (schema-ready.test.ts, beside it) pins the two
+# spellings and the CI images to this value.
+#
 #   pnpm test:db:setup
 #   scripts/test-db-setup.sh --print-driver   # emit the driver SQL, run nothing
 #
@@ -50,6 +63,11 @@ cd "$(dirname "$0")/.."
 # acquisition in scripts/ci/rls-audit.ts — pinned by
 # scripts/ci/__tests__/test-db-provision.test.ts (bash cannot import TS).
 LOCK_KEY='repworth_live_db_integration'
+
+# The one owner of the test DB's PostgreSQL major (see header). Pinned against
+# REQUIRED_PG_MAJOR in schema-ready.ts and the CI `postgres:<major>` images
+# by schema-ready.test.ts.
+REQUIRED_PG_MAJOR=17
 
 MIGRATIONS=$(ls supabase/migrations/*.sql | sort)
 HEAD_MIGRATION=$(printf '%s\n' "$MIGRATIONS" | tail -1 | xargs basename)
@@ -70,6 +88,7 @@ print_driver() {
 SET statement_timeout = '240s';
 SELECT pg_advisory_lock(hashtext('${LOCK_KEY}'));
 RESET statement_timeout;
+DO \$\$ BEGIN IF current_setting('server_version_num')::int < $((REQUIRED_PG_MAJOR * 10000)) THEN RAISE EXCEPTION 'test database runs PostgreSQL %; the required major is ${REQUIRED_PG_MAJOR} (CI and both Supabase projects) — point TEST_DATABASE_POOL_URL at a postgres:${REQUIRED_PG_MAJOR} container (scripts/test-db-setup.sh header)', current_setting('server_version'); END IF; END \$\$;
 DROP SCHEMA IF EXISTS test_meta CASCADE;
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;

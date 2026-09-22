@@ -36,7 +36,8 @@ interface PublisherFailedHookState {
  * The active publisher orders response -> outbox, so a failed-hook recovery
  * must never invert that edge by claiming the outbox before it locks the
  * response. The unlocked anchor pre-read is intentionally first; actual locks
- * are reviews -> businesses -> responses.
+ * are reviews -> businesses -> responses (the review-lane order; owner:
+ * .claude/reference/lab-notes/lock-order.md).
  */
 async function lockPublisherFailureLane(
   tx: postgres.TransactionSql,

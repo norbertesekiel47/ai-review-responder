@@ -61,8 +61,9 @@ export async function handleJudgeVerdict(
   });
 
   await sql.begin(async (tx) => {
-    // Binding global lock order: reviews must be the first transaction lock,
-    // before the verdict INSERT's implicit response/run FK locks.
+    // Review-lane lock order, step 1 (owner:
+    // .claude/reference/lab-notes/lock-order.md): the review anchor is the
+    // transaction's first lock, before the verdict INSERT's implicit FK locks.
     const anchoredReviewId = await anchorReviewLockOrder(
       tx,
       context.response_id,
@@ -73,9 +74,12 @@ export async function handleJudgeVerdict(
       return;
     }
 
-    // Binding lane order continues reviews -> businesses -> responses: without
-    // this explicit lock, the verdict INSERT's implicit businesses FK lock
-    // would only be taken AFTER the response lock, inverting the lane order.
+    // Step 2, businesses, explicitly — otherwise the verdict INSERT's implicit
+    // businesses FK lock would come after the response lock (lock-order.md,
+    // implicit-FK-lock rule). The owner-approval lane locks these two in the
+    // opposite order; it is safe only because that lane never reaches its
+    // businesses lock for a posted auto-policy row, the only rows the check
+    // below admits (lock-order.md, "The exception").
     const [lockedBusiness] = await tx<{ id: string }[]>`
       SELECT id
       FROM businesses
@@ -108,13 +112,10 @@ export async function handleJudgeVerdict(
     const agentRunId = await findLatestRunIdForReview(tx, anchoredReviewId);
     const verdictId = uuidv7();
     if (verdict.verdict === 'flag') {
-      // Deadlock guard (lane order ends at accounts): the verdict INSERT's RI
-      // trigger takes FOR KEY SHARE on this account row, and
-      // suspendAccountAutonomy then upgrades it to FOR UPDATE. Two concurrent
-      // flag verdicts for the same account (different reviews, so the review
-      // anchors don't serialize them) would each hold KEY SHARE while waiting
-      // on the other's upgrade — deadlock. Take accounts FOR UPDATE BEFORE the
-      // INSERT, still after the reviews -> businesses -> responses locks.
+      // Step 4, accounts FOR UPDATE, before the verdict INSERT (lock-order.md):
+      // its RI KEY SHARE would otherwise be upgraded by the suspension below,
+      // and two flag verdicts for one account (different reviews, so the
+      // anchors don't serialize them) would deadlock on that upgrade.
       // Non-flag verdicts must NOT take this lock: routine passes would
       // otherwise serialize per account.
       await lockAutonomyAccount(tx, context.account_id);

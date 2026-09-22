@@ -90,7 +90,8 @@ export async function promotePrimaryTransaction(
     // Lock every row this promotion may update in deterministic id order
     // before touching the account row. The lifecycle mutex serializes other
     // location operations; the ordered row set composes safely with
-    // publisher/mirror business -> entitlement locks.
+    // publisher/mirror business -> entitlement locks (owner of the order:
+    // .claude/reference/lab-notes/lock-order.md).
     const lockedLocations = await tx<{ id: string; is_primary: boolean }[]>`
       SELECT id, is_primary
       FROM businesses

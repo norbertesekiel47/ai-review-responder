@@ -248,7 +248,7 @@ async function lockArchiveContext(
   // Location lifecycle order is mutex -> business rows (ordered) -> account.
   // Never hold the account while waiting for a publisher/mirror business row:
   // those paths hold business -> entitlement while tier/status writers hold
-  // entitlement -> account.
+  // entitlement -> account. Owner: .claude/reference/lab-notes/lock-order.md.
   const [location] = await tx<{ archived_at: Date | string | null; is_primary: boolean }[]>`
     SELECT archived_at, is_primary
     FROM businesses

@@ -807,12 +807,6 @@ section becomes visible.
 - **Domain sweep**: apply `domain-modeling` once more — fold terms and
   decisions that emerged during implementation back into the owning
   `docs/context/<context>.md` (+ its `CONTEXT-MAP.md` row) and ADRs.
-- **Entropy counter**: MEASURE it, never add 1 by hand — `document-feature`
-  § "Measure the entropy counter" owns the procedure, and the figure goes in
-  this merge's row in the bottom table of
-  `.claude/reference/arch-review-log.md`. At ≥ 5 counting merges since the
-  last architecture pass, remind the owner to schedule one. Never start one
-  automatically.
 - **Change ledger**: add this change's row to `docs/agents/change-ledger.md`
   (the file defines the columns). `Named debt` comes from the review record.
 
