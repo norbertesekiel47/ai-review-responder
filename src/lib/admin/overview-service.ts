@@ -147,6 +147,12 @@ export async function getAdminOverview(sql: Sql): Promise<OverviewData> {
   const notifFailureRows = await sql<SystemHealthRow[]>`
     SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
   `;
+  // BOUNDED by the exact union of the FILTER windows (#1365), so every counter
+  // reads the same rows it did as a whole-table scan: a row outside both arms
+  // matches no FILTER. Deliberately NOT a `created_at` bound — a row's
+  // `sent_at`/`failed_at` can land after its `created_at`, so any created_at
+  // cut-off could drop a counted row. The two arms BitmapOr over 019's
+  // `idx_nd_sent_at` and `idx_nd_failed_at`; no new index is needed.
   const emailHealthRows = await sql<EmailHealthRow[]>`
     SELECT
       COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_24h,
@@ -155,6 +161,8 @@ export async function getAdminOverview(sql: Sql): Promise<OverviewData> {
       COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:hard:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
       COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
     FROM notification_deliveries
+    WHERE sent_at >= NOW() - INTERVAL '24 hours'
+       OR failed_at >= NOW() - INTERVAL '7 days'
   `;
 
   // UNPAGINATED and the 6th sequential await, never a `Promise.all` member: the

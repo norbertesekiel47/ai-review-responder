@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **123** — next migration is **124**
+Current head: **124** — next migration is **125**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2531,6 +2531,53 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **124** — admin jobs-panel `job_outbox` indexes (#1365, audit H1).
+  **Applied to staging (`kubdiqdhqbhwmqfditeg`) 2026-09-22T11:22Z, then
+  production (`udeyaqnvpojbwgoaxwdg`) 2026-09-22T11:23Z**, via `supabase db
+  query --linked`, one `CONCURRENTLY` statement per call (a lone statement
+  runs outside a transaction). Verified by introspection on both, PG 17.6:
+  both definitions byte-identical to this file, `indisvalid` and `indisready`
+  true, zero INVALID indexes. Staging `EXPLAIN` with no planner overrides: the
+  failed page, failed total and topic list all read `idx_jo_failed_created`;
+  production's failed page is an Index Scan on it. No longer LOCAL-ONLY, so
+  `migration-immutability-guard.sh` now protects it — **124 is immutable; any
+  change is a new migration.** **Index-only: no table, no column, no
+  constraint, no data, no RLS posture.** Two statements, `CONCURRENTLY` and
+  therefore **non-transactional** (uncheck the Supabase SQL editor's
+  single-transaction box; a partial failure can leave an INVALID index — check
+  `pg_index WHERE NOT indisvalid`, DROP, and re-run). `job_outbox` is the
+  hottest write table, so neither build may take a write lock.
+  (1) `idx_jo_failed_created` on `job_outbox (created_at DESC) INCLUDE (topic)
+  WHERE status = 'failed'` — serves the failed page (ordered, no sort), the
+  failed total and the distinct-topic list (both Index Only Scans), and the
+  overview's failed count; (2) `idx_jo_completed_at` on `job_outbox
+  (completed_at) WHERE status = 'completed'` — serves the summary's
+  "completed today" arm, the only arm that kept the bounded summary on a
+  sequential scan (completed rows are most of the table under 7-day retention).
+  **WHY.** Nothing served `status = 'failed'` directly (001's `idx_jo_topic`
+  leads with topic, so an unfiltered failed read walked the whole index), and
+  `jobs-service.ts`'s status summary was a WHERE-less 5-way CASE count. The
+  summary is now one bounded query with one EQUALITY arm per counter so the
+  planner BitmapOrs `idx_jo_pending`, `idx_jo_recovery` (065) and both indexes
+  here — a `status IN (…)` list implies no partial predicate and falls back to
+  a sequential scan. Same PR bounds the overview's email-health read by the
+  exact union of its FILTER windows (`sent_at >= 24 h OR failed_at >= 7 d`),
+  served by 019's `idx_nd_sent_at` + `idx_nd_failed_at`; no
+  `notification_deliveries` index was needed.
+  **MEASURED, PG 16 local container,** temp-table copy of `job_outbox` with all
+  production indexes (211,674 completed / 2,000 failed / 150 in flight) and of
+  `notification_deliveries` (450,000 rows over 90 days), `VACUUM (ANALYZE)`
+  both sides: summary Seq Scan 3,849 buffers / 41 ms → BitmapOr 99 buffers /
+  1.0 ms; failed page 213 buffers + top-N sort → 4 buffers, no sort; failed
+  total and topic list 178 → 14 buffers; email health Seq Scan 6,000 buffers /
+  129 ms → BitmapOr 513 buffers / 7.6 ms. The topic-FILTERED page and total
+  keep using `idx_jo_topic` (exact key prefix).
+  **`SchemaRequirement`:** `MIGRATION_124_ADMIN_OUTBOX_PANEL_INDEXES`, inline in
+  `src/lib/admin/__tests__/admin-panel-bounds.integration.test.ts`, which also
+  pins both definitions byte-for-byte, proves number-equivalence against the
+  replaced WHERE-less reads in one REPEATABLE READ snapshot, and plans the
+  service's captured SQL with sequential scans priced out.
 
 - **123** — Restraint tab read indexes (#1081). **LOCAL-ONLY** — applied and
   verified only against the rebuildable local test container; promotion is
