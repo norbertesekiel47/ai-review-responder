@@ -19,6 +19,45 @@ import type postgres from 'postgres';
 
 const SETUP_COMMAND = 'pnpm test:db:setup';
 
+/**
+ * The PostgreSQL major every live-DB suite requires (#1379). Owned by
+ * `REQUIRED_PG_MAJOR` in `scripts/test-db-setup.sh`; this copy exists because
+ * bash cannot be imported, and `schema-ready.test.ts` (beside this file) pins the
+ * two spellings and CI's `postgres:<major>` images together.
+ */
+export const REQUIRED_PG_MAJOR = 17;
+
+/**
+ * The failure message for a server below `REQUIRED_PG_MAJOR`, or `null` when
+ * the server qualifies. Pure, so the threshold is unit-tested without a DB.
+ */
+export function serverMajorShortfall(
+  server: { versionNum: number; version: string } | undefined,
+): string | null {
+  if (server && server.versionNum >= REQUIRED_PG_MAJOR * 10_000) return null;
+  return (
+    `test database is behind the required PostgreSQL major — it runs ` +
+    `${server ? server.version : 'an unknown version'}, CI and both Supabase projects run ` +
+    `${REQUIRED_PG_MAJOR}.\nPoint TEST_DATABASE_POOL_URL at a postgres:${REQUIRED_PG_MAJOR} ` +
+    `container (see scripts/test-db-setup.sh) and re-provision it with \`${SETUP_COMMAND}\`.`
+  );
+}
+
+/**
+ * Throws unless the connected server is at least `REQUIRED_PG_MAJOR`. A
+ * behind-major container is the same class of setup problem as a behind-head
+ * schema, and quieter: migration 122's MAINTAIN branch is version-guarded, so
+ * its suite passes on PG16 while asserting one privilege fewer. Read-only.
+ */
+export async function assertServerMajor(db: postgres.Sql): Promise<void> {
+  const [row] = await db<{ versionNum: number; version: string }[]>`
+    SELECT current_setting('server_version_num')::int AS "versionNum",
+           current_setting('server_version') AS version
+  `;
+  const shortfall = serverMajorShortfall(row);
+  if (shortfall !== null) throw new Error(shortfall);
+}
+
 export interface SchemaRequirement {
   /** Migration that introduces these objects. Named in the failure message. */
   migration: string;
@@ -694,12 +733,14 @@ export async function assertAnalyticsEventNamesRegistered(
  * never be the blocking side of a deadlock.
  *
  * The failure is deliberately loud and actionable — a missing object means the
- * test DB is behind head, which is a setup problem, not a test problem.
+ * test DB is behind head, which is a setup problem, not a test problem. A
+ * server below `REQUIRED_PG_MAJOR` fails first, for the same reason.
  */
 export async function assertSchemaReady(
   db: postgres.Sql,
   requirements: readonly SchemaRequirement[],
 ): Promise<void> {
+  await assertServerMajor(db);
   const missing: MissingObject[] = [];
   for (const requirement of requirements) {
     missing.push(
