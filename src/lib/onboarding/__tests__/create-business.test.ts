@@ -103,7 +103,7 @@ describe('createBusinessTx — admin mode', () => {
   });
 
   // The admin form no longer captures a place (the invited owner captures
-  // their own at /onboarding/start), so runAdminTx enqueues nothing at all —
+  // their own at /onboarding/start), so admin mode enqueues nothing at all —
   // this pins the absence, which is the whole point of the shrink.
   it('enqueues no validate_place_id row', async () => {
     await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
