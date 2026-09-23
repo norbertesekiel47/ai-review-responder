@@ -10,7 +10,21 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 > - [progress-archive/currents-history-2026-08-16-to-18.md](progress-archive/currents-history-2026-08-16-to-18.md) — 2026-08-16 → 2026-08-18 (the executed Architecture pass through the admin Halt latch surface).
 
-Last updated: 2026-09-22 (every offboarding worker now pages per offboarding and a watchdog-stranded offboarding is named by the health poller, #1412/#1413 — rules 16–18 all still unconfigured; an admin or owner with one MFA factor can now add a second — merged without the staging measurement of abandoned unverified factors, #1418; there is still no recovery path for a terminally failed purge; every machine now needs the `gitleaks` binary to push).
+Last updated: 2026-09-22 (six single-owner cleanups merged — approval-lane transitions, one outreach INSERT, one cancellation-grace day count, shared drip/nudge send strategies, execution-based RLS guards, rule 16 pinned cell-for-cell; follow-ups #1447, #1454, #1455).
+
+## Quick summary — six single-owner cleanups: approval transitions, outreach insert, grace window, send strategies, RLS guards, rule 16 (2026-09-22, PRs #1448–#1453)
+
+**What changed.** Six backlog tickets landed as six PRs. Nothing a user sees changed. Each PR gave one owner to something that had been written out in more than one place, or it replaced a weak test with a strong one.
+
+**What is true now.**
+- **Approval transitions (#1367).** `src/lib/approval/transitions.ts` owns the `approved` / `edited` / `superseded` UPDATE for the owner-approval lane's three modes (token, session, callback). It is not the owner for the whole repo: 14 other sites still write their own UPDATE, and unlike these three they set `updated_at`. **#1454** tracks them.
+- **Outreach inserts (#1112).** `insertOutreachRenders` in `src/lib/solicitation/outreach.ts` holds the one INSERT column list for `solicitation_outreach`. `insertOutreachRender` is now a one-line call to it. `settleGenerationExhaustion` writes every hole in one statement, so the lock window drops from N+1 round trips to 2.
+- **Cancellation grace (#1371).** `CANCELLATION_GRACE_DAYS` in `src/lib/shared/cancellation-grace.ts` owns the 30-day count, for the dashboard route's deadline and for `CancellationGracePoller`'s SQL. The start date still has two rules: the route falls back to `subscription_activated_at` and the poller does not. **#1455** needs an owner decision.
+- **Drip and nudge sends (#1403).** `worker/jobs/send-and-record-strategies.ts` owns the two crash-after-send strategies, `sendMarkedFirst` and `sendKeyed`. The day-7 drip and the owner nudge use `sendMarkedFirst`; day-1 and day-30 use `sendKeyed`. Both handlers now pass fallow.
+- **RLS guards (#1384).** The 035, 040 and 045 guard suites now run their migration against the live test DB and compare catalogue definitions. They no longer match migration SQL text with regexes.
+- **Runbook rule 16 (#1414).** `failure-alert.test.ts` builds rule 16's four runbook cells from the emitter's exports and compares each cell by exact equality. Rules 1–15 and 17–18 remain open under **#1447**.
+
+**The new shape.** `src/lib/approval/transitions.ts` · `src/lib/shared/cancellation-grace.ts` · `worker/jobs/send-and-record-strategies.ts` · `insertOutreachRenders` in `outreach.ts` · `src/lib/shared/__tests__/migration-0{35,40,45}-*.integration.test.ts`.
 
 ## Quick summary — the two sibling offboarding workers page per offboarding, and a stranded offboarding is named (2026-09-21, #1412 + #1413)
 

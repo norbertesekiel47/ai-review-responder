@@ -731,3 +731,31 @@ pins: swapped fingerprints, `terminal equals false`, a duplicate contradicting
 row, a first-seen trigger and a renamed message each turned the suite red; the
 duplicate-row case first failed at collection time rather than in a named test,
 which is why the cells are parsed inside each `it`.
+
+## 2026-09-22 — six single-owner cleanups merged (#1367, #1384, #1414, #1112, #1371, #1403)
+
+Six tickets ran as six parallel agents, each in its own sibling worktree. Each PR passed one strict code-quality review and one five-axis review before merge. The three PRs that change worker code (#1452, #1451, #1448) ran on `staging` together at `9faba471e` before they reached `main`. `staging` was then reset to `main` (`706679fe0`).
+
+| PR | Issue | Squash | What landed |
+|---|---|---|---|
+| #1449 | #1367 | `075a84498` | `src/lib/approval/transitions.ts`: `markResponseApproved` / `markResponseEdited` / `markResponseSuperseded` for the token, session and callback modes. |
+| #1453 | #1384 | `a78174bd3` | The 035/040/045 RLS guard suites now run their migration and compare `readPublicCatalogue` output with pinned literals (two oracles). |
+| #1450 | #1414 | `dea5935b9` | Rule 16's runbook row is compared cell by cell with text built from the emitter's exports. The `stripComments` known-limitation test is an `it.fails`. |
+| #1452 | #1112 | `c11c514f9` | `insertOutreachRenders` is the only INSERT column list. The single-row function delegates to it. The exhaustion settle writes all holes in one statement. |
+| #1451 | #1371 | `eca95b39f` | `CANCELLATION_GRACE_DAYS` + `cancellationGraceDeadline()` in `src/lib/shared/cancellation-grace.ts`. The poller inlines `make_interval(days => …)`. |
+| #1448 | #1403 | `706679fe0` | `worker/jobs/send-and-record-strategies.ts`: `sendMarkedFirst` / `sendKeyed`, shared by the drip and the owner nudge. |
+
+**Decisions the review changed.**
+- #1449: the first header claimed "single owner for every responses status transition". 14 more sites write their own UPDATE, and they set `updated_at` while the approval lane does not. The header now states the narrow scope, and #1454 lists the other sites.
+- #1450: the first version stored the runbook prose as a typed record in `failure-alert.ts`. That broke the emitter-to-runbook link for the fingerprints. The record is deleted. The test builds the cells from the exports, and a fingerprint mutation now turns rule 16 red.
+- #1452: the first version kept two copies of the 20-column INSERT. The single-row function now delegates, and `RETURNING id` is gone.
+- #1451: the first version added `cancellationGraceExpiredSql`, a helper with one caller. It is deleted. The grace start date still has two owners, tracked in #1455.
+- #1448: the first version moved the `bodyVaries` branches into per-worker modules. Now there are two named strategies in one shared module, and both failure logs name the business again.
+- #1453: removed checks, each with a reason in the suite header: the SMS policies dropped by 061, the total-policy count (25, now 23), and `notification_preference`, which 022 dropped.
+
+**Gotchas.**
+- A squash merge copies every branch commit message into the final commit. The first #1450 commit said "Closes #1414 for rule 16", so the merge closed #1414 even though the PR body said `Refs`. #1414 was reopened. See the lab note of the same date.
+- A worktree made with plain `git worktree add` has no `.env*.local`. The pre-push hook then fails the #719 live-DB precondition in `onboarding-drip.integration.test.ts`. Use `pnpm worktree:new`, or copy the env files.
+- With six agents sharing one local test DB, `ci:rls-audit`'s live content-hash check failed and `send-breaker.integration.test.ts` miscounted sends (100 vs 101). CI passed every time. The root cause is not proven.
+
+**Follow-ups filed.** #1447 (rules 1–15 and 17–18), #1454 (the remaining transition writers and `updated_at`), #1455 (the grace start date).
