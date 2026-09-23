@@ -2875,11 +2875,11 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Public demo viewer: the opaque demo_url_slug must resolve the prospect_demos row before any tenant scope is knowable. prospect_demos is not account/business-scoped (deny-all RLS, migration 066).",
   },
   {
-    file: "src/app/(public)/demo/[slug]/page.tsx",
+    file: "worker/background/pollers/DemoViewFlushPoller.ts",
     table: "prospect_demos",
-    sqlSnippet: "UPDATE prospect_demos SET view_count = view_count + 1, last_viewed_at = NOW() WHERE id = ${demo.id}",
-    category: 'pre-auth-token',
-    reason: "Public demo viewer: the view-count bump targets the prospect_demos id just resolved from the opaque slug in the same request; this table has no tenant column (deny-all RLS, migration 066).",
+    sqlSnippet: "UPDATE prospect_demos AS pd SET view_count = pd.view_count + flush.delta_count, last_viewed_at = flush.last_viewed_at FROM unnest(${ids}::uuid[], ${counts}::int[], ${lastVieweds}::timestamptz[]) AS flush(id, delta_count, last_viewed_at) WHERE pd.id = flush.id RETURNING pd.id",
+    category: 'background-global-scan',
+    reason: "#1369: the public demo viewer no longer writes Postgres directly — it INCRs a Redis counter, and this poller batches the drained per-demo counters into one set-based UPDATE keyed on ids already resolved from Redis. prospect_demos has no tenant column (deny-all RLS, migration 066); a global flush cycle is deliberately cross-tenant, same as ArchivalPoller's demo-retention arm below.",
   },
   {
     file: "src/lib/admin/demos-service.ts",
