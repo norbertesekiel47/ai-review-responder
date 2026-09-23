@@ -164,7 +164,11 @@ describeWithDb('regenerate lock order against live Postgres (#1444)', { timeout:
         ${tenant.accountId}::uuid, 'active'
       )
     `;
-  });
+    // Explicit hook timeout, not just the describe-level test timeout above:
+    // vitest's default hookTimeout (10s) does not inherit the suite's
+    // {timeout: 30_000}, and this setup can outrun 10s under scripts/
+    // verify-gate.sh's parallel fan-out against the one shared local DB.
+  }, 30_000);
 
   afterAll(async () => {
     if (dbB) await dbB.end({ timeout: 5 });
@@ -180,7 +184,7 @@ describeWithDb('regenerate lock order against live Postgres (#1444)', { timeout:
       await cleanupTenantAccount(sqlA(), tenant);
     }
     if (dbA) await dbA.end({ timeout: 5 });
-  });
+  }, 30_000);
 
   it(
     'the pre-#1444 regenerate order (responses -> businesses, no reviews anchor) '
