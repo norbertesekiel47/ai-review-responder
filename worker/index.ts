@@ -130,6 +130,7 @@ import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller }
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
 import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
+import { startDemoViewFlushPoller, stopDemoViewFlushPoller } from './background/pollers/DemoViewFlushPoller';
 import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from './background/boot-stagger';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger, toError } from '../src/lib/shared/logger';
@@ -778,6 +779,7 @@ async function main(): Promise<void> {
     () => startJudgeSweepPoller(),
     () => startSolicitationReleasePoller(),
     () => startAutonomyGovernorScheduler(),
+    () => startDemoViewFlushPoller(),
   ];
 
   // Resume the autorun-deferred workers. run() returns a promise that resolves
@@ -891,6 +893,7 @@ const shutdown = createGracefulShutdown({
     stopJudgeSweepPoller();
     stopSolicitationReleasePoller();
     stopAutonomyGovernorScheduler();
+    stopDemoViewFlushPoller();
     // Flush the partial unknown-token window (#644 §1.6) before the process
     // leaves. A rate signal, not a correctness input — an ungraceful crash may
     // lose <=60s of counts, but a SIGTERM must not.

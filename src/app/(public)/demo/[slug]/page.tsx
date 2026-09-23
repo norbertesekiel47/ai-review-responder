@@ -3,6 +3,7 @@ import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
+import { recordDemoView } from '@/lib/demos/view-tracking';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
 import { DemoViewerContent } from './DemoViewerContent';
@@ -15,8 +16,6 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
-
-// TODO Sprint 4: debounce view_count with Redis INCR instead of direct Postgres write
 
 interface DemoRow {
   id: string;
@@ -83,13 +82,11 @@ export default async function DemoViewerPage({
   }
 
   // Only count views of completed demos; the loading state polls and would
-  // inflate the count otherwise.
-  // TODO Sprint 4: debounce with Redis INCR
-  sql`
-    UPDATE prospect_demos
-    SET view_count = view_count + 1, last_viewed_at = NOW()
-    WHERE id = ${demo.id}
-  `.catch((err) => console.error('[demo-viewer] Failed to increment view count:', err));
+  // inflate the count otherwise. Debounced via Redis INCR (#1369) — no
+  // Postgres write happens on this unauthenticated page anymore;
+  // `DemoViewFlushPoller` (Railway) periodically drains the counters into a
+  // single batched UPDATE. recordDemoView is fail-open and never throws.
+  await recordDemoView(demo.id);
 
   // Postgres.js may return JSONB as a string; parse if needed
   const reviews: NormalizedReview[] =
@@ -107,7 +104,7 @@ export default async function DemoViewerPage({
       reviews={reviews}
       responses={responses}
       selfServeEnabled={selfServeEnabled}
-        trialEnabled={trialOn}
+      trialEnabled={trialOn}
     />
   );
 }
