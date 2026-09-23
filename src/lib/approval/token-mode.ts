@@ -29,6 +29,7 @@ import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from './outcomes';
+import { markResponseApproved, markResponseEdited, markResponseSuperseded } from './transitions';
 
 type TxClient = postgres.TransactionSql;
 type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
@@ -53,16 +54,11 @@ export async function approve(
   await anchorReviewLockOrder(tx, link.response_id, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
 
-  await tx`
-    UPDATE responses
-    SET status = 'approved',
-        approval_method = ${APPROVAL_METHOD.OWNER},
-        approved_at = NOW(),
-        approved_text = response_text,
-        posting_error = NULL
-    WHERE id = ${link.response_id}
-      AND business_id = ${link.business_id}
-  `;
+  await markResponseApproved(tx, {
+    responseId: link.response_id,
+    businessId: link.business_id,
+    method: APPROVAL_METHOD.OWNER,
+  });
 
   await recordOwnerDecisionOutcome(tx, {
     reviewId: resp.review_id,
@@ -98,18 +94,13 @@ export async function edit(
 
   const editDist = distance(resp.original_draft_text, sanitizedText);
 
-  await tx`
-    UPDATE responses
-    SET status = 'edited',
-        approval_method = ${APPROVAL_METHOD.OWNER},
-        approved_at = NOW(),
-        approved_text = ${sanitizedText},
-        edited_text = ${sanitizedText},
-        edit_distance = ${editDist},
-        posting_error = NULL
-    WHERE id = ${link.response_id}
-      AND business_id = ${link.business_id}
-  `;
+  await markResponseEdited(tx, {
+    responseId: link.response_id,
+    businessId: link.business_id,
+    method: APPROVAL_METHOD.OWNER,
+    editedText: sanitizedText,
+    editDistance: editDist,
+  });
 
   await recordOwnerDecisionOutcome(tx, {
     reviewId: resp.review_id,
@@ -140,12 +131,10 @@ export async function regenerate(
   const resp = await lockAndConsumeTokenResponse(tx, link);
   await revokeSiblings(tx, link.response_id, link.id);
 
-  await tx`
-    UPDATE responses
-    SET status = 'superseded'
-    WHERE id = ${link.response_id}
-      AND business_id = ${link.business_id}
-  `;
+  await markResponseSuperseded(tx, {
+    responseId: link.response_id,
+    businessId: link.business_id,
+  });
 
   await enqueueGenerateResponse(tx, {
     reviewId: resp.review_id,

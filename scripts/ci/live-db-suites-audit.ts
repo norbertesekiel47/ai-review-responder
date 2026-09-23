@@ -186,6 +186,17 @@ const MIGRATION_SHAPE_FILES = new Set([
   // RT-6/S-8.)
   'src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
+  // #1384 — the three RLS-policy guard suites the 2026-09-20 architecture pass
+  // named as D8's actual priority (deny-all is a different mechanism, #1300):
+  // 035 creates the owner_account_id()-predicate policies on every protected
+  // table, 040+041 narrow the businesses/channel_enrollments write surface by
+  // column-level GRANT/REVOKE, and 045 adds deny-by-default-then-one-policy RLS
+  // to onboarding_demos. Each degrades the catalogue state its migration
+  // establishes, proves the degrade landed, applies the checked-in file(s)
+  // verbatim, and diffs the whole `public` catalogue.
+  'src/lib/shared/__tests__/migration-035-rls-policies.integration.test.ts',
+  'src/lib/shared/__tests__/migration-040-rls-tightening.integration.test.ts',
+  'src/lib/shared/__tests__/migration-045-onboarding-demos-rls.integration.test.ts',
 ]);
 
 /**
