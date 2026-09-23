@@ -175,16 +175,21 @@ beforeEach(() => {
   // stub fails loudly instead of passing vacuously — see the long note in
   // `src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts`.
   //
-  // Stubbed locally, not in `worker/__tests__/helpers/mock-sql.ts`, because that
-  // helper is outside this branch's `allowed_edit_surface`; promoting it there is
-  // filed in `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md` (removed 2026-09-20; now issue #1356).
+  // Stubbed locally, not in `worker/__tests__/helpers/mock-sql.ts` (#1443): of
+  // the four suites in this tree that hand-roll a `.savepoint` stub — this one,
+  // `import-offer-resume.test.ts`, `import-offer-junction.test.ts`, and
+  // `release.test.ts` — this is the only one built on `createMockSql()`; the
+  // other three construct their own `sql`/`tx`/executor object from scratch and
+  // would not be served by a change to the shared helper. Adding `.savepoint`
+  // to `createMockSql()` would therefore abstract for this single caller, which
+  // the project's no-single-caller-abstraction rule blocks.
   //
   // Rejections PROPAGATE, matching Postgres: a failed savepoint rolls back to
   // the savepoint and leaves the transaction usable, and what that means is the
   // caller's catch — which is the behaviour under test.
-  // Cast because `MockSql` does not declare `savepoint` — that declaration
-  // belongs in the shared helper, which is off-surface for this branch (see the
-  // follow-up doc). Widening here, not with `any`, keeps the no-`any` rule.
+  // Cast because `MockSql` does not declare `savepoint` — declaring it there
+  // would still have only this one caller (see above). Widening here, not with
+  // `any`, keeps the no-`any` rule.
   (
     harness.mockSql as unknown as {
       savepoint: (cb: (sp: unknown) => Promise<unknown>) => Promise<unknown>;
