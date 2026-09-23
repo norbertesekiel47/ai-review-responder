@@ -180,7 +180,7 @@ async function handleOwnerNudge(
   // `send-and-record-strategies.ts` for the shared contract.
   await sendMarkedFirst({
     logger,
-    label: 'owner nudge',
+    label: `owner nudge for business ${businessId}`,
     mark: () => markOutboxCompleted(sql, outboxId, outboxAttempt),
     send: () => sendInternalEmail({ to: business.owner_email, subject, bodyHtml, category: 'marketing' }),
     recordFailure: (reason) =>

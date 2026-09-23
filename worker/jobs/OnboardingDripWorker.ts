@@ -338,7 +338,7 @@ async function runDripSend(input: {
   if (dripBodyVariesPerAttempt(dripType)) {
     await sendMarkedFirst({
       logger,
-      label: dripType,
+      label: `${dripType} for business ${businessId}`,
       mark: () => markDripSentAt(claimId),
       send: () => sendInternalEmail({ to: input.ownerEmail, subject, bodyHtml: html, category: 'marketing' }),
       recordFailure: async (reason) => {
