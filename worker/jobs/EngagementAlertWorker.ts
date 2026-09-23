@@ -20,6 +20,7 @@ import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import { sendMarkedFirst } from './send-and-record-strategies';
 
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
   const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
@@ -137,13 +138,7 @@ async function handleOwnerNudge(
   }
 
   // Query pending reviews with their response IDs + total count
-  const pendingRows = await sql<{
-    response_id: string;
-    reviewer_name: string;
-    star_rating: number | null;
-    review_text: string | null;
-    total_pending: number;
-  }[]>`
+  const pendingRows = await sql<PendingReviewRow[]>`
     SELECT resp.id AS response_id,
            COALESCE(r.reviewer_name, 'Anonymous') AS reviewer_name,
            r.star_rating,
@@ -164,13 +159,87 @@ async function handleOwnerNudge(
   }
 
   // Create approval links for each pending review
+  const { totalPending, pendingReviews } = await buildPendingReviewsWithApprovalLinks(
+    pendingRows,
+    businessId,
+    appUrl,
+  );
+
+  const bodyHtml = buildOwnerNudgeEmailHtml({
+    businessName: business.name,
+    totalPending,
+    pendingReviews,
+  });
+
+  const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
+
+  // Mark-before-send, no provider idempotency key: fresh approval tokens per
+  // pending review vary the body on every attempt (constraint 1). Never
+  // rethrows — the outbox row is already completed by `mark`, so a BullMQ
+  // retry would mint fresh links and send a SECOND nudge. See
+  // `send-and-record-strategies.ts` for the shared contract.
+  await sendMarkedFirst({
+    logger,
+    label: `owner nudge for business ${businessId}`,
+    mark: () => markOutboxCompleted(sql, outboxId, outboxAttempt),
+    send: () => sendInternalEmail({ to: business.owner_email, subject, bodyHtml, category: 'marketing' }),
+    recordFailure: (reason) =>
+      insertFailedDelivery(sql, business.account_id, businessId, null, 'email', business.owner_email, reason, 'owner_nudge'),
+    recordSuccess: (result) => recordNudgeDelivery({
+      logger, businessId, accountId: business.account_id, ownerEmail: business.owner_email,
+      totalPending, messageId: result.messageId,
+    }),
+  });
+}
+
+async function recordNudgeDelivery(input: {
+  logger: WorkerLogger;
+  businessId: string;
+  accountId: string;
+  ownerEmail: string;
+  totalPending: number;
+  messageId: string;
+}): Promise<void> {
+  await recordNotificationDelivery(sql, {
+    accountId: input.accountId,
+    businessId: input.businessId,
+    channel: 'email',
+    recipient: input.ownerEmail,
+    template: 'owner_nudge',
+    externalMessageId: input.messageId,
+  });
+  // No markOutboxCompleted here — it ran BEFORE the send, as this strategy's `mark`.
+  input.logger.log(`Owner nudge sent for business ${input.businessId} (${input.totalPending} pending reviews)`);
+}
+
+interface PendingReviewRow {
+  response_id: string;
+  reviewer_name: string;
+  star_rating: number | null;
+  review_text: string | null;
+  total_pending: number;
+}
+
+interface PendingReviewWithApprovalLink {
+  reviewerName: string;
+  starRating: number | null;
+  reviewText: string | null;
+  approvalUrl: string;
+}
+
+/**
+ * Mints an approval link per pending review and derives the total-pending
+ * count from the window-function column the query already carries. Split out
+ * of `handleOwnerNudge` (#1403) purely to shed its complexity — the loop
+ * itself is unchanged.
+ */
+async function buildPendingReviewsWithApprovalLinks(
+  pendingRows: PendingReviewRow[],
+  businessId: string,
+  appUrl: string,
+): Promise<{ totalPending: number; pendingReviews: PendingReviewWithApprovalLink[] }> {
   const totalPending = pendingRows[0]?.total_pending ?? 0;
-  const pendingReviews: Array<{
-    reviewerName: string;
-    starRating: number | null;
-    reviewText: string | null;
-    approvalUrl: string;
-  }> = [];
+  const pendingReviews: PendingReviewWithApprovalLink[] = [];
 
   for (const row of pendingRows) {
     const { rawToken } = await createApprovalLink(sql, {
@@ -187,105 +256,7 @@ async function handleOwnerNudge(
     });
   }
 
-  const bodyHtml = buildOwnerNudgeEmailHtml({
-    businessName: business.name,
-    totalPending,
-    pendingReviews,
-  });
-
-  const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
-
-  // MARK-BEFORE-SEND, and NO provider idempotency key (#1363).
-  //
-  // The nudge builds a fresh approval link per pending review, and
-  // `createApprovalLink` mints a new randomUUID token on every call, so attempt
-  // 2 renders different HTML by construction. A stable key would therefore draw
-  // Resend's 409 `invalid_idempotent_request` rather than a replay of the
-  // original response, and the delivery row would carry a synthetic message id.
-  // `worker/ingress/resend.ts` correlates bounced/delivered/complained events
-  // ONLY on the real Resend id, so a hard bounce on this nudge would match no
-  // row and never set `businesses.owner_email_bounced`.
-  //
-  // Completing the outbox row first is the same crash-safe shape
-  // `handleSatisfactionAlert` below already uses: a crash between here and
-  // Resend accepting loses ONE nudge, which beats sending two and beats
-  // silently disabling bounce suppression.
-  //
-  // `handleSatisfactionAlert` is the precedent, NOT WeeklySummaryWorker — that
-  // one completes its outbox row AFTER the send and can therefore still call
-  // `markOutboxFailed` in its catch (`summary-report-helpers.ts:114-119`). This
-  // path cannot, which is why its catch writes a failed DELIVERY row instead
-  // (#1363 review round 2 corrected an earlier comment here that cited the
-  // wrong precedent).
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
-
-  let messageId: string;
-  try {
-    ({ messageId } = await sendInternalEmail({
-      to: business.owner_email,
-      subject,
-      bodyHtml,
-      category: 'marketing',
-    }));
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    // Do NOT rethrow. The outbox row is already completed, but a throw still
-    // fails the BullMQ JOB, and BullMQ retries on its own clock — the handler
-    // would re-enter, find no delivery row (the cooldown probe's only record),
-    // mint fresh approval links and send a SECOND nudge. That is the duplicate
-    // this ordering exists to prevent, so the error stops here.
-    //
-    // `markOutboxFailed` is NOT the right record: the row is already
-    // 'completed', so the attempt-guarded UPDATE would no-op silently. Write a
-    // FAILED DELIVERY instead. It is durable, it names the reason, and because
-    // the cooldown probe keys on `sent_at IS NOT NULL` a failed row does not
-    // block the next legitimate nudge — which is the behaviour we want, since
-    // this owner never received one. (An earlier comment here claimed the
-    // re-nudge waits out the 3-day cooldown; review round 2 disproved that —
-    // the probe requires `sent_at IS NOT NULL`, so a failed row does not delay
-    // it. Rider from round 3: repeated failures append unbounded failed_at-only
-    // rows, which neither dedupe nor throttle.)
-    //
-    // Without it a Resend outage would drop every nudge while the job ledger
-    // reported success (#1363 review round 2).
-    logger.error(`Owner nudge send failed for business ${businessId}: ${reason}`);
-    // Best-effort, and it MUST carry its own try/catch
-    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
-    // primary side effect"). An unguarded rejection here escapes the handler
-    // despite the comment above saying the error stops here: BullMQ would retry
-    // the job, the cooldown probe would miss (this row has no `sent_at`), fresh
-    // approval links would be minted and a SECOND nudge would go out — exactly
-    // the duplicate the mark-first ordering exists to prevent.
-    try {
-      await insertFailedDelivery(
-        sql,
-        business.account_id,
-        businessId,
-        null,
-        'email',
-        business.owner_email,
-        reason,
-        'owner_nudge',
-      );
-    } catch (recordErr) {
-      logger.error(
-        `Owner nudge could not record the send failure for business ${businessId}: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
-      );
-    }
-    return;
-  }
-
-  await recordNotificationDelivery(sql, {
-    accountId: business.account_id,
-    businessId,
-    channel: 'email',
-    recipient: business.owner_email,
-    template: 'owner_nudge',
-    externalMessageId: messageId,
-  });
-
-  // No markOutboxCompleted here — it ran BEFORE the send, above.
-  logger.log(`Owner nudge sent for business ${businessId} (${totalPending} pending reviews)`);
+  return { totalPending, pendingReviews };
 }
 
 // ── Partner alerts: email the admin about customer engagement ────────

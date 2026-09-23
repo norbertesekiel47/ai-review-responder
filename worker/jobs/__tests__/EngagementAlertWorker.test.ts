@@ -444,11 +444,17 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     sqlReturnQueue.push([]);                  // idempotency check
     pushPendingReviewRows(1);                 // pending reviews
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend API error'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }))).resolves.toBeUndefined();
 
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ea-1', undefined);
+    // The failure log names the business, so on-call can tell which owner missed a nudge.
+    expect(consoleError.mock.calls.flat().join('\n')).toContain(
+      'owner nudge for business biz-1 send failed after mark: Resend API error',
+    );
+    consoleError.mockRestore();
   });
 
   // ── Partner satisfaction alert ──────────────────────────────────────

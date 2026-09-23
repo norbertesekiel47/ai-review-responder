@@ -22,12 +22,13 @@ import {
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { subscriptionGrantsFullAccess } from '../../src/lib/shared/subscription-status';
 import { resolveDashboardUrl } from './summary-report-helpers';
+import { sendMarkedFirst, sendKeyed } from './send-and-record-strategies';
 
 /**
  * **Drip staleness cap** — the single owner of the policy (#719).
@@ -308,107 +309,97 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     }
   }
 
-  // ── 7. Send email ─────────────────────────────────────────────────
-  // Two crash-after-send defences, chosen per drip type by
-  // `dripBodyVariesPerAttempt` — see that function for WHY they differ.
-  const bodyVaries = dripBodyVariesPerAttempt(drip_type);
+  // ── 7. Send, record the outcome, and close the outbox row ─────────
+  await runDripSend({
+    logger, dripType: drip_type, businessId, accountId: business.account_id,
+    ownerEmail: business.owner_email, claimId, outboxId, outboxAttempt, subject, html,
+  });
+}
 
-  if (bodyVaries) {
-    // MARK-BEFORE-SEND. The mark is NOT rolled back on a send error, and that
-    // is deliberate: `EmailSendTimeoutError` fires at 10s while the orphaned
-    // fetch may still reach Resend, so a rollback would re-send a mail the
-    // provider already accepted — the duplicate this whole change exists to
-    // stop. WeeklySummaryWorker states the same rule
-    // (`summary-report-helpers.ts:115-118`).
-    //
-    // The COST is wider than a crash, and the catch below is what makes it
-    // honest: ANY send error — a transient Resend 5xx, a timeout — loses this
-    // drip permanently, because `onboarding_drip_log UNIQUE (business_id,
-    // drip_type)` means the scheduler can never re-mint the pair. At the
-    // merge-base that error retried and delivered. #1363 review round 2.
-    await sql`
-      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
-    `;
-  }
+/**
+ * Picks a strategy from `dripBodyVariesPerAttempt` (above) — not a boolean
+ * threaded through one — and runs it. See `send-and-record-strategies.ts`
+ * for what each strategy guarantees.
+ */
+async function runDripSend(input: {
+  logger: WorkerLogger;
+  dripType: OnboardingDripPayload['drip_type'];
+  businessId: LocationId;
+  accountId: string;
+  ownerEmail: string;
+  claimId: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const { logger, dripType, businessId, claimId, outboxId, outboxAttempt, subject, html } = input;
 
-  // The Send idempotency key is scoped to (business_id, drip_type), NOT to the
-  // outbox row. The scope is load-bearing: the stale-claim takeover at step 4
-  // admits a SECOND outbox row on a claim still carrying sent_at IS NULL, which
-  // is exactly the crash-after-send case this key defends. Two outbox rows
-  // carry two ids, so an outbox-scoped key would not dedupe them;
-  // (business_id, drip_type) mirrors the onboarding_drip_log UNIQUE constraint
-  // that already bounds one drip per pair. It is spelled to match the
-  // notification_deliveries.template written at step 9, so one grep ties the
-  // provider key to the delivery record.
-  let messageId: string;
-  let idempotentReplay: boolean | undefined;
-  try {
-    ({ messageId, idempotentReplay } = await sendInternalEmail({
-      to: business.owner_email,
-      subject,
-      bodyHtml: html,
-      category: 'marketing',
-      ...(bodyVaries ? {} : { idempotencyKey: `onboarding_drip_${drip_type}:${businessId}` }),
-    }));
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    if (!bodyVaries) {
-      // sent_at is still NULL, so a retry can legitimately re-send under the
-      // same key. Rethrow and let BullMQ do exactly that.
-      throw err;
-    }
-    // sent_at is already committed, so no retry can ever deliver this drip.
-    // Rethrowing would only churn BullMQ into the step-4 skip branch, which
-    // marks the row COMPLETED — the job ledger would then record a success for
-    // a mail that never went out. Record the failure durably instead.
-    logger.error(`${drip_type} send failed after sent_at was committed: ${reason}`);
-    // Best-effort, and it MUST carry its own try/catch
-    // (`.claude/rules/worker-layout.md` — "Best-effort work after a worker's
-    // primary side effect"). An unguarded rejection here escapes the handler,
-    // BullMQ retries the job, and the retry reaches the step-4 skip branch
-    // which marks the row COMPLETED — re-opening the very defect this catch
-    // closes. Observability must never poison the path it observes.
-    try {
-      await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
-    } catch (recordErr) {
-      logger.error(
-        `${drip_type} could not record the send failure: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`,
-      );
-    }
+  if (dripBodyVariesPerAttempt(dripType)) {
+    await sendMarkedFirst({
+      logger,
+      label: `${dripType} for business ${businessId}`,
+      mark: () => markDripSentAt(claimId),
+      send: () => sendInternalEmail({ to: input.ownerEmail, subject, bodyHtml: html, category: 'marketing' }),
+      recordFailure: async (reason) => {
+        await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+      },
+      recordSuccess: (result) => recordDripDelivery({ ...input, messageId: result.messageId }),
+    });
     return;
   }
 
-  if (idempotentReplay) {
-    // Resend refused a second send under this key, which proves the first
-    // attempt was accepted. The email IS delivered, so steps 8-10 below run
-    // unchanged — skipping them would leave the claim open for a third attempt.
-    logger.log(`${drip_type} already delivered under its idempotency key`, {
-      business_id: businessId,
-      drip_type,
-    });
-  }
-
-  // ── 8. Mark sent_at after successful delivery ─────────────────────
-  if (!bodyVaries) {
-    await sql`
-      UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
-    `;
-  }
-
-  // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
-  // checks in other workers can see this delivery record.
-  await recordNotificationDelivery(sql, {
-    accountId: business.account_id,
-    businessId: businessId,
-    channel: 'email',
-    recipient: business.owner_email,
-    template: `onboarding_drip_${drip_type}`,
-    externalMessageId: messageId,
+  // The Send idempotency key is scoped to (business_id, drip_type), NOT to
+  // the outbox row — the stale-claim takeover at step 4 admits a SECOND
+  // outbox row on a claim still carrying sent_at IS NULL, and only a
+  // domain-scoped key dedupes that at the provider.
+  await sendKeyed({
+    send: () => sendInternalEmail({
+      to: input.ownerEmail,
+      subject,
+      bodyHtml: html,
+      category: 'marketing',
+      idempotencyKey: `onboarding_drip_${dripType}:${businessId}`,
+    }),
+    recordSuccess: async (result) => {
+      if (result.idempotentReplay) {
+        logger.log(`${dripType} already delivered under its idempotency key`, {
+          business_id: businessId,
+          drip_type: dripType,
+        });
+      }
+      await markDripSentAt(claimId);
+      await recordDripDelivery({ ...input, messageId: result.messageId });
+    },
   });
+}
 
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+async function markDripSentAt(claimId: string): Promise<void> {
+  await sql`UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}`;
+}
 
-  logger.log(`${drip_type} sent for business ${businessId}`);
+async function recordDripDelivery(input: {
+  logger: WorkerLogger;
+  dripType: OnboardingDripPayload['drip_type'];
+  businessId: LocationId;
+  accountId: string;
+  ownerEmail: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  messageId: string;
+}): Promise<void> {
+  // Record delivery BEFORE outbox completion — ensures cooldown checks in
+  // other workers can see this delivery record.
+  await recordNotificationDelivery(sql, {
+    accountId: input.accountId,
+    businessId: input.businessId,
+    channel: 'email',
+    recipient: input.ownerEmail,
+    template: `onboarding_drip_${input.dripType}`,
+    externalMessageId: input.messageId,
+  });
+  await markOutboxCompleted(sql, input.outboxId, input.outboxAttempt);
+  input.logger.log(`${input.dripType} sent for business ${input.businessId}`);
 }
 
 // ── Day 1: Welcome email ────────────────────────────────────────────

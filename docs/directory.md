@@ -55,7 +55,7 @@ Every page starts with the verbatim `##` root heading of the folder it inventori
 | [`docs/directory/lib-account-offboarding.md`](directory/lib-account-offboarding.md) | `src/lib/account-offboarding/` — owner offboarding (cancel_only / delete_data / purge). |
 | [`docs/directory/worker-root.md`](directory/worker-root.md) | `worker/` intro + root modules (`env.ts`, `index.ts`, `queues.ts`, `internal/queue-health.ts`, boot/lifecycle/sinks) + `worker/config/`. |
 | [`docs/directory/worker-jobs-a.md`](directory/worker-jobs-a.md) | `worker/jobs/` part 1 — the BullMQ job-handler table + `csv-ingest/`, `judge/`, `agent-turn/`, `autonomy-suspended-notice/`, `notification/`, `escalation-notice/`, `auto-post-notice/`, `pending-post-notice/`, `solicitation-veto-notice/`. |
-| [`docs/directory/worker-jobs-b.md`](directory/worker-jobs-b.md) | `worker/jobs/` part 2 (`` ### `worker/jobs/` (continued) ``) — `publisher/`, `response-generation/`. |
+| [`docs/directory/worker-jobs-b.md`](directory/worker-jobs-b.md) | `worker/jobs/` part 2 (`` ### `worker/jobs/` (continued) ``) — `publisher/`, `response-generation/`, `send-and-record-strategies.ts`. |
 | [`docs/directory/worker-jobs-c.md`](directory/worker-jobs-c.md) | `worker/jobs/` part 3 — `zernio/`, `onboarding-demo/`, `solicitation-batch/`, `solicitation-send/`, `billing/`, `account-offboarding/`. |
 | [`docs/directory/worker-background.md`](directory/worker-background.md) | `worker/background/` — shared loop primitives, `pollers/` (+ `billing-reconciliation/`, `health-alert/`), `schedulers/`. |
 | [`docs/directory/worker-ingress.md`](directory/worker-ingress.md) | `worker/ingress/` — inbound webhook handlers, `stripe/` per-event handlers, `resend/` Solicitation lane + classifier. |

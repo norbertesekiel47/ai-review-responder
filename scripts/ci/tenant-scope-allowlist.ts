@@ -2350,6 +2350,11 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Background scheduler globally scans active accounts and uses weekly_summaries only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
+    // #1403: the UPDATE lives in a local markDripSentAt() helper inside
+    // OnboardingDripWorker.ts itself (the shared send-and-record-strategies.ts
+    // module is pure and never touches sql) — this one entry covers both the
+    // mark-before-send and post-send call sites, which share the identical
+    // normalized SQL text.
     file: "worker/jobs/OnboardingDripWorker.ts",
     table: "onboarding_drip_log",
     sqlSnippet: "UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}",
