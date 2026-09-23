@@ -1,19 +1,16 @@
 // scripts/ci/merge-ledger-audit.ts
 //
-// Issue #896 part 1. The arch counter in `.claude/reference/arch-review-log.md`
-// has been wrong by its own rule at FOUR consecutive architecture passes —
-// 2026-08-10 (3 missed increments), 2026-08-18 (read 8, measured 11),
-// 2026-08-22 (read 3, hand-corrected to 7 the same evening) and the pass that
-// filed this audit. The log states the cause in its own words:
+// Issue #896: nine merges in one window rewrote the enforcement surface with
+// no trace in 628 lines of `.claude/reference/arch-review-log.md` — including
+// #849, which deleted `.github/workflows/fallow.yml` and rewrote
+// `src/__tests__/ci-audit-wiring.test.ts`, the test that exists to stop
+// exactly that drift. In the next window #905 landed 51 production files and
+// left no row at all.
 //
-//   "nothing outside the `/feature` workflow's step 8 ever increments it, so
-//    any merge that does not run that workflow is invisible by construction."
-//
-// Nine merges in one window rewrote the enforcement surface with no trace in
-// 628 lines of log — including #849, which deleted `.github/workflows/fallow.yml`
-// and rewrote `src/__tests__/ci-audit-wiring.test.ts`, the test that exists to
-// stop exactly that drift. In the next window #905 landed 51 production files
-// and left no row at all.
+// WHAT THIS AUDIT DOES, in full: requires at least one ADDED line in
+// `.claude/reference/arch-review-log.md` on any merge whose diff touches a
+// production or governance file (below). Nothing else — it does not read,
+// count, or judge the log's content.
 //
 // THE AUDIT RUNS ON THE MERGING PR, NOT ON A POST-MERGE SWEEP, and that is the
 // whole design: "the sweep did not run" IS the failure mode, so a check that
@@ -22,8 +19,7 @@
 // TWO TRIGGERS, either one sufficient:
 //
 //   1. PRODUCTION — the diff changes a non-test file under `src/`, `worker/`
-//      or `supabase/`. This is the arch log's OWN counting rule, restated in
-//      code so the two cannot drift.
+//      or `supabase/`.
 //
 //   2. GOVERNANCE — the diff touches any path in GOVERNANCE_PATHS below: the
 //      skills, the hooks, the gate scripts, the CI audits, the workflows,
@@ -31,16 +27,17 @@
 //      lines deleted from `/feature`'s step 8 — with NO line-counting
 //      judgement at all, which is why it is the cheapest rule that works.
 //
-// THE REQUIREMENT is one added line in `.claude/reference/arch-review-log.md`.
 // Deliberately not a format: prescribing a row shape would make this audit the
-// owner of the log's prose, and the log's entries legitimately differ in length
-// from one line to forty. What it owns is that the merge left a trace at all.
+// owner of the log's prose, and the log's entries legitimately differ in
+// length from one line to forty. What it owns is that the merge left a trace
+// at all.
 //
-// WHAT IT DOES NOT DO. It never reads or writes the counter number. The
-// counter is a judgement about which merges "count", and an audit that
-// incremented it would be asserting that judgement on every PR — including the
-// docs-only ones the rule excludes. Leaving the number to the pass and
-// enforcing only the TRACE keeps this check mechanical.
+// #1442: this header used to describe the arch log's hand-tracked merge
+// counter and explain why this audit declined to own it. #1383/#1409 (PR
+// #1438) deleted that counter outright rather than repair it an eighth time —
+// see `.claude/reference/arch-review-log.md` "No merge counter" — so there is
+// nothing left to decline. This audit never read or wrote that counter either
+// way; the requirement above is, and was, the whole check.
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -48,7 +45,7 @@ import { pathToFileURL } from 'node:url';
 /** The ledger every triggering merge must leave a line in. */
 export const LEDGER_PATH = '.claude/reference/arch-review-log.md';
 
-/** Roots whose non-test files are "production" for the arch log's own rule. */
+/** Roots whose non-test files trigger this audit's PRODUCTION arm. */
 const PRODUCTION_ROOTS = ['src/', 'worker/', 'supabase/'] as const;
 
 /**
