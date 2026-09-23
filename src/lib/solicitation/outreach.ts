@@ -13,10 +13,11 @@
  *    Outreach row calls it in the SAME transaction, so there is no window
  *    between terminalizing and joining; the releaser tick calls the same
  *    function as a backstop. One implementation, two callers, no join poller.
- *  - `insertOutreachRender` / `insertOutreachRenders` / `supersedeLiveRender` —
- *    the ONLY writers of a render-lane `solicitation_outreach` row (single-row
- *    and set arms, `refusals/write.ts`'s two-arm precedent), plus the three
- *    read-boundary parsers for its JSONB columns.
+ *  - `insertOutreachRenders` / `supersedeLiveRender` — the ONLY writers of a
+ *    render-lane `solicitation_outreach` row. `insertOutreachRenders` owns the
+ *    one INSERT column list (set arm, `refusals/write.ts`'s two-arm
+ *    precedent); `insertOutreachRender` is its single-row convenience
+ *    wrapper. Plus the three read-boundary parsers for its JSONB columns.
  *
  * Domain module: the caller supplies the transaction (invariant #15) and the
  * tenant ids (invariant #8). A batch id is a bare UUID carrying no tenant
@@ -579,11 +580,14 @@ export type InsertOutreachRenderInput = InsertOutreachRenderBase &
   );
 
 /**
- * Persist one render attempt. Deliberately UNCONDITIONAL — no `ON CONFLICT`
- * against `solicitation_outreach_one_live_per_ask` (spec §5.2 note): the
- * existence check happens upstream in the generation lane, the worker is
- * single-replica by invariant, and a second live insert racing past both is a
- * bug that must surface as 23505, not be silently absorbed.
+ * Persist one render attempt — the single-row convenience arm over
+ * `insertOutreachRenders`, which owns the one INSERT column list (#1112; two
+ * hand-spelled copies is the drift class #1367 exists to remove). Deliberately
+ * UNCONDITIONAL — no `ON CONFLICT` against `solicitation_outreach_one_live_per_ask`
+ * (spec §5.2 note): the existence check happens upstream in the generation
+ * lane, the worker is single-replica by invariant, and a second live insert
+ * racing past both is a bug that must surface as 23505, not be silently
+ * absorbed.
  *
  * Returns the new row's id (UUIDv7, time-ordered PK convention).
  */
@@ -591,78 +595,30 @@ export async function insertOutreachRender(
   tx: TransactionSql,
   input: InsertOutreachRenderInput,
 ): Promise<string> {
-  const outreachId = uuidv7();
-  await tx`
-    INSERT INTO solicitation_outreach (
-      id, account_id, business_id, batch_id, ask_id, contact_id,
-      attempt_no, rendered_subject, rendered_body,
-      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
-      ask_lint_version, lint_detail, moderation_status, moderation_detail,
-      delivery_status, disposition_reason, agent_run_id
-    ) VALUES (
-      ${outreachId}::uuid, ${input.accountId}::uuid, ${input.businessId}::uuid,
-      ${input.batchId}::uuid, ${input.askId}::uuid, ${input.contactId}::uuid,
-      ${input.attemptNo}, ${input.renderedSubject}, ${input.renderedBody},
-      ${input.promptVersion}, ${input.promptHash},
-      ${tx.json(input.interpolationInputs as never)}, ${input.renderedAt},
-      ${input.askLintVersion}, ${tx.json(input.lintDetail as never)},
-      ${input.moderationStatus}, ${tx.json(input.moderationDetail as never)},
-      ${input.deliveryStatus}, ${input.dispositionReason ?? null},
-      ${input.agentRunId}::uuid
-    )
-  `;
-  return outreachId;
+  return (await insertOutreachRenders(tx, [input]))[0]!;
 }
 
 /**
- * Persist N render attempts in ONE statement (#1112).
- *
- * WHY THIS ARM EXISTS, and it is not a convenience. `settleGenerationExhaustion`
- * (`ask-generation.ts`) fills every hole a terminal generation failure left
- * behind — one withheld `render_failed` row per send ask with no live
- * attempt — inside the transaction that already holds the per-Business
- * advisory lock AND the `solicitation_batches` row lock. Looping
- * `insertOutreachRender` put one round trip per hole behind BOTH locks; on
- * staging, 25 single-row inserts measured 1754 ms against 141 ms for one set
- * insert of the same rows (median of three, both rolled back) — the drill
- * that argued for this ticket:
+ * Persist N render attempts in ONE statement (#1112) — the set arm
+ * `settleGenerationExhaustion` (`ask-generation.ts`) uses to fill every
+ * terminal-exhaustion hole without one round trip per hole inside the
+ * transaction holding the per-Business advisory lock AND the
+ * `solicitation_batches` row lock. Bounded at `BATCH_CAP` (25, not
+ * `MAX_DATA_ROWS`) by that caller. Evidence:
  * `docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md`.
- * #1082 already batched that transaction's OTHER per-hole write
- * (`writeRefusalEvents`, `refusals/write.ts`) and deliberately left this one,
- * because a set insert built anywhere else would be a second writer of
- * `solicitation_outreach` — this file's own docblock names
- * `insertOutreachRender` and (now) this function as the ONLY two. This ticket
- * is that follow-up, on `writeRefusalEvents`' precedent exactly: same file as
- * the single-row arm, same `jsonb_to_recordset` idiom, same reasons.
  *
- * THE BOUND IS `BATCH_CAP` (25), NOT `MAX_DATA_ROWS` (5,000) — #1082 shipped
- * that error once already and `settleGenerationExhaustion`'s own comment
- * corrects it at length; do not re-derive the 5,000 figure here either. This
- * function's only known caller passes at most 25 rows.
+ * Every guarantee of the single-row arm holds — deliberately UNCONDITIONAL,
+ * no `ON CONFLICT`, so a race past the upstream existence check surfaces as
+ * 23505 for the whole set. Two differences:
  *
- * EVERY GUARANTEE OF THE SINGLE-ROW ARM HOLDS, and for the same reasons — read
- * that function's contract first. Deliberately UNCONDITIONAL, exactly like
- * it: no `ON CONFLICT` against `solicitation_outreach_one_live_per_ask`, so a
- * race past the upstream existence check surfaces as 23505 and aborts the
- * whole set rather than being silently absorbed. Two differences, both
- * deliberate:
+ *   1. An empty input issues no statement (`writeRefusalEvents`' contract).
+ *   2. It asserts the affected-row count — correct here, unlike
+ *      `writeRefusalEvents`'s set arm, because this statement carries no
+ *      `ON CONFLICT`: every row given is a row it must insert or raise trying
+ *      (`commitAskDecisions`'s `askRows` insert is the precedent).
  *
- *   1. AN EMPTY INPUT ISSUES NO STATEMENT, on `writeRefusalEvents`' contract:
- *      an `INSERT` of zero rows is not a fill, and a `jsonb_to_recordset`
- *      round trip over `[]` records nothing.
- *   2. IT ASSERTS THE AFFECTED-ROW COUNT, unlike `writeRefusalEvents`'s set
- *      arm — correctly so HERE, because this statement carries no
- *      `ON CONFLICT`, so every row it is given is a row it must insert or
- *      raise trying. `commitAskDecisions`'s `askRows` insert
- *      (`batch-builder.ts`) is the precedent this follows, not the Refusal
- *      ledger's conflict-tolerant one.
- *
- * Returns the new rows' ids, one per input, IN INPUT ORDER. Each id is a
- * UUIDv7 minted in JS BEFORE the statement runs (same convention as
- * `commitAskDecisions`'s `askRows`) — this arm has no `ON CONFLICT` to make a
- * row's presence conditional, so the id this function hands back is always
- * the id the row was given, and the caller never has to read `RETURNING`
- * output back into an unordered array to know which hole got which id.
+ * Returns the new rows' ids, one per input, IN INPUT ORDER — minted in JS
+ * before the statement runs, never read back off `RETURNING`.
  *
  * @param tx the DECIDING transaction — invariant #15, never `@/lib/db/server`.
  */
@@ -699,7 +655,7 @@ export async function insertOutreachRenders(
     agent_run_id: input.agentRunId,
   }));
 
-  const inserted = await tx<{ id: string }[]>`
+  const inserted = await tx`
     INSERT INTO solicitation_outreach (
       id, account_id, business_id, batch_id, ask_id, contact_id,
       attempt_no, rendered_subject, rendered_body,
@@ -736,7 +692,6 @@ export async function insertOutreachRenders(
       disposition_reason text,
       agent_run_id uuid
     )
-    RETURNING id
   `;
   if (inserted.count !== rows.length) {
     throw new Error(

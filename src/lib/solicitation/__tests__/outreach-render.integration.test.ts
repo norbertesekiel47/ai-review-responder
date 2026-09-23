@@ -438,10 +438,15 @@ describeWithDb(
 
     // ── insertOutreachRenders — the set arm (#1112) ────────────────────────
 
-    it('insertOutreachRenders writes rows byte-identical to the single-row arm for the same inputs', async () => {
-      // One 'rendered' row and one 'withheld render_failed' row — the shape
-      // `settleGenerationExhaustion` actually fills — so the pin covers both
-      // members of the discriminated union, not only the hole-fill shape.
+    it('insertOutreachRender and insertOutreachRenders write byte-identical rows for the same inputs', async () => {
+      // `insertOutreachRender` delegates to `insertOutreachRenders` with a
+      // one-element array, so this pins the shared INSERT column list rather
+      // than proving two independent implementations agree — it stays
+      // meaningful because a future edit that re-diverges the two call sites,
+      // or drops a column from one, fails it. One 'rendered' row and one
+      // 'withheld render_failed' row — the shape `settleGenerationExhaustion`
+      // actually fills — so the pin covers both members of the discriminated
+      // union, not only the hole-fill shape.
       const shapes: Array<Partial<InsertOutreachRenderInput>> = [
         { renderedAt: new Date('2026-09-22T00:00:00.000Z'), promptHash: 'pin-test-hash' },
         {

@@ -1895,14 +1895,9 @@ export async function settleGenerationExhaustion(
     // of magnitude. Evidence:
     // docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md
     //
-    // #1082 batched the Refusal write below and deliberately left THIS insert
-    // per hole, because a set insert of `solicitation_outreach` had to live in
-    // `outreach.ts` beside `insertOutreachRender` — that file's docblock names
-    // both as the table's ONLY writers, and a set insert built here instead
-    // would have made this module a second one. #1112 is that follow-up:
-    // `insertOutreachRenders` (outreach.ts) is the batched arm, built and
-    // documented on `writeRefusalEvents`' own precedent, and the fill inputs
-    // are collected here exactly as the Refusal inputs already were.
+    // Batched into ONE `insertOutreachRenders` call (outreach.ts) rather than
+    // one `insertOutreachRender` per hole — same reasoning as the Refusal
+    // batch below.
     const fills: InsertOutreachRenderInput[] = holes.map((hole) => ({
       accountId,
       businessId: input.businessId,
