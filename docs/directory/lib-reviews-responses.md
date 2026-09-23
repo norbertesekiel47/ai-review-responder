@@ -6,19 +6,20 @@ The email approval link flow.
 
 | File | What it does |
 |------|--------------|
-| `service.ts` | Barrel re-export of the modularized approval layer (errors, correlation, audit, locks, the three mode files). New code imports the module directly. |
+| `service.ts` | Barrel re-export of the approval layer (errors, correlation, audit, locks, the three mode files). New code imports directly. |
 | `token-mode.ts` / `session-mode.ts` / `callback-mode.ts` | The three approval lanes: token link (`/approve/[token]`), dashboard session, and Telegram/WhatsApp button callbacks (`approveViaCallback` — button lanes cannot edit). **(WS4)** each approve/edit chokepoint (five total) records `reply_approved_no_edit` / `reply_edited_by_owner` in-tx via `outcomes.ts`. |
-| `locks.ts` | Lock + validation helpers for all three modes (`lockValidLink`, `lockPendingResponse`, `verifyDevice`, `consumeLink`) — `SELECT … FOR UPDATE` inside the caller's tx. |
-| `http-routes.ts` | Route wrappers (`runTokenApprovalAction`, `runDashboardReviewAction`) — rate limit, CSRF, device binding, one tx, audit context, standard error mapping. **(WS4)** the dashboard wrapper takes the reviews-first lock anchor (`anchorReviewLockOrder`) as its tx's FIRST statement. |
-| `outcomes.ts` | **(WS4)** Owner-decision outcome instrumentation for the five approve/edit chokepoints, plus `anchorReviewLockOrder` — the global lock-order anchor (unlocked pre-read of the immutable `review_id`, then reviews `FOR UPDATE` BEFORE any response lock; the veto.ts header owns the deadlock analysis). Regenerate lanes record no outcome. |
+| `transitions.ts` | **(#1367)** `markResponseApproved`/`Edited`/`Superseded` — owns the UPDATE for these three modes ONLY; they keep their own locking/link/outcome/audit. Other `responses` writers still hand-spell theirs (#1454). |
+| `locks.ts` | Lock + validation helpers for all three modes (`lockValidLink`, `lockPendingResponse`, `verifyDevice`, `consumeLink`) — `FOR UPDATE` inside the caller's tx. |
+| `http-routes.ts` | Route wrappers (`runTokenApprovalAction`, `runDashboardReviewAction`) — rate limit, CSRF, device binding, one tx, audit context, error mapping. **(WS4)** the dashboard wrapper takes `anchorReviewLockOrder` as its tx's FIRST statement. |
+| `outcomes.ts` | **(WS4)** Owner-decision outcome instrumentation for the five approve/edit chokepoints, plus `anchorReviewLockOrder` — the lock-order anchor (unlocked pre-read of `review_id`, then reviews `FOR UPDATE` before any response lock; veto.ts owns the deadlock analysis). Regenerate records no outcome. |
 | `veto.ts` | **(WS4)** `vetoAutoPost()` — owner cancel of a scheduled auto-post (spec §2.6), takes `tx`. The pending `publish_response` outbox row is the atomicity token: succeeds IFF the tx terminalizes it while still `pending` (`completed` + `last_error='auto_post_vetoed_by_owner'` — the ONE `AUTO_POST_VETOED_BY_OWNER` marker, repeated in `posting_error` below); then guarded downgrade to `pending_approval` (`posting_error='auto_post_vetoed_by_owner'`, clears `auto_post_scheduled_at`), audit `veto_cancel`, `reply_vetoed_by_owner` outcome on an active run, link consumed, re-notify enqueued. 0 rows ⇒ `too_late`/`already_cancelled` — never a posted-after-"cancelled" state. |
-| `create-link.ts` | `createApprovalLink()` — generates a secure raw token (random bytes) and stores only its SHA-256 hash in `approval_links`. Channel-scoped. |
-| `cookies.ts` | Device-cookie and CSRF-cookie management (set / read / clear). |
-| `correlation.ts` | `recoverCorrelationId()` — reads the approval session's correlation ID for audit logging. |
+| `create-link.ts` | `createApprovalLink()` — generates a secure raw token and stores only its SHA-256 hash in `approval_links`. Channel-scoped. |
+| `cookies.ts` | Device- and CSRF-cookie management (set/read/clear). |
+| `correlation.ts` | `recoverCorrelationId()` — reads the approval session's correlation ID for audit. |
 | `audit.ts` | `insertAuditLog()` — `approval_audit_log` writes, same-tx as the action they record. **WS6** adds `auto_policy_revoked_judge_unavailable` for the publisher's judge-health downgrade. |
-| `errors.ts` | Approval-specific error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`; **(WS4)** `VetoTooLateError`). |
-| `http-errors.ts` | Maps approval errors to HTTP status codes and bodies. **(WS4)** maps a 40P01 deadlock-loser rollback to a retryable 409 `conflict_retry` (the veto ↔ mark-posted collision is expected concurrency, not a 500). |
-| `types.ts` | Shared approval types (`ApprovalLink`, audit contexts). |
+| `errors.ts` | Approval error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`; **(WS4)** `VetoTooLateError`). |
+| `http-errors.ts` | Maps approval errors to HTTP status codes and bodies. **(WS4)** maps a 40P01 deadlock-loser rollback to retryable 409 `conflict_retry` (veto ↔ mark-posted is expected concurrency, not a 500). |
+| `types.ts` | Shared approval types (`ApprovalLink`, audit). |
 
 **Connection:** `NotificationWorker` and `pending-post-notice/dispatch.ts` call `create-link.ts` for tokens before sending. The approval API routes consume them via the mode files; the veto route calls `veto.ts`.
 

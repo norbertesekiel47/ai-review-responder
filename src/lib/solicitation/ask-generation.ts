@@ -95,6 +95,7 @@ import {
   closeBatchIfSettled,
   deriveBatchState,
   insertOutreachRender,
+  insertOutreachRenders,
   supersedeLiveRender,
   type BatchLifecycleRow,
   type BatchState,
@@ -1893,41 +1894,47 @@ export async function settleGenerationExhaustion(
     // integration suite's own timings understate the real saving by two orders
     // of magnitude. Evidence:
     // docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md
-    const refusals: WriteRefusalEventInput[] = [];
-
-    for (const hole of holes) {
+    //
+    // Batched into ONE `insertOutreachRenders` call (outreach.ts) rather than
+    // one `insertOutreachRender` per hole — same reasoning as the Refusal
+    // batch below.
+    const fills: InsertOutreachRenderInput[] = holes.map((hole) => ({
+      accountId,
+      businessId: input.businessId,
+      batchId,
+      askId: hole.ask_id,
+      contactId: hole.contact_id,
+      attemptNo: hole.next_attempt,
+      promptVersion: SOLICITATION_ASK_PROMPT_VERSION,
+      promptHash: solicitationAskPromptHash(),
+      askLintVersion: ASK_LINT_VERSION,
+      lintDetail: [],
+      moderationStatus: 'error',
+      moderationDetail: {},
       // The decision-2 never-produced fills (renderFailedOutcome shape);
       // interpolation snapshot {} — these asks were never assembled.
-      const outreachId = await insertOutreachRender(tx, {
-        accountId,
-        businessId: input.businessId,
-        batchId,
-        askId: hole.ask_id,
-        contactId: hole.contact_id,
-        attemptNo: hole.next_attempt,
-        promptVersion: SOLICITATION_ASK_PROMPT_VERSION,
-        promptHash: solicitationAskPromptHash(),
-        askLintVersion: ASK_LINT_VERSION,
-        lintDetail: [],
-        moderationStatus: 'error',
-        moderationDetail: {},
-        interpolationInputs: {},
-        renderedAt: decidedAt,
-        agentRunId: parent?.id ?? null,
-        deliveryStatus: 'withheld',
-        dispositionReason: 'render_failed',
-        renderedSubject: null,
-        renderedBody: null,
-      });
-      refusals.push(
-        outreachWithheldRefusalInput(
-          { accountId, businessId: input.businessId },
-          outreachId,
-          'render_failed',
-          decidedAt,
-        ),
-      );
-    }
+      interpolationInputs: {},
+      renderedAt: decidedAt,
+      agentRunId: parent?.id ?? null,
+      deliveryStatus: 'withheld',
+      dispositionReason: 'render_failed',
+      renderedSubject: null,
+      renderedBody: null,
+    }));
+
+    // ONE STATEMENT for every hole. `insertOutreachRenders` returns ids IN
+    // INPUT ORDER (minted in JS, never read back off `RETURNING`), so `fills`
+    // and `outreachIds` zip 1:1 — the same pairing the single-row loop made
+    // implicit by writing and reading back one id per iteration.
+    const outreachIds = await insertOutreachRenders(tx, fills);
+    const refusals: WriteRefusalEventInput[] = outreachIds.map((outreachId) =>
+      outreachWithheldRefusalInput(
+        { accountId, businessId: input.businessId },
+        outreachId,
+        'render_failed',
+        decidedAt,
+      ),
+    );
 
     // UNCONDITIONAL, and the empty case is the helper's. `writeRefusalEvents`
     // issues no statement for an empty input and returns before it even reads

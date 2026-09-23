@@ -17,6 +17,14 @@ const mocks = vi.hoisted(() => ({
   recordStep: vi.fn(),
   acquireSolicitationBatchLock: vi.fn(),
   insertOutreachRender: vi.fn(),
+  // #1112 — the render-persistence seam's SET arm. `outreach.ts` states
+  // `insertOutreachRender` and `insertOutreachRenders` are the ONLY two
+  // writers of `solicitation_outreach`, the same "both arms, never one" shape
+  // the Refusal ledger comment below states for its own two arms:
+  // `settleGenerationExhaustion` now batches its hole fills into this one,
+  // the other three writers stay single-row. Mocking only `insertOutreachRender`
+  // would leave `insertInputs()` blind to the batching lane.
+  insertOutreachRenders: vi.fn(),
   supersedeLiveRender: vi.fn(),
   closeBatchIfSettled: vi.fn(),
   solicitationSendEnabled: vi.fn(),
@@ -66,6 +74,7 @@ vi.mock('../batch-builder', () => ({
 vi.mock('../outreach', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../outreach')>()),
   insertOutreachRender: mocks.insertOutreachRender,
+  insertOutreachRenders: mocks.insertOutreachRenders,
   supersedeLiveRender: mocks.supersedeLiveRender,
   closeBatchIfSettled: mocks.closeBatchIfSettled,
 }));
@@ -267,6 +276,12 @@ beforeEach(() => {
   mocks.recordStep.mockResolvedValue(undefined);
   mocks.acquireSolicitationBatchLock.mockResolvedValue(undefined);
   mocks.insertOutreachRender.mockResolvedValue('outreach-new');
+  // One id per input, same convention as the single-row default above — a
+  // test that does not care about ids just needs an array the right length,
+  // since the lane `.map`s the return value to build the paired Refusals.
+  mocks.insertOutreachRenders.mockImplementation((_tx: unknown, inputs: unknown[]) =>
+    Promise.resolve(inputs.map(() => 'outreach-new')),
+  );
   mocks.supersedeLiveRender.mockResolvedValue({ priorAttemptNo: 1 });
   mocks.closeBatchIfSettled.mockResolvedValue({ status: 'not_settled', liveCount: 1 });
   mocks.runLlmTask.mockResolvedValue(llmResult(CLEAN_STRUCTURED));
@@ -903,8 +918,13 @@ describe('settleGenerationExhaustion (codex round-2 finding 4)', () => {
       'generate_solicitation_asks_exhausted:Error',
       OUTBOX.attempt,
     );
-    expect(mocks.insertOutreachRender).toHaveBeenCalledTimes(2);
-    expect(mocks.insertOutreachRender.mock.calls[0]![1]).toMatchObject({
+    // #1112 — the fills go through the SET arm, in ONE call carrying both
+    // holes, never the single-row arm looped.
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRenders).toHaveBeenCalledTimes(1);
+    const fills = mocks.insertOutreachRenders.mock.calls[0]![1] as Record<string, unknown>[];
+    expect(fills).toHaveLength(2);
+    expect(fills[0]).toMatchObject({
       askId: 'ask-2',
       deliveryStatus: 'withheld',
       dispositionReason: 'render_failed',
@@ -950,6 +970,7 @@ describe('settleGenerationExhaustion (codex round-2 finding 4)', () => {
     expect(settled).toEqual({ status: 'stale' });
     expect(mocks.acquireSolicitationBatchLock).not.toHaveBeenCalled();
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRenders).not.toHaveBeenCalled();
     expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
   });
 });
@@ -1312,13 +1333,35 @@ describe('the outreach_withheld render lane (#1011)', () => {
     mocks.writeRefusalEvents.mockClear();
   };
 
-  const insertInputs = (): Record<string, unknown>[] =>
-    mocks.insertOutreachRender.mock.calls.map((call) => call[1] as Record<string, unknown>);
+  /**
+   * Every outreach fill this lane proposed, across BOTH persistence arms
+   * (#1112), in the order the lane proposed them — mirrors `refusalCalls()`
+   * above for the same reason: `settleGenerationExhaustion` fans its holes
+   * out through `insertOutreachRenders` in ONE call, and the earlier writers
+   * (W1-W3) still call `insertOutreachRender` once per row, so a helper that
+   * only read the single-row mock would go blind the moment W4 runs.
+   */
+  const insertInputs = (): Record<string, unknown>[] => {
+    const single = mocks.insertOutreachRender.mock.calls.map((call, index) => ({
+      order: mocks.insertOutreachRender.mock.invocationCallOrder[index]!,
+      inputs: [call[1] as Record<string, unknown>],
+    }));
+    const set = mocks.insertOutreachRenders.mock.calls.map((call, index) => ({
+      order: mocks.insertOutreachRenders.mock.invocationCallOrder[index]!,
+      inputs: [...(call[1] as readonly Record<string, unknown>[])],
+    }));
+    return [...single, ...set]
+      .sort((left, right) => left.order - right.order)
+      .flatMap((invocation) => invocation.inputs);
+  };
 
   /** Distinct ids per insert, so a subject traces to the row that minted it. */
   function mintDistinctOutreachIds(): void {
     let minted = 0;
     mocks.insertOutreachRender.mockImplementation(async () => `outreach-${++minted}`);
+    mocks.insertOutreachRenders.mockImplementation((_tx: unknown, inputs: unknown[]) =>
+      Promise.resolve(inputs.map(() => `outreach-${++minted}`)),
+    );
   }
 
   /** W1: one ask, one child — the withhold reason is the caller's to choose. */
@@ -1598,31 +1641,35 @@ describe('the outreach_withheld render lane (#1011)', () => {
     expectNoRefusalWrite();
   });
 
-  it('a stale generation-exhaustion attempt writes no Refusal through either the single-row or the set arm', async () => {
-    // The CAS loses, so the lane returns before the hole query — neither arm
-    // is reached. Renamed from "…neither outreach hole rows nor
-    // refusal_events rows" at #1082: this lane now batches, and a negative
-    // assertion naming one arm of a two-arm writer is exactly the assertion
-    // that stays green while covering nothing.
+  it('a stale generation-exhaustion attempt writes no outreach fill or Refusal through any arm', async () => {
+    // The CAS loses, so the lane returns before the hole query — none of the
+    // FOUR arms (outreach single-row/set, Refusal single-row/set) is reached.
+    // Renamed at #1082 and again at #1112: this lane now batches BOTH writers,
+    // and a negative assertion naming only one arm of a two-arm writer is
+    // exactly the assertion that stays green while covering nothing.
     mocks.markOutboxFailed.mockResolvedValue(false);
 
     const settled = await settleGenerationExhaustion(sql, LANE_DEAD_LETTER_INPUT);
 
     expect(settled).toEqual({ status: 'stale' });
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRenders).not.toHaveBeenCalled();
     expectNoRefusalWrite();
   });
 
-  it("a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole", async () => {
-    // THE TICKET (#1082). A single-row write per iteration puts one round
+  it("a generation exhaustion records every hole's outreach fill and Refusal in ONE statement each, never one per hole", async () => {
+    // THE TICKET. #1082 batched the Refusal write (`writeRefusalEvents`);
+    // #1112 batched this transaction's OTHER per-hole write, the outreach
+    // fill itself (`insertOutreachRenders`) — the follow-up #1082 named and
+    // deliberately left. A per-hole write, on EITHER writer, puts one round
     // trip per hole inside a transaction already holding the per-Business
     // advisory lock AND the `solicitation_batches` row lock.
     //
     // THREE HOLES, NOT A CEILING FIXTURE, and the ceiling is 25 rather than
     // the 5,000 this test first cited: `holes` filters `ask.status = 'send'`
     // and `evaluateBatch` keeps at most `BATCH_CAP` send decisions per batch.
-    // Three is enough — a writer that records one Refusal per INVOCATION sits
-    // at 1 here, and a one-hole fixture would not tell the two apart.
+    // Three is enough — a writer that records one row per INVOCATION sits at
+    // 1 here, and a one-hole fixture would not tell the two apart.
     //
     // THE CALL COUNT IS THE ASSERTION, and the row count is checked beside it:
     // a writer that batched but dropped rows, and a writer that kept every row
@@ -1630,41 +1677,47 @@ describe('the outreach_withheld render lane (#1011)', () => {
     mintDistinctOutreachIds();
     await runExhaustion(3);
 
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRenders).toHaveBeenCalledTimes(1);
+    expect(mocks.insertOutreachRenders.mock.calls[0]![1]).toHaveLength(3);
+
     expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
     expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1);
     // One INPUT per hole. `refusalCalls()` flattens the set arm, so this reads
-    // the fan-out the lane proposed, not the number of times it called.
+    // the fan-out the lane proposed, not the number of times it called. The
+    // ids trace back to `insertOutreachRenders`' own return value — proof the
+    // Refusal set is built from the OUTREACH set's ids, in the SAME order.
     expect(refusalCalls()).toHaveLength(3);
     expect(refusalCalls().map((call) => call.subjectId)).toEqual([
       'outreach-1',
       'outreach-2',
       'outreach-3',
     ]);
-    // The fills still happen per hole — batching `insertOutreachRender` is
-    // out of this ticket's scope and is a separate writer of a separate table.
-    expect(mocks.insertOutreachRender).toHaveBeenCalledTimes(3);
   });
 
-  it('a generation exhaustion that finds no holes issues no Refusal write through either arm', async () => {
+  it('a generation exhaustion that finds no holes issues no outreach fill or Refusal write through any arm', async () => {
     await runExhaustion(0);
 
-    // THE TITLE'S PROPERTY, first and on its own: zero Refusals proposed
-    // through either arm. This is what "issues no Refusal write" means, and
-    // it holds however the lane spells the empty case.
+    // THE TITLE'S PROPERTY, first and on its own: zero fills and zero
+    // Refusals proposed through any arm. This is what "issues no ... write"
+    // means, and it holds however the lane spells the empty case.
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
     expect(refusalCalls()).toEqual([]);
     expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
-    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
 
     // A DESIGN PIN, NOT THE TITLE'S PROPERTY — kept deliberately separate
-    // because the two fail for different reasons (red team, P2). The empty
-    // case belongs to the helper: `writeRefusalEvents` documents that an
-    // empty input issues NO STATEMENT and returns before it even reads the
-    // kill switch, so the lane calls it unconditionally rather than
-    // re-spelling that guarantee behind an `if` — a caller-side length check
-    // would be the second authority that drifts. A future `if
-    // (refusals.length > 0)` would be outcome-identical and would turn THESE
-    // two lines red and none of the three above; that is the signal working,
-    // and the fix then is to delete this pin, not to weaken the test.
+    // because these fail for different reasons (red team, P2). The empty case
+    // belongs to the helpers: both `insertOutreachRenders` and
+    // `writeRefusalEvents` document that an empty input issues NO STATEMENT
+    // (the former on the latter's own precedent), so the lane calls both
+    // unconditionally rather than re-spelling that guarantee behind an `if` —
+    // a caller-side length check would be a second authority that drifts. A
+    // future `if (fills.length > 0)` / `if (refusals.length > 0)` would be
+    // outcome-identical and would turn THESE lines red and none of the ones
+    // above; that is the signal working, and the fix then is to delete this
+    // pin, not to weaken the test.
+    expect(mocks.insertOutreachRenders).toHaveBeenCalledTimes(1);
+    expect(mocks.insertOutreachRenders.mock.calls[0]![1]).toEqual([]);
     expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1);
     expect(mocks.writeRefusalEvents.mock.calls[0]![1]).toEqual([]);
   });
