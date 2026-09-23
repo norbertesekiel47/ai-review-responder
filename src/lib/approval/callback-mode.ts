@@ -49,9 +49,7 @@ export async function approveViaCallback(sql: Sql, input: CallbackApprovalInput)
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → UPDATE → revoke siblings → enqueue publish → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    const { link, response } = await claimCallbackResponse(tx, input, {
-      anchorReviewLock: true,
-    });
+    const { link, response } = await claimCallbackResponse(tx, input);
     await markResponseApproved(tx, {
       responseId: link.response_id,
       businessId: link.business_id,
@@ -90,9 +88,7 @@ export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInp
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    const { link, response } = await claimCallbackResponse(tx, input, {
-      anchorReviewLock: false,
-    });
+    const { link, response } = await claimCallbackResponse(tx, input);
     await revokeSiblings(tx, link.response_id, link.id);
     await markResponseSuperseded(tx, {
       responseId: link.response_id,
@@ -120,18 +116,17 @@ export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInp
 async function claimCallbackResponse(
   tx: TxClient,
   input: CallbackApprovalInput,
-  // The approve lane records an owner-decision outcome (WS4 §2.8), so it
-  // must take the reviews lock-order anchor between the link lock and the
-  // response lock (veto.ts's real order: link → reviews → responses). The
-  // regenerate lane records no outcome → no anchor, statement flow unchanged.
-  opts: { anchorReviewLock: boolean },
 ): Promise<ClaimedCallbackResponse> {
   const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
   throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
 
-  if (opts.anchorReviewLock) {
-    await anchorReviewLockOrder(tx, link.response_id, link.business_id);
-  }
+  // Both callers take the reviews lock-order anchor between the link lock and
+  // the response lock (veto.ts's real order: link → reviews → responses).
+  // Approve needs it to record the owner-decision outcome (WS4 §2.8); regenerate
+  // records no outcome but still needs it for lock-order safety against the
+  // auto-policy downgrade / publisher failed-hook lanes (#1444) — see
+  // locks.ts's lockPendingResponse docstring for the full argument.
+  await anchorReviewLockOrder(tx, link.response_id, link.business_id);
   const response = await lockPendingResponse(tx, link.response_id);
   await consumeLink(tx, link.id);
 

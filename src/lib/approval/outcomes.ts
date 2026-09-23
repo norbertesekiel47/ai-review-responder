@@ -2,8 +2,9 @@
 //
 // WS4 spec §2.8: owner-decision outcome instrumentation shared by the five
 // approval chokepoints (session/token approve + edit, callback approve).
-// Regenerate lanes record no outcome and take no anchor — a regenerate is
-// not an owner verdict on the draft.
+// Regenerate lanes record no outcome — a regenerate is not an owner verdict
+// on the draft — but DO take anchorReviewLockOrder for lock-order safety
+// against the auto-policy downgrade / publisher failed-hook lanes (#1444).
 
 import type postgres from 'postgres';
 import { findActiveReviewRun, recordOutcome } from '@/lib/agents/run-spine';

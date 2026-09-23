@@ -315,6 +315,8 @@ describe('regenerateViaCallback', () => {
   it('marks response superseded and enqueues generate_response outbox', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
+    txQueue.push([{ review_id: 'rev-1' }]); // anchor: UNLOCKED responses pre-read (#1444)
+    txQueue.push([{ id: 'rev-1' }]);        // anchor: reviews FOR UPDATE (lock-order anchor)
     txQueue.push(pendingResponseRow());
     txQueue.push(notArchivedBusinessRow()); // archived gate inside lockPendingResponse
     txQueue.push([]); // consumeLink
@@ -342,9 +344,11 @@ describe('regenerateViaCallback', () => {
       origin_lane: 'regenerate',
       correlation_id: 'upstream-corr-id',
     });
-    // Regenerate is not an owner verdict (WS4 §2.8): no reviews lock-order
-    // anchor, no outcome — statement flow unchanged.
-    expect(txCalls.some((c) => c.sql.includes('FROM reviews'))).toBe(false);
+    // Regenerate is not an owner verdict (WS4 §2.8): no outcome. It DOES take
+    // the reviews lock-order anchor (#1444) — lock-order.md's proof that
+    // regenerate cannot deadlock against the auto-policy downgrade /
+    // publisher failed-hook lanes depends on it.
+    expect(txCalls.some((c) => c.sql.includes('FROM reviews'))).toBe(true);
     expect(txCalls.some((c) => c.sql.includes('agent_outcomes'))).toBe(false);
   });
 
@@ -405,6 +409,8 @@ describe('regenerateViaCallback', () => {
   it('rejects regenerate for an archived location and issues no post-guard mutations', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
+    txQueue.push([{ review_id: 'rev-1' }]); // anchor pre-read (#1444)
+    txQueue.push([{ id: 'rev-1' }]);        // anchor reviews FOR UPDATE
     txQueue.push(pendingResponseRow()); // lockPendingResponse (claim)
     txQueue.push(archivedBusinessRow()); // archived gate inside the claim → throws
 

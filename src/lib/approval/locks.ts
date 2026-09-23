@@ -73,12 +73,15 @@ export async function consumeLink(tx: TxClient, linkId: string): Promise<void> {
  *
  * Lock order: responses FOR UPDATE, then businesses FOR SHARE. This is the
  * documented EXCEPTION to the review lane's businesses-before-responses order
- * (owner: .claude/reference/lab-notes/lock-order.md). It is deadlock-free only
- * because this lane is disjoint from the Judge lane: the businesses lock is
- * reached only for a row read as pending_approval under its own lock, Judge
- * acts only on posted auto-policy rows, and posted never returns to
- * pending_approval. A new caller must keep that disjointness or take the
- * review-lane order instead.
+ * (owner: .claude/reference/lab-notes/lock-order.md). It is deadlock-free
+ * against every lane that locks both tables (Judge, auto-policy downgrade,
+ * auto-policy publish, publisher failed-hook) because EVERY current caller of
+ * this function first takes `anchorReviewLockOrder`'s reviews FOR UPDATE, the
+ * same row every one of those lanes also takes first (#1444) — whichever
+ * transaction wins that row's lock runs to completion before the other can
+ * reach a response or business row, so the two orders below can never be
+ * mid-flight on the same rows at once. A new caller must take the anchor
+ * first too, or take the review-lane order instead.
  */
 export async function lockPendingResponse(
   tx: TxClient,
