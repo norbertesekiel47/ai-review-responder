@@ -14,13 +14,13 @@ import {
   buildPartnerLowEngagementAlertHtml,
   buildPartnerSatisfactionAlertHtml,
 } from '../../src/lib/notifications/email';
-import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
+import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
-import { sendAndRecordOwnerNudge } from './engagement-alert/send-and-record-nudge';
+import { sendMarkedFirst } from './send-and-record-strategies';
 
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
   const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
@@ -138,13 +138,7 @@ async function handleOwnerNudge(
   }
 
   // Query pending reviews with their response IDs + total count
-  const pendingRows = await sql<{
-    response_id: string;
-    reviewer_name: string;
-    star_rating: number | null;
-    review_text: string | null;
-    total_pending: number;
-  }[]>`
+  const pendingRows = await sql<PendingReviewRow[]>`
     SELECT resp.id AS response_id,
            COALESCE(r.reviewer_name, 'Anonymous') AS reviewer_name,
            r.star_rating,
@@ -179,23 +173,51 @@ async function handleOwnerNudge(
 
   const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
 
-  // Send, record the outcome, and close the outbox row (#1403) — extracted
-  // into `sendAndRecordOwnerNudge`: mark-before-send with no provider
-  // idempotency key (fresh approval tokens per attempt), and a swallowed,
-  // best-effort failed-delivery record on send failure instead of a rethrow.
-  // See `engagement-alert/send-and-record-nudge.ts` for WHY.
-  await sendAndRecordOwnerNudge({
-    sql,
+  // Mark-before-send, no provider idempotency key: fresh approval tokens per
+  // pending review vary the body on every attempt (constraint 1). Never
+  // rethrows — the outbox row is already completed by `mark`, so a BullMQ
+  // retry would mint fresh links and send a SECOND nudge. See
+  // `send-and-record-strategies.ts` for the shared contract.
+  await sendMarkedFirst({
     logger,
-    outboxId,
-    outboxAttempt,
-    businessId,
-    accountId: business.account_id,
-    ownerEmail: business.owner_email,
-    subject,
-    bodyHtml,
-    totalPending,
+    label: 'owner nudge',
+    mark: () => markOutboxCompleted(sql, outboxId, outboxAttempt),
+    send: () => sendInternalEmail({ to: business.owner_email, subject, bodyHtml, category: 'marketing' }),
+    recordFailure: (reason) =>
+      insertFailedDelivery(sql, business.account_id, businessId, null, 'email', business.owner_email, reason, 'owner_nudge'),
+    recordSuccess: (result) => recordNudgeDelivery({
+      logger, businessId, accountId: business.account_id, ownerEmail: business.owner_email,
+      totalPending, messageId: result.messageId,
+    }),
   });
+}
+
+async function recordNudgeDelivery(input: {
+  logger: WorkerLogger;
+  businessId: string;
+  accountId: string;
+  ownerEmail: string;
+  totalPending: number;
+  messageId: string;
+}): Promise<void> {
+  await recordNotificationDelivery(sql, {
+    accountId: input.accountId,
+    businessId: input.businessId,
+    channel: 'email',
+    recipient: input.ownerEmail,
+    template: 'owner_nudge',
+    externalMessageId: input.messageId,
+  });
+  // No markOutboxCompleted here — it ran BEFORE the send, as this strategy's `mark`.
+  input.logger.log(`Owner nudge sent for business ${input.businessId} (${input.totalPending} pending reviews)`);
+}
+
+interface PendingReviewRow {
+  response_id: string;
+  reviewer_name: string;
+  star_rating: number | null;
+  review_text: string | null;
+  total_pending: number;
 }
 
 interface PendingReviewWithApprovalLink {
@@ -212,13 +234,7 @@ interface PendingReviewWithApprovalLink {
  * itself is unchanged.
  */
 async function buildPendingReviewsWithApprovalLinks(
-  pendingRows: Array<{
-    response_id: string;
-    reviewer_name: string;
-    star_rating: number | null;
-    review_text: string | null;
-    total_pending: number;
-  }>,
+  pendingRows: PendingReviewRow[],
   businessId: string,
   appUrl: string,
 ): Promise<{ totalPending: number; pendingReviews: PendingReviewWithApprovalLink[] }> {

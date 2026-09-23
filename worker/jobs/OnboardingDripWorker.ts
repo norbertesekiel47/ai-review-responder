@@ -14,19 +14,21 @@ import {
 import { OUTBOX_COMPLETION_REASON } from '../../src/lib/shared/outbox-completion-reason';
 import { getWorkerConfig } from '../../src/lib/config/worker';
 import {
+  sendInternalEmail,
   buildOnboardingDay1Html,
   buildOnboardingDay7Html,
   buildOnboardingDay30Html,
 } from '../../src/lib/notifications/email';
+import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { subscriptionGrantsFullAccess } from '../../src/lib/shared/subscription-status';
 import { resolveDashboardUrl } from './summary-report-helpers';
-import { sendAndRecordDrip } from './onboarding-drip/send-and-record';
+import { sendMarkedFirst, sendKeyed } from './send-and-record-strategies';
 
 /**
  * **Drip staleness cap** — the single owner of the policy (#719).
@@ -308,25 +310,96 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 7. Send, record the outcome, and close the outbox row ─────────
-  // Extracted (#1403) into `sendAndRecordDrip` — "deliver, record the
-  // outcome, close the outbox row." `dripBodyVariesPerAttempt` picks which of
-  // the two crash-after-send defences applies (mark-before-send + no key +
-  // no rethrow, vs. a provider idempotency key + rethrow-on-failure); see
-  // that function and `onboarding-drip/send-and-record.ts` for WHY.
-  await sendAndRecordDrip({
-    sql,
-    logger,
-    dripType: drip_type,
-    businessId,
-    accountId: business.account_id,
-    ownerEmail: business.owner_email,
-    claimId,
-    outboxId,
-    outboxAttempt,
-    subject,
-    html,
-    bodyVaries: dripBodyVariesPerAttempt(drip_type),
+  await runDripSend({
+    logger, dripType: drip_type, businessId, accountId: business.account_id,
+    ownerEmail: business.owner_email, claimId, outboxId, outboxAttempt, subject, html,
   });
+}
+
+/**
+ * Picks a strategy from `dripBodyVariesPerAttempt` (above) — not a boolean
+ * threaded through one — and runs it. See `send-and-record-strategies.ts`
+ * for what each strategy guarantees.
+ */
+async function runDripSend(input: {
+  logger: WorkerLogger;
+  dripType: OnboardingDripPayload['drip_type'];
+  businessId: LocationId;
+  accountId: string;
+  ownerEmail: string;
+  claimId: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const { logger, dripType, businessId, claimId, outboxId, outboxAttempt, subject, html } = input;
+
+  if (dripBodyVariesPerAttempt(dripType)) {
+    await sendMarkedFirst({
+      logger,
+      label: dripType,
+      mark: () => markDripSentAt(claimId),
+      send: () => sendInternalEmail({ to: input.ownerEmail, subject, bodyHtml: html, category: 'marketing' }),
+      recordFailure: async (reason) => {
+        await markOutboxFailed(sql, outboxId, `send failed after mark: ${reason}`, outboxAttempt);
+      },
+      recordSuccess: (result) => recordDripDelivery({ ...input, messageId: result.messageId }),
+    });
+    return;
+  }
+
+  // The Send idempotency key is scoped to (business_id, drip_type), NOT to
+  // the outbox row — the stale-claim takeover at step 4 admits a SECOND
+  // outbox row on a claim still carrying sent_at IS NULL, and only a
+  // domain-scoped key dedupes that at the provider.
+  await sendKeyed({
+    send: () => sendInternalEmail({
+      to: input.ownerEmail,
+      subject,
+      bodyHtml: html,
+      category: 'marketing',
+      idempotencyKey: `onboarding_drip_${dripType}:${businessId}`,
+    }),
+    recordSuccess: async (result) => {
+      if (result.idempotentReplay) {
+        logger.log(`${dripType} already delivered under its idempotency key`, {
+          business_id: businessId,
+          drip_type: dripType,
+        });
+      }
+      await markDripSentAt(claimId);
+      await recordDripDelivery({ ...input, messageId: result.messageId });
+    },
+  });
+}
+
+async function markDripSentAt(claimId: string): Promise<void> {
+  await sql`UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}`;
+}
+
+async function recordDripDelivery(input: {
+  logger: WorkerLogger;
+  dripType: OnboardingDripPayload['drip_type'];
+  businessId: LocationId;
+  accountId: string;
+  ownerEmail: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  messageId: string;
+}): Promise<void> {
+  // Record delivery BEFORE outbox completion — ensures cooldown checks in
+  // other workers can see this delivery record.
+  await recordNotificationDelivery(sql, {
+    accountId: input.accountId,
+    businessId: input.businessId,
+    channel: 'email',
+    recipient: input.ownerEmail,
+    template: `onboarding_drip_${input.dripType}`,
+    externalMessageId: input.messageId,
+  });
+  await markOutboxCompleted(sql, input.outboxId, input.outboxAttempt);
+  input.logger.log(`${input.dripType} sent for business ${input.businessId}`);
 }
 
 // ── Day 1: Welcome email ────────────────────────────────────────────

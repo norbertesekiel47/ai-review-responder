@@ -32,8 +32,9 @@ decide *where new worker code goes*:
   `notification/`, `auto-post-notice/`, `publisher/`, `zernio/`, `billing/`,
   `onboarding-demo/`, `account-offboarding/`, `judge/`, `escalation-notice/`,
   `autonomy-suspended-notice/`, `pending-post-notice/`, `csv-ingest/`,
-  `solicitation-batch/`, `solicitation-send/`, `solicitation-veto-notice/`,
-  `onboarding-drip/`, `engagement-alert/`).
+  `solicitation-batch/`, `solicitation-send/`, `solicitation-veto-notice/`).
+  A helper shared by multiple workers is a top-level file instead, beside
+  `summary-report-helpers.ts` and `live-draft-guard.ts`.
 - **Publishing goes through the `ReviewPublisher` seam** (`src/lib/publishing/review-publisher.ts`):
   the `worker/jobs/publisher/` call-sites resolve + post via `getReviewPublisher()`
   (`resolveTarget`/`publishReply`/`deleteReply`/`findReply`), NOT `zernioClient`
