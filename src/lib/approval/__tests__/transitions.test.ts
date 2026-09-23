@@ -1,8 +1,6 @@
-// Direct unit coverage for the transitions.ts UPDATE owners (#1367): each
-// mode (token/session/callback) used to hand-copy the same status/
-// approval_method/approved_at/approved_text/posting_error column list.
-// These tests pin the exact SQL + bind values each transition emits so a
-// future edit to one mode's copy would have shown up here first.
+// Direct unit coverage for transitions.ts's three UPDATE owners (#1367).
+// Pins the exact SQL text + bind values each transition emits, so a change
+// to the column list surfaces here instead of only in the calling mode.
 import { describe, it, expect } from 'vitest';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { markResponseApproved, markResponseEdited, markResponseSuperseded } from '../transitions';
