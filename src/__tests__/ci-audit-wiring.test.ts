@@ -480,19 +480,26 @@ const NOT_DOC_READING: Record<string, string> = {
   // (only main() opens the real file).
   'scripts/ci/__tests__/weakened-checks-audit.test.ts':
     'doc paths are synthetic DIFF headers and registry STRINGS; reads no file',
-  // --- deferred on COST (these DO read repo docs) --------------------------
-  // Reads docs/reviews/red-team/**/findings.json fixtures committed in-repo
-  // and .agents|.claude/skills/red-team/SKILL.md. Measured at 71s standalone —
-  // the `lint` step runs on EVERY PR and the other 17 doc-reading suites
-  // together cost ~7s, so this one would multiply that step's cost by ~10.
-  // Gap, stated plainly: a docs-only PR that edits those fixtures or SKILL.md
-  // does not run this suite; it goes red on the next non-docs PR instead.
+  // #1346: the ONE describe block here that read a real committed
+  // docs/reviews/red-team/**/findings.json at run time — "the committed Run C
+  // fourth-round proof" — moved to red-team-status-doc-reads.test.ts, which is
+  // wired below. Every docs/.claude/.md token remaining here (the Run D/E
+  // `report`/`markdown`/`support` fixture strings, `scopePath`, the
+  // `beta-launch-alerting.md` continuation-path fixture) is written into and
+  // read back from the mkdtemp fixture repo `seedRepo` builds; none is opened
+  // under process.cwd().
   'scripts/ci/__tests__/red-team-status.test.ts':
-    'READS repo docs — deferred on COST (71s standalone); docs-only PRs do not run it',
-  // Same inputs, same gap, 122s standalone: it spawns vitest inside mkdtemp
-  // repos for the mutation lane.
+    'the real doc read moved to red-team-status-doc-reads.test.ts; remaining docs/ paths are mkdtemp fixtures, not a read',
+  // #1346: the three doc-reading slices — "the owner-approved Run C fourth
+  // round", "the owner-approved Run D second pass", and the #1185 / Run C
+  // grants inside "the mutation budget" — moved to
+  // red-team-mutation-runner-doc-reads.test.ts, which is wired below. Every
+  // docs/.claude/.md token remaining here (Run E's `report`/`markdown`/
+  // `support` fixtures, `seedSidecar`'s round-cap fixtures, the
+  // `allowed_edit_surface` arrays) is a mkdtemp fixture string or an
+  // `it.each`/assertion argument; none is opened under process.cwd().
   'scripts/ci/__tests__/red-team-mutation-runner.test.ts':
-    'READS repo docs — deferred on COST (122s standalone); docs-only PRs do not run it',
+    'the real doc reads moved to red-team-mutation-runner-doc-reads.test.ts; remaining docs/ paths are mkdtemp fixtures, not a read',
 };
 
 /** Every `src/**` or `scripts/**` test path literally named in `text`. */

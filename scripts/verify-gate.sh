@@ -70,10 +70,37 @@ set -uo pipefail
 REVIEW_MODE=false
 BASELINE_MODE=false
 FAST_MODE=false
+# Declared here, before anything can read it, even though its real value is
+# only known after the docs-only detection below (which needs $BASE, computed
+# later still) — see gate_mode_label(). Defaulting it false lets the EARLY
+# heartbeat/gate_abort call read a sane "full"/"review"/"baseline"/"fast"
+# before detection runs, and the LATE call at the final status write pick up
+# the real value once it is set.
+DOCS_ONLY=false
 HEARTBEAT=".feature/gate-heartbeat.json"
 # Every write of the results file goes through this variable. Fast mode
 # repoints it; nothing else may hard-code the path.
 STATUS_FILE=".feature/gate-status.json"
+
+# Single owner for "what mode is this run" — one function, called twice: once
+# early (heartbeat + gate_abort's RED status, before DOCS_ONLY is known) and
+# once late (the final GREEN status, once DOCS_ONLY is known). Before #1346
+# this precedence was hand-spelled twice instead: once here as GATE_MODE_LABEL
+# (REVIEW_MODE/BASELINE_MODE/FAST_MODE, no DOCS_ONLY branch — it isn't
+# computed yet) and again beside the final status write as GATE_MODE
+# (DOCS_ONLY/FAST_MODE, no REVIEW_MODE or BASELINE_MODE branch) — two
+# independently maintained copies of the same concept, and they had already
+# drifted: a `--review` run's gate-status.json recorded `"mode":"full"`
+# (fix-gate-tooling-batch-a triage, residual 2) because the late copy never
+# knew REVIEW_MODE existed. One function can no longer disagree with itself.
+gate_mode_label() {
+  if [ "$BASELINE_MODE" = true ]; then echo baseline
+  elif [ "$REVIEW_MODE" = true ]; then echo review
+  elif [ "$FAST_MODE" = true ]; then echo fast
+  elif [ "$DOCS_ONLY" = true ]; then echo docs_only
+  else echo full
+  fi
+}
 
 # --status: report on a running/dead/finished gate WITHOUT running anything.
 # Three sessions burned 10-minute blocking waits on a gate that was hung or
@@ -143,10 +170,7 @@ mkdir -p .feature/logs
 # completion is a .rc marker written by the row's own subshell, so status
 # stays accurate while the main shell blocks in wait.
 rm -f .feature/logs/*.rc
-GATE_MODE_LABEL="full"
-[ "$REVIEW_MODE" = true ] && GATE_MODE_LABEL="review"
-[ "$BASELINE_MODE" = true ] && GATE_MODE_LABEL="baseline"
-[ "$FAST_MODE" = true ] && GATE_MODE_LABEL="fast"
+GATE_MODE_LABEL="$(gate_mode_label)"
 jq -n --argjson pid "$$" --arg mode "$GATE_MODE_LABEL" --argjson now "$(date +%s)" \
   '{pid: $pid, mode: $mode, startedAt: $now, rows: []}' > "$HEARTBEAT"
 
@@ -213,7 +237,8 @@ CHANGED_PATHS=$(
     git status --porcelain --untracked-files=all | cut -c4-
   } 2>/dev/null | sort -u | grep -v '^$' || true
 )
-DOCS_ONLY=false
+# DOCS_ONLY already defaults false (declared at the top, before gate_mode_label
+# could be called on it) — this block only ever promotes it to true.
 if [ -n "$CHANGED_PATHS" ] && \
    ! printf '%s\n' "$CHANGED_PATHS" | grep -qvE '^docs/|^\.claude/|\.md$'; then
   DOCS_ONLY=true
@@ -386,13 +411,16 @@ else
   # docs/admin-api/*, docs/runbooks/whatsapp-templates.md, the .claude/hooks
   # and .claude/skills scripts, and the .claude/commands + .agents lane docs —
   # so a docs-only branch can bust one. Run them here so such a branch can
-  # never go green silently (~7s wall, one vitest process). Keep this path
-  # list in lockstep with ci.yml's `lint` job "Run doc-reading test suites"
-  # step — src/__tests__/ci-audit-wiring.test.ts derives every doc-reading
-  # suite under src/ and scripts/ and fails if the two lanes diverge. Two
-  # red-team suites are excused there on RUNTIME COST (71s and 122s): they DO
-  # read repo docs and this row does not run them.
-  launch doc-shape pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts
+  # never go green silently (~7s wall for the first 17, one vitest process).
+  # Keep this path list in lockstep with ci.yml's `lint` job "Run doc-reading
+  # test suites" step — src/__tests__/ci-audit-wiring.test.ts derives every
+  # doc-reading suite under src/ and scripts/ and fails if the two lanes
+  # diverge. #1346 added the last two: red-team-status-doc-reads.test.ts and
+  # red-team-mutation-runner-doc-reads.test.ts each hold the one slice of
+  # their much larger source suite that reads a real committed
+  # docs/reviews/red-team/**/findings.json — adds ~40s wall, well under the
+  # 71s + 122s the two source suites cost standalone.
+  launch doc-shape pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts scripts/ci/__tests__/red-team-status-doc-reads.test.ts scripts/ci/__tests__/red-team-mutation-runner-doc-reads.test.ts
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
@@ -656,9 +684,7 @@ for i in "${!NAMES[@]}"; do
 done
 CHECKS_JSON="${CHECKS_JSON%,}]"
 
-GATE_MODE="full"
-[ "$DOCS_ONLY" = true ] && GATE_MODE="docs_only"
-[ "$FAST_MODE" = true ] && GATE_MODE="fast"
+GATE_MODE="$(gate_mode_label)"
 printf '{"passed":%s,"mode":"%s","timestamp":%s,"checks":%s}\n' \
   "$PASSED" "$GATE_MODE" "$(date +%s)" "$CHECKS_JSON" > "$STATUS_FILE"
 rm -f "$HEARTBEAT"
@@ -671,8 +697,8 @@ fi
 if [ "$DOCS_ONLY" = true ]; then
   echo "  (docs-only mode: every changed path is docs/, .claude/, or *.md —"
   echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped;"
-  echo "   doc-shape runs the src/ + scripts/ suites that read a doc at run time,"
-  echo "   minus the two red-team suites excused on runtime cost)"
+  echo "   doc-shape runs every src/ + scripts/ suite that reads a doc at run"
+  echo "   time, #1346's red-team doc-reads suites included)"
 fi
 for i in "${!NAMES[@]}"; do
   printf '  %-24s %s\n' "${NAMES[$i]}" "${RESULTS[$i]}"
