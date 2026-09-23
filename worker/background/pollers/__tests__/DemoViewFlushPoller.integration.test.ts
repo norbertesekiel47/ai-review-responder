@@ -28,7 +28,7 @@ vi.mock('@/lib/demos/view-tracking', () => ({
 
 describe('DemoViewFlushPoller (live DB)', () => {
   if (!testDb) {
-    it.skip('skipping — TEST_DATABASE_POOL_URL not set', () => {});
+    it.skip('skipping — TEST_DATABASE_POOL_URL not set', () => {}); // weakened-check-ok: standard live-DB no-test-DB fallback (.claude/rules/live-db-tests.md), identical to every other *.integration.test.ts skip guard (e.g. src/lib/demos/__tests__/lifecycle.integration.test.ts); the suite runs fully with TEST_DATABASE_POOL_URL set (proven green for #1369)
     return;
   }
 
