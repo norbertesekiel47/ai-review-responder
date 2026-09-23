@@ -73,8 +73,11 @@ function mkTx(returnQueue: unknown[][] = []) {
 
 const SESSION_AUDIT = { actorUserId: 'user-1', ipAddress: '203.0.113.7' };
 
-// Lock-order anchor rows (WS4 §2.8): the UNLOCKED responses pre-read, then
-// the reviews FOR UPDATE — fed to approve/edit queues; regenerate takes none.
+// Lock-order anchor rows: the UNLOCKED responses pre-read, then the reviews
+// FOR UPDATE — fed to approve/edit/regenerate queues. Approve/edit take it to
+// record the WS4 §2.8 owner-decision outcome; regenerate records no outcome
+// but takes the same anchor for lock-order safety against the auto-policy
+// downgrade / publisher failed-hook lanes (#1444).
 const ANCHOR_ROWS: unknown[][] = [[{ review_id: 'rev-1' }], [{ id: 'rev-1' }]];
 
 beforeEach(() => {
@@ -297,7 +300,7 @@ describe('editBySession', () => {
 
 describe('regenerateBySession', () => {
   it('supersedes the response and enqueues generate_response with version+1 (no publish)', async () => {
-    const { tx, calls } = mkTx();
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
     await regenerateBySession(tx, 'resp-1', 'biz-1', SESSION_AUDIT, 'corr-3');
 
     expect(mockRevokeOpenLinks).toHaveBeenCalledWith(tx, 'resp-1');
@@ -310,9 +313,38 @@ describe('regenerateBySession', () => {
     expect(mockInsertAuditLogSession).toHaveBeenCalledWith(
       tx, 'resp-1', 'biz-1', 'regenerate', SESSION_AUDIT,
     );
-    // Regenerate is not an owner verdict: no anchor, no outcome (WS4 §2.8).
-    expect(calls.some((c) => c.text.includes('FROM reviews'))).toBe(false);
+    // Regenerate is not an owner verdict — no outcome — but it DOES take the
+    // reviews-row lock-order anchor (#1444): lock-order.md's proof that
+    // regenerate cannot deadlock against the auto-policy downgrade /
+    // publisher failed-hook lanes depends on every current caller of
+    // lockPendingResponse taking this anchor first.
+    expect(calls.some((c) => c.text.includes('FROM reviews'))).toBe(true);
     expect(mockFindActiveReviewRun).not.toHaveBeenCalled();
     expect(mockRecordOutcome).not.toHaveBeenCalled();
+  });
+
+  it('takes the anchor — UNLOCKED pre-read, then reviews FOR UPDATE — BEFORE the response lock (#1444)', async () => {
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
+    let statementsBeforeResponseLock = -1;
+    mockLockPendingResponse.mockImplementation(async () => {
+      statementsBeforeResponseLock = calls.length;
+      return {
+        response_text: 'draft text',
+        original_draft_text: 'draft text',
+        review_id: 'rev-1',
+        version: 1,
+      };
+    });
+
+    await regenerateBySession(tx, 'resp-1', 'biz-1', SESSION_AUDIT);
+
+    const [preRead, reviewLock] = calls;
+    expect(preRead!.text).toContain('SELECT review_id FROM responses');
+    expect(preRead!.text).not.toContain('FOR UPDATE');
+    expect(preRead!.values).toEqual(['resp-1', 'biz-1']);
+    expect(reviewLock!.text).toContain('FROM reviews');
+    expect(reviewLock!.text).toContain('FOR UPDATE');
+    expect(reviewLock!.values).toEqual(['rev-1', 'biz-1']);
+    expect(statementsBeforeResponseLock).toBe(2);
   });
 });

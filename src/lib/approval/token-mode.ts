@@ -11,7 +11,11 @@
 //
 // approve/edit additionally record the owner-decision outcome (WS4 §2.8),
 // so they take the reviews-row lock-order anchor (anchorReviewLockOrder)
-// BEFORE the response lock. Regenerate records no outcome → no anchor.
+// BEFORE the response lock. Regenerate records no outcome, but it takes the
+// SAME anchor first (#1444): the auto-policy downgrade and publisher
+// failed-hook lanes lock businesses before responses, the opposite of
+// lockPendingResponse's local order, and neither filters its lock by status —
+// see locks.ts's lockPendingResponse docstring for the full argument.
 
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
@@ -128,6 +132,7 @@ export async function regenerate(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  await anchorReviewLockOrder(tx, link.response_id, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
   await revokeSiblings(tx, link.response_id, link.id);
 

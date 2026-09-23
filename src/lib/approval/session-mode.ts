@@ -151,6 +151,17 @@ export async function editBySession(
 /**
  * Request regeneration via authenticated session (dashboard).
  * Supersedes the current response and enqueues generate_response with version+1.
+ *
+ * Takes the reviews-row lock-order anchor FIRST (#1444) even though it
+ * records no owner-decision outcome: the auto-policy downgrade lane
+ * (worker/jobs/publisher/auto-policy-downgrade.ts) and the publisher
+ * failed-hook (worker/jobs/publisher/failed-hook.ts) both lock businesses
+ * FOR UPDATE before responses FOR UPDATE — the opposite of this lane's
+ * responses-then-businesses order (locks.ts's lockPendingResponse) — and
+ * neither filters its response lock by status, so an unanchored regenerate
+ * racing either lane on the same response closes an AB-BA cycle. Anchoring
+ * on the SAME reviews row those lanes take first serializes the two
+ * transactions before either can reach a response or business row.
  */
 export async function regenerateBySession(
   tx: TxClient,
@@ -159,6 +170,7 @@ export async function regenerateBySession(
   audit: SessionAuditContext,
   correlationId?: string,
 ): Promise<void> {
+  await anchorReviewLockOrder(tx, responseId, businessId);
   const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
 

@@ -597,6 +597,9 @@ describe('regenerate', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE (#1444)
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
@@ -660,6 +663,9 @@ describe('regenerate', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE (#1444)
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
@@ -670,7 +676,7 @@ describe('regenerate', () => {
       regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
     ).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    expect(tx).toHaveBeenCalledTimes(2);
+    expect(tx).toHaveBeenCalledTimes(4);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
