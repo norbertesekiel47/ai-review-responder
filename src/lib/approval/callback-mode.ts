@@ -27,6 +27,7 @@ import {
   throwIfReadOnly,
 } from '@/lib/shared/writable-subscription';
 import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from './outcomes';
+import { markResponseApproved, markResponseSuperseded } from './transitions';
 
 export type { CallbackApprovalInput };
 
@@ -51,16 +52,11 @@ export async function approveViaCallback(sql: Sql, input: CallbackApprovalInput)
     const { link, response } = await claimCallbackResponse(tx, input, {
       anchorReviewLock: true,
     });
-    await tx`
-      UPDATE responses
-      SET status = 'approved',
-          approval_method = ${APPROVAL_METHOD.OWNER},
-          approved_at = NOW(),
-          approved_text = response_text,
-          posting_error = NULL
-      WHERE id = ${link.response_id}
-        AND business_id = ${link.business_id}
-    `;
+    await markResponseApproved(tx, {
+      responseId: link.response_id,
+      businessId: link.business_id,
+      method: APPROVAL_METHOD.OWNER,
+    });
     await recordOwnerDecisionOutcome(tx, {
       reviewId: response.review_id,
       businessId: link.business_id,
@@ -98,12 +94,10 @@ export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInp
       anchorReviewLock: false,
     });
     await revokeSiblings(tx, link.response_id, link.id);
-    await tx`
-      UPDATE responses
-      SET status = 'superseded'
-      WHERE id = ${link.response_id}
-        AND business_id = ${link.business_id}
-    `;
+    await markResponseSuperseded(tx, {
+      responseId: link.response_id,
+      businessId: link.business_id,
+    });
 
     const correlationId = await recoverCorrelationId(tx, {
       reviewId: response.review_id,

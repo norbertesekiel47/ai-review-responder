@@ -108,6 +108,17 @@ const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
  * a string or regex literal is treated as a comment. That can only ever hide
  * text AFTER the `//` on that line; it never drops code that follows a `*\/`
  * or a line that opens with `*`, which is the failure mode that mattered.
+ *
+ * A SEPARATE, wider case (RT16-12): a string or regex literal holding a bare
+ * `/*` is indistinguishable from a real block-comment opener, so it starts
+ * consuming there and blanks everything — across as many lines as it takes —
+ * up to the NEXT `*\/`, real or itself inside a literal. That can swallow
+ * genuine code, including a real `csv_ingest_` respelling: a false NEGATIVE
+ * for this guard, the more dangerous direction. No file in `LANE_ROOTS` does
+ * this today. Accepted, not fixed — a full tokenizer is a bigger change than
+ * a test-only source scanner warrants; the test below pins the CORRECT
+ * behavior via `it.fails`, so a future change to this function that starts
+ * passing it is the signal to revisit this disclosure.
  * Comments are replaced space-for-space so line and column positions survive.
  */
 function stripComments(source: string): string {
@@ -115,6 +126,22 @@ function stripComments(source: string): string {
     comment.replace(/[^\n]/g, ' '),
   );
 }
+
+// RT16-12, disclosed above: known to fail today. Written as the CORRECT
+// behavior and wrapped in `it.fails` rather than pinning the bug, so a future
+// fix to `stripComments` that makes this pass flips the wrapper red — the
+// alert that the docblock's disclosure needs updating, not a silent gap.
+describe('stripComments', () => {
+  it.fails('a genuine csv_ingest_ construction on the line after a bare /* in a string literal survives stripping', () => {
+    const source = [
+      "const marker = '/*';",
+      "const hidden = 'csv_ingest_' + id; // should survive; does not, per RT16-12",
+      '/* actual comment closes it */',
+    ].join('\n');
+
+    expect(stripComments(source)).toContain("hidden = 'csv_ingest_'");
+  });
+});
 
 function* walkLaneSources(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
