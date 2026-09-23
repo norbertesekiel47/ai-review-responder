@@ -176,13 +176,25 @@ jobs:
       # docs/runbooks/whatsapp-templates.md, docs/superpowers/plans/*.json,
       # the .claude/hooks + .claude/skills scripts, and the .claude/commands +
       # .agents lane docs — so a docs-only PR can bust one. `lint` never skips,
-      # so they run here. Measured together: ~7s wall, one vitest process.
-      # Keep this path list in lockstep with scripts/verify-gate.sh's
-      # docs-only `doc-shape` row — src/__tests__/ci-audit-wiring.test.ts
-      # derives every doc-reading suite under src/ and scripts/ and fails if
-      # the two sets diverge.
+      # so they run here. The first 17 cost ~7s wall together, one vitest
+      # process. #1346 added two more: red-team-status-doc-reads.test.ts and
+      # red-team-mutation-runner-doc-reads.test.ts each hold the ONE slice of
+      # their much larger source suite (red-team-status.test.ts,
+      # red-team-mutation-runner.test.ts) that reads a real committed
+      # docs/reviews/red-team/**/findings.json — the owner-approved Run C/D
+      # historical-admission fixtures — so a docs-only PR touching one of
+      # those findings.json files (or the red-team SKILL.md they seed from)
+      # runs the cases that actually depend on it, without paying for the
+      # ~200 cases in the source suites that only spawn git/node processes
+      # against synthetic mkdtemp fixtures. Measured together: the two add
+      # ~40s wall (~8s → ~40s for the whole step) — the two source suites
+      # they were split from cost 71s and 122s standalone, so this is the
+      # covered slice, not the whole file. Keep this path list in lockstep
+      # with scripts/verify-gate.sh's docs-only `doc-shape` row —
+      # src/__tests__/ci-audit-wiring.test.ts derives every doc-reading suite
+      # under src/ and scripts/ and fails if the two sets diverge.
       - name: Run doc-reading test suites (run here because `test` skips docs-only PRs)
-        run: pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts
+        run: pnpm vitest run src/__tests__/reference-shape.test.ts src/__tests__/claude-md-shape.test.ts src/__tests__/design-doc-token-pin.test.ts src/lib/legal/__tests__/content.test.ts src/lib/notifications/channels/__tests__/whatsapp-body.test.ts src/lib/db/__tests__/server.test.ts src/lib/solicitation/__tests__/attribution.test.ts scripts/ci/__tests__/feature-lane-parity.test.ts scripts/ci/__tests__/rls-audit.test.ts scripts/ci/__tests__/feature-workflow-runtime.test.ts scripts/ci/__tests__/admin-contract-audit.test.ts scripts/ci/__tests__/agent-rules.test.ts scripts/ci/__tests__/bash-write-guard.test.ts scripts/ci/__tests__/edit-surface-guard.test.ts scripts/ci/__tests__/edit-surface-guard-worktree.test.ts scripts/ci/__tests__/queue-state.test.ts scripts/ci/__tests__/directory-map-audit.test.ts scripts/ci/__tests__/red-team-status-doc-reads.test.ts scripts/ci/__tests__/red-team-mutation-runner-doc-reads.test.ts
       - name: Run tenant scope audit
         run: pnpm ci:tenant-scope
       - name: Run analytics events audit
@@ -312,12 +324,15 @@ jobs:
     # this comment used to assert the premise instead of deriving it, and went
     # stale the day a doc-reading suite was added without updating it).
     #
-    # Two known exceptions, excused there on RUNTIME COST, not on "reads no
-    # doc": scripts/ci/__tests__/red-team-status.test.ts (71s) and
-    # red-team-mutation-runner.test.ts (122s). They read docs/reviews/red-team
-    # fixtures and the red-team SKILL.md, and a docs-only PR does NOT run
-    # them — such a change surfaces on the next non-docs PR instead. The
-    # excuse table is the single place that gap is recorded.
+    # #1346: no exception is excused on cost. scripts/ci/__tests__/
+    # red-team-status.test.ts (71s) and red-team-mutation-runner.test.ts
+    # (122s) each had ONE slice that read docs/reviews/red-team/**
+    # findings.json and the red-team SKILL.md; that slice now lives in
+    # red-team-status-doc-reads.test.ts / red-team-mutation-runner-doc-reads.test.ts,
+    # run by `lint` above — a docs-only PR touching one of those fixtures
+    # runs it. The rest of the two source suites spawns git/node processes
+    # against synthetic mkdtemp fixtures and is excused in NOT_DOC_READING
+    # as "not a read", the same as every other entry there.
     if: needs.changes.outputs.docs_only != 'true'
     # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
     # and other *.integration.test.ts) actually runs instead of self-skipping.
