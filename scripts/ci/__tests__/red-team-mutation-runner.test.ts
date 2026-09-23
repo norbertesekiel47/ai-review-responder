@@ -3,13 +3,20 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// #1393: this suite spawns a git repo and the runner per case, so its wall time
-// is dominated by process start-up. It passes in isolation but timed out twice
-// under `pnpm test`'s parallel load during #1363's gate runs, and read 300s
-// total at load average 50. Every case gets the same generous budget: a vitest
-// timeout only bounds wall time and changes no assertion.
+// Timeout budget (PR #1428, landed with the #1393 fix): this suite spawns a git
+// repo and the runner per case, so its wall time is dominated by process
+// start-up. It passes in isolation but timed out twice under `pnpm test`'s
+// parallel load during #1363's gate runs, and read 300s total at load average
+// 50. Every case gets the same generous budget: a vitest timeout only bounds
+// wall time and changes no assertion.
+//
+// #1462: one case kept a literal `30000` that overrode this budget; it runs
+// ~15s idle and ~80s at load average 50, so it failed only under load. The
+// "suite timeout budget" test below fails on any literal per-case timeout in
+// this file or its -doc-reads sibling.
 //
 // #1346: the cases that read a REAL committed docs/reviews/red-team/**
 // findings.json at run time — the owner-approved Run C fourth round, the
@@ -23,6 +30,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // stays excused there as "not a read".
 const SUITE_TIMEOUT_MS = 120_000;
 vi.setConfig({ testTimeout: SUITE_TIMEOUT_MS, hookTimeout: SUITE_TIMEOUT_MS });
+
+describe('suite timeout budget', () => {
+  // #1462: an explicit per-case timeout overrides the setConfig budget above.
+  it('gives no case in this file or its -doc-reads sibling a literal timeout', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const literals = ['red-team-mutation-runner.test.ts', 'red-team-mutation-runner-doc-reads.test.ts']
+      .flatMap((name) => (readFileSync(join(here, name), 'utf8').match(/\}, *\d[\d_]*\)/g) ?? [])
+        .map((hit) => `${name}: ${hit}`));
+    expect(literals).toEqual([]);
+  });
+});
 
 // Here rather than beside the script: vitest's include roots are scripts/ci/**,
 // src/**, worker/**, tests/** and e2e/**, so a suite under .agents/ would never
@@ -2372,7 +2390,7 @@ describe('Operator same-round continuation safeguards', () => {
     git('commit', '-qm', 'forbidden second control revision');
     expect(admissionCheck().stdout.trim()).toBe('null');
 
-  }, 30000);
+  }, SUITE_TIMEOUT_MS);
 });
 
 // #1342. A finding raised in the last permitted round has no way to have its
