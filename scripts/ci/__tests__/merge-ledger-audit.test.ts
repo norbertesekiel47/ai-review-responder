@@ -258,8 +258,9 @@ describe('the reports', () => {
     expect(report.text).toContain('merge-ledger-audit: failed');
     expect(report.text).toContain('src/a.ts');
     expect(report.text).toContain(`Add one line to ${LEDGER_PATH}`);
-    // The counter is the pass's judgement, never this audit's.
-    expect(report.text).toContain("counter number is NOT this audit's business");
+    // #1442: the counter this audit never owned was deleted outright
+    // (#1383/#1409, PR #1438) — guard against the wording drifting back.
+    expect(report.text).not.toMatch(/counter/i);
   });
 
   it('names the untriggered arm when neither trigger fired', () => {
