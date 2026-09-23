@@ -21,7 +21,6 @@ vi.mock('../../../../src/lib/shared/logger', async (importOriginal) => {
 
 import {
   alertOffboardingFailure,
-  OFFBOARDING_ALERT_RULE_16,
   OFFBOARDING_FAILURE_ALERT_MESSAGE,
   OFFBOARDING_FAILURE_STEPS,
   offboardingRetryFingerprint,
@@ -145,37 +144,34 @@ describe('alertOffboardingFailure', () => {
 
 // ── The runbook routes what the emitter sends (rules 16, 17, 18) ──────────
 //
-// A fingerprint nobody routes is worth nothing: before #1016 the purge signal
-// had no rule at all (red-team RT-05), and before #1412 the two siblings had
-// none either. Read off the exported constants rather than hand-copied,
-// because "the runbook and the worker agree" is a claim about two artifacts
-// and a copy only ever proves the copy.
+// A fingerprint nobody routes is worth nothing. Read off the exported
+// constants rather than hand-copied, because "the runbook and the worker
+// agree" is a claim about two artifacts and a copy only ever proves the copy.
 //
-// Rule 16 gets its OWN block below, `toBe`-equality against the typed
-// `OFFBOARDING_ALERT_RULE_16` record (#1414): three red-team rounds kept
-// beating a pin built from `toContain` / `toMatch` over the prose — presence
-// survives a `do **not**` prefix (RT16-11), and a position-scoped regex still
-// has to re-derive the sentence as a pattern rather than just comparing it.
-// Equality does not have that gap: any reworded, negated, or reordered cell
-// is simply a different string.
+// Rule 16 gets its own block below: the four expected cells are built as
+// template literals that interpolate `OFFBOARDING_FAILURE_ALERT_MESSAGE` and
+// the fingerprint helpers directly, then compared to the parsed runbook row
+// with `toBe` — plain string equality, not `toContain`/`toMatch`. Because the
+// expected text is DERIVED from the emitter's own exports, a change to the
+// message or fingerprint spelling changes what the test expects, so runbook
+// and emitter can drift apart and the test still catches it (a fully
+// hand-copied expected string could not: it would keep matching the old
+// runbook text forever). `ruleTableRow` requires exactly one row in the block
+// to carry the rule name, so a contradicting duplicate pasted below the real
+// row cannot hide.
 //
-// Rules 17 and 18 stay on the OLDER position-scoped substring pin below —
-// RT16-11 is an accepted, open risk on those two rows until they get their
-// own record (owner decision tracked in #1447). Every assertion there is
-// scoped to one named CELL of the rule's own table row — the cells the
-// operator copies into the Sentry form — and each cell is located by its
-// header, not by a hard-coded index. A
-// file-wide `toContain` passed with the row corrupted to `terminal equals
-// false` at `warning` on the retry fingerprint (red-team RT-A6), because §1's
-// bullet carries the same strings; a ROW-wide regex then still passed when
-// the two fingerprint spellings were SWAPPED inside the row (RT16-02).
-// Position, not mere presence, is what the operator reads.
+// Rules 17 and 18 stay on the position-scoped substring pin below —
+// each assertion is scoped to one named CELL of the rule's own table row,
+// located by its column header rather than a hard-coded index, and the
+// grouping cell's two fingerprints are POSITION-scoped (terminal ahead of the
+// retry-arm sentence, retry only inside it) so swapping them turns red.
+// #1447 tracks the owner decision on whether 17/18 (and rules 1-15) move to
+// the same derived-equality shape rule 16 uses.
 
 /** The runbook that owns the Sentry rules routing these workers' terminal alerts. */
 const ALERTING_RUNBOOK = 'docs/runbooks/beta-launch-alerting.md';
 
-// Rule 16 is NOT in this list — it gets its own cell-equality block below,
-// against the typed `OFFBOARDING_ALERT_RULE_16` record (#1414).
+// Rule 16 is NOT in this list — it gets its own derived-equality block below.
 const RULES: ReadonlyArray<{ rule: number; step: OffboardingFailureStep; rowName: string }> = [
   { rule: 17, step: 'teardown', rowName: 'account-offboarding-teardown-terminal → discord' },
   { rule: 18, step: 'billing', rowName: 'account-offboarding-billing-terminal → discord' },
@@ -248,41 +244,54 @@ function ruleCells(rule: number, rowName: string): { filterCell: string; groupin
   };
 }
 
-// ── Rule 16: cell-for-cell equality against a typed record (#1414) ────────
+// ── Rule 16: cell-for-cell equality, derived from the emitter (#1414) ─────
 //
-// Not a search, not a regex — string equality. Every red-team beat found on
-// the position-scoped substring pin (still used by rules 17/18 below) turns
-// into a plain mismatch here: a `do **not**` prefix on any facet (RT16-11)
-// changes the cell's text and fails `toBe`; a reworded trigger or swapped
-// fingerprint spelling does the same. `ruleTableRow` still enforces exactly
-// ONE row in the block naming the rule (RT16-13), so a contradicting
-// duplicate pasted below the real row fails there, not silently.
-describe('runbook rule 16 pins a typed record, cell for cell', () => {
+// The expected cells are built HERE, from the same exports
+// `alertOffboardingFailure` uses, not copied prose: a change to the message
+// or a fingerprint spelling changes what this test expects, so the runbook
+// and the emitter cannot silently drift apart the way a hand-copied string
+// would let them. `toBe` — string equality, not a search — so a reworded
+// sentence or a negated facet is simply a different string.
+describe('runbook rule 16 pins the emitter, cell for cell', () => {
   const rule = 16;
+  const step: OffboardingFailureStep = 'purge';
   const rowName = 'account-offboarding-purge-terminal → discord';
+  const message = OFFBOARDING_FAILURE_ALERT_MESSAGE[step];
+  // `[a, b, …]` exactly as the runbook prose spells a fingerprint.
+  const terminalFingerprint = `[${offboardingTerminalFingerprintPrefix(step).join(', ')}, <account_offboarding_id>]`;
+  const retryFingerprint = `[${offboardingRetryFingerprint(step).join(', ')}]`;
 
-  it('matches OFFBOARDING_ALERT_RULE_16 exactly on every cell the operator copies into Sentry', () => {
+  const expected = {
+    ruleNameCell: `\`${rowName}\``,
+    filterCell:
+      `Worker \`captureMessage\` with the constant message \`${message}\`, emitted by \`alertPurgeFailure\` `
+      + `(\`worker/jobs/account-offboarding/PurgeWorker.ts\`); filter tag \`terminal\` equals \`true\` **AND** `
+      + `level equals \`error\`, together with \`subsystem\` equals \`account_offboarding\` and \`step\` equals `
+      + `\`${step}\`; scope to the deployment environment. Do **not** filter on Sentry priority — CONFIG-1 `
+      + 'established that a level alone does not reliably classify, and the retry twin of this signal is a `warning`',
+    groupingCell:
+      `\`error\`; custom fingerprint \`${terminalFingerprint}\`, which is the whole grouping: **one issue per `
+      + 'terminally failed offboarding** (the paragraph below owns why, and what it costs). The retry arm takes '
+      + `the shared \`${retryFingerprint}\` at \`warning\`, so a retry can never group with a terminal event. `
+      + 'Default title (the message). The event carries `account_offboarding_id`, `account_id` and the scrubbed '
+      + 'error only — never an owner name, email, address or review text',
+    triggerCell:
+      'Every event, action throttle 60 minutes per issue; the environment\'s existing Discord alerts channel '
+      + 'via integration 443670',
+  };
+
+  it('matches the runbook row exactly on every cell the operator copies into Sentry', () => {
     const runbook = readFileSync(join(process.cwd(), ALERTING_RUNBOOK), 'utf8');
     const block = ruleBlock(runbook, rule);
-    // Exactly one row may carry the rule name (RT16-13).
+    // Exactly one row may carry the rule name (a contradicting duplicate
+    // pasted below the real row must not hide).
     const row = ruleTableRow(block, rowName);
     const cells = tableCells(row);
 
-    expect(cells[columnIndex(block, 'Rule name')]).toBe(OFFBOARDING_ALERT_RULE_16.ruleNameCell);
-    expect(cells[columnIndex(block, 'Emitted identity and filter')]).toBe(
-      OFFBOARDING_ALERT_RULE_16.filterCell,
-    );
-    expect(cells[columnIndex(block, 'Level and grouping')]).toBe(
-      OFFBOARDING_ALERT_RULE_16.groupingCell,
-    );
-    expect(cells[columnIndex(block, 'Trigger and destination')]).toBe(
-      OFFBOARDING_ALERT_RULE_16.triggerCell,
-    );
-  });
-
-  it('the record agrees with what the emitter actually sends, not just with itself', () => {
-    expect(OFFBOARDING_ALERT_RULE_16.signal).toBe(OFFBOARDING_FAILURE_ALERT_MESSAGE.purge);
-    expect(OFFBOARDING_ALERT_RULE_16.level).toBe('error');
+    expect(cells[columnIndex(block, 'Rule name')]).toBe(expected.ruleNameCell);
+    expect(cells[columnIndex(block, 'Emitted identity and filter')]).toBe(expected.filterCell);
+    expect(cells[columnIndex(block, 'Level and grouping')]).toBe(expected.groupingCell);
+    expect(cells[columnIndex(block, 'Trigger and destination')]).toBe(expected.triggerCell);
   });
 });
 
