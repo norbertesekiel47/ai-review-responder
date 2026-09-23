@@ -2,162 +2,89 @@
 // and 041 (`041_rls_missing_revokes.sql`) — the write-surface narrowing on
 // `businesses` and `channel_enrollments` (#1384, invariant #8). Migration 035
 // gave owners a broad `account_id = owner_account_id()` UPDATE policy on both
-// tables plus INSERT on `channel_enrollments`; a security review found that
-// predicate alone lets an owner rewrite `subscription_tier`,
-// `stripe_customer_id`, `is_primary`, `channel_enrollments.status`, and more,
-// or self-verify a channel enrollment outright. RLS policies restrict ROWS,
-// never COLUMNS, so 040 narrows the write surface with table-level
-// REVOKE + column-level GRANT instead, and removes the INSERT policy on
-// `channel_enrollments` entirely (enrollment now requires service-role).
-// 041 is a follow-up REVOKE-only patch for three `businesses` and two
-// `channel_enrollments` columns migration 040 missed (added by earlier
-// migrations 007/014/022).
+// tables plus INSERT on `channel_enrollments`; RLS restricts ROWS, never
+// COLUMNS, so 040 narrows the write surface with table-level REVOKE +
+// column-level GRANT instead, and removes the INSERT policy on
+// `channel_enrollments` entirely. 041 is a follow-up REVOKE-only patch for
+// three `businesses` and two `channel_enrollments` columns 040 missed.
 //
 // This ONE suite covers BOTH files, as the predecessor suite did — 041 has no
-// suite of its own, and splitting one now would be a name with no reader.
+// suite of its own. Converts from regex-over-SQL-text to executing both
+// migrations and asserting via `readPublicCatalogue`, per #1301/#1384
+// (`migration-guard.ts`'s own header owns the red-team history behind that
+// decision). Listed in `MIGRATION_SHAPE_FILES`
+// (`scripts/ci/live-db-suites-audit.ts`) and holds the cross-process live-DB
+// lock in `beforeAll`, as every entry there must.
 //
-// ── this suite now EXECUTES DDL, deliberately (#1384) ───────────────────────
-//
-// It is listed in `MIGRATION_SHAPE_FILES` (`scripts/ci/live-db-suites-audit.ts`)
-// — the sanctioned exemption from R2 for suites where APPLYING the migration IS
-// the subject — and it takes the cross-process live-DB lock in `beforeAll`, as
-// every entry in that set is enforced to do.
-//
-// WHY. The predecessor suite proved both files by pattern-matching their SQL
-// TEXT: 30-plus separate regexes reconstructing `REVOKE UPDATE (<col>) ON
-// businesses FROM authenticated` per column, a five-line USING/CHECK
-// reconstruction for each narrowed policy, and a handful of pure text-shape
-// checks (does a `DO $$ BEGIN` block wrap the REVOKEs, does the string
-// "REVOKE UPDATE" appear more than zero times). #1301's five red-team rounds
-// against this exact suite family each defeated a different hand-rolled
-// approximation of a SQL lexer. The verdict every time was that the APPROACH
-// was wrong, not the code. This suite stops parsing the checked-in files and
-// starts running them: PostgreSQL is the parser, and `has_column_privilege`
-// is the arbiter of what a column grant actually means — not a regex counting
-// how many times the word REVOKE appears.
-//
-// ── the challenge: this container carries no default ACL (#1301/118) ────────
+// ── default-ACL workaround (#1301/118) ───────────────────────────────────
 //
 // A real Supabase project's platform grants `authenticated`/`anon` broad
 // table-level DML on every table it creates; this test container's bootstrap
-// does not replicate that (`scripts/ci/test-db-bootstrap.sql`; confirmed
-// 2026-09-22, `SELECT count(*) FROM pg_default_acl` returns 0, exactly what
-// migration 118's suite already documents). So `businesses` and
-// `channel_enrollments` never had table-level UPDATE/INSERT granted to
-// `authenticated` here to begin with — 040/041's REVOKE would have NOTHING to
-// remove, and this suite's "reapply narrows the grants" case would pass
-// against a version of 040 with every REVOKE deleted. `degrade()` below
-// restores the wide-open pre-040 grant FIRST (`GRANT UPDATE ON businesses TO
-// authenticated`, `GRANT INSERT, UPDATE ON channel_enrollments TO
-// authenticated`) for exactly the reason migration 118's suite restores
-// permissive default privileges before dropping its table: to make the
-// REVOKE falsifiable rather than vacuous.
+// does not (confirmed 2026-09-22, `SELECT count(*) FROM pg_default_acl`
+// returns 0 — the same fact migration 118's suite documents). So
+// `businesses`/`channel_enrollments` never had table-level UPDATE/INSERT
+// granted to `authenticated` here to begin with, and 040/041's REVOKE would
+// have nothing to remove. `degrade()` restores the wide-open pre-040 grant
+// FIRST (`GRANT UPDATE ON businesses TO authenticated`, `GRANT INSERT, UPDATE
+// ON channel_enrollments TO authenticated`) — the same technique 118's suite
+// uses before dropping its table — to make the REVOKE falsifiable.
 //
-// ── the retired text-matching cases, and where each assertion went ─────────
+// ── retired assertions (ci:weakened-checks) ──────────────────────────────
 //
 // RETIRED, no replacement (dead scope): the `notification_preference` entry
-// in the predecessor's `safeBusinessColumns` list. That column was DROPPED by
-// migration 022 — three migrations before 040 — so the "does NOT REVOKE
-// UPDATE(notification_preference)" case tested a column that has not existed
-// since before 040 was written. It is not carried forward in any form; there
-// is nothing left to assert about a column that is not there.
-//
+// in the predecessor's safe-column list — that column was DROPPED by
+// migration 022, three migrations before 040 was written.
 // RETIRED → the single derived case below (`grants UPDATE only on the exact
-// safe-column list…`), for ALL of: every per-column
-// `REVOKEs UPDATE(%s) … (migration 040)` / `(migration 041)` / `combined:` case
-// (28 columns' worth: 19+3 businesses, 12+2 channel_enrollments), every
-// `does NOT REVOKE UPDATE(%s) …` safe-column case, and the two `total REVOKE
-// count across 040+041 covers all sensitive columns` counting assertions. The
-// derived case queries `has_column_privilege` for every column of each table
-// and asserts the returned set equals the safe-column list EXACTLY — which is
-// strictly stronger than the retired per-column checks: a REVOKE that targeted
-// the WRONG column (a typo, a column from the wrong table) left the intended
-// column privileged and the enumerated regex checks could not see it, because
-// each one only asked about the column it already expected to find revoked.
-// The derived case asks the opposite question — "what CAN be updated" — so a
-// column that should have lost UPDATE but did not is caught regardless of
-// which REVOKE statement was supposed to remove it.
+// safe-column list…`), for every per-column `REVOKEs UPDATE(%s)`/safe-column
+// case and the two REVOKE-count assertions (28 columns' worth): it queries
+// `has_column_privilege` for every column and compares the returned set to
+// the safe list EXACTLY — strictly stronger, since a REVOKE that targeted the
+// WRONG column left the intended one privileged and the enumerated checks
+// could not see it; this asks "what CAN be updated" instead.
+// RETIRED → the pinned policy-definition + count cases below, for the
+// businesses/channel_enrollments UPDATE-policy quartets and the
+// insert-removal cases — the pinned literals are the catalogue's OWN
+// rendering (`pg_get_expr`), and the policy-count-of-two on
+// `channel_enrollments` catches an insert policy under ANY name.
+// RETIRED, no replacement (author's syntax, not a DB effect): `migration 041
+// exists as a separate file`, the DO-block-wrapping check, and the two
+// "REVOKE is idempotent" cases.
+// RETIRED → `assertOnlyTablesMoved` below, for `does NOT affect any table
+// other than…` — byte-identical, not merely "no REVOKE/DROP POLICY text
+// mentions this table's name".
+// RETIRED → whole-table equality in the executing cases, for `does NOT drop
+// …_owner_select` and the three `combined state — migrations 035 + 040 + 041`
+// cases: a table equal to its own head state necessarily carries every policy
+// those cases enumerated and no policy they did not.
 //
-// RETIRED → the pinned policy-definition + count cases below, for: `drops the
-// old permissive businesses_owner_update policy` / `creates a new narrowed …`
-// / `UPDATE policy uses account_id = owner_account_id()…` / `has a WITH CHECK
-// clause` (and the identical quartet for `channel_enrollments_owner_update`),
-// plus `drops the channel_enrollments_owner_insert policy` / `does NOT
-// recreate…` / `owner cannot INSERT … via anon key`. The pinned literals are
-// the catalogue's OWN rendering of the predicate (`pg_get_expr`), captured by
-// introspection independent of the migration files; the policy-count-of-two
-// on `channel_enrollments` subsumes "insert is gone" more strongly than a
-// negative regex, because it catches an insert policy under ANY name.
+// ── the two oracles ───────────────────────────────────────────────────────
 //
-// RETIRED, no replacement (not a security invariant): `migration 041 exists as
-// a separate migration file`, `does NOT create or drop any RLS policies —
-// only REVOKEs`, `all REVOKEs are inside a DO block for transactional safety`,
-// and the two "REVOKE statements are safe to re-run" cases. These tested the
-// AUTHOR'S CHOSEN SYNTAX (a `DO $$ BEGIN` wrapper, a REVOKE rather than some
-// other statement), not an effect on the database — REVOKE is transactional
-// and idempotent in PostgreSQL regardless of whether it sits inside a DO
-// block, so wrapping it proves nothing a catalogue read could confirm either
-// way. `does NOT affect any table other than businesses and
-// channel_enrollments` is retired in favour of `assertOnlyTablesMoved` below,
-// which is strictly stronger (byte-identical, not merely "no REVOKE/DROP
-// POLICY text mentions this table's name").
+// ORACLE A (titles 2-3): pinned head-posture literals, captured independently
+// of the migration files by introspecting this container at head
+// (2026-09-22). Catches a WEAKENED migration oracle B alone cannot: `pnpm
+// test:db:setup` provisions the container FROM the migrations under test, so
+// a weakened 040/041 yields a weakened BEFORE and `AFTER == BEFORE` would
+// pass regardless.
 //
-// RETIRED → whole-table equality (`after.tables[…] toEqual before.tables[…]`)
-// in the executing cases: `does NOT drop businesses_owner_select policy` /
-// `does NOT drop channel_enrollments_owner_select policy`, and the three
-// `combined state — migrations 035 + 040 + 041` cases (`businesses has exactly
-// SELECT + UPDATE policies`, `channel_enrollments has SELECT + UPDATE policies
-// only`, `all other table policies from migration 035 are untouched`). A
-// table compared byte-for-byte to its own head state necessarily has every
-// policy the predecessor enumerated and no policy it did not — the whole
-// point of comparing the OBJECT rather than re-deriving a policy count by hand.
+// ORACLE B (titles 4-5): degrades both tables to the pre-040 posture inside a
+// transaction that ALWAYS rolls back, proves the degrade landed, applies BOTH
+// files VERBATIM in order, and diffs the whole `public` catalogue against the
+// before-read, including every OTHER table (migration 119's off-target
+// `GRANT ALL` red-team round is why).
 //
-// ── the two oracles ──────────────────────────────────────────────────────────
+// ── mutation evidence (#1384) ─────────────────────────────────────────────
 //
-// ORACLE A (titles 2-3) is the pinned head posture — literals captured
-// independently of the migration files by introspecting this container at head
-// (2026-09-22). This is what catches a WEAKENED migration: `pnpm test:db:setup`
-// provisions the container FROM the migrations under test, so oracle B alone
-// is circular — a weakened 040/041 yields a weakened BEFORE reading and
-// `AFTER == BEFORE` would pass regardless.
+// Mutated `BUSINESSES_SAFE_COLUMNS` (removed `'tone'`) and re-ran against the
+// unmodified container: 2 of 5 cases went red — oracle A's safe-column case
+// and oracle B's own trailing derived-column re-check (the catalogue-wide
+// `toEqual` had already passed by that point, which is the expected shape:
+// only the derived-column check reads this constant). The registry case and
+// `re-applying 040+041 moves no other table in public` stayed green. Reverted;
+// diff showed zero drift.
 //
-// ORACLE B (titles 4-5) degrades both tables to the pre-040 posture inside a
-// transaction that ALWAYS rolls back, proves the degrade landed so no case can
-// pass vacuously against a no-op migration, applies BOTH checked-in files
-// VERBATIM in order, and diffs the whole `public` catalogue against the
-// before-read — including every OTHER table (migration 119's off-target
-// `GRANT ALL ON admin_audit_log TO anon;` red-team round is why).
-//
-// ── mutation evidence (#1384, recorded per the carried-forward #1301 rule) ──
-//
-// Mutated `BUSINESSES_SAFE_COLUMNS` below (removed `'tone'` from the array,
-// simulating a 040 that GRANTed one fewer safe column than the real file does
-// — the array is compared for EQUALITY, so removing an entry that IS still
-// granted makes the comparison fail exactly the way a REGRESSION that widened
-// the safe list would) and re-ran this suite against the UNMODIFIED container:
-// 2 of 5 cases went red — `businesses and channel_enrollments grant UPDATE
-// only on the exact safe-column list…` (oracle A, `AssertionError: … expected
-// […9 items, including "tone"…] to deeply equal […8 items…]`) and `re-applying
-// 040+041 restores the narrowed grants and removes the restored insert
-// policy` (oracle B — its own trailing `restoredBusinessesColumns` check hits
-// the same mismatch, one statement after `after.tables.businesses toEqual
-// before.tables.businesses` had already passed, which is the expected shape:
-// the catalogue-wide comparison cannot see a difference in what the TEST
-// itself expects, only the derived-column re-check can). The registry case
-// and `re-applying 040+041 moves no other table in public` stayed green,
-// exactly as expected — neither reads `BUSINESSES_SAFE_COLUMNS`. Reverted
-// immediately after (`diff` against the pre-mutation copy showed zero drift).
-// This is the proof the pinned safe-column list is load-bearing.
-//
-// ── stated limit ────────────────────────────────────────────────────────────
-//
-// This suite does not seed any row, so the carried-forward `SET CONSTRAINTS
-// ALL IMMEDIATE` rule (`users.fk_users_account` is `DEFERRABLE INITIALLY
-// DEFERRED`) does not apply here — noted for completeness, not silently
-// dropped.
-//
-// The DB-free registry case is the only one that cannot silently skip; the
-// other four sit behind `describeWithDb` and need a database.
+// No row is seeded, so the carried-forward `SET CONSTRAINTS ALL IMMEDIATE`
+// rule does not apply. The registry case is DB-free and cannot silently
+// skip; the other four sit behind `describeWithDb`.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
