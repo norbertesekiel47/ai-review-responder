@@ -6,10 +6,13 @@
 // consumers must agree on the exact day count (#1371) — the per-location/
 // aggregate dashboard route (JS `Date` math, to serialize
 // `gracePeriodEndDate` for the read-access banner) and
-// CancellationGracePoller (SQL `WHERE` predicate, to select accounts whose
-// grace has expired) — so the day count lives here once. Shape mirrors
-// past-due-recovery.ts's `PAST_DUE_GRACE_DAYS` constant and its SQL twin
-// `subscription-eligibility-sql.ts`, which owns `cancellationGraceExpiredSql`.
+// CancellationGracePoller (an inline SQL `make_interval(days => ...)`
+// predicate, to select accounts whose grace has expired) — so the day count
+// lives here once. `CANCELLATION_GRACE_DAYS` is imported directly by both;
+// unlike past-due-recovery.ts's PAST_DUE_GRACE_DAYS this constant has no
+// separate SQL-fragment-builder twin — CancellationGracePoller is its only
+// SQL caller, so the predicate stays inline there rather than behind a
+// single-caller abstraction.
 
 const DAY_MS = 86_400_000;
 

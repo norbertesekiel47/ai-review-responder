@@ -145,9 +145,10 @@ function pendingPaymentResponse(
  * aggregate paths (VAL-CROSS-011). Grace runs `CANCELLATION_GRACE_DAYS` from
  * cancelled_at (Stripe webhook, migration 037), falling back to
  * subscription_activated_at for legacy rows; defaults to read access when
- * neither date is known. The day count is the single shared owner
- * `cancellationGraceDeadline()` (`src/lib/shared/cancellation-grace.ts`) —
- * also consumed in SQL form by CancellationGracePoller's archival scan (#1371).
+ * neither date is known. The day count's single owner is
+ * `CANCELLATION_GRACE_DAYS` (`src/lib/shared/cancellation-grace.ts`),
+ * consumed here via `cancellationGraceDeadline()` and imported directly into
+ * CancellationGracePoller's archival-scan predicate (#1371).
  */
 async function cancelledGraceResponse(
   accountId: string,

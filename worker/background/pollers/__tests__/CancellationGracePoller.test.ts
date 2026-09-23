@@ -7,30 +7,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CANCELLATION_GRACE_DAYS } from '../../../../src/lib/shared/cancellation-grace';
 
 // ── Hoisted mock state ─────────────────────────────────────────────
-//
-// #1371: the expired-accounts query now embeds a NESTED tagged-template
-// fragment — cancellationGraceExpiredSql(sql) — the same postgres.js
-// composition idiom publisherSubscriptionEligibleSql already uses in
-// production (judge-store.ts, judge-health.ts). Real postgres.js Query
-// objects play two roles: a value spliced into an outer template's
-// substitution position is inlined as a fragment (never independently
-// executed), while the outermost expression is executed only when
-// `await`-ed. This mock reproduces both roles: `then()` performs the
-// "pop the next queued fixture row" side effect and fires only for a
-// genuinely top-level `await sql\`...\`` — never for a fragment sitting
-// inertly inside another template's `values` array, which is the failure
-// mode a naive always-resolve mock hits (queue desync, call-order
-// assumptions broken).
+
 const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const mockSql: any = vi.fn(
-    (strings: TemplateStringsArray, ...values: unknown[]) => {
-      const query: any = { __isMockSqlFragment: true, strings, values };
-      query.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
-        const result = sqlReturnQueue.shift() ?? [];
-        return Promise.resolve(result).then(resolve, reject);
-      };
-      return query;
+    (_strings: TemplateStringsArray, ..._values: unknown[]) => {
+      const result = sqlReturnQueue.shift() ?? [];
+      return Promise.resolve(result);
     },
   );
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
@@ -61,31 +44,6 @@ function queueLifecycleAndBusinessLocks(): void {
   sqlReturnQueue.push([]); // deterministic active business-row FOR UPDATE lock
 }
 
-/**
- * Flattens one recorded call's strings/values into readable SQL text,
- * recursively inlining a nested fragment (a value produced by another call
- * to the same mock tag, e.g. cancellationGraceExpiredSql(sql)) instead of
- * rendering it as an opaque `?`.
- */
-function joinDeep(strings: TemplateStringsArray, values: unknown[]): string {
-  let out = strings[0] ?? '';
-  for (let i = 0; i < values.length; i++) {
-    const value = values[i] as { __isMockSqlFragment?: boolean; strings?: TemplateStringsArray; values?: unknown[] } | undefined;
-    out += value && typeof value === 'object' && value.__isMockSqlFragment
-      ? joinDeep(value.strings as TemplateStringsArray, value.values as unknown[])
-      : '?';
-    out += strings[i + 1] ?? '';
-  }
-  return out;
-}
-
-/** The first recorded mock call whose flattened text contains `marker`. */
-function findCallContaining(marker: string): [TemplateStringsArray, ...unknown[]] | undefined {
-  return (mockSql.mock.calls as [TemplateStringsArray, ...unknown[]][]).find(
-    (call) => joinDeep(call[0], call.slice(1)).includes(marker),
-  );
-}
-
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('CancellationGracePoller', () => {
@@ -105,7 +63,7 @@ describe('CancellationGracePoller', () => {
     errorSpy.mockRestore();
   });
 
-  // VAL-BILLING-049: 30-day grace period before automatic soft-archive
+  // VAL-BILLING-049: grace period before automatic soft-archive
   it('soft-archives locations for cancelled accounts past 30-day grace', async () => {
     // Queue: expired accounts query → returns 1 account with 2 locations
     sqlReturnQueue.push([
@@ -126,27 +84,19 @@ describe('CancellationGracePoller', () => {
 
     await runOneCycle();
 
-    // Verify the expired accounts query (identified by content, not call
-    // position — cancellationGraceExpiredSql(sql) is evaluated as a nested
-    // fragment BEFORE the outer tag runs, so it is recorded first).
-    const expiredAccountsCall = findCallContaining('cancelled_count');
-    expect(expiredAccountsCall).toBeDefined();
-    const template = joinDeep(expiredAccountsCall![0], expiredAccountsCall!.slice(1));
+    // Verify the first SQL call is the expired accounts query
+    const firstCall = mockSql.mock.calls[0];
+    const template = (firstCall[0] as TemplateStringsArray).join('?');
     expect(template).toContain('cancelled');
     expect(template).toContain('cancelled_at IS NOT NULL');
     expect(template).toContain('cancelled_at');
     expect(template).toContain('archived_at IS NULL');
-    // The grace window comes from the shared cancellationGraceExpiredSql
-    // fragment (#1371), not a locally re-spelled INTERVAL literal.
+    // The grace window is make_interval(days => <bound value>), not a
+    // hardcoded INTERVAL literal — pin the bound value to the shared
+    // CANCELLATION_GRACE_DAYS constant the dashboard route's JS deadline
+    // (cancellationGraceDeadline) also derives from (#1371 — one owner).
     expect(template).toContain('make_interval(days => ?)');
-    // Pin the bound day count to the SAME shared constant the dashboard
-    // route's JS deadline (cancellationGraceDeadline) uses — the whole point
-    // of #1371 is that these two can no longer independently drift.
-    const graceFragment = expiredAccountsCall!.slice(1).find(
-      (v): v is { __isMockSqlFragment: true; values: unknown[] } =>
-        Boolean(v && typeof v === 'object' && (v as { __isMockSqlFragment?: boolean }).__isMockSqlFragment),
-    );
-    expect(graceFragment?.values).toContain(CANCELLATION_GRACE_DAYS);
+    expect(firstCall.slice(1)).toContain(CANCELLATION_GRACE_DAYS);
 
     // Verify audit log entries were written
     const auditCalls = mockSql.mock.calls.filter(
@@ -266,11 +216,8 @@ describe('CancellationGracePoller', () => {
 
     await runOneCycle();
 
-    // Identify the expired-accounts query by content — cancellationGraceExpiredSql(sql)
-    // is recorded as an earlier, nested mock call, so it is no longer calls[0].
-    const expiredAccountsCall = findCallContaining('cancelled_count');
-    expect(expiredAccountsCall).toBeDefined();
-    const template = joinDeep(expiredAccountsCall![0], expiredAccountsCall!.slice(1));
+    const firstCall = mockSql.mock.calls[0];
+    const template = (firstCall[0] as TemplateStringsArray).join('?');
     expect(template).toMatch(/NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+account_offboardings\s+ao/i);
     expect(template).toContain('ao.account_id = a.id');
   });
