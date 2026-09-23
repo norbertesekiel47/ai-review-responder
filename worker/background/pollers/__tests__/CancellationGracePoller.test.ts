@@ -4,6 +4,7 @@
 // Validation contract: VAL-BILLING-048, VAL-BILLING-049.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { CANCELLATION_GRACE_DAYS } from '../../../../src/lib/shared/cancellation-grace';
 
 // ── Hoisted mock state ─────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ describe('CancellationGracePoller', () => {
     errorSpy.mockRestore();
   });
 
-  // VAL-BILLING-049: 30-day grace period before automatic soft-archive
+  // VAL-BILLING-049: grace period before automatic soft-archive
   it('soft-archives locations for cancelled accounts past 30-day grace', async () => {
     // Queue: expired accounts query → returns 1 account with 2 locations
     sqlReturnQueue.push([
@@ -86,11 +87,16 @@ describe('CancellationGracePoller', () => {
     // Verify the first SQL call is the expired accounts query
     const firstCall = mockSql.mock.calls[0];
     const template = (firstCall[0] as TemplateStringsArray).join('?');
-    expect(template).toContain('30 days');
     expect(template).toContain('cancelled');
     expect(template).toContain('cancelled_at IS NOT NULL');
     expect(template).toContain('cancelled_at');
     expect(template).toContain('archived_at IS NULL');
+    // The grace window is make_interval(days => <bound value>), not a
+    // hardcoded INTERVAL literal — pin the bound value to the shared
+    // CANCELLATION_GRACE_DAYS constant the dashboard route's JS deadline
+    // (cancellationGraceDeadline) also derives from (#1371 — one owner).
+    expect(template).toContain('make_interval(days => ?)');
+    expect(firstCall.slice(1)).toContain(CANCELLATION_GRACE_DAYS);
 
     // Verify audit log entries were written
     const auditCalls = mockSql.mock.calls.filter(

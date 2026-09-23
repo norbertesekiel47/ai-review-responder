@@ -16,6 +16,7 @@ import {
   type AccountFlagsInput,
   type PastDueRecoveryState,
 } from '@/lib/shared/past-due-recovery';
+import { cancellationGraceDeadline } from '@/lib/shared/cancellation-grace';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import type { DashboardWindow } from '@/lib/kpi/types';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
@@ -140,10 +141,14 @@ function pendingPaymentResponse(
 }
 
 /**
- * Cancelled-account 30-day grace-period response, shared by the per-location and
- * aggregate paths (VAL-CROSS-011). Grace runs 30 days from cancelled_at (Stripe
- * webhook, migration 037), falling back to subscription_activated_at for legacy
- * rows; defaults to read access when neither date is known.
+ * Cancelled-account grace-period response, shared by the per-location and
+ * aggregate paths (VAL-CROSS-011). Grace runs `CANCELLATION_GRACE_DAYS` from
+ * cancelled_at (Stripe webhook, migration 037), falling back to
+ * subscription_activated_at for legacy rows; defaults to read access when
+ * neither date is known. The day count's single owner is
+ * `CANCELLATION_GRACE_DAYS` (`src/lib/shared/cancellation-grace.ts`),
+ * consumed here via `cancellationGraceDeadline()` and imported directly into
+ * CancellationGracePoller's archival-scan predicate (#1371).
  */
 async function cancelledGraceResponse(
   accountId: string,
@@ -157,7 +162,7 @@ async function cancelledGraceResponse(
   `;
   const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
   const gracePeriodEnd = cancellationDate
-    ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
+    ? cancellationGraceDeadline(new Date(cancellationDate))
     : null;
   const readAccess = gracePeriodEnd ? gracePeriodEnd > new Date() : true;
   return jsonResponse({
