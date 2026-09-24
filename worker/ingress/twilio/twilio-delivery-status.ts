@@ -13,6 +13,7 @@ import {
   markInboundEventProcessed,
 } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 type DeliveryChannel = 'whatsapp';
 
@@ -51,7 +52,7 @@ export async function handleTwilioDeliveryStatus(
       params,
     })
   ) {
-    console.warn(`${options.logPrefix} ${options.invalidSignatureMessage}`);
+    createWorkerLogger(options.logPrefix).warn(options.invalidSignatureMessage);
     reply.status(401).send({ error: 'invalid_signature' });
     return;
   }
@@ -63,6 +64,7 @@ export async function handleTwilioDeliveryStatus(
   }
 
   const dedupKey = `${MessageSid}:${MessageStatus}`;
+  const logger = createWorkerLogger(options.logPrefix, dedupKey);
   const auditPayload = options.redactPayload ? options.redactPayload(params) : params;
   const claim = await claimInboundEvent('twilio', dedupKey, `status:${MessageStatus}`, auditPayload);
   if (claim === 'duplicate') {
@@ -72,7 +74,7 @@ export async function handleTwilioDeliveryStatus(
 
   if (!TERMINAL_STATUSES.has(MessageStatus)) {
     if (options.logUnknownNonTerminal && !KNOWN_NON_TERMINAL_STATUSES.has(MessageStatus)) {
-      console.log(`${options.logPrefix} Unknown MessageStatus ${MessageStatus} for ${MessageSid}`);
+      logger.log(`Unknown MessageStatus ${MessageStatus} for ${MessageSid}`);
     }
     await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });

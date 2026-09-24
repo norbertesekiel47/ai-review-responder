@@ -9,6 +9,7 @@ import {
 } from './shared';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import { escapeHtml } from '../../src/lib/shared/html';
+import { createWorkerLogger, toError } from '../../src/lib/shared/logger';
 import { classifyBounce, extractBounceType } from './resend/bounce-classifier';
 import { handleSolicitationResendEvent, isSolicitationLane } from './resend/solicitation-lane';
 
@@ -28,15 +29,17 @@ interface ResendWebhookBody {
  *   svix-id, svix-timestamp, svix-signature
  * Signature = base64(HMAC-SHA256(secret, "${svixId}.${svixTimestamp}.${body}"))
  */
+const preClaimLogger = createWorkerLogger(LOG_PREFIX);
+
 function verifySignature(rawBody: string, headers: Record<string, string | undefined>): boolean {
   const secret = getWorkerConfig().RESEND_WEBHOOK_SECRET;
   if (!secret) {
     // Fail open ONLY in mock mode (local dev). In production, reject unsigned payloads.
     if (process.env.MOCK_EXTERNAL_APIS === 'true') {
-      console.warn(`${LOG_PREFIX} RESEND_WEBHOOK_SECRET not set, allowing in mock mode`);
+      preClaimLogger.warn('RESEND_WEBHOOK_SECRET not set, allowing in mock mode');
       return true;
     }
-    console.error(`${LOG_PREFIX} RESEND_WEBHOOK_SECRET not set — rejecting request (fail closed)`);
+    preClaimLogger.error('RESEND_WEBHOOK_SECRET not set — rejecting request (fail closed)');
     return false;
   }
 
@@ -55,7 +58,7 @@ function verifySignature(rawBody: string, headers: Record<string, string | undef
   }
   const ageSeconds = Math.floor(Date.now() / 1000) - timestampSeconds;
   if (ageSeconds > 300 || ageSeconds < -60) {
-    console.warn(`${LOG_PREFIX} Stale svix-timestamp: age=${ageSeconds}s — rejecting`);
+    preClaimLogger.warn(`Stale svix-timestamp: age=${ageSeconds}s — rejecting`);
     return false;
   }
 
@@ -131,7 +134,7 @@ export async function handleResendWebhook(
   const headers = request.headers as Record<string, string | undefined>;
 
   if (!verifySignature(rawBody, headers)) {
-    console.warn(`${LOG_PREFIX} Invalid webhook signature`);
+    preClaimLogger.warn('Invalid webhook signature');
     reply.status(401).send({ error: 'invalid_signature' });
     return;
   }
@@ -140,6 +143,7 @@ export async function handleResendWebhook(
   const eventType = body.type;
   const emailId = body.data?.email_id;
   const svixId = headers['svix-id'] ?? `resend-${Date.now()}`;
+  const logger = createWorkerLogger(LOG_PREFIX, svixId);
 
   const claim = await claimInboundEvent('resend', svixId, eventType, body);
   if (claim === 'duplicate') {
@@ -162,7 +166,7 @@ export async function handleResendWebhook(
     await processResendEvent(eventType, emailId, body);
     await markInboundEventProcessed(svixId);
   } catch (err) {
-    console.error(`${LOG_PREFIX} Failed to process event ${svixId}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to process event ${svixId}: ${err instanceof Error ? err.message : err}`);
     await markInboundEventFailed(svixId, err instanceof Error ? err.message : String(err));
     processingFailed = true;
   }
@@ -220,6 +224,7 @@ async function handleEmailBounced(
   emailId: string,
   data: ResendWebhookBody['data'],
 ): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, emailId);
   // Defensively extract bounce type from multiple possible payload shapes,
   // then classify into normalized 'bounced:hard:<raw>' or
   // 'bounced:soft:<raw>'. Storing the normalized kind guarantees the admin
@@ -248,8 +253,8 @@ async function handleEmailBounced(
   if (!isOwnerDirectedTemplate(delivery.template)) {
     // Hard bounce on an admin/partner-directed template. The owner's email is
     // NOT at fault, so do not flag the business owner.
-    console.warn(
-      `${LOG_PREFIX} Hard bounce on admin/partner template '${delivery.template ?? 'null'}' for business ${delivery.business_id} — NOT flagging owner`,
+    logger.warn(
+      `Hard bounce on admin/partner template '${delivery.template ?? 'null'}' for business ${delivery.business_id} — NOT flagging owner`,
     );
     return;
   }
@@ -266,11 +271,12 @@ async function handleEmailBounced(
   `;
 
   if (transitioned.length > 0) {
-    await sendHardBounceAlert(delivery.business_id, delivery.template, bounceType);
+    await sendHardBounceAlert(emailId, delivery.business_id, delivery.template, bounceType);
   }
 }
 
 async function sendHardBounceAlert(
+  emailId: string,
   businessId: string,
   template: string | null,
   bounceType: string,
@@ -288,6 +294,6 @@ async function sendHardBounceAlert(
       category: 'internal',
     });
   } catch (alertErr) {
-    console.error(`${LOG_PREFIX} Failed to send admin hard-bounce alert:`, alertErr);
+    createWorkerLogger(LOG_PREFIX, emailId).error('Failed to send admin hard-bounce alert', toError(alertErr));
   }
 }

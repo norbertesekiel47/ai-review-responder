@@ -4,19 +4,21 @@ import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, resume
 import { applyStripeSubscriptionStateUnderEntitlementLock, mapStripeStatus } from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 const STRIPE_STATUS_READ_TIMEOUT_MS = 20_000;
 
 export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, invoice.id);
   const customerId = extractCustomerId(invoice.customer);
   if (!customerId) {
-    console.warn(`${LOG_PREFIX} invoice.paid missing customer — skipping`);
+    logger.warn('invoice.paid missing customer — skipping');
     return;
   }
 
   const recoverySubscriptionId = invoiceSubscriptionId(invoice);
   if (!recoverySubscriptionId) {
-    console.warn(`${LOG_PREFIX} invoice.paid for customer=${customerId} has no subscription id — skipping (cannot attribute to an account)`);
+    logger.warn(`invoice.paid for customer=${customerId} has no subscription id — skipping (cannot attribute to an account)`);
     return;
   }
 
@@ -74,7 +76,7 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 
   if (!transition.changed || !transition.activated) return;
 
-  console.log(`${LOG_PREFIX} Account ${accountRef.id} recovered to active via invoice.paid (customer=${customerId})`);
+  logger.log(`Account ${accountRef.id} recovered to active via invoice.paid (customer=${customerId})`);
 
   await resumePrimaryBusinessBackfill(transition.primaryBusinessId);
 }

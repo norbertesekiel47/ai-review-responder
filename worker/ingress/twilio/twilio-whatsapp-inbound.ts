@@ -33,6 +33,7 @@ import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resol
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { parseTwilioWhatsAppInbound } from './parse-inbound';
 import { handleConversationalMessage } from '../conversational-seam';
+import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
 
@@ -50,6 +51,8 @@ interface WhatsAppInboundContext {
   // Caller's IP for the approval audit trail. Resolved once at the boundary so
   // helpers never reach back into the raw Fastify request.
   ipAddress: string | null;
+  // Bound to messageSid so every log line from this inbound is correlatable.
+  logger: WorkerLogger;
 }
 
 export async function handleTwilioWhatsAppInbound(
@@ -66,7 +69,7 @@ export async function handleTwilioWhatsAppInbound(
     fullUrl: fullUrl(request),
     params,
   })) {
-    console.warn(`${LOG_PREFIX} invalid signature on inbound`);
+    createWorkerLogger(LOG_PREFIX).warn('invalid signature on inbound');
     reply.status(401).send({ error: 'invalid_signature' });
     return;
   }
@@ -91,6 +94,7 @@ export async function handleTwilioWhatsAppInbound(
 
   const senderHandle = stripWaPrefix(from);
   const client = new WhatsAppClient();
+  const logger = createWorkerLogger(LOG_PREFIX, dedupKey);
 
   // Post-claim work runs inside an outer try/catch. The inbound_events row is
   // already in `received` status after claimInboundEvent; if ANY post-claim
@@ -111,6 +115,7 @@ export async function handleTwilioWhatsAppInbound(
       client,
       buttonPayload,
       ipAddress: (request as unknown as { ip?: string | null }).ip ?? null,
+      logger,
     });
   } catch (err) {
     // Post-claim safety net — see the outer try block for rationale.
@@ -119,11 +124,11 @@ export async function handleTwilioWhatsAppInbound(
     // inbound_events reclaim path picks it up on Twilio's retry instead of
     // getting a silent duplicate-200.
     const e = err as Error;
-    console.error(`${LOG_PREFIX} unexpected post-claim error: ${e.message}`);
+    logger.error(`unexpected post-claim error: ${e.message}`);
     try {
       await markInboundEventFailed(dedupKey, `post_claim_unexpected:${e.message}`);
     } catch (markErr) {
-      console.error(`${LOG_PREFIX} also failed to markFailed: ${(markErr as Error).message}`);
+      logger.error(`also failed to markFailed: ${(markErr as Error).message}`);
     }
     reply.status(503).send({ received: true, retry: true });
   }
@@ -161,7 +166,7 @@ async function handleButtonTap(
 ): Promise<void> {
   const parsed = parseButtonPayload(buttonPayload);
   if (!parsed) {
-    console.warn(`${LOG_PREFIX} malformed ButtonPayload`);
+    ctx.logger.warn('malformed ButtonPayload');
     await acknowledgeProcessed(ctx);
     return;
   }
@@ -264,7 +269,7 @@ async function handleButtonActionError(
     return;
   }
 
-  console.error(`${LOG_PREFIX} unexpected error during button tap: ${e.message}`);
+  ctx.logger.error(`unexpected error during button tap: ${e.message}`);
   await sendFreeformBestEffort(
     ctx,
     '⚠️ Something went wrong on our end. Please tap the Edit link in the approval message above to finish in browser.',
@@ -358,8 +363,8 @@ async function handleEnrollmentStart(ctx: WhatsAppInboundContext): Promise<void>
   await ctx.client
     .sendFreeform({ to: toWaRecipient(ctx.senderHandle), body: responseBody })
     .catch((err) => {
-      console.warn(
-        `${LOG_PREFIX} enrollment confirmation send failed: ${(err as Error).message}`,
+      ctx.logger.warn(
+        `enrollment confirmation send failed: ${(err as Error).message}`,
       );
     });
   await acknowledgeProcessed(ctx);
@@ -423,8 +428,8 @@ async function sendFreeformBestEffort(
   await ctx.client
     .sendFreeform({ to: toWaRecipient(ctx.senderHandle), body })
     .catch((err) => {
-      console.warn(
-        `${LOG_PREFIX} best-effort freeform send failed (${context}): ${(err as Error).message}`,
+      ctx.logger.warn(
+        `best-effort freeform send failed (${context}): ${(err as Error).message}`,
       );
     });
 }
