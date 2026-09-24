@@ -15,7 +15,7 @@ import {
   setCachedGeneration,
 } from '@/lib/costs/tracker';
 import { withCostGuard } from '@/lib/costs/cost-guard';
-import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
+import { recordApiCost, calculateCostUsd, RESPONSE_GENERATION_ENDPOINT } from '@/lib/costs/audit';
 import { PROMPT_VERSION, systemPromptHash } from './prompt-policy';
 import { runLlmTask } from '@/lib/llm/run-task';
 import type { LLMCallResult } from '@/lib/llm/types';
@@ -287,7 +287,12 @@ async function tryRecordApiCost(
       businessId,
       accountId,
       provider: llmResult.provider,
-      endpoint: llmResult.provider === 'openai' ? 'chat.completions' : 'messages',
+      // Single, unambiguous label for the response-generation path — see
+      // RESPONSE_GENERATION_ENDPOINT's docstring (#1106). Was a raw
+      // provider-endpoint string that collided with solicitation
+      // ask-generation's identical ternary, making a NULL-response_id row
+      // impossible to attribute to either path on read.
+      endpoint: RESPONSE_GENERATION_ENDPOINT,
       inputTokens: llmResult.usage.promptTokens,
       outputTokens: llmResult.usage.completionTokens,
       costUsd,

@@ -3,6 +3,7 @@
 ## Summary
 
 - **Worker crash-net / cost-guard** — crash-net rejection classification (strict recoverable-DB allowlist vs billing's broad transient check, transient-rejection governor); cost-guard fail-open limiters + pre-LLM reservation retry matrix (transport retryable, budget terminal, finalize never job-retried), Upstash SPOF; a cache whose KEY a replacement job can legitimately share must bind its PAYLOAD to content provenance — the `(reviewId, version)` idempotent-generation cache served a stale draft to live-ingest's same-version replacement job and deterministically defeated the #728 persist gate (#728, 2026-08-09)
+- **Orphaned `api_costs` rows (NULL `response_id`)** — an aborted response-persist attempt leaves its cost row permanently unlinked. OWNER DECISION: kept as honest spend in every existing total (nothing filters on `response_id`), and broken out as a separate admin line (`margin-service.ts`'s `unattributedResponseCost`) via the `RESPONSE_GENERATION_ENDPOINT` discriminator. No sweep, no link-on-insert (#1106, 2026-09-23)
 
 ## Canonical entries
 
@@ -22,6 +23,16 @@ API rate limits fail OPEN; the worker cost RESERVATION precedes every LLM call �
 
 The final dispatch claim is already committed when its later failure-reconciliation transaction aborts. The resulting exhausted `agent_turn` row can remain `dispatching`: ordinary claim paths require attempts below the limit, and the older terminal watchdog selected only `dispatched`. `runOutboxWatchdogRecovery` therefore selects exhausted Operator dispatching rows after the existing two-minute fence (or with no dispatch timestamp) and reuses `reconcileTurnForFailedOutbox` in that same transaction. A repeated abort stays eligible. Live/contended claims keep recoverable work; other topics keep their existing predicate. The recovery test must continue beyond rollback through a fresh no-op and aged watchdog pass. Turn-claim/heartbeat definitions remain in [the Operator glossary](../../../docs/context/owner-operator.md).
 
+### Orphaned `api_costs` rows (NULL `response_id`) — reconciliation policy (#1106)
+
+`recordApiCost` (`src/lib/costs/audit.ts`) inserts the `api_costs` row on the bare `sql`, outside any transaction, BEFORE `persistResponseAndNotify` runs (`src/lib/responses/generator.ts`'s `tryRecordApiCost`, called from `generateResponse`). The persist transaction only LINKS it afterward (`worker/jobs/response-generation/persist.ts`: `UPDATE api_costs SET response_id = … WHERE id = …`). When the persist transaction aborts (any reason — content-freshness gate, duplicate-hash short-circuit, a thrown error before the UPDATE runs), the cost row is already committed and its `response_id` stays NULL forever; BullMQ then replays the whole job, which re-spends the LLM draft call and leaves another orphan per attempt.
+
+OWNER DECISION (#1106, 2026-09-23): these are honest spend, not a data-integrity bug to sweep or auto-link. **Keep them in the margin totals** — `getMarginReport`'s `platform.variableApiCogsUsd` and `topAccountsByCost[].variableApiCostUsd` already do this correctly, because neither of the underlying queries filters on `response_id`. **Additionally surface them as a separately labeled admin line** (`MarginData.unattributedResponseCost` — `{ count, costUsd, note }`) so an operator can see how much spend produced no response. No sweep, no link-on-insert.
+
+**The discriminator is `endpoint`, not "any NULL `response_id`".** Plenty of `api_costs` rows have a permanently, by-design NULL `response_id` that has nothing to do with this leak: review summaries (`review-summary`), triage (`review-triage`), safety-review moderation (`safety-review`), the Owner Operator (`owner-operator`), SerpAPI prefill (`google_maps_prefill[:failed]`) — and, until this same PR, solicitation ask-generation, which wrote the IDENTICAL raw `'chat.completions'/'messages'` ternary as the response-generation path (`src/lib/solicitation/ask-generation.ts`'s `recordChildApiCost`, itself never linked by design — SPEC §7.6, asks have no `responses` row to link to). That collision made a NULL row structurally unattributable to either path. Fix: `src/lib/costs/audit.ts` now exports `RESPONSE_GENERATION_ENDPOINT = 'response-generation'`, the single label `tryRecordApiCost` writes (both the primary draft and the avoid-facts retry); `margin-service.ts` imports the SAME constant on read: `WHERE response_id IS NULL AND endpoint = RESPONSE_GENERATION_ENDPOINT`. Every other task already wrote its own distinct semantic endpoint label (`review-triage`, `safety-review`, etc.) and needed no change.
+
+**Known limitation, accepted (no sweep, by owner decision):** rows written before this fix still carry the old ambiguous `'chat.completions'/'messages'` endpoint and cannot be retroactively attributed by this discriminator. The 30-day trailing margin window self-heals as old rows age out; nothing back-fills them.
+
 ## History
 
 - history/2026-05.md § "Cost-guard reservation must be released on tx idempotency-loser path"
@@ -39,3 +50,4 @@ The final dispatch claim is already committed when its later failure-reconciliat
 - history/2026-09.md § "[2026-09-02] OutboxPoller dispatch was one Redis + one SQL round trip per row → bulk per topic group"
 - history/2026-09.md § "2026-09-14 — Owner Operator Run D recovery and observation lessons (verification in progress)"
 - history/2026-09.md § "2026-09-14 — Run D rollback continuation and fixture cleanup ownership"
+- history/2026-09-19-to-30.md § "[2026-09-23] Orphaned api_costs rows (NULL response_id) were structurally unattributable — the response-generation and solicitation-ask paths wrote the identical raw endpoint string"
