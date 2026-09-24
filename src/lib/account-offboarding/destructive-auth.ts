@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { requireOwnerWithAccount } from '@/lib/auth/route-helpers';
@@ -6,6 +5,7 @@ import { cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
+import { signValue, verifySignedValue } from '@/lib/shared/signed-value';
 
 export const FRESH_AUTH_COOKIE_NAME = 'rw_delete_data_fresh_auth';
 export const FRESH_AUTH_WINDOW_MS = 10 * 60 * 1000;
@@ -33,11 +33,10 @@ interface VerifyFreshAuthInput {
 export function signFreshAuthStamp(input: FreshAuthStampInput): string {
   const issuedAtMs = (input.issuedAt ?? new Date()).getTime();
   const payload = String(issuedAtMs);
-  return `${payload}.${freshAuthSignature({
-    userId: input.userId,
-    accountId: input.accountId,
-    issuedAtMs,
-  })}`;
+  return signValue(payload, getSessionCookieSecret(), {
+    message: (issuedAtValue) =>
+      freshAuthMessage({ userId: input.userId, accountId: input.accountId, issuedAtValue }),
+  });
 }
 
 export function setFreshAuthCookie(
@@ -111,21 +110,14 @@ function verifyFreshAuthStamp(
   const raw = input.request.cookies.get(FRESH_AUTH_COOKIE_NAME)?.value;
   if (!raw) return { ok: false };
 
-  const parts = raw.split('.');
-  if (parts.length !== 2) return { ok: false };
-
-  const [issuedAtValue, providedSignature] = parts;
-  if (!issuedAtValue || !providedSignature) return { ok: false };
+  const issuedAtValue = verifySignedValue(raw, getSessionCookieSecret(), {
+    message: (value) =>
+      freshAuthMessage({ userId: input.userId, accountId: input.accountId, issuedAtValue: value }),
+  });
+  if (issuedAtValue === null) return { ok: false };
 
   const issuedAtMs = Number(issuedAtValue);
   if (!Number.isSafeInteger(issuedAtMs) || issuedAtMs <= 0) return { ok: false };
-
-  const expectedSignature = freshAuthSignature({
-    userId: input.userId,
-    accountId: input.accountId,
-    issuedAtMs,
-  });
-  if (!safeHexCompare(providedSignature, expectedSignature)) return { ok: false };
 
   const nowMs = (input.now ?? new Date()).getTime();
   const ageMs = nowMs - issuedAtMs;
@@ -134,24 +126,17 @@ function verifyFreshAuthStamp(
   return { ok: true, issuedAt: new Date(issuedAtMs) };
 }
 
-function freshAuthSignature(input: {
+// The wire value is only the timestamp — userId/accountId never travel in the
+// cookie — but the signed MESSAGE binds all three, so a stolen stamp cannot be
+// replayed against a different owner or account. Kept as a message() builder
+// for `signValue`/`verifySignedValue` (#1370) rather than folded into a raw
+// `${value}` embed, so sign and verify can never spell the message differently.
+function freshAuthMessage(input: {
   userId: string;
   accountId: string;
-  issuedAtMs: number;
+  issuedAtValue: string;
 }): string {
-  return createHmac('sha256', getSessionCookieSecret())
-    .update(`${SIGNING_CONTEXT}:${input.userId}:${input.accountId}:${input.issuedAtMs}`)
-    .digest('hex');
-}
-
-
-function safeHexCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-  } catch {
-    return false;
-  }
+  return `${SIGNING_CONTEXT}:${input.userId}:${input.accountId}:${input.issuedAtValue}`;
 }
 
 function jsonError(error: string, status: number): NextResponse {
