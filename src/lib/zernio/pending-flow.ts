@@ -29,7 +29,7 @@ export function parseConnectPendingMarker(raw: string): ConnectPendingMarkerShap
       return null;
     }
 
-    // This parser intentionally returns only fields consumed by start/route.ts.
+    // This parser intentionally returns only fields consumed by connect-start.ts.
     // It validates canonical statuses but does not round-trip finalize_unknown_at.
     return {
       flowId: parsed.flowId,
