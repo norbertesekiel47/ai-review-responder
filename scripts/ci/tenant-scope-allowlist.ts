@@ -732,7 +732,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Draft-status route verifies the owner-resolved location against the outbox payload before reading this response row, then rechecks response.business_id.",
   },
   {
-    file: "src/app/api/dashboard/route.ts",
+    file: "src/lib/dashboard/subscription-gate.ts",
     table: "accounts",
     sqlSnippet: "SELECT cancelled_at FROM accounts WHERE id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
