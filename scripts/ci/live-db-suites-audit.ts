@@ -491,8 +491,6 @@ function unpragmaedDdl(source: ts.SourceFile): { line: number; node: ts.Node }[]
 // R3 — block-level lock coverage (#958).
 
 const DESCRIBE_ROOTS = new Set(['describe', 'describeWithDb', 'suite']);
-const TEST_ROOTS = new Set(['it', 'test']);
-const HOOK_NAMES = new Set(['beforeAll', 'afterAll', 'beforeEach', 'afterEach']);
 
 /**
  * The identifier a call chain starts from: `describe` for `describe(…)`,
@@ -520,18 +518,11 @@ function isDescribeCall(node: ts.Node): node is ts.CallExpression {
   return ts.isCallExpression(node) && DESCRIBE_ROOTS.has(calleeRoot(node.expression) ?? '');
 }
 
-function isBlockCall(node: ts.Node): node is ts.CallExpression {
-  if (!ts.isCallExpression(node)) return false;
-  const root = calleeRoot(node.expression) ?? '';
-  return DESCRIBE_ROOTS.has(root) || TEST_ROOTS.has(root);
-}
-
-function isHookCall(node: ts.Node, name?: string): node is ts.CallExpression {
+function isBeforeAllCall(node: ts.Node): node is ts.CallExpression {
   return (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
-    HOOK_NAMES.has(node.expression.text) &&
-    (name === undefined || node.expression.text === name)
+    node.expression.text === 'beforeAll'
   );
 }
 
@@ -557,7 +548,7 @@ function acquiresInBeforeAll(statements: readonly ts.Statement[]): boolean {
   return statements.some(
     (statement) =>
       ts.isExpressionStatement(statement) &&
-      isHookCall(statement.expression, 'beforeAll') &&
+      isBeforeAllCall(statement.expression) &&
       containsLockAcquisition(statement.expression),
   );
 }
