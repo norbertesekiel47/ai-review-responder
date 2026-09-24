@@ -32,10 +32,15 @@ import { evaluateAgainstBaseline, normalize, walk } from '../../../../scripts/ci
 import { isSqlTaggedTemplate } from '../../../../scripts/ci/lib/sql-tag-scan';
 
 // A full src/+worker/ walk + per-file TS parse (~1000+ files) comfortably
-// clears the default 5s test timeout in isolation, but not under
-// scripts/verify-gate.sh's full parallel `vitest run` fan-out — same
-// rationale as eslint-boundaries.test.ts's cold-start bump.
-vi.setConfig({ testTimeout: 30_000 });
+// clears the default 5s test timeout in isolation (well under 1s), but not
+// under scripts/verify-gate.sh's / lefthook's full parallel `vitest run`
+// fan-out under real CPU contention — same rationale as
+// eslint-boundaries.test.ts's cold-start bump, and the #1462 fix
+// (red-team-mutation-runner.test.ts's per-case budget): a load-sensitive
+// test needs headroom measured under load, not idle. 30s still timed out
+// under a heavily loaded shared runner; 120s matches this repo's other
+// load-sensitive suite budgets (red-team-mutation-runner's SUITE_TIMEOUT_MS).
+vi.setConfig({ testTimeout: 120_000 });
 
 /** The single owner this guard is enforcing — never scanned for its own findings. */
 const OWNER_FILE = 'src/lib/approval/transitions.ts';
