@@ -74,7 +74,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { QUEUE_NAMES } from '../../src/lib/shared/queue-names';
-import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import {
+  isSqlTaggedTemplate,
+  isUnsafeCall,
+  lineHasPragma,
+  resolveUnsafeCallSql,
+} from './lib/sql-tag-scan';
 import { walk } from './lib/ratchet-harness';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
@@ -317,9 +322,45 @@ function extractTopic(statement: string, parsed: ParsedInsert): TopicRef | null 
 }
 
 /**
+ * Every `INSERT INTO job_outbox` found in `raw` SQL text, reporting each at
+ * `lineOf(offset)`. Shared by the tagged-template and `.unsafe()` call-form
+ * branches of `findOutboxInserts` below, so both statement shapes run through
+ * one topic/shape parser.
+ */
+function scanRawSqlForInserts(
+  raw: string,
+  lineOf: (offset: number) => number,
+  lines: string[],
+): OutboxInsertSite[] {
+  const sites: OutboxInsertSite[] = [];
+  const starts: number[] = [];
+  INSERT_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = INSERT_RE.exec(raw)) !== null) starts.push(match.index);
+
+  starts.forEach((offset, index) => {
+    const line = lineOf(offset);
+    if (lineHasPragma(lines, line, IGNORE_PRAGMA)) return;
+    const statement = raw.slice(offset, starts[index + 1] ?? raw.length);
+    const parsed = parseInsert(maskSqlTemplate(statement));
+    sites.push({ topic: extractTopic(statement, parsed), shape: parsed.shape, line });
+  });
+  return sites;
+}
+
+/**
  * Every `INSERT INTO job_outbox` in `text`, with its topic and row cardinality.
  * Each statement runs from its `INSERT INTO job_outbox` token to the next one
  * (or the end of the template). Pure — unit-tested.
+ *
+ * Two producing shapes: a `sql`/`tx`/`db`/`exec` TAGGED TEMPLATE (every helper
+ * in this codebase), and a `.unsafe(query, params)` CALL (the three live
+ * non-helper sites — none of which write job_outbox today, but #613 closes
+ * the blind spot rather than trusting that to stay true). A call whose query
+ * text cannot be read (`resolveUnsafeCallSql` returns null — a dynamic
+ * expression, an ambiguous or reassignable binding) contributes nothing: this
+ * scanner reports what it can read as INSERT INTO job_outbox, not "any
+ * `.unsafe()` call is automatically suspect".
  */
 export function findOutboxInserts(text: string): OutboxInsertSite[] {
   const source = ts.createSourceFile('scan.tsx', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -330,19 +371,24 @@ export function findOutboxInserts(text: string): OutboxInsertSite[] {
     if (ts.isTaggedTemplateExpression(node) && isSqlTaggedTemplate(node)) {
       const raw = node.getText(source);
       const nodeStart = node.getStart(source);
-
-      const starts: number[] = [];
-      INSERT_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = INSERT_RE.exec(raw)) !== null) starts.push(match.index);
-
-      starts.forEach((offset, index) => {
-        const line = source.getLineAndCharacterOfPosition(nodeStart + offset).line;
-        if (lineHasPragma(lines, line, IGNORE_PRAGMA)) return;
-        const statement = raw.slice(offset, starts[index + 1] ?? raw.length);
-        const parsed = parseInsert(maskSqlTemplate(statement));
-        sites.push({ topic: extractTopic(statement, parsed), shape: parsed.shape, line });
-      });
+      sites.push(
+        ...scanRawSqlForInserts(
+          raw,
+          (offset) => source.getLineAndCharacterOfPosition(nodeStart + offset).line,
+          lines,
+        ),
+      );
+    } else if (ts.isCallExpression(node) && isUnsafeCall(node)) {
+      const raw = resolveUnsafeCallSql(node, source);
+      if (raw !== null) {
+        // The call site's own line, not an offset into the resolved text: a
+        // resolved LOCAL-VARIABLE query has no source position of its own at
+        // the call site, and every production `.unsafe()` call in this
+        // codebase is one statement, so the call's line is exactly where a
+        // reader would look.
+        const callLine = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+        sites.push(...scanRawSqlForInserts(raw, () => callLine, lines));
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -350,25 +396,73 @@ export function findOutboxInserts(text: string): OutboxInsertSite[] {
   return sites;
 }
 
+/** True when `node` carries an `export` modifier — a function or `const`. */
+function isExported(node: ts.FunctionDeclaration | ts.VariableStatement): boolean {
+  return node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+}
+
+/**
+ * The QUEUE_NAMES key whose value equals `value`, or null. Reverse of the
+ * `QUEUE_NAMES.<KEY>` lookup: a HELPER that writes its topic as a raw string
+ * literal instead of `QUEUE_NAMES.X` (legal — `findOutboxInserts` reads it as
+ * `{ kind: 'literal' }`) still needs to land in `helperKeys` under the KEY a
+ * bypass site's `isHelperOwned` check resolves against, or the literal
+ * spelling silently drops the topic from coverage (#613 fail-open half).
+ */
+function queueNameKeyForLiteral(value: string): string | null {
+  for (const [key, candidate] of Object.entries(QUEUE_NAMES)) {
+    if (candidate === value) return key;
+  }
+  return null;
+}
+
+/** Records every INSERT's topic found in `body`'s text into `keys`, resolving a literal topic back through QUEUE_NAMES so it lands under the same key a `QUEUE_NAMES.X` reference would. */
+function recordHelperTopics(body: ts.Node, source: ts.SourceFile, keys: Set<string>): void {
+  for (const site of findOutboxInserts(body.getText(source))) {
+    if (site.topic === null) continue;
+    if (site.topic.kind === 'queue-names') {
+      keys.add(site.topic.key);
+      continue;
+    }
+    const key = queueNameKeyForLiteral(site.topic.value);
+    if (key) keys.add(key);
+  }
+}
+
 /**
  * QUEUE_NAMES keys that `job-outbox-helpers.ts` owns an enqueue function for —
  * the topic of every `INSERT INTO job_outbox` inside an exported `enqueue*`
- * function declaration. Derived, never hand-listed: this IS the coverage
- * question, and answering it from the module itself is what makes "a topic
- * never has two live enqueue owners" mechanically true. Pure — unit-tested.
+ * declaration. Derived, never hand-listed: this IS the coverage question, and
+ * answering it from the module itself is what makes "a topic never has two
+ * live enqueue owners" mechanically true. Pure — unit-tested.
+ *
+ * Two declaration shapes count, both requiring the SAME `export` + `enqueue*`
+ * name test: `export function enqueueX(...)` (every helper today) and
+ * `export const enqueueX = (...) => {...}` / `= async (...) => {...}` /
+ * `= function (...) {...}` (#613 — an arrow-const helper silently dropped its
+ * topic from coverage before this, a fail-open the same shape as a raw
+ * bypass site itself: two ways to spell "this topic has a helper", and only
+ * one of them counted).
  */
 export function deriveHelperTopicKeys(helperSource: string): Set<string> {
   const source = ts.createSourceFile('helpers.ts', helperSource, ts.ScriptTarget.Latest, true);
   const keys = new Set<string>();
 
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isFunctionDeclaration(node) &&
-      node.name?.text.startsWith('enqueue') &&
-      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    ) {
-      for (const site of findOutboxInserts(node.getText(source))) {
-        if (site.topic?.kind === 'queue-names') keys.add(site.topic.key);
+    if (ts.isFunctionDeclaration(node) && node.name?.text.startsWith('enqueue') && isExported(node)) {
+      recordHelperTopics(node, source, keys);
+      return;
+    }
+    if (ts.isVariableStatement(node) && isExported(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(decl.name) &&
+          decl.name.text.startsWith('enqueue') &&
+          decl.initializer &&
+          (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+        ) {
+          recordHelperTopics(decl.initializer, source, keys);
+        }
       }
       return;
     }

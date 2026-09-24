@@ -5,6 +5,7 @@ import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { AUDIT_ACTION_AUTO_APPROVED_BY_POLICY } from '../../../src/lib/approval/audit';
 import { revokeOpenLinksForResponse } from '../../../src/lib/approval/locks';
+import { markResponseSupersededProviderMismatch } from '../../../src/lib/approval/transitions';
 import {
   getTransactionalReviewPublisher,
   type ReviewPublisher,
@@ -932,20 +933,10 @@ async function supersedeProviderMismatch(
   tx: TransactionSql,
   input: AutoPolicyPublishInput,
 ): Promise<void> {
-  const superseded = await tx`
-    UPDATE responses
-    SET status = 'superseded',
-        approval_method = NULL,
-        approved_text = NULL,
-        approved_at = NULL,
-        auto_post_scheduled_at = NULL,
-        posting_error = 'already_replied_external',
-        updated_at = NOW()
-    WHERE id = ${input.responseId}::uuid
-      AND business_id = ${input.businessId}::uuid
-      AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
-    RETURNING 1
-  `;
+  const superseded = await markResponseSupersededProviderMismatch(tx, {
+    responseId: input.responseId,
+    businessId: input.businessId,
+  });
   if (superseded.count !== 1) {
     throw new Error(
       `Confirmed provider mismatch could not supersede response ${input.responseId}`,

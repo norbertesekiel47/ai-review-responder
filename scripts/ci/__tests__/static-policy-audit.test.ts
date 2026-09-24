@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import {
   scanFile,
   auditPackageJson,
@@ -6,6 +9,7 @@ import {
   SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
   scanLegacySubscriptionTiers,
   auditRailwayConfig,
+  listRailwayConfigFiles,
   scanSqlExecutorTagNames,
   scanWorkerNodeEnvReads,
   scanSameOriginHandlerReturnTypes,
@@ -627,6 +631,65 @@ describe('auditRailwayConfig — single-replica invariant (#567, R1)', () => {
     const { readFile } = await import('node:fs/promises');
     const text = await readFile('railway.toml', 'utf8');
     expect(auditRailwayConfig('railway.toml', text)).toEqual([]);
+  });
+});
+
+// #613: main() used to read exactly ['railway.toml', 'railway.json'] at the
+// repo root, so a Railway service's "custom config as Code file" setting
+// (docs.railway.com/config-as-code — the docs' own example is
+// `/backend/railway.toml`) pointed the AUDIT at nothing while Railway itself
+// still read the relocated file.
+describe('listRailwayConfigFiles (#613)', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'static-policy-railway-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function write(repoPath: string, content: string): void {
+    const full = join(root, repoPath);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  }
+
+  it('finds the root railway.toml — the shape every service uses today', async () => {
+    write('railway.toml', '[deploy]\n');
+    expect(await listRailwayConfigFiles(root)).toEqual(['railway.toml']);
+  });
+
+  it('finds a relocated railway.toml — the custom-config-path shape the root-only read missed', async () => {
+    write('backend/railway.toml', '[deploy]\nnumReplicas = 2\n');
+    const files = await listRailwayConfigFiles(root);
+    expect(files).toEqual(['backend/railway.toml']);
+    // Proves the discovery closes the loop, not just that the file is found:
+    // auditRailwayConfig still catches the violation once it is handed this
+    // path, exactly as it would for the root file.
+    const { readFile } = await import('node:fs/promises');
+    const text = await readFile(join(root, files[0]!), 'utf8');
+    expect(auditRailwayConfig(files[0]!, text)).toHaveLength(1);
+  });
+
+  it('finds railway.json alongside railway.toml, at different depths', async () => {
+    write('railway.toml', '[deploy]\n');
+    write('services/worker/railway.json', '{}');
+    expect(await listRailwayConfigFiles(root)).toEqual([
+      'railway.toml',
+      'services/worker/railway.json',
+    ]);
+  });
+
+  it('does not match a file that merely contains the basename as a substring', async () => {
+    write('railway.toml.bak', '[deploy]\n');
+    write('not-railway.json', '{}');
+    expect(await listRailwayConfigFiles(root)).toEqual([]);
+  });
+
+  it('returns an empty list rather than throwing when no config exists', async () => {
+    expect(await listRailwayConfigFiles(root)).toEqual([]);
   });
 });
 
