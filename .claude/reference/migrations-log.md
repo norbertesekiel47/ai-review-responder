@@ -2533,10 +2533,10 @@ Revisit triggers:
   added in the same PR.
 
 - **126** — Outreach remnant survives a contact delete (#1350, ADR 0033).
-  **LOCAL-ONLY** — written and verified against the rebuildable local test
-  container only; this PR does NOT apply it to staging or production (the
-  owner applies staging-first, then production, in lockstep; removing this
-  marker is that promotion change). Re-points three composite FKs to PG15's
+  **Applied 2026-09-24 to staging, then production** (lockstep), each after
+  the #1479 code was live there. Verified by introspection in both: the three
+  FKs read `ON DELETE SET NULL (<col>)`, the three columns are nullable, and
+  `solicitation_asks_batch_contact_uniq` is unchanged. Re-points three composite FKs to PG15's
   column-scoped form — `solicitation_asks_contact_business_fk` and
   `solicitation_outreach_contact_business_fk` → `ON DELETE SET NULL
   (contact_id)`, `solicitation_outreach_ask_tenant_fk` → `ON DELETE SET NULL
