@@ -39,7 +39,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Type-aware linting (no-floating-promises' projectService) pays a real cold
 // start on top of lintText's — see eslint-boundaries.test.ts's identical note.
-vi.setConfig({ testTimeout: 60_000 });
+// 120s, not 60s: matches the #1462 precedent (lab-notes/history/2026-09-19-to-30.md)
+// for a suite that idles at single-digit seconds but stretches well past 60s
+// under this machine's own documented load-average-~50 contention.
+vi.setConfig({ testTimeout: 120_000 });
 
 let eslint: ESLint;
 let eslintIgnoringNothing: ESLint;
