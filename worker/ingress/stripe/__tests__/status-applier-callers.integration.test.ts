@@ -285,6 +285,18 @@ function reconcileAccountRow(fixture: Fixture, status: string): AccountWithLocat
   };
 }
 
+/**
+ * Transitions the applier returned for an account it actually resolved. A
+ * lineage-race case must produce none. (Before #1355 the applier itself ran the
+ * lineage recheck and returned an unresolved result; after it, the caller
+ * rechecks and never calls the applier. Neither writes, which is what matters.)
+ */
+function resolvedTransitions(): unknown[] {
+  return appliedTransitions.filter(
+    (result) => (result as { accountResolved?: boolean }).accountResolved === true,
+  );
+}
+
 function fakeStripe(subscription: unknown) {
   return {
     subscriptions: {
@@ -599,14 +611,7 @@ describeWithDb('#1355 Stripe status applier — six caller characterization (liv
 
     await withLineageMovedUnderEntitlement(f, () => processInvoicePaid(invoice(f)));
 
-    expect(appliedTransitions).toEqual([{
-      accountResolved: false,
-      fromStatus: null,
-      toStatus: null,
-      changed: false,
-      activated: false,
-      primaryBusinessId: null,
-    }]);
+    expect(resolvedTransitions()).toEqual([]);
     expect(await accountState(f.accountId)).toMatchObject({
       subscription_status: 'past_due',
       stripe_subscription_id: `${f.subscriptionId}_moved`,
@@ -674,14 +679,7 @@ describeWithDb('#1355 Stripe status applier — six caller characterization (liv
 
     await withLineageMovedUnderEntitlement(f, () => processInvoicePaymentFailed(invoice(f)));
 
-    expect(appliedTransitions).toEqual([{
-      accountResolved: false,
-      fromStatus: null,
-      toStatus: null,
-      changed: false,
-      activated: false,
-      primaryBusinessId: null,
-    }]);
+    expect(resolvedTransitions()).toEqual([]);
     expect(await accountState(f.accountId)).toMatchObject({ subscription_status: 'active' });
     expect(await statusAudits(f.accountId)).toEqual([]);
   });
@@ -724,14 +722,7 @@ describeWithDb('#1355 Stripe status applier — six caller characterization (liv
       eventContext(),
     ));
 
-    expect(appliedTransitions).toEqual([{
-      accountResolved: false,
-      fromStatus: null,
-      toStatus: null,
-      changed: false,
-      activated: false,
-      primaryBusinessId: null,
-    }]);
+    expect(resolvedTransitions()).toEqual([]);
     expect(await accountState(f.accountId)).toMatchObject({ subscription_status: 'active', has_cancelled_at: false });
     expect(await statusAudits(f.accountId)).toEqual([]);
   });
@@ -785,14 +776,7 @@ describeWithDb('#1355 Stripe status applier — six caller characterization (liv
     );
 
     expect(outcome).toEqual({ accountsChecked: 1, drifts: [], errors: 0 });
-    expect(appliedTransitions).toEqual([{
-      accountResolved: false,
-      fromStatus: null,
-      toStatus: null,
-      changed: false,
-      activated: false,
-      primaryBusinessId: null,
-    }]);
+    expect(resolvedTransitions()).toEqual([]);
     expect(await accountState(f.accountId)).toMatchObject({ subscription_status: 'trialing', has_trial_end: true });
   });
 });
