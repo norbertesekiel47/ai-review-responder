@@ -5,11 +5,26 @@
 // (mirrors currentBillingSnapshot). No migration, no rollup table. Admin-only:
 // queries are cross-account aggregates (no per-tenant filter) — allowlisted in
 // the tenant-scope audit.
+//
+// #1106: an aborted response-persist attempt (worker/jobs/response-generation/
+// persist.ts's link UPDATE never runs) leaves its api_costs row's response_id
+// permanently NULL — honest spend, no output. OWNER DECISION: keep these rows
+// in the totals above (they already are — nothing here filters on
+// response_id) and additionally break them out as `unattributedResponseCost`
+// so an operator can see how much spend produced no response. No sweep, no
+// link-on-insert. Discriminator: `endpoint = RESPONSE_GENERATION_ENDPOINT`
+// (src/lib/costs/audit.ts) — the one label written ONLY by the
+// response-generation path; every other NULL-response_id row (review
+// summaries, moderation, triage, owner-operator, solicitation asks, SerpAPI
+// prefill) is a different, never-linked-by-design task and must not count
+// here. Full policy: lab-notes/worker-crash-net-cost-guard.md "Orphaned
+// api_costs rows (NULL response_id)".
 
 import type { Sql } from 'postgres';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { RESPONSE_GENERATION_ENDPOINT } from '@/lib/costs/audit';
 
 // Module-local thresholds. Surfaced to callers via MarginData.thresholds (see
 // getMarginReport), so no standalone exports are needed — keeps the public
@@ -50,10 +65,25 @@ export interface PlatformMargin {
   note: string;
 }
 
+/**
+ * Response-generation `api_costs` rows whose persist attempt aborted before
+ * linking `response_id` (#1106) — real spend, no response. Already included
+ * in `PlatformMargin.variableApiCogsUsd` (this is a labeled breakdown, not an
+ * adjustment); `topAccountsByCost` also already includes them per-account.
+ */
+export interface UnattributedResponseCost {
+  /** Orphaned response-generation rows in the trailing window. */
+  count: number;
+  /** Their summed cost_usd, USD. */
+  costUsd: number;
+  note: string;
+}
+
 export interface MarginData {
   windowDays: number;
   platform: PlatformMargin;
   topAccountsByCost: AccountMarginRow[];
+  unattributedResponseCost: UnattributedResponseCost;
   thresholds: {
     accountWarningPct: number;
     accountActionPct: number;
@@ -137,9 +167,10 @@ export async function getMarginReport(
   // codex/773-vercel-capacity-decision,
   // docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md.
   //
-  // The three reads are independent, so sequencing changes no result. It trades
-  // latency (sum instead of max) on an admin-only page for the wedge removal.
-  // Keeping the callers' sequential await of this function is still correct.
+  // The reads (four as of #1106's unattributedRows addition) are independent,
+  // so sequencing changes no result. It trades latency (sum instead of max)
+  // on an admin-only page for the wedge removal. Keeping the callers'
+  // sequential await of this function is still correct.
   const accountRows = await sql<AccountRow[]>`
       SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
              a.locations_included, a.locations_overage_price_cents, a.base_price_cents,
@@ -166,6 +197,18 @@ export async function getMarginReport(
       SELECT COALESCE(SUM(cost_usd), 0)::float AS total_cost_usd
       FROM api_costs
       WHERE created_at >= NOW() - INTERVAL '30 days'
+    `;
+  // #1106: the response-generation path's own NULL-response_id rows —
+  // RESPONSE_GENERATION_ENDPOINT is the only endpoint value this path
+  // writes, so this can't pick up review-summary/triage/safety-review/
+  // owner-operator/solicitation-ask/serpapi rows, which are never linked by
+  // design and use their own distinct endpoint labels.
+  const unattributedRows = await sql<{ count: number; cost_usd: number }[]>`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(cost_usd), 0)::float AS cost_usd
+      FROM api_costs
+      WHERE response_id IS NULL
+        AND endpoint = ${RESPONSE_GENERATION_ENDPOINT}
+        AND created_at >= NOW() - INTERVAL '30 days'
     `;
 
   const costByAccount = new Map<string, CostAggRow>();
@@ -252,6 +295,11 @@ export async function getMarginReport(
       note: 'API/LLM COGS only (api_costs). Excludes vendor bills (Supabase, Railway, Vercel, etc.) — see docs/finance/monthly-close.md.',
     },
     topAccountsByCost: rows.slice(0, limit),
+    unattributedResponseCost: {
+      count: unattributedRows[0]?.count ?? 0,
+      costUsd: round(unattributedRows[0]?.cost_usd ?? 0, 6),
+      note: 'Response-generation LLM calls whose persist attempt aborted before linking response_id (#1106) — honest spend with no output, already counted in the totals above.',
+    },
     thresholds: {
       accountWarningPct: ACCOUNT_WARNING_PCT,
       accountActionPct: ACCOUNT_ACTION_PCT,
