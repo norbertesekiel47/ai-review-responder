@@ -2558,10 +2558,9 @@ Revisit triggers:
   `is_nullable = 'YES'`.
 
 - **125** — Backfill `accounts.cancelled_at` for legacy cancellations (#1455).
-  **LOCAL-ONLY** — written and verified against the rebuildable local test
-  container only; this PR does NOT apply it to staging or production
-  (orchestrator applies staging-first, then production, in lockstep, and
-  removing this marker is that promotion change).
+  **Applied 2026-09-24 to staging, then production** (lockstep). Both
+  returned `UPDATE 0`; `count(*) WHERE subscription_status='cancelled' AND
+  cancelled_at IS NULL` was 0 before and after in both projects.
   **Data-only, no schema/RLS change.** Gives the cancellation-grace clock ONE
   owner: the dashboard route's `cancelledGraceResponse` used to fall back to
   `subscription_activated_at` when `cancelled_at IS NULL` (a row cancelled

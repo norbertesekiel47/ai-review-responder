@@ -42,6 +42,7 @@ import type { SessionAuditContext } from '@/lib/approval/audit';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { mapConcurrencyError } from '../_shared/edit-reply-errors';
 
 export const dynamic = 'force-dynamic';
@@ -77,10 +78,7 @@ async function handler(request: NextRequest) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', details: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
 
   // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.

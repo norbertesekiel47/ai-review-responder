@@ -38,7 +38,9 @@ const FINISH_SIGNUP_ERROR_COPY: Record<string, string> = {
   account_incomplete: 'Your session has expired. Please sign in again.',
   forbidden: 'We could not verify this request. Please reload and try again.',
   not_found: 'This page is not available right now.',
-  internal: FINISH_SIGNUP_FALLBACK,
+  // #1373: /api/auth/finish-signup settled on `internal_error`, the dominant
+  // 500 machine code repo-wide.
+  internal_error: FINISH_SIGNUP_FALLBACK,
 };
 
 function mapFinishSignupError(body: { error?: unknown }): string {

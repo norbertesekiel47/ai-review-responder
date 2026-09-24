@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SignupSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { accountExistsResponse } from '@/lib/shared/auth-responses';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import {
   createBusinessTx,
@@ -68,10 +69,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = SignupSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
   const data = parsed.data;
 
@@ -126,7 +124,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return accountExistsResponse();
     }
     reportCaughtError('api/auth/signup', err, { reason: 'create_business_tx_failed' });
-    return NextResponse.json({ error: 'internal' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 
   // 7. Success. Client redirects to the "check your email" screen with

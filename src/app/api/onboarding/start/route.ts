@@ -16,6 +16,7 @@ import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -270,7 +271,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = OnboardingStartSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400, headers: NO_STORE });
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE });
   }
   const data = parsed.data;
 
@@ -347,7 +348,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try { await cleanupReservation(); } catch { /* ignore */ }
     }
     reportCaughtError('api/onboarding/start', err, { reason: 'transaction_failed', businessId: bizRow.id });
-    return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
   }
 
   // Idempotency-loser path: tx committed without inserting a demo (another

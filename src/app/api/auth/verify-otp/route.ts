@@ -7,6 +7,7 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { VerifyEmailOtpSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
@@ -67,10 +68,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = VerifyEmailOtpSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
   const { email, token } = parsed.data;
 

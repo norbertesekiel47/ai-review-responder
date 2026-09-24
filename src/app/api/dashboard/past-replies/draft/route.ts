@@ -46,6 +46,7 @@ import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 import { nextResponseVersion, pendingGenerateExists } from '@/lib/responses/generation-state';
 
@@ -73,10 +74,7 @@ async function handler(request: NextRequest) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', details: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
 
   // Tier + ownership gate BEFORE any side effects.

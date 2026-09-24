@@ -4,6 +4,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { ForgotPasswordSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -55,10 +56,7 @@ async function forgotPassword(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = ForgotPasswordSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
   const { email: parsedEmail, role } = parsed.data;
   // Schema already normalizes via z.preprocess(trim+lower). Defensive redundant

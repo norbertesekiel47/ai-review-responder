@@ -5,7 +5,7 @@ export type SignupErrorKind =
   | 'account_exists'
   | 'invalid_json'
   | 'invalid_body'
-  | 'internal'
+  | 'internal_error'
   | 'unknown';
 
 export interface MappedSignupError {
@@ -26,7 +26,9 @@ const KNOWN_MESSAGES: Record<Exclude<SignupErrorKind, 'unknown'>, string> = {
     'Could not read your submission. Please try again.',
   invalid_body:
     "Some details don't look right. Please review and resubmit.",
-  internal:
+  // #1373: /api/auth/{signup,finish-signup} settled on `internal_error`, the
+  // dominant 500 machine code repo-wide.
+  internal_error:
     'Something went wrong on our side. Please try again shortly.',
 };
 

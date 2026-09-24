@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { ResetPasswordSchema } from '@/lib/shared/schemas';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { requireAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { mapUpdateUserError } from '@/lib/auth/reset-password-error';
 
@@ -175,10 +176,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = ResetPasswordSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
 
   // 7. Build the success response up-front so the signOut call below has a

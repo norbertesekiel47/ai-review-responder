@@ -29,7 +29,14 @@ export const ONBOARDING_ERROR_COPY: Record<string, string> = {
     'Your subscription is not active yet. Finish checkout, or contact support if you already paid.',
   onboarding_not_started: 'Start by finding your business, then come back to this step.',
   already_onboarded: 'Your business is already set up. Head to your dashboard.',
-  internal: ONBOARDING_ERROR_FALLBACK,
+  // #1373: `/api/onboarding/{start,business}` settled on `internal_error`
+  // (the dominant 500 code repo-wide — src/lib/auth/route-helpers.ts and
+  // ~20 other sites). The value is identical to ONBOARDING_ERROR_FALLBACK on
+  // purpose: mapOnboardingApiError() falls back to that same sentence for any
+  // unmapped code, so /api/onboarding/demo/regenerate's still-`internal`
+  // 500 (a distinct route, out of this migration's scope) renders the same
+  // copy either way.
+  internal_error: ONBOARDING_ERROR_FALLBACK,
 };
 
 /**
