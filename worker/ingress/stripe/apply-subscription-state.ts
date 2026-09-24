@@ -1,10 +1,17 @@
 // worker/ingress/stripe/apply-subscription-state.ts
 //
 // The SINGLE applier of accounts.subscription_status for the trial lifecycle.
-// Stripe is the source of truth; this projects a retrieved Stripe subscription
-// onto the DB via a concrete, monotonic transition table (`cancelled` is
-// terminal). Every webhook handler that changes status routes through here, and
-// the billing reconcile poller calls it to CORRECT stuck `trialing` rows.
+// Stripe is the source of truth; this applies a Stripe status to one account via
+// a concrete, monotonic transition table (`cancelled` is terminal). Every webhook
+// handler that changes status routes through here, and the billing reconcile
+// poller calls it to CORRECT stuck `trialing` rows.
+//
+// Contract (#1355): `applyStripeSubscriptionState(tx, accountId, target)`. The
+// caller resolves the account, holds its entitlement lock and, when it resolved
+// by Stripe lineage, confirms that lineage on the locked row
+// (`lockAccountForStripeLineage`). The target is a normalized
+// `{ status, customerId, subscriptionId, trialEnd }` built once at the call
+// site (`stripeStatusTarget`) — no resolver modes, no partial Stripe objects.
 //
 // Invariants enforced here:
 //   - inv #2 (transactional outbox): the status write, the audit row, the
@@ -18,7 +25,6 @@
 
 import type postgres from 'postgres';
 import type Stripe from 'stripe';
-import { extractCustomerId } from './shared';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import {
   enqueueStripeOverageRecompute,
@@ -31,32 +37,25 @@ import {
   enqueueTrialCancelled,
 } from '../../../src/lib/analytics/trial-events';
 import { SubscriptionStatus, subscriptionGrantsFullAccess, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
-import {
-  acquireStripeCustomerBindingLock,
-  acquireTierEntitlementLock,
-} from '../../../src/lib/accounts/billing-locks';
+import { acquireStripeCustomerBindingLock } from '../../../src/lib/accounts/billing-locks';
 
 // The applier is ALWAYS invoked inside sql.begin() (transactional-outbox
 // invariant), so the transaction handle is a postgres.TransactionSql. This also
 // matches enqueueStripeOverageRecompute's strict TxClient parameter.
 type TxSql = postgres.TransactionSql;
-type StripeSubscriptionState = Pick<
-  Stripe.Subscription,
-  'id' | 'status' | 'trial_end'
-> & { customer?: unknown };
+type StripeSubscriptionState = Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'>;
 
-/**
- * How the applier resolves the target account. Two resolution strategies — the
- * caller picks whichever it can satisfy from what it already holds:
- *   - 'checkout'     → resolve by accounts.id. The name is historical (the
- *                      checkout handler was the first caller). Needs no Stripe
- *                      ids to resolve.
- *   - 'subscription' → resolve by (stripe_customer_id, stripe_subscription_id);
- *                      acts only on the account's CURRENT subscription.
- */
-export type ApplyStripeRef =
-  | { mode: 'checkout'; accountId: string }
-  | { mode: 'subscription'; stripeCustomerId: string; stripeSubscriptionId: string };
+/** What to apply: a mapped status plus the Stripe identifiers to bind. */
+export interface StripeStatusTarget {
+  /** Mapped DB status; `null` (a Stripe status we don't act on) is a no-op. */
+  status: SubscriptionStatusValue | null;
+  /** Bound write-once via COALESCE on entering trialing/active. */
+  customerId: string | null;
+  /** Bound write-once via COALESCE; also the trial analytics key. */
+  subscriptionId: string;
+  /** Stripe `trial_end` (unix seconds) — becomes `trial_ends_at` on trialing. */
+  trialEnd: number | null;
+}
 
 export interface TransitionResult {
   accountResolved: boolean;
@@ -129,187 +128,106 @@ function isAllowedTransition(current: string, target: SubscriptionStatusValue): 
   return ALLOWED_TRANSITION_SOURCES[target].includes(current as SubscriptionStatusValue);
 }
 
-interface ResolvedAccount {
+interface LockedAccountRow {
   id: string;
   subscription_status: string;
   primary_business_id: string | null;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
 }
 
-async function resolveAccountId(tx: TxSql, ref: ApplyStripeRef): Promise<string | null> {
-  if (ref.mode === 'checkout') {
-    const [row] = await tx<{ id: string }[]>`
-      SELECT id
-      FROM accounts
-      WHERE id = ${ref.accountId}::uuid
-    `;
-    return row?.id ?? null;
-  }
-  const [row] = await tx<{ id: string }[]>`
-    SELECT id
-    FROM accounts
-    WHERE stripe_customer_id = ${ref.stripeCustomerId}
-      AND stripe_subscription_id = ${ref.stripeSubscriptionId}
-  `;
-  return row?.id ?? null;
-}
-
-async function resolveLockedAccount(
-  tx: TxSql,
-  accountId: string,
-  ref: ApplyStripeRef,
-): Promise<ResolvedAccount | null> {
-  const rows = await tx<ResolvedAccount[]>`
-    SELECT a.id, a.subscription_status,
-      a.stripe_customer_id, a.stripe_subscription_id,
-      (SELECT b.id FROM businesses b
-        WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
-        LIMIT 1) AS primary_business_id
-    FROM accounts a
-    WHERE a.id = ${accountId}::uuid
-    FOR UPDATE
-  `;
-  const account = rows[0] ?? null;
-  if (
-    account
-    && (
-      (ref.mode === 'checkout' && ref.accountId !== accountId)
-      || (
-        ref.mode === 'subscription'
-        && (
-          account.stripe_customer_id !== ref.stripeCustomerId
-          || account.stripe_subscription_id !== ref.stripeSubscriptionId
-        )
-      )
-    )
-  ) {
-    return null;
-  }
-  return account;
-}
-
-const NO_CHANGE = (
-  account: ResolvedAccount | null,
-): TransitionResult => ({
-  accountResolved: account !== null,
-  fromStatus: account?.subscription_status ?? null,
-  toStatus: account?.subscription_status ?? null,
+/**
+ * The result for "no account to apply to": the account row is gone, or a
+ * lineage-scoped caller found it no longer bound to the Stripe lineage it
+ * resolved by. Nothing was written.
+ */
+export const UNRESOLVED_TRANSITION: Readonly<TransitionResult> = Object.freeze({
+  accountResolved: false,
+  fromStatus: null,
+  toStatus: null,
   changed: false,
   activated: false,
-  primaryBusinessId: account?.primary_business_id ?? null,
+  primaryBusinessId: null,
+});
+
+const NO_CHANGE = (account: LockedAccountRow): TransitionResult => ({
+  accountResolved: true,
+  fromStatus: account.subscription_status,
+  toStatus: account.subscription_status,
+  changed: false,
+  activated: false,
+  primaryBusinessId: account.primary_business_id,
 });
 
 /**
- * Apply a retrieved Stripe subscription's status onto the account row, in the
- * caller's transaction. Returns a result the caller uses to drive post-commit,
- * best-effort backfill resume.
+ * Normalize a retrieved Stripe subscription into the applier's target, once, at
+ * the call site. `customerId` is the Stripe customer the caller binds: the id it
+ * resolved the account by, or — for checkout, where the account is resolved by
+ * `client_reference_id` — the retrieved subscription's own customer.
  */
-export async function applyStripeSubscriptionState(
-  tx: TxSql,
-  ref: ApplyStripeRef,
-  stripeSub: StripeSubscriptionState,
-): Promise<TransitionResult> {
-  // Resolve without a row lock, then serialize status/tier/publisher state
-  // before re-reading and locking the account. Never wait for entitlement
-  // while holding the account row.
-  const accountId = await resolveAccountId(tx, ref);
-  if (!accountId) return NO_CHANGE(null);
-  await acquireTierEntitlementLock(tx, accountId);
-  return applyStripeSubscriptionStateInternal(tx, accountId, ref, stripeSub);
+export function stripeStatusTarget(
+  subscription: StripeSubscriptionState,
+  customerId: string | null,
+): StripeStatusTarget {
+  return {
+    status: mapStripeStatus(subscription.status),
+    customerId,
+    subscriptionId: subscription.id,
+    trialEnd: subscription.trial_end ?? null,
+  };
 }
 
 /**
- * Status projection for callers that already hold the entitlement advisory
- * lock for `lockedAccountId`. The explicit account id is the linearization
- * anchor: never re-resolve the Stripe lineage after taking another account's
- * lock. The locked row rechecks that the customer/subscription lineage still
- * belongs to that same account before any mutation. Those callers must project
- * the deprecated business mirror only after the canonical transaction commits,
- * in business -> entitlement order.
+ * Lock the account row for a lineage-scoped status apply and confirm it is
+ * still bound to the Stripe (customer, subscription) the caller resolved it by.
+ *
+ * Callers resolve the account WITHOUT a row lock, then take its tier-entitlement
+ * lock; the lineage can move in between. The explicit account id is the
+ * linearization anchor: never re-resolve the lineage after taking that lock,
+ * recheck it on the locked row instead. `false` means apply nothing — return
+ * UNRESOLVED_TRANSITION.
+ *
+ * Order: entitlement (held by the caller) → customer binding → account row.
+ * The applier re-takes both of the last two; both are re-entrant in the same
+ * transaction.
  */
-export async function applyStripeSubscriptionStateUnderEntitlementLock(
-  tx: TxSql,
-  lockedAccountId: string,
-  ref: ApplyStripeRef,
-  stripeSub: StripeSubscriptionState,
-): Promise<TransitionResult> {
-  return applyStripeSubscriptionStateInternal(tx, lockedAccountId, ref, stripeSub);
-}
-
-interface StatusTransitionPlan {
-  current: string;
-  target: SubscriptionStatusValue;
-}
-
-function resolveStatusTransition(
-  account: ResolvedAccount,
-  stripeStatus: Stripe.Subscription.Status | string,
-): StatusTransitionPlan | null {
-  const target = mapStripeStatus(stripeStatus);
-  if (!target || !isAllowedTransition(account.subscription_status, target)) return null;
-  return { current: account.subscription_status, target };
-}
-
-function stripeTrialEndIso(trialEnd: number | null | undefined): string | null {
-  if (typeof trialEnd !== 'number' || trialEnd <= 0) return null;
-  return new Date(trialEnd * 1000).toISOString();
-}
-
-async function persistStatusTransition(
-  tx: TxSql,
-  input: {
-    account: ResolvedAccount;
-    transition: StatusTransitionPlan;
-    stripeSub: StripeSubscriptionState;
-    ref: ApplyStripeRef;
-  },
-): Promise<void> {
-  const stripeSubscriptionId = input.stripeSub.id;
-  const stripeCustomerId = extractStripeCustomerId(input.stripeSub.customer, input.ref);
-  await writeStatusColumns(
-    tx,
-    input.account.id,
-    input.transition.target,
-    stripeTrialEndIso(input.stripeSub.trial_end),
-    stripeCustomerId,
-    stripeSubscriptionId,
-  );
-  await writeAccountAuditLog(tx, {
-    accountId: input.account.id,
-    eventType: 'subscription_status_changed',
-    entityType: 'account',
-    entityId: input.account.id,
-    payload: {
-      fromStatus: input.transition.current,
-      toStatus: input.transition.target,
-    },
-  });
-  if (subscriptionGrantsFullAccess(input.transition.target)) {
-    await enqueueStripeOverageRecompute(tx, input.account.id);
-  }
-  await enqueueLifecycleAnalytics(
-    tx,
-    input.account.id,
-    input.transition.current,
-    input.transition.target,
-    stripeSubscriptionId,
-  );
-  await enqueueStripeSubscriptionMirrorSync(tx, input.account.id);
-}
-
-async function applyStripeSubscriptionStateInternal(
+export async function lockAccountForStripeLineage(
   tx: TxSql,
   accountId: string,
-  ref: ApplyStripeRef,
-  stripeSub: StripeSubscriptionState,
+  lineage: { customerId: string; subscriptionId: string },
+): Promise<boolean> {
+  if (lineage.customerId) {
+    await acquireStripeCustomerBindingLock(tx, lineage.customerId);
+  }
+  const [row] = await tx<{ stripe_customer_id: string | null; stripe_subscription_id: string | null }[]>`
+    SELECT stripe_customer_id, stripe_subscription_id
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  return row !== undefined
+    && row.stripe_customer_id === lineage.customerId
+    && row.stripe_subscription_id === lineage.subscriptionId;
+}
+
+/**
+ * Apply a Stripe subscription status to one account, in the caller's
+ * transaction. Returns a result the caller uses to drive post-commit,
+ * best-effort backfill resume.
+ *
+ * Preconditions, owned by the caller: it resolved `accountId`, holds that
+ * account's tier-entitlement advisory lock (never wait for entitlement while
+ * holding the account row), and — when it resolved the account by Stripe
+ * lineage — has confirmed that lineage via lockAccountForStripeLineage. Callers
+ * must project the deprecated business mirror only after the canonical
+ * transaction commits, in business -> entitlement order.
+ */
+export async function applyStripeSubscriptionState(
+  tx: TxSql,
+  accountId: string,
+  target: StripeStatusTarget,
 ): Promise<TransitionResult> {
-  // The writer half of the Stripe-customer binding lock. It belongs HERE and
-  // not in the applyStripeSubscriptionStateUnderEntitlementLock wrapper:
-  // both exported entry points funnel through this function, so locking in the
-  // wrapper would leave applyStripeSubscriptionState outside the lock and make
-  // the declared invariant false. It also keeps the footprint at one file
-  // rather than the six transaction-opening call sites.
+  // The writer half of the Stripe-customer binding lock. It lives HERE, in the
+  // one function every status writer calls, so no binding write can sit outside
+  // it.
   //
   // The reader half is the offboarding purge's redaction guard, which counts
   // the accounts sharing a customer before clearing that customer's
@@ -320,22 +238,27 @@ async function applyStripeSubscriptionStateInternal(
   //
   // Order: the caller's account-scoped entitlement lock is already held, and
   // this customer-keyed lock is taken second. Never invert them.
-  const bindingCustomerId = extractStripeCustomerId(stripeSub.customer, ref);
-  if (bindingCustomerId) {
-    await acquireStripeCustomerBindingLock(tx, bindingCustomerId);
+  if (target.customerId) {
+    await acquireStripeCustomerBindingLock(tx, target.customerId);
   }
 
-  const account = await resolveLockedAccount(tx, accountId, ref);
-  if (!account) return NO_CHANGE(null);
+  const [account] = await tx<LockedAccountRow[]>`
+    SELECT a.id, a.subscription_status,
+      (SELECT b.id FROM businesses b
+        WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
+        LIMIT 1) AS primary_business_id
+    FROM accounts a
+    WHERE a.id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  if (!account) return UNRESOLVED_TRANSITION;
 
-  const transition = resolveStatusTransition(account, stripeSub.status);
-  if (!transition) return NO_CHANGE(account);
-  await persistStatusTransition(tx, {
-    account,
-    transition,
-    stripeSub,
-    ref,
-  });
+  const nextStatus = target.status;
+  if (!nextStatus || !isAllowedTransition(account.subscription_status, nextStatus)) {
+    return NO_CHANGE(account);
+  }
+  const transition = { current: account.subscription_status, target: nextStatus };
+  await persistStatusTransition(tx, account.id, transition, target);
 
   return {
     accountResolved: true,
@@ -347,25 +270,46 @@ async function applyStripeSubscriptionStateInternal(
   };
 }
 
-/**
- * Resolve the Stripe customer id to persist alongside the status write.
- *
- * In `checkout` mode the account was found by `client_reference_id`, so the
- * customer/subscription identifiers it needs for every LATER webhook
- * (subscription.updated/.deleted, invoice.payment_failed) and for the Billing
- * Portal must be copied off the retrieved subscription here — they are NOT yet
- * on the account row. In `subscription` mode the account was resolved BY those
- * identifiers, so the ref already carries the authoritative customer id; prefer
- * it and fall back to the subscription object.
- */
-function extractStripeCustomerId(
-  subscriptionCustomer: unknown,
-  ref: ApplyStripeRef,
-): string | null {
-  if (ref.mode === 'subscription') return ref.stripeCustomerId;
-  return extractCustomerId(
-    subscriptionCustomer as Stripe.Subscription['customer'] | null,
+function stripeTrialEndIso(trialEnd: number | null): string | null {
+  if (typeof trialEnd !== 'number' || trialEnd <= 0) return null;
+  return new Date(trialEnd * 1000).toISOString();
+}
+
+async function persistStatusTransition(
+  tx: TxSql,
+  accountId: string,
+  transition: { current: string; target: SubscriptionStatusValue },
+  target: StripeStatusTarget,
+): Promise<void> {
+  await writeStatusColumns(
+    tx,
+    accountId,
+    transition.target,
+    stripeTrialEndIso(target.trialEnd),
+    target.customerId,
+    target.subscriptionId,
   );
+  await writeAccountAuditLog(tx, {
+    accountId,
+    eventType: 'subscription_status_changed',
+    entityType: 'account',
+    entityId: accountId,
+    payload: {
+      fromStatus: transition.current,
+      toStatus: transition.target,
+    },
+  });
+  if (subscriptionGrantsFullAccess(transition.target)) {
+    await enqueueStripeOverageRecompute(tx, accountId);
+  }
+  await enqueueLifecycleAnalytics(
+    tx,
+    accountId,
+    transition.current,
+    transition.target,
+    target.subscriptionId,
+  );
+  await enqueueStripeSubscriptionMirrorSync(tx, accountId);
 }
 
 async function writeStatusColumns(
@@ -379,8 +323,9 @@ async function writeStatusColumns(
   switch (target) {
     case SubscriptionStatus.TRIALING:
       // First-writer-wins on the Stripe identifiers (COALESCE): trial-start
-      // (checkout mode) persists them so the trialing account is resolvable by
-      // every later subscription-mode webhook and by the Billing Portal.
+      // (checkout, resolved by client_reference_id) persists them so the
+      // trialing account is resolvable by every later lineage-scoped webhook
+      // and by the Billing Portal.
       await tx`
         UPDATE accounts
         SET subscription_status = ${SubscriptionStatus.TRIALING},

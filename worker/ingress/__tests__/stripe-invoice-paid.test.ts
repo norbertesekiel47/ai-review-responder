@@ -118,7 +118,7 @@ describe('invoice.paid — active recovery from past_due', () => {
       }),
     );
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 
   it('VAL-BILLING-014: already active → no-op', async () => {
@@ -144,7 +144,7 @@ describe('invoice.paid — active recovery from past_due', () => {
       {},
       { timeout: 20_000 },
     );
-    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('VAL-BILLING-D3a: past_due → active recovery inserts one update_stripe_overage_quantity outbox row', async () => {
@@ -172,7 +172,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     expect(insert.values).toContain(TEST_ACCOUNT_ID); // aggregate_id — interpolated
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 
   it('VAL-BILLING-D3b: already-active account (VAL-BILLING-014 no-op) does NOT insert overage outbox row', async () => {
@@ -199,7 +199,7 @@ describe('invoice.paid — active recovery from past_due', () => {
       {},
       { timeout: 20_000 },
     );
-    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -261,6 +261,6 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 });

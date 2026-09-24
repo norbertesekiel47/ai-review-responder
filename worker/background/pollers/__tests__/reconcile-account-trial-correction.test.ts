@@ -10,12 +10,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * alert-only. (PLAN.md §5.)
  */
 
-const { mockSql, mockApplyStripeSubscriptionStateUnderEntitlementLock, mockLoggerWarn } = vi.hoisted(() => {
+const { mockSql, mockApplyStripeSubscriptionState, mockLoggerWarn } = vi.hoisted(() => {
   const mockSql: any = vi.fn(() => Promise.resolve(Object.assign([], { count: 0 })));
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
   return {
     mockSql,
-    mockApplyStripeSubscriptionStateUnderEntitlementLock: vi.fn().mockResolvedValue({
+    mockApplyStripeSubscriptionState: vi.fn().mockResolvedValue({
       accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: null,
     }),
@@ -24,8 +24,12 @@ const { mockSql, mockApplyStripeSubscriptionStateUnderEntitlementLock, mockLogge
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('../../../ingress/stripe/apply-subscription-state', () => ({
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionStateUnderEntitlementLock,
+vi.mock('../../../ingress/stripe/apply-subscription-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../ingress/stripe/apply-subscription-state')>()),
+  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+  // The locked-row lineage recheck is the caller's (#1355); proved against
+  // live Postgres in status-applier-callers.integration.test.ts.
+  lockAccountForStripeLineage: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => ({ warn: mockLoggerWarn, error: vi.fn(), log: vi.fn() }),
@@ -67,7 +71,7 @@ function makeStripe(subStatus: string) {
 }
 
 beforeEach(() => {
-  mockApplyStripeSubscriptionStateUnderEntitlementLock.mockClear();
+  mockApplyStripeSubscriptionState.mockClear();
   mockSql.mockClear();
   mockSql.begin.mockClear();
   mockLoggerWarn.mockClear();
@@ -78,14 +82,10 @@ describe('reconcileAccount — trial correction', () => {
     const stripe = makeStripe('active');
     const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
 
-    expect(mockApplyStripeSubscriptionStateUnderEntitlementLock).toHaveBeenCalledTimes(1);
-    const [, lockedAccountId, ref] = mockApplyStripeSubscriptionStateUnderEntitlementLock.mock.calls[0]!;
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe('acct-1');
-    expect(ref).toEqual({
-      mode: 'subscription',
-      stripeCustomerId: 'cus_123',
-      stripeSubscriptionId: 'sub_123',
-    });
+    expect(target).toMatchObject({ customerId: 'cus_123', subscriptionId: 'sub_123' });
     expect(outcome.drifts.find((d) => d.driftType === 'status_mismatch')).toBeUndefined();
     expect(outcome.accountsChecked).toBe(1);
     expect(mockSql).toHaveBeenCalledTimes(1);
@@ -94,14 +94,14 @@ describe('reconcileAccount — trial correction', () => {
   it('DB trialing + Stripe canceled → corrects via applier', async () => {
     const stripe = makeStripe('canceled');
     await reconcileAccount(mockSql, stripe, makeAccount());
-    expect(mockApplyStripeSubscriptionStateUnderEntitlementLock).toHaveBeenCalledTimes(1);
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('DB trialing + Stripe still trialing → no correction, no drift (expected steady state)', async () => {
     const stripe = makeStripe('trialing');
     const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
-    expect(mockApplyStripeSubscriptionStateUnderEntitlementLock).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(outcome.drifts.find((d) => d.driftType === 'status_mismatch')).toBeUndefined();
     expect(mockSql).not.toHaveBeenCalled();
   });
@@ -109,12 +109,12 @@ describe('reconcileAccount — trial correction', () => {
   it('DB active + Stripe active → no correction (not a trial row)', async () => {
     const stripe = makeStripe('active');
     await reconcileAccount(mockSql, stripe, makeAccount({ subscription_status: 'active' }));
-    expect(mockApplyStripeSubscriptionStateUnderEntitlementLock).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('logs the correction when the applier actually changed the row', async () => {
-    mockApplyStripeSubscriptionStateUnderEntitlementLock.mockResolvedValueOnce({
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
       accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: null,
     });
@@ -127,7 +127,7 @@ describe('reconcileAccount — trial correction', () => {
   });
 
   it('does NOT log a correction when the applier was a no-op (changed:false)', async () => {
-    mockApplyStripeSubscriptionStateUnderEntitlementLock.mockResolvedValueOnce({
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
       accountResolved: true, fromStatus: 'trialing', toStatus: 'trialing',
       changed: false, activated: false, primaryBusinessId: null,
     });
@@ -143,7 +143,7 @@ describe('reconcileAccount — trial correction', () => {
     const stripe = makeStripe('trialing');
     const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ subscription_status: 'active' }));
     // Not a DB-`trialing` row → the corrective applier must NOT run.
-    expect(mockApplyStripeSubscriptionStateUnderEntitlementLock).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     // The anomaly (DB active vs Stripe trialing) must be SURFACED, not suppressed
     // by the old `&& !stripeTrialing` clause.
     const drift = outcome.drifts.find((d) => d.driftType === 'status_mismatch');

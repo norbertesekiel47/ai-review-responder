@@ -32,7 +32,8 @@ import {
   getStripe,
 } from './shared';
 import {
-  applyStripeSubscriptionStateUnderEntitlementLock,
+  applyStripeSubscriptionState,
+  stripeStatusTarget,
   type TransitionResult,
 } from './apply-subscription-state';
 
@@ -620,11 +621,13 @@ async function projectCheckoutSubscription(
       );
     }
 
-    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
+    // Resolved by client_reference_id and already row-locked above, so no
+    // lineage recheck: this is the write that FIRST binds the retrieved
+    // subscription's customer to the account.
+    const transition = await applyStripeSubscriptionState(
       tx,
       accountId,
-      { mode: 'checkout', accountId },
-      subscription,
+      stripeStatusTarget(subscription, providerCustomerId),
     );
     if (!transition.changed || !transition.activated) {
       // The applier may already have issued writes inside this transaction.
