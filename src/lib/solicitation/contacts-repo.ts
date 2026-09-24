@@ -153,10 +153,136 @@ export async function listContacts(
   };
 }
 
+interface ContactScope {
+  accountId: string;
+  businessId: string;
+  contactId: string;
+}
+
+/**
+ * Turns the contact's Solicitation history into **Outreach remnants** (ADR 0033,
+ * #1350). Runs inside `deleteContact`'s transaction BEFORE the contact row goes,
+ * because afterwards nothing below is reachable by `contact_id`. Migration 126's
+ * column-scoped `ON DELETE SET NULL` FKs then null `contact_id` (and `ask_id`
+ * for a deleted ask); this function owns what the FKs cannot do.
+ *
+ * ORDER IS LOAD-BEARING:
+ *
+ *  1. Unsubscribe tokens lose their `ask_id`/`outreach_id` links first, while
+ *     the asks are still findable by contact. The token keeps its handle —
+ *     statutory redemption outlives every delete — but a join from it to a
+ *     remnant would re-identify the anonymous row.
+ *  2. IN-FLIGHT asks are deleted outright, as the old cascade did: a send ask
+ *     with a live attempt (rendered/queued/sending), or with no non-cancelled
+ *     attempt at all (render pending). A live row cannot become a remnant —
+ *     092's body-presence CHECK forbids redacting one, and unredacted it keeps
+ *     the person's name — and it carries none of the signal a remnant exists to
+ *     keep (`sent_at`/`bounced_at`/`complained_at` exist only on `sent` rows).
+ *     Deleting the whole ask keeps a remnant send ask from ever reading as a
+ *     readiness gap (`approveBatch`) or an exhaustion hole (ask-generation).
+ *     Its earlier TERMINAL attempts survive as remnants with `ask_id` nulled.
+ *  3. The live attempts go (each belongs to a step-2 ask).
+ *  4. Every remaining outreach row is terminal, so it may carry
+ *     `body_redacted_at`, and is emptied of every person-bearing column.
+ *     `interpolation_inputs` becomes `'{}'`, never NULL — 091/092's CHECK
+ *     already demands exactly that of a redacted row.
+ *  5. Surviving asks keep only `{decision, reason}`: 090's CHECK pins evidence
+ *     to those keys, and the rest of it (contact_id, review id, visit dates)
+ *     names or points at the person.
+ *
+ * `contact-delete-remnant.integration.test.ts` classifies every column of both
+ * tables as kept or redacted and fails when one joins unclassified.
+ */
+async function convertToOutreachRemnants(tx: TransactionSql, scope: ContactScope): Promise<void> {
+  const { accountId, businessId, contactId } = scope;
+
+  await tx`
+    UPDATE solicitation_unsubscribe_tokens t
+    SET ask_id = NULL,
+        outreach_id = NULL
+    WHERE t.account_id = ${accountId}
+      AND t.business_id = ${businessId}
+      AND (
+        t.ask_id IN (
+          SELECT a.id FROM solicitation_asks a
+          WHERE a.contact_id = ${contactId}
+            AND a.account_id = ${accountId}
+            AND a.business_id = ${businessId}
+        )
+        OR t.outreach_id IN (
+          SELECT o.id FROM solicitation_outreach o
+          WHERE o.contact_id = ${contactId}
+            AND o.account_id = ${accountId}
+            AND o.business_id = ${businessId}
+        )
+      )
+  `;
+
+  await tx`
+    DELETE FROM solicitation_asks a
+    WHERE a.contact_id = ${contactId}
+      AND a.account_id = ${accountId}
+      AND a.business_id = ${businessId}
+      AND a.status = 'send'
+      AND (
+        EXISTS (
+          SELECT 1 FROM solicitation_outreach live
+          WHERE live.ask_id = a.id
+            AND live.account_id = ${accountId}
+            AND live.business_id = ${businessId}
+            AND live.delivery_status IN ('rendered', 'queued', 'sending')
+        )
+        OR NOT EXISTS (
+          SELECT 1 FROM solicitation_outreach settled
+          WHERE settled.ask_id = a.id
+            AND settled.account_id = ${accountId}
+            AND settled.business_id = ${businessId}
+            AND settled.delivery_status <> 'cancelled'
+        )
+      )
+  `;
+
+  await tx`
+    DELETE FROM solicitation_outreach
+    WHERE contact_id = ${contactId}
+      AND account_id = ${accountId}
+      AND business_id = ${businessId}
+      AND delivery_status IN ('rendered', 'queued', 'sending')
+  `;
+
+  await tx`
+    UPDATE solicitation_outreach
+    SET rendered_subject = NULL,
+        rendered_body = NULL,
+        interpolation_inputs = '{}'::jsonb,
+        provider_message_id = NULL,
+        provider_error = NULL,
+        consent_row_id = NULL,
+        attributed_review_id = NULL,
+        body_redacted_at = COALESCE(body_redacted_at, NOW()),
+        updated_at = NOW()
+    WHERE contact_id = ${contactId}
+      AND account_id = ${accountId}
+      AND business_id = ${businessId}
+  `;
+
+  await tx`
+    UPDATE solicitation_asks
+    SET evidence = jsonb_strip_nulls(
+      jsonb_build_object('decision', status, 'reason', withheld_reason)
+    )
+    WHERE contact_id = ${contactId}
+      AND account_id = ${accountId}
+      AND business_id = ${businessId}
+  `;
+}
+
 /** §5 hard delete: removes the contact; its visits CASCADE via the composite
  *  FK, and its consent-ledger rows are swept in the same transaction (#625
- *  spec §7.1). Returns false when the contact does not exist or is not owned
- *  by this account+business — callers map that to a uniform 404. */
+ *  spec §7.1). Its Solicitation history becomes anonymous **Outreach remnants**
+ *  first (ADR 0033), so the Send breaker's signal outlives the person. Returns
+ *  false when the contact does not exist or is not owned by this
+ *  account+business — callers map that to a uniform 404. */
 export async function deleteContact(
   sql: Sql,
   accountId: string,
@@ -164,6 +290,22 @@ export async function deleteContact(
   contactId: string,
 ): Promise<boolean> {
   return sql.begin(async (tx) => {
+    // Ownership BEFORE any write: postgres.js commits when this callback
+    // resolves, so a foreign contact is refused before the remnant conversion
+    // touches a row. FOR UPDATE is real here — it is inside sql.begin.
+    const [owned] = await tx<{ id: string }[]>`
+      SELECT c.id
+      FROM solicitation_contacts c
+      JOIN businesses b ON b.id = c.business_id
+      WHERE c.id = ${contactId}
+        AND c.business_id = ${businessId}
+        AND b.account_id = ${accountId}
+      FOR UPDATE OF c
+    `;
+    if (owned === undefined) return false;
+
+    await convertToOutreachRemnants(tx, { accountId, businessId, contactId });
+
     const deleted = await tx<{ id: string; email: string | null }[]>`
       DELETE FROM solicitation_contacts c
       USING businesses b
@@ -174,7 +316,9 @@ export async function deleteContact(
       RETURNING c.id, c.email
     `;
     const [row] = deleted;
-    if (row === undefined) return false;
+    if (row === undefined) {
+      throw new Error(`deleteContact: contact ${contactId} vanished while row-locked`);
+    }
     // §7.1: consent fails closed (DR1) — a retained row would be a residual
     // record of a deleted person AND would silently grant consent on a future
     // re-upload of the same handle. No FK reaches solicitation_consent

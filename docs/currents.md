@@ -10,7 +10,13 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 > - [progress-archive/currents-history-2026-08-16-to-18.md](progress-archive/currents-history-2026-08-16-to-18.md) — 2026-08-16 → 2026-08-18 (the executed Architecture pass through the admin Halt latch surface).
 
-Last updated: 2026-09-22 (six single-owner cleanups merged — approval-lane transitions, one outreach INSERT, one cancellation-grace day count, shared drip/nudge send strategies, execution-based RLS guards, rule 16 pinned cell-for-cell; follow-ups #1447, #1454, #1455).
+Last updated: 2026-09-24 (#1350: a contact Delete keeps an anonymous Outreach remnant, migration 126).
+
+## Quick summary — a contact Delete keeps an anonymous Outreach remnant (2026-09-24, #1350)
+
+**What changed.** The owner's per-contact Delete used to cascade away every Outreach row for that person, which also erased the **Send breaker**'s bounce and complaint signal. Now each terminal Outreach row stays as an **Outreach remnant** (ADR 0033): `contact_id` NULL, body, inputs, provider id and error, consent row id and attributed review id cleared, the send stamps kept. An in-flight ask and its live attempt are still deleted. Migration 126 (LOCAL-ONLY until promoted) makes the contact and ask FKs `SET NULL (col)`.
+
+**What is true now.** The person is gone from the Requests panel and the contacts page; the confirm copy says the request history goes and a do-not-contact mark stays. The 30-day gap and #632 attribution reset for a re-uploaded address (accepted in ADR 0033). An account purge still removes remnants through their batch.
 
 ## Quick summary — six single-owner cleanups: approval transitions, outreach insert, grace window, send strategies, RLS guards, rule 16 (2026-09-22, PRs #1448–#1453)
 

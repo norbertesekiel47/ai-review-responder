@@ -252,7 +252,12 @@ describe('ContactList', () => {
     render(<ContactList epoch={0} onRefresh={onRefresh} />);
 
     await user.click(await screen.findByRole('button', { name: /delete ada lovelace/i }));
-    expect(screen.getByText(/hard delete/i)).toBeInTheDocument();
+    // ADR 0033 / #1350: the confirm must say the history goes too, and that a
+    // do-not-contact mark survives the delete.
+    const warning = screen.getByText(/hard delete/i);
+    expect(warning).toHaveTextContent(/visits/i);
+    expect(warning).toHaveTextContent(/request history/i);
+    expect(warning).toHaveTextContent(/do-not-contact mark stays/i);
 
     await user.click(screen.getByRole('button', { name: /delete permanently/i }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
