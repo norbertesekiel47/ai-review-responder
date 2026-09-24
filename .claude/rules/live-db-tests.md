@@ -22,6 +22,8 @@ paths:
 - **The fallow PR gate is `ci:fallow:coverage`, fed by the `test` job's `pnpm test:coverage` (live-DB lane included, #581); a bare `fallow audit` does NOT predict it in either direction** — it estimates CRAP from export references (#783: green locally, CRAP 420 in CI). Reproduce the real gate: `pnpm test:coverage && pnpm ci:fallow:coverage`. Details: lab-notes/ci-tooling.md "fallow coverage input is DB-complete".
 - **The live-DB lane IS gated by `pnpm test`, not `pnpm test:integration`.** The `test` job stands up `postgres:17` + `TEST_DATABASE_POOL_URL` + schema, so `vitest run` runs both projects; `pnpm test:integration` is a one-suite fast-path, never the gate. Suites SILENTLY SKIP without a DB — `src/__tests__/ci-audit-wiring.test.ts` pins that YAML. Locally export `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` first. Mechanics: lab-notes/live-db-test-suites.md "live-DB lane CI gating".
 
+- **The test DB is coordinated by TWO advisory keys (#958).** Every integration lane and Playwright run holds the LANE key shared from globalSetup to teardown and validates the provision marker; suites needing exclusivity take the SUITE key via `acquireLiveDbLock()` in their describe block's own `beforeAll` (R3 checks per block). Never name the lane key inside a lane (R4: self-deadlock). Owner: `src/lib/shared/__tests__/helpers/live-db-lane.ts` header.
+
 ## Rules
 
 - Nothing beyond the four gotchas was moved from `.claude/CLAUDE.md`.

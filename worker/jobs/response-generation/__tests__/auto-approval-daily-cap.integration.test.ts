@@ -36,7 +36,10 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
+import {
+  assertSchemaReady,
+  MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { insertAuditLogAutoPolicy } from '@/lib/approval/audit';
 import { AUTO_POST_VETOED_BY_OWNER } from '@/lib/approval/veto';
@@ -178,7 +181,9 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
   beforeAll(async () => {
     dbA = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbB = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await applyMigration074IfMissing(dbA);
+    // 074 is provisioned by `pnpm test:db:setup` and the lane lease has already
+    // validated the provision marker (#958) — assert, never apply.
+    await assertSchemaReady(dbA, [MIGRATION_074_TRUST_DIAL_VETO_WINDOW]);
     tenant = await seedTenantAccount(dbA, {
       userName: 'Daily Cap Owner',
       accountDisplayName: 'Daily Cap Account',

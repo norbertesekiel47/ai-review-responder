@@ -20,7 +20,10 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
+import {
+  assertSchemaReady,
+  MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { AUDIT_ACTION_AUTO_APPROVED_BY_POLICY } from '@/lib/approval/audit';
 import { enforceElapsedVetoWindow } from '../veto-window-gate';
@@ -76,7 +79,9 @@ function gateInput(outboxId: string) {
 describeWithDb('elapsed-veto-window gate against live Postgres (deadline push tx)', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 2, prepare: false });
-    await applyMigration074IfMissing(db);
+    // 074 is provisioned by `pnpm test:db:setup` and the lane lease has already
+    // validated the provision marker (#958) — assert, never apply.
+    await assertSchemaReady(db, [MIGRATION_074_TRUST_DIAL_VETO_WINDOW]);
     tenant = await seedTenantAccount(db, {
       userName: 'Veto Gate Owner',
       accountDisplayName: 'Veto Gate Account',

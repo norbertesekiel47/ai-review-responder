@@ -62,6 +62,19 @@
 //      statically — a CREATE INDEX on a pg_temp table reads exactly like one on
 //      the shared table.
 //
+// R3 — LOCK COVERAGE IS PER BLOCK (#958). An allowlisted file's DDL must run
+//      inside a describe block whose own `beforeAll` acquires the suite lock
+//      (`acquireLiveDbLock`), or under a file-scope `beforeAll` that does. The
+//      check it replaces read the FILE for the identifier, so a second top-level
+//      block — a `describe.skipIf` required-database sentinel beside a locked
+//      `describeWithDb`, the onboarding-drip shape — could run DDL unlocked with
+//      the audit green. `blockCoverage` owns the rule and its bound.
+//
+// R4 — NO LANE-KEY USE INSIDE A LANE (#958). The integration lane holds
+//      `LIVE_DB_LANE_KEY` SHARED from its globalSetup for its whole run, so any
+//      lane file that asks for that key exclusive waits on its own process until
+//      the acquisition timeout. Only the protocol's owner module may name it.
+//
 // The two rules do not share a unit, and #706 made that explicit. A SUITE is a
 // file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, which is not the same
 // question as whether vitest runs the file; a HELPER is any other `.ts`/`.tsx`
@@ -78,7 +91,7 @@ import { lineHasPragma } from './lib/sql-tag-scan';
 
 export interface LiveDbFileFinding {
   file: string;
-  rule: 'naming' | 'runtime-ddl' | 'unlocked-ddl';
+  rule: 'naming' | 'runtime-ddl' | 'unlocked-ddl' | 'lane-key';
   reason: string;
 }
 
@@ -103,19 +116,28 @@ const NOT_LIVE_DB = new Set([
   // database at all, so serializing it would cost the `integration` project a
   // file for nothing.
   'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  // #958's lane-lease unit test: every lease in it runs on a FAKE session, and
+  // it names the variable only to assert that Playwright's globalSetup passes
+  // it to the lease. Its one real socket goes to 127.0.0.1:1, where nothing
+  // listens, to pin the connection-refused skip; it never reaches Postgres.
+  'src/lib/shared/__tests__/helpers/live-db-lane.test.ts',
 ]);
 
 /**
  * Migration-shape files: applying the migration IS the subject. Each suite's
  * subject is one migration's shape (no count here — it moves with every suite
  * that converts from parsing SQL text to executing it, and a figure written in
- * prose goes stale the way R1's did);
- * `apply-migration-074.ts` is the shared guarded apply that
- * the 074 shape suite and three further integration suites delegate to, and it
- * executes the real file via `db.unsafe(readMigration074Sql())` — an argument
- * this walk cannot read, which counts as DDL by design (#706 made it visible; it
- * was never audited before). Every entry must hold a cross-process lock
- * (enforced below).
+ * prose goes stale the way R1's did). Every entry must hold the cross-process
+ * suite lock around its DDL, block by block (R3, enforced below).
+ *
+ * Only SUITES belong here. `apply-migration-074.ts` — a helper that ran 074's
+ * DDL conditionally for four suites under its own `repworth_migration_074_apply`
+ * key, which provisioning never excluded — was retired by #958: the test DB is
+ * at head by construction (the lane validates the provision marker before any
+ * suite starts), so its three consumers assert the schema instead, and the 074
+ * shape suite's rolled-back re-apply runs under the suite lock like every other
+ * entry. A helper cannot hold a lock on its caller's behalf, and R3 reports one
+ * that tries: it has no test block of its own for the lock to cover.
  */
 const MIGRATION_SHAPE_FILES = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
@@ -185,7 +207,6 @@ const MIGRATION_SHAPE_FILES = new Set([
   // one degrade in this set that reaches a SCHEMA-level object — #1301
   // RT-6/S-8.)
   'src/lib/shared/__tests__/migration-118-poller-heartbeats.integration.test.ts',
-  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
   // #1384 — the three RLS-policy guard suites the 2026-09-20 architecture pass
   // named as D8's actual priority (deny-all is a different mechanism, #1300):
   // 035 creates the owner_account_id()-predicate policies on every protected
@@ -213,36 +234,6 @@ const DDL_PROBE_FILES = new Set([
 ]);
 
 /**
- * 074 predates the shared lock and serializes on its own dedicated apply lock
- * (`withMigration074ApplyLock`), which is equally cross-process. Accepted as an
- * alternative to `acquireLiveDbLock` for the 074 shape suite and for the helper
- * that DEFINES that lock — which is also the answer to "a helper cannot hold a
- * lock on its own behalf": this one does, and the check is on the file's OWN
- * text. Inheriting a caller's lock would need an import graph, so an allowlisted
- * file that reaches the lock check without naming its lock marker is reported
- * `unlocked-ddl`.
- *
- * BOUND: the check is `text.includes(OWN_LOCK_MARKER)`, so what it reads is the
- * PRESENCE of the identifier in the file, never the position of the DDL relative
- * to the wrapper. For the 074 shape SUITE that presence is a genuine call site.
- * For `apply-migration-074.ts` it is the declaration (its own `:23`), so the
- * check reads the same whether `db.unsafe(readMigration074Sql())` runs inside
- * `withMigration074ApplyLock` or outside it: hoisting that call — an inverted
- * early return, or a "fast path when the column already exists" — leaves the
- * identifier in the file and ships unserialized DDL with this audit green.
- * What the check does still see is the identifier going away: rename or delete
- * `withMigration074ApplyLock` and this file's DDL reports `unlocked-ddl`, which
- * is the mutation the PR's docs cite as proof of enforcement. Proving the DDL
- * sits INSIDE the wrapper needs call-graph analysis, more machinery than a CI
- * guard against accidental DDL warrants. What the two members of this set get
- * from the check differs; saying so is cheaper than a claim that it does not.
- */
-const OWN_APPLY_LOCK = new Set([
-  'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
-  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
-]);
-
-/**
  * Every way a suite can reach the shared local Postgres: the env var by name,
  * or an import of one of the three helper modules that resolve/gate/lock it.
  * Import specifiers rather than function names — a rename inside a helper does
@@ -260,7 +251,11 @@ const LIVE_DB_MARKERS = [
   'helpers/schema-ready',
 ] as const;
 const SHARED_LOCK_MARKER = 'acquireLiveDbLock';
-const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
+
+/** R4: the lane key's identifier and literal, and the one module that may name them. */
+const LANE_KEY_IDENTIFIER = 'LIVE_DB_LANE_KEY';
+const LANE_KEY_LITERAL = 'repworth_live_db_lane';
+const LANE_KEY_OWNER = 'src/lib/shared/__tests__/helpers/live-db-lane.ts';
 
 /**
  * How a HELPER reaches the database. `LIVE_DB_MARKERS` above is suite-shaped —
@@ -393,6 +388,8 @@ interface ExecutedSql {
   text: string | null;
   /** Line of the executing node — used to report an unreadable argument. */
   line: number;
+  /** The executing node itself — R3 walks its ancestors to find the covering block. */
+  node: ts.Node;
 }
 
 /**
@@ -439,6 +436,7 @@ function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
         start: node.template.getStart(source),
         text: node.template.getText(source),
         line: lineOf(node),
+        node,
       });
     } else if (isUnsafeCall(node)) {
       const arg = node.arguments[0];
@@ -451,6 +449,7 @@ function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
         start: readable ? arg.getStart(source) : node.getStart(source),
         text: readable ? arg.getText(source) : null,
         line: lineOf(node),
+        node,
       });
     }
     ts.forEachChild(node, visit);
@@ -469,21 +468,210 @@ function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
  * DDL verb is matched against, because `lineHasPragma` has to see the pragma
  * comment it keys on.
  */
-function unpragmaedDdlLines(source: ts.SourceFile): number[] {
+function unpragmaedDdl(source: ts.SourceFile): { line: number; node: ts.Node }[] {
   const lines: string[] = source.getFullText().split('\n');
-  const hits = new Set<number>();
+  const hits = new Map<number, ts.Node>();
   for (const sql of extractExecutedSql(source)) {
     if (sql.text === null) {
-      hits.add(sql.line);
+      if (!hits.has(sql.line)) hits.set(sql.line, sql.node);
       continue;
     }
     for (const match of blankSqlComments(sql.text).matchAll(DDL_VERB)) {
-      hits.add(source.getLineAndCharacterOfPosition(sql.start + (match.index ?? 0)).line);
+      const line = source.getLineAndCharacterOfPosition(sql.start + (match.index ?? 0)).line;
+      if (!hits.has(line)) hits.set(line, sql.node);
     }
   }
-  return [...hits]
-    .sort((a, b) => a - b)
-    .filter((line) => !lineHasPragma(lines, line, DDL_PRAGMA));
+  return [...hits.entries()]
+    .sort(([a], [b]) => a - b)
+    .filter(([line]) => !lineHasPragma(lines, line, DDL_PRAGMA))
+    .map(([line, node]) => ({ line, node }));
+}
+
+// ---------------------------------------------------------------------------
+// R3 — block-level lock coverage (#958).
+
+const DESCRIBE_ROOTS = new Set(['describe', 'describeWithDb', 'suite']);
+const TEST_ROOTS = new Set(['it', 'test']);
+const HOOK_NAMES = new Set(['beforeAll', 'afterAll', 'beforeEach', 'afterEach']);
+
+/**
+ * The identifier a call chain starts from: `describe` for `describe(…)`,
+ * `describe.skipIf(x)(…)`, `describe.each(rows)(…)` and `describe.sequential(…)`
+ * alike — which is how a sentinel block and a table-driven block are recognised
+ * as blocks without listing vitest's modifiers.
+ */
+function calleeRoot(expression: ts.Expression): string | undefined {
+  let current: ts.Expression = expression;
+  for (;;) {
+    if (ts.isIdentifier(current)) return current.text;
+    if (ts.isCallExpression(current) || ts.isPropertyAccessExpression(current)) {
+      current = current.expression;
+    } else if (ts.isElementAccessExpression(current) || ts.isNonNullExpression(current)) {
+      current = current.expression;
+    } else if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+    } else {
+      return undefined;
+    }
+  }
+}
+
+function isDescribeCall(node: ts.Node): node is ts.CallExpression {
+  return ts.isCallExpression(node) && DESCRIBE_ROOTS.has(calleeRoot(node.expression) ?? '');
+}
+
+function isBlockCall(node: ts.Node): node is ts.CallExpression {
+  if (!ts.isCallExpression(node)) return false;
+  const root = calleeRoot(node.expression) ?? '';
+  return DESCRIBE_ROOTS.has(root) || TEST_ROOTS.has(root);
+}
+
+function isHookCall(node: ts.Node, name?: string): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    HOOK_NAMES.has(node.expression.text) &&
+    (name === undefined || node.expression.text === name)
+  );
+}
+
+function containsLockAcquisition(node: ts.Node): boolean {
+  if (ts.isCallExpression(node) && calleeRoot(node.expression) === SHARED_LOCK_MARKER) return true;
+  return ts.forEachChild(node, containsLockAcquisition) ?? false;
+}
+
+/** Statement list of a block call's callback (the last function-like argument). */
+function blockStatements(call: ts.CallExpression): readonly ts.Statement[] {
+  const callback = [...call.arguments]
+    .reverse()
+    .find(
+      (argument): argument is ts.ArrowFunction | ts.FunctionExpression =>
+        ts.isArrowFunction(argument) || ts.isFunctionExpression(argument),
+    );
+  if (callback === undefined) return [];
+  return ts.isBlock(callback.body) ? callback.body.statements : [];
+}
+
+/** A `beforeAll` among `statements` (not nested deeper) that acquires the suite lock. */
+function acquiresInBeforeAll(statements: readonly ts.Statement[]): boolean {
+  return statements.some(
+    (statement) =>
+      ts.isExpressionStatement(statement) &&
+      isHookCall(statement.expression, 'beforeAll') &&
+      containsLockAcquisition(statement.expression),
+  );
+}
+
+/** The name a module-scope function or variable binds, when `node` is one. */
+function moduleScopeBinding(source: ts.SourceFile, node: ts.Node): ts.Identifier | undefined {
+  if (ts.isFunctionDeclaration(node) && node.parent === source) return node.name;
+  if (
+    ts.isVariableDeclaration(node) &&
+    ts.isIdentifier(node.name) &&
+    node.parent.parent.parent === source
+  ) {
+    return node.name;
+  }
+  return undefined;
+}
+
+/** Every place `binding` is USED in the file — its declaring name excluded. */
+function referencesTo(source: ts.SourceFile, binding: ts.Identifier): ts.Identifier[] {
+  const found: ts.Identifier[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isIdentifier(node) &&
+      node !== binding &&
+      node.text === binding.text &&
+      !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+    ) {
+      found.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/**
+ * Whether the code at `node` runs under the suite lock.
+ *
+ * Walking up from the executing node:
+ *  - an enclosing describe block whose OWN `beforeAll` acquires the lock covers
+ *    it, and so does a file-scope `beforeAll` that does (vitest runs file-scope
+ *    hooks for every block);
+ *  - reaching a test or hook callback with no locked describe above it is
+ *    uncovered — the onboarding-drip shape, a sentinel block beside the locked
+ *    one;
+ *  - reaching a module-scope helper FIRST (a function, or a variable holding a
+ *    fragment or an arrow) defers to the places the helper is used: it is
+ *    covered only if every reference to it is. A helper nobody references, and
+ *    code executed at import time, are uncovered — the lock has to be taken
+ *    where the test runs, which is also why a helper MODULE cannot be
+ *    allowlisted on its own.
+ *
+ * BOUND: this is lexical and intra-file. A lock taken in a `beforeAll`
+ * registered AFTER a sibling `beforeAll` that runs DDL is reported covered, and
+ * a helper passed to another module is followed only to where it is passed.
+ * Neither shape exists in an allowlisted suite; the second fails closed when the
+ * passing site is itself uncovered.
+ */
+function isCoveredByLock(
+  source: ts.SourceFile,
+  node: ts.Node,
+  visiting: Set<ts.Node> = new Set(),
+): boolean {
+  if (acquiresInBeforeAll(source.statements)) return true;
+  // `visiting` is the current reference PATH, not every node ever seen: two
+  // sibling uses of one helper both walk through the same outer call site, and
+  // only a helper that reaches itself (recursion) should read as uncovered.
+  if (visiting.has(node)) return false;
+  visiting.add(node);
+  try {
+    return walksToLockedBlock(source, node, visiting);
+  } finally {
+    visiting.delete(node);
+  }
+}
+
+function walksToLockedBlock(source: ts.SourceFile, node: ts.Node, visiting: Set<ts.Node>): boolean {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    const binding = moduleScopeBinding(source, current);
+    if (binding !== undefined) {
+      const uses = referencesTo(source, binding);
+      return uses.length > 0 && uses.every((use) => isCoveredByLock(source, use, visiting));
+    }
+    if (!ts.isFunctionLike(current)) continue;
+    const owner = current.parent;
+    const isCallback =
+      owner !== undefined &&
+      ts.isCallExpression(owner) &&
+      owner.arguments.some((argument) => argument === current) &&
+      (isBlockCall(owner) || isHookCall(owner));
+    if (!isCallback) continue;
+    if (isDescribeCall(owner) && acquiresInBeforeAll(blockStatements(owner))) return true;
+  }
+  return false;
+}
+
+/** R4: the identifier or the literal of the lane key, anywhere in the AST. */
+function namesLaneKey(source: ts.SourceFile): number | undefined {
+  let found: number | undefined;
+  const visit = (node: ts.Node): void => {
+    if (found !== undefined) return;
+    if (
+      (ts.isIdentifier(node) && node.text === LANE_KEY_IDENTIFIER) ||
+      (ts.isStringLiteralLike(node) && node.text.includes(LANE_KEY_LITERAL)) ||
+      ((ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
+        node.text.includes(LANE_KEY_LITERAL))
+    ) {
+      found = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
 }
 
 /**
@@ -543,17 +731,34 @@ export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[]
     true,
     file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  const ddlLines = unpragmaedDdlLines(source);
-  if (ddlLines.length === 0) return findings;
 
-  const firstAt = `first at line ${(ddlLines[0] ?? 0) + 1}`;
+  // R4 applies to what runs INSIDE the integration lane: its suites, and the
+  // helpers they import. A parallel-project unit test holds no lane lease.
+  const inLane = !suite || file.endsWith('.integration.test.ts');
+  const laneKeyLine = inLane && file !== LANE_KEY_OWNER ? namesLaneKey(source) : undefined;
+  if (laneKeyLine !== undefined) {
+    findings.push({
+      file,
+      rule: 'lane-key',
+      reason:
+        `names the lane key at line ${laneKeyLine + 1} — the integration lane already holds it ` +
+        'SHARED for its whole run, so an exclusive request from inside the lane waits on its own ' +
+        'process until it times out (#958). Take the suite lock with acquireLiveDbLock() instead',
+    });
+  }
+
+  const ddl = unpragmaedDdl(source);
+  if (ddl.length === 0) return findings;
+
+  const lineOfFirst = (hits: readonly { line: number }[]): string =>
+    `first at line ${(hits[0]?.line ?? 0) + 1}`;
 
   if (!MIGRATION_SHAPE_FILES.has(file) && !DDL_PROBE_FILES.has(file)) {
     findings.push({
       file,
       rule: 'runtime-ddl',
       reason:
-        `live-DB file executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
+        `live-DB file executes DDL at run time (${lineOfFirst(ddl)}) — ACCESS EXCLUSIVE locks ` +
         'deadlock sibling suites (#573). Provision with `pnpm test:db:setup` and assert ' +
         'with assertSchemaReady() instead, or add a `-- live-db-ddl-ignore: <reason>` ' +
         'pragma if the target provably cannot be a shared relation',
@@ -561,16 +766,16 @@ export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[]
     return findings;
   }
 
-  const locked = OWN_APPLY_LOCK.has(file)
-    ? text.includes(OWN_LOCK_MARKER)
-    : text.includes(SHARED_LOCK_MARKER);
-  if (!locked) {
+  const uncovered = ddl.filter((hit) => !isCoveredByLock(source, hit.node));
+  if (uncovered.length > 0) {
     findings.push({
       file,
       rule: 'unlocked-ddl',
       reason:
-        `allowlisted file executes DDL (${firstAt}) without the cross-process live-DB ` +
-        'lock — call acquireLiveDbLock() in beforeAll and release it in afterAll',
+        `allowlisted file executes DDL (${lineOfFirst(uncovered)}) outside every block that holds ` +
+        'the cross-process suite lock — call acquireLiveDbLock() in a beforeAll of the describe ' +
+        'block that runs it (every top-level block, when the DDL lives in a module-scope helper), ' +
+        'and release it in afterAll',
     });
   }
   return findings;

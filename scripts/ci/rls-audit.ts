@@ -1,9 +1,16 @@
 import postgres from 'postgres';
-import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LIVE_DB_LOCK_KEY } from '../../src/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  PROVISION_MARKER_MISSING,
+  computeProvisionHash,
+  expectedProvisionHash,
+  findProvisionFailure,
+  readProvisionMarker,
+  type LiveSql,
+} from '../../src/lib/shared/__tests__/helpers/live-db-lane';
 import { RLS_REQUIRED_TABLES } from './rls-tables';
 
 export interface RlsRow {
@@ -368,9 +375,12 @@ function reportFailures(label: string, failures: readonly string[]): void {
 // ---------------------------------------------------------------------------
 // Provisioning coordination (#877). The live check joins the same advisory
 // protocol as scripts/test-db-setup.sh (exclusive) and the DDL suites
-// (exclusive, via live-db-lock.ts): a SHARED acquisition on the same key, so
+// (exclusive, via live-db-lock.ts): a SHARED acquisition on the SUITE key, so
 // this read can never observe a half-dropped schema — the class of failure
-// that produced 20+ bogus "missing from pg_class" lines on #865.
+// that produced 20+ bogus "missing from pg_class" lines on #865 — nor a DDL
+// suite's committed degrade. It deliberately does NOT take the lane key (#958):
+// provisioning holds the suite key too, and a lane's non-DDL suites cannot
+// change what this audit reads.
 
 /** Bounds both the shared-lock wait and the queries on the audit session. */
 const LIVE_AUDIT_STATEMENT_TIMEOUT_MS = 240_000;
@@ -381,69 +391,16 @@ const LIVE_AUDIT_STATEMENT_TIMEOUT_MS = 240_000;
 // shared-lock consumer anyway.
 export { LIVE_DB_LOCK_KEY };
 
-/** A minimal tagged-template query surface — what the helpers below need. */
-export type LiveSql = (
-  strings: TemplateStringsArray,
-  ...params: unknown[]
-) => Promise<Record<string, unknown>[]>;
-
-export const PROVISION_MARKER_MISSING = 'provision_marker_missing';
-
-/**
- * Hash of the ordered bootstrap + migration file contents — byte-for-byte the
- * value scripts/test-db-setup.sh records in `test_meta.provision`
- * (`cat bootstrap migrations… | shasum -a 256`). Hashing CONTENT rather than
- * the head filename means an edit to an existing migration or to the
- * bootstrap also reads as not-at-head.
- */
-export function computeProvisionHash(orderedSqlContents: readonly string[]): string {
-  const hash = createHash('sha256');
-  for (const content of orderedSqlContents) hash.update(content);
-  return hash.digest('hex');
-}
-
-export function expectedProvisionHash(): string {
-  const bootstrap = readFileSync(
-    resolve(process.cwd(), 'scripts/ci/test-db-bootstrap.sql'),
-    'utf8',
-  );
-  const migrations = readdirSync(MIGRATIONS_DIR)
-    .filter((file) => file.endsWith('.sql'))
-    .sort()
-    .map((file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  return computeProvisionHash([bootstrap, ...migrations]);
-}
-
-/**
- * Reads the provisioning marker. An absent `test_meta` schema (3F000), absent
- * table (42P01), or empty table all mean the same thing: no completed
- * provision — an interrupted run clears the marker before touching `public`
- * and rewrites it only as its final statement.
- */
-export async function readProvisionMarker(
-  sql: LiveSql,
-): Promise<{ contentHash: string } | typeof PROVISION_MARKER_MISSING> {
-  let rows: Record<string, unknown>[];
-  try {
-    rows = await sql`SELECT content_hash FROM test_meta.provision`;
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code === '3F000' || code === '42P01') return PROVISION_MARKER_MISSING;
-    throw error;
-  }
-  const contentHash = rows[0]?.content_hash;
-  return typeof contentHash === 'string' ? { contentHash } : PROVISION_MARKER_MISSING;
-}
-
-export function findProvisionFailure(
-  marker: { contentHash: string } | typeof PROVISION_MARKER_MISSING,
-  expectedHash: string,
-): string | undefined {
-  if (marker === PROVISION_MARKER_MISSING || marker.contentHash !== expectedHash) {
-    return 'test DB provisioning incomplete or behind head — run pnpm test:db:setup';
-  }
-  return undefined;
-}
+// The provision-marker helpers are owned by the lane module (#958) — every
+// shared acquisition validates the marker, and this audit is one of them.
+export {
+  PROVISION_MARKER_MISSING,
+  computeProvisionHash,
+  expectedProvisionHash,
+  findProvisionFailure,
+  readProvisionMarker,
+  type LiveSql,
+};
 
 /**
  * Runs `fn` holding the SHARED live-DB advisory lock, releasing it on every

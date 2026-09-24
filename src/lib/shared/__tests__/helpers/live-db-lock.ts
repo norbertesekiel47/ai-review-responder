@@ -15,6 +15,12 @@
 //
 // Named `feature-543-*` until #573 — it was introduced for one feature and
 // became the shared protocol.
+//
+// This is the SUITE key. Since #958 every integration lane also holds a second,
+// LANE key shared for its whole run (live-db-lane.ts, whose header owns the
+// two-key protocol); provisioning takes both exclusive, lane key first. A suite
+// never touches the lane key — `ci:live-db-suites` R4 — or it would wait on its
+// own lane.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
