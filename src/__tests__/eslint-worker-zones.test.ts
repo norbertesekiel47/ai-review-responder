@@ -20,6 +20,18 @@
 // must NOT collide with either zone's OWN `ignores` (`**/__tests__/**`,
 // `**/*.test.ts`), or the zone under test would skip it and the assertion
 // would pass for the wrong reason all over again.
+//
+// Both fixture directories are ALSO gitignored (.gitignore), so a plain
+// `eslint .` (pnpm lint / the lefthook `lint` row) skips them entirely —
+// otherwise a local `verify-gate.sh`/lefthook run, which lints and tests the
+// same working directory in parallel, can catch this suite's fixture mid-
+// write/delete and crash on ENOENT (impossible in CI's separate lint/test
+// jobs; see the #1372/#1366 lab-notes entry). `lintFiles` below therefore
+// runs on a SEPARATE `ESLint({ ignore: false })` instance: the constructor
+// flag bypasses global ignore patterns (gitignore-derived and otherwise)
+// WITHOUT touching each zone's own `files`/`ignores` rule-scoping — the
+// `__tests__`-exemption cases below still exercise the real, ignore-honoring
+// instance.
 import { ESLint } from 'eslint';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -30,6 +42,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.setConfig({ testTimeout: 60_000 });
 
 let eslint: ESLint;
+let eslintIgnoringNothing: ESLint;
 
 const ingressFixtureDir = path.join(process.cwd(), 'worker/ingress/__fixtures__');
 const jobsFixtureDir = path.join(process.cwd(), 'worker/jobs/__fixtures__');
@@ -57,6 +70,7 @@ const awaitedPromiseCode = unawaitedPromiseCode
 
 beforeAll(() => {
   eslint = new ESLint();
+  eslintIgnoringNothing = new ESLint({ ignore: false });
 
   // Self-healing: clear out anything a previous crashed run left behind
   // before writing fresh fixtures.
@@ -81,7 +95,7 @@ afterAll(() => {
 });
 
 async function ruleMessages(filePath: string, ruleId: string) {
-  const results = await eslint.lintFiles([filePath]);
+  const results = await eslintIgnoringNothing.lintFiles([filePath]);
   const result = results[0];
   if (!result) throw new Error(`ESLint returned no result for ${filePath}`);
   // Fail fast on a fatal parse error (e.g. the type-aware zone's project
