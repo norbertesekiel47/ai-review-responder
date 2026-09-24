@@ -25,6 +25,10 @@ import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '@/lib/publishing/orphan-markers';
+import {
+  markResponseSuperseded,
+  markResponseSupersededWithReason,
+} from '@/lib/approval/transitions';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -529,24 +533,18 @@ async function processExistingReview(
     // are NOT superseded — that's truly terminal (the reply already exists on
     // Google; no further action is possible from our side).
     if (activeResponse.status === 'awaiting_owner_connect') {
-      await tx`
-        UPDATE responses
-        SET status = 'superseded',
-            posting_error = 'review_content_changed_during_park',
-            updated_at = NOW()
-        WHERE id = ${activeResponse.id}
-      `;
+      await markResponseSupersededWithReason(tx, {
+        responseId: activeResponse.id,
+        businessId,
+        postingError: 'review_content_changed_during_park',
+      });
     }
 
     return 'updated' as const;
   }
 
   // Other statuses (approved, edited) — supersede and regenerate
-  await tx`
-    UPDATE responses
-    SET status = 'superseded', updated_at = NOW()
-    WHERE id = ${activeResponse.id}
-  `;
+  await markResponseSuperseded(tx, { responseId: activeResponse.id, businessId });
 
   const nextVersion = activeResponse.version + 1;
   await enqueueGenerateResponse(tx, {

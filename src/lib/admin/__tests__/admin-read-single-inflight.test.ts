@@ -73,9 +73,10 @@ const CASES: Case[] = [
     run: (sql) => getAdminJobsData(sql, PAGE),
   },
   {
+    // costRows → platformRows → #1106's unattributedRows.
     name: 'getMarginReport',
-    queries: 3,
-    rest: [[], [{ total_cost_usd: 0 }]],
+    queries: 4,
+    rest: [[], [{ total_cost_usd: 0 }], [{ count: 0, cost_usd: 0 }]],
     run: (sql) => getMarginReport(sql, { limit: 20 }),
   },
 ];

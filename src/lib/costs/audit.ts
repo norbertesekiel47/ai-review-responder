@@ -34,6 +34,24 @@ export function calculateCostUsd(
 // ── Audit trail ─────────────────────────────────────────��────────────
 
 /**
+ * Single owner of the `api_costs.endpoint` label written by the
+ * response-generation path (`tryRecordApiCost` in
+ * `src/lib/responses/generator.ts`, both the primary draft and the
+ * avoid-facts retry). `src/lib/admin/margin-service.ts` imports this same
+ * constant on read to find rows that SHOULD have gotten `response_id` linked
+ * by `worker/jobs/response-generation/persist.ts` but didn't because the
+ * persist transaction aborted (#1106) — orphaned honest spend, kept in the
+ * margin totals and broken out as a separate line.
+ *
+ * Every other `recordApiCost` caller (judge, review-summary, triage,
+ * safety-review, owner-operator, solicitation ask-generation, serpapi
+ * prefill) already writes its own distinct semantic endpoint label and is
+ * never linked to a `responses` row by design — this constant exists so the
+ * one path that IS meant to be linked stays unambiguous from all of them.
+ */
+export const RESPONSE_GENERATION_ENDPOINT = 'response-generation';
+
+/**
  * Inserts an api_costs audit row and returns the row's UUID.
  *
  * `accountId` should be set for business-scoped production calls (margin

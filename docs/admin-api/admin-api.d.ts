@@ -676,6 +676,11 @@ export type MarginData = {
         "subscriptionTier": "autopilot" | "copilot";
         "variableApiCostUsd": number;
     }>;
+    "unattributedResponseCost": {
+        "costUsd": number;
+        "count": number;
+        "note": string;
+    };
     "windowDays": number;
 };
 export type MarginRiskLevel = "action" | "none" | "warning";
@@ -1503,6 +1508,11 @@ export type CostsGETResponse = {
             "subscriptionTier": "autopilot" | "copilot";
             "variableApiCostUsd": number | null;
         }>;
+        "unattributedResponseCost": {
+            "costUsd": number | null;
+            "count": number | null;
+            "note": string;
+        };
         "windowDays": number | null;
     };
     "offset": number | null;

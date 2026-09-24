@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { writeAccountAuditLog } from '@/lib/audit/log';
+import { markResponseSupersededWithReason } from '@/lib/approval/transitions';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 
@@ -147,13 +148,12 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
 
     // Terminal 'give up on this parked draft' transition — the same status +
     // posting_error pattern process-review.ts uses for parked responses.
-    await tx`
-      UPDATE responses
-      SET status = 'superseded',
-          posting_error = 'admin_dismissed_awaiting_connect',
-          updated_at = NOW()
-      WHERE id = ${responseId} AND status = 'awaiting_owner_connect'
-    `;
+    await markResponseSupersededWithReason(tx, {
+      responseId,
+      businessId,
+      postingError: 'admin_dismissed_awaiting_connect',
+      guardStatus: 'awaiting_owner_connect',
+    });
 
     await writeAccountAuditLog(tx, {
       accountId: row.account_id,

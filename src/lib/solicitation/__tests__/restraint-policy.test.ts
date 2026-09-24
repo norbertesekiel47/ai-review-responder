@@ -581,6 +581,29 @@ describe('resolveVertical — stem collisions (#555)', () => {
   ] as const)('%s still resolves to %s via "%s"', (category, vertical, keyword) => {
     expect(resolveVertical(category)).toEqual({ vertical, matchedKeyword: keyword });
   });
+
+  // #613, surfaced by the #555 review: making `bar` whole-word (fixing the
+  // Barre Studio false MATCH above) has a false-NEGATIVE side effect the #555
+  // PR never audited for. "Barbecue" starts with "bar" at a word boundary, so
+  // the OLD left-boundary-only `/\bbar/` stem caught it — by the same accident
+  // that wrongly caught "Barre Studio" — and it no longer does. No other
+  // food_and_drink keyword matches "barbecue" (`bbq` is a different string),
+  // so it now falls all the way through to `other`.
+  //
+  // This is pinned, not fixed: `resolveVertical`'s keyword matcher is the
+  // LEGACY free-text fallback only (see its own doc comment) — a business
+  // onboarded since #1093 carries a closed subcategory ("Restaurants") and
+  // never reaches this path at all, so the blast radius is a pre-#1093
+  // owner-typed category literally containing "barbecue" but not "bbq". "The
+  // 38 `other` entries are DELIBERATE" is this file's own standing position on
+  // a legacy category resolving to the generic vertical; whether "barbecue"
+  // specifically should join `bbq` as a keyword is a product call this pin
+  // deliberately leaves open rather than making silently.
+  it('falls through to other for "barbecue" — bbq still matches, the bar-prefixed spelling no longer does (#613)', () => {
+    expect(resolveVertical('BBQ Pit')).toEqual({ vertical: 'food_and_drink', matchedKeyword: 'bbq' });
+    expect(resolveVertical("Bob's Barbecue")).toEqual({ vertical: 'other', matchedKeyword: null });
+    expect(resolveVertical('Downtown Barbecue Joint')).toEqual({ vertical: 'other', matchedKeyword: null });
+  });
 });
 
 // ---------------------------------------------------------------------------
