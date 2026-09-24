@@ -53,9 +53,12 @@
 -- already satisfies the new constraint; VALIDATE re-proves it rather than
 -- trusting that argument.
 --
--- Apply order: staging first, then production, same change window. Verify by
--- introspection (pg_get_constraintdef + information_schema.columns), never the
--- migration ledger. Rollback = restore the three CASCADE FKs (after deleting
+-- Apply order: staging first, then production. In EACH environment the code
+-- that redacts (#1350's deleteContact) must be deployed BEFORE this runs: the
+-- new code is safe on the old schema (it redacts, then CASCADE deletes), but
+-- the OLD code on this schema would leave unredacted remnants — the body and
+-- interpolation_inputs of an erased person. Verify by introspection
+-- (pg_get_constraintdef + information_schema.columns), never the ledger. Rollback = restore the three CASCADE FKs (after deleting
 -- any remnant rows, which the old NOT NULL would reject) and SET NOT NULL.
 
 BEGIN;

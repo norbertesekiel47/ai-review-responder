@@ -2548,6 +2548,8 @@ Revisit triggers:
   `solicitation_asks_batch_contact_uniq` stays NULLS DISTINCT on purpose — the
   second remnant in a batch would otherwise fail the delete. The redaction is
   a write in `deleteContact`, not here. No new table/column/index/RLS change.
+  **Deploy the #1350 code to an environment BEFORE applying 126 there:** the
+  old `deleteContact` on this schema would leave UNREDACTED remnants.
   Verify (both projects): `SELECT conname, pg_get_constraintdef(oid) FROM
   pg_constraint WHERE conname IN ('solicitation_asks_contact_business_fk',
   'solicitation_outreach_contact_business_fk',
