@@ -507,6 +507,19 @@ describe('live-db-suites-audit', () => {
 
     it('flags DDL executed at import time even when every block is locked', () => {
       expect(rules(APPLIES_DDL + lockedBlock('await db`SELECT 1`;\n'))).toEqual(['unlocked-ddl']);
+      // …and even under a file-scope lock: import time precedes every hook.
+      expect(
+        rules('beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' + APPLIES_DDL),
+      ).toEqual(['unlocked-ddl']);
+    });
+
+    it('flags DDL directly in a locked describe BODY — it runs at collection time, before beforeAll', () => {
+      const source =
+        "describeWithDb('locked', () => {\n" +
+        '  beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' +
+        APPLIES_DDL +
+        '});\n';
+      expect(rules(source)).toEqual(['unlocked-ddl']);
     });
   });
 

@@ -610,18 +610,21 @@ function referencesTo(source: ts.SourceFile, binding: ts.Identifier): ts.Identif
  *    where the test runs, which is also why a helper MODULE cannot be
  *    allowlisted on its own.
  *
+ * DDL directly in a describe BODY runs at collection time, before any hook, and
+ * is uncovered whatever that block acquires.
+ *
  * BOUND: this is lexical and intra-file. A lock taken in a `beforeAll`
- * registered AFTER a sibling `beforeAll` that runs DDL is reported covered, and
- * a helper passed to another module is followed only to where it is passed.
- * Neither shape exists in an allowlisted suite; the second fails closed when the
- * passing site is itself uncovered.
+ * registered AFTER a sibling `beforeAll` that runs DDL is reported covered; a
+ * function-valued local inside a describe body is assumed to run at test time;
+ * and a helper passed to another module is followed only to where it is passed.
+ * None of these shapes exists in an allowlisted suite; the last fails closed
+ * when the passing site is itself uncovered.
  */
 function isCoveredByLock(
   source: ts.SourceFile,
   node: ts.Node,
   visiting: Set<ts.Node> = new Set(),
 ): boolean {
-  if (acquiresInBeforeAll(source.statements)) return true;
   // `visiting` is the current reference PATH, not every node ever seen: two
   // sibling uses of one helper both walk through the same outer call site, and
   // only a helper that reaches itself (recursion) should read as uncovered.
@@ -635,6 +638,10 @@ function isCoveredByLock(
 }
 
 function walksToLockedBlock(source: ts.SourceFile, node: ts.Node, visiting: Set<ts.Node>): boolean {
+  // Code runs at TEST time only once it sits inside a test or hook callback (or
+  // a function something calls later). Directly in a describe body, it runs at
+  // COLLECTION time — before any beforeAll, so no lock can cover it.
+  let runsAtTestTime = false;
   for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
     const binding = moduleScopeBinding(source, current);
     if (binding !== undefined) {
@@ -643,15 +650,20 @@ function walksToLockedBlock(source: ts.SourceFile, node: ts.Node, visiting: Set<
     }
     if (!ts.isFunctionLike(current)) continue;
     const owner = current.parent;
-    const isCallback =
+    const isArgument =
       owner !== undefined &&
       ts.isCallExpression(owner) &&
-      owner.arguments.some((argument) => argument === current) &&
-      (isBlockCall(owner) || isHookCall(owner));
-    if (!isCallback) continue;
-    if (isDescribeCall(owner) && acquiresInBeforeAll(blockStatements(owner))) return true;
+      owner.arguments.some((argument) => argument === current);
+    if (isArgument && isDescribeCall(owner)) {
+      if (!runsAtTestTime) return false;
+      if (acquiresInBeforeAll(blockStatements(owner))) return true;
+    } else {
+      runsAtTestTime = true;
+    }
   }
-  return false;
+  // Reached the file: a top-level test or hook is covered by a file-scope
+  // beforeAll that takes the lock; import-time execution never is.
+  return runsAtTestTime && acquiresInBeforeAll(source.statements);
 }
 
 /** R4: the identifier or the literal of the lane key, anywhere in the AST. */
