@@ -731,9 +731,7 @@ describe('GET /api/dashboard', () => {
   // ── Cancelled account grace period (cancelled_at) ──────────────────────
 
   it('cancelled account uses cancelled_at for grace period calculation', async () => {
-    // Scenario: account was activated months ago but just cancelled.
-    // Grace period should be cancelled_at + 30 days (future), not
-    // subscription_activated_at + 30 days (which would be in the past).
+    // Grace period is cancelled_at + 30 days — the only clock (#1455).
     mockRequireRole.mockResolvedValue(ownerUser());
 
     mockSqlResults.length = 0;
@@ -754,10 +752,7 @@ describe('GET /api/dashboard', () => {
     // when CI runs; a hard-coded cancelled_at previously expired once the
     // calendar crossed grace end and flipped readAccess to false.
     const cancelledAt = new Date(Date.now() - 5 * 86_400_000); // 5 days ago
-    const activatedAt = new Date('2025-11-01T00:00:00Z'); // activated months ago
-    mockSqlResults.push([
-      { cancelled_at: cancelledAt, subscription_activated_at: activatedAt },
-    ]);
+    mockSqlResults.push([{ cancelled_at: cancelledAt }]);
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
@@ -771,18 +766,15 @@ describe('GET /api/dashboard', () => {
     const expectedEnd = new Date(cancelledAt.getTime() + 30 * 86_400_000);
     expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
 
-    // Verify the SQL query selected cancelled_at (not just subscription_activated_at)
-    // The second SQL call should be the grace period query
+    // Verify the SQL query selects ONLY cancelled_at — #1455 removed the
+    // subscription_activated_at fallback entirely, so the query no longer
+    // needs to read it.
     const graceSql = capturedSqlTexts[1];
-    expect(graceSql).toMatch(/SELECT\s+cancelled_at\s*,\s*subscription_activated_at\s+FROM\s+accounts/i);
+    expect(graceSql).toMatch(/SELECT\s+cancelled_at\s+FROM\s+accounts/i);
+    expect(graceSql).not.toMatch(/subscription_activated_at/i);
   });
 
-  it('cancelled account shows correct future date when cancelled months after activation', async () => {
-    // This is the key bug fix scenario:
-    // - subscription_activated_at = 6 months ago
-    // - cancelled_at = just now
-    // - Old bug: grace period = activated_at + 30 days = 6 months ago (expired!)
-    // - New behavior: grace period = cancelled_at + 30 days = 30 days from now (active!)
+  it('cancelled account shows a future grace end when cancelled_at is recent', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     mockSqlResults.length = 0;
@@ -798,12 +790,9 @@ describe('GET /api/dashboard', () => {
       },
     ]);
 
-    // Call 1: grace period query — cancelled just now, activated long ago
+    // Call 1: grace period query — cancelled just now
     const now = new Date();
-    const sixMonthsAgo = new Date(now.getTime() - 180 * 86_400_000);
-    mockSqlResults.push([
-      { cancelled_at: now, subscription_activated_at: sixMonthsAgo },
-    ]);
+    mockSqlResults.push([{ cancelled_at: now }]);
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
@@ -813,7 +802,6 @@ describe('GET /api/dashboard', () => {
     expect(body.readAccess).toBe(true);
 
     // Grace period end should be ~30 days from now (cancelled_at + 30)
-    // NOT ~30 days from 6 months ago (which would be in the past)
     const graceEnd = new Date(body.gracePeriodEndDate);
     const expectedEnd = new Date(now.getTime() + 30 * 86_400_000);
 
@@ -824,9 +812,13 @@ describe('GET /api/dashboard', () => {
     expect(graceEnd.getTime()).toBeGreaterThan(Date.now() - 5000);
   });
 
-  it('legacy row with null cancelled_at falls back to subscription_activated_at', async () => {
-    // Legacy rows created before migration 037 may have cancelled_at = NULL.
-    // In this case, fall back to subscription_activated_at for grace period.
+  it('a NULL cancelled_at (unrepresentable post-migration-125) fails safe to indefinite grace', async () => {
+    // Before #1455, a legacy row with cancelled_at IS NULL fell back to
+    // subscription_activated_at. Migration 125 backfilled every such row, so
+    // reaching this branch now means the DB is in a state the write path can
+    // no longer produce — the route must not guess a deadline from an
+    // unrelated column; it grants indefinite read access instead, same as
+    // CancellationGracePoller's "never archive without a known clock".
     mockRequireRole.mockResolvedValue(ownerUser());
 
     mockSqlResults.length = 0;
@@ -842,22 +834,16 @@ describe('GET /api/dashboard', () => {
       },
     ]);
 
-    // Call 1: grace period query — cancelled_at is null, activated_at is recent
-    const activatedAt = new Date('2026-04-20T00:00:00Z');
-    mockSqlResults.push([
-      { cancelled_at: null, subscription_activated_at: activatedAt },
-    ]);
+    // Call 1: grace period query — cancelled_at is null
+    mockSqlResults.push([{ cancelled_at: null }]);
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('cancelled');
-
-    // Grace period should fall back to activated_at + 30 days
-    const graceEnd = new Date(body.gracePeriodEndDate);
-    const expectedEnd = new Date(activatedAt.getTime() + 30 * 86_400_000);
-    expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
+    expect(body.gracePeriodEndDate).toBeNull();
+    expect(body.readAccess).toBe(true);
   });
 
   it('returns past-due recovery fields for a per-location dashboard response', async () => {
@@ -932,38 +918,6 @@ describe('GET /api/dashboard', () => {
     });
     process.env.MULTI_LOCATION_ENABLED = previousMultiLocation;
     vi.useRealTimers();
-  });
-
-  it('cancelled account with no cancelled_at and no activated_at defaults to read access', async () => {
-    // Edge case: both cancelled_at and subscription_activated_at are null.
-    // Should default to readAccess=true (defensive — don't lock out without evidence).
-    mockRequireRole.mockResolvedValue(ownerUser());
-
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
-
-    // Call 0: preflight row (cancelled)
-    mockSqlResults.push([
-      {
-        ...DEFAULT_SUB_ROW,
-        name: 'No Dates Biz',
-        subscription_status: 'cancelled',
-        owner_email: 'owner@nodates.com',
-      },
-    ]);
-
-    // Call 1: grace period query — both dates null
-    mockSqlResults.push([
-      { cancelled_at: null, subscription_activated_at: null },
-    ]);
-
-    const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body.subscriptionStatus).toBe('cancelled');
-    expect(body.gracePeriodEndDate).toBeNull();
-    expect(body.readAccess).toBe(true);
   });
 
   it('pending marker with status=finalize_unknown → status=finalize_unknown, marker is surfaced', async () => {

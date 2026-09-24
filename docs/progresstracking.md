@@ -758,4 +758,4 @@ Six tickets ran as six parallel agents, each in its own sibling worktree. Each P
 - A worktree made with plain `git worktree add` has no `.env*.local`. The pre-push hook then fails the #719 live-DB precondition in `onboarding-drip.integration.test.ts`. Use `pnpm worktree:new`, or copy the env files.
 - With six agents sharing one local test DB, `ci:rls-audit`'s live content-hash check failed and `send-breaker.integration.test.ts` miscounted sends (100 vs 101). CI passed every time. The root cause is not proven.
 
-**Follow-ups filed.** #1447 (rules 1–15 and 17–18), #1454 (the remaining transition writers and `updated_at`), #1455 (the grace start date).
+**Follow-ups filed.** #1447 (rules 1–15 and 17–18), #1454 (the remaining transition writers and `updated_at`), #1455 (the grace start date — **closed 2026-09-23**, migration 125 + `resolveCancellationGraceState()`, see `.claude/reference/arch-review-log.md`).

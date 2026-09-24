@@ -727,7 +727,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT cancelled_at FROM accounts WHERE id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },

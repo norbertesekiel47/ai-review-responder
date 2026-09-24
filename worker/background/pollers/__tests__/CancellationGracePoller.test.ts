@@ -221,4 +221,19 @@ describe('CancellationGracePoller', () => {
     expect(template).toMatch(/NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+account_offboardings\s+ao/i);
     expect(template).toContain('ao.account_id = a.id');
   });
+
+  // #1455: cancelled_at is the ONE grace clock, shared with the dashboard
+  // route's resolveCancellationGraceState. Locks in that this poller never
+  // regains a subscription_activated_at fallback — a legacy row without
+  // cancelled_at stays excluded from archival (migration 125 backfills it).
+  it('the expired-accounts query never falls back to subscription_activated_at', async () => {
+    sqlReturnQueue.push([]);
+
+    await runOneCycle();
+
+    const firstCall = mockSql.mock.calls[0];
+    const template = (firstCall[0] as TemplateStringsArray).join('?');
+    expect(template).toContain('cancelled_at IS NOT NULL');
+    expect(template).not.toContain('subscription_activated_at');
+  });
 });
