@@ -116,5 +116,6 @@ CORRECT → give every wait a name, a watchdog **started when the operation star
 - history/2026-08-13-to-21.md § "[2026-08-18] The local test DB is shared by every sibling worktree — another session can move it under a running suite"
 - history/2026-08-21-to-31.md § "[2026-08-24] `migration-092`'s EXPLAIN-plan assertion is planner-flaky on a fresh CI database"
 - history/2026-08-21-to-31.md § "2026-08-24 — #877 test-DB provisioning lock"
+- history/2026-09-19-to-30.md § "2026-09-24 — #958 live-DB coordination protocol: lane lease, two keys, block-level coverage" (protocol owner: `helpers/live-db-lane.ts` header)
 - history/2026-08-21-to-31.md § "[2026-08-24] rls-audit false-FAILED inside a gate whose own serialization was correct → the schema drop came from a SIBLING PROCESS → the fix is a cross-process advisory-lock protocol, not re-ordering"
 - See also migrations.md § "Test-DB provisioning: local and CI applied the same "shared recipe" to different schemas" (canonical, moved with the 2026-08-14 lockstep entry)

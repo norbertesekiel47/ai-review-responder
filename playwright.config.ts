@@ -7,6 +7,11 @@ export default defineConfig({
   // also matches *.test.ts, and loading a vitest file aborts collection for
   // the entire run (0 tests in 0 files).
   testMatch: '**/*.spec.ts',
+  // The live-DB lane lease (#958): shared advisory lock on the lane key from
+  // before the first spec to after the last, so a sibling worktree's
+  // `pnpm test:db:setup` cannot drop the schema under the app or the fixtures.
+  // Returns its own teardown. Local test databases only — see the file header.
+  globalSetup: './e2e/live-db-lease.ts',
   timeout: 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

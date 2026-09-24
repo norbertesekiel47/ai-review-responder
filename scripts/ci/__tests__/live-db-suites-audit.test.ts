@@ -11,6 +11,25 @@ const APPLIES_DDL = `
   await db.unsafe(readFileSync(resolve(process.cwd(), 'supabase/migrations/088_x.sql'), 'utf-8'));
 `;
 
+/**
+ * A describe block whose OWN beforeAll acquires the suite lock, running `body`
+ * in a test — the shape R3 (#958) accepts.
+ */
+function lockedBlock(body: string, name = 'locked'): string {
+  return (
+    `describeWithDb('${name}', () => {\n` +
+    '  beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' +
+    '  afterAll(async () => { await lock.release(); });\n' +
+    `  it('runs', async () => {\n${body}  });\n` +
+    '});\n'
+  );
+}
+
+/** The same block with no lock — the second, uncovered block of the #958 shape. */
+function unlockedBlock(body: string, opener = "describe.skipIf(disabled)('sentinel', () => {"): string {
+  return `${opener}\n  it('runs', async () => {\n${body}  });\n});\n`;
+}
+
 describe('live-db-suites-audit', () => {
   // #694. R2 keyed on an INCIDENTAL marker — the file happening to name
   // `supabase/migrations` alongside a `.unsafe(` — rather than on DDL. Three
@@ -34,7 +53,6 @@ describe('live-db-suites-audit', () => {
   const HELPER_FRAGMENT_DDL =
     'export const addCheck = sql`ALTER TABLE job_outbox ADD CONSTRAINT tmp_x CHECK (true) NOT VALID`;\n';
   const HELPER_PATH = 'src/lib/x/__tests__/helpers/frag.ts';
-  const APPLY_074 = 'src/lib/shared/__tests__/helpers/apply-migration-074.ts';
 
   it('passes a live-DB suite that is named correctly and applies no DDL', () => {
     expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', LIVE_DB)).toEqual([]);
@@ -68,7 +86,7 @@ describe('live-db-suites-audit', () => {
   it('allows an allowlisted migration-shape suite that holds the cross-process lock', () => {
     const findings = auditLiveDbFile(
       'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts',
-      LIVE_DB + APPLIES_DDL + 'await acquireLiveDbLock(url);',
+      LIVE_DB + lockedBlock(APPLIES_DDL),
     );
     expect(findings).toEqual([]);
   });
@@ -81,14 +99,19 @@ describe('live-db-suites-audit', () => {
     expect(findings.map((finding) => finding.rule)).toEqual(['unlocked-ddl']);
   });
 
-  it('still accepts 074 on its own dedicated apply lock rather than the shared one', () => {
+  // #958 retired 074's dedicated `repworth_migration_074_apply` key: provisioning
+  // never excluded it, so its DDL raced a sibling's `pnpm test:db:setup`. The
+  // 074 shape suite is now held to the suite lock like every other entry.
+  it('no longer accepts 074 on its retired dedicated apply lock', () => {
     const file = 'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts';
-    expect(auditLiveDbFile(file, LIVE_DB + APPLIES_DDL + 'withMigration074ApplyLock(db, fn);')).toEqual(
-      [],
+    const ownLockOnly = unlockedBlock(
+      'await withMigration074ApplyLock(db, async () => {' + APPLIES_DDL + '});\n',
+      "describeWithDb('074', () => {",
     );
-    expect(
-      auditLiveDbFile(file, LIVE_DB + APPLIES_DDL).map((finding) => finding.rule),
-    ).toEqual(['unlocked-ddl']);
+    expect(auditLiveDbFile(file, LIVE_DB + ownLockOnly).map((finding) => finding.rule)).toEqual([
+      'unlocked-ddl',
+    ]);
+    expect(auditLiveDbFile(file, LIVE_DB + lockedBlock(APPLIES_DDL))).toEqual([]);
   });
 
   it('does not treat the describe-with-db helper test as a live-DB suite', () => {
@@ -257,8 +280,7 @@ describe('live-db-suites-audit', () => {
     const findings = auditLiveDbFile(
       'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
       LIVE_DB +
-        "await tx.unsafe('CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$ $$');\n" +
-        'await acquireLiveDbLock(url);\n',
+        lockedBlock("await tx.unsafe('CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$ $$');\n"),
     );
     expect(findings).toEqual([]);
   });
@@ -312,7 +334,7 @@ describe('live-db-suites-audit', () => {
   describe('audits helpers as well as suites (#706)', () => {
     it('includes non-suite files under __tests__ in the audited file list', () => {
       const files = listAuditedFiles();
-      expect(files).toContain(APPLY_074);
+      expect(files).toContain('src/lib/shared/__tests__/helpers/migration-guard.ts');
       // NOT under a helpers/ directory — why the unit is "non-suite file under
       // __tests__", not the `__tests__/helpers/**` glob the ticket proposed.
       expect(files).toContain('src/lib/shared/__tests__/live-db-tenant.ts');
@@ -386,19 +408,164 @@ describe('live-db-suites-audit', () => {
       ).toEqual([]);
     });
 
-    it('flags an allowlisted helper that executes DDL without its own apply lock', () => {
-      const findings = auditLiveDbFile(APPLY_074, HELPER_PG_IMPORT + OPAQUE_UNSAFE);
-      expect(findings.map((finding) => finding.rule)).toEqual(['unlocked-ddl']);
+  });
+
+  // R3 (#958). The lock check read the FILE for `acquireLiveDbLock`, so a second
+  // top-level block could run DDL unlocked beside a locked one with the audit
+  // green — onboarding-drip.integration.test.ts carries exactly that pair (a
+  // locked-style describeWithDb and a separate `describe.skipIf` required-DB
+  // sentinel). Coverage is now decided per block, from the AST.
+  describe('lock coverage is per block, not per file (#958)', () => {
+    const SHAPE = 'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts';
+    const rules = (source: string): string[] =>
+      auditLiveDbFile(SHAPE, LIVE_DB + source).map((finding) => finding.rule);
+
+    it('flags DDL in a required-database sentinel block beside a locked describeWithDb', () => {
+      const source = lockedBlock('await db`SELECT 1`;\n') + unlockedBlock(APPLIES_DDL);
+      expect(source).toContain('acquireLiveDbLock');
+      expect(rules(source)).toEqual(['unlocked-ddl']);
+      const [finding] = auditLiveDbFile(SHAPE, LIVE_DB + source);
+      // Reported at the sentinel's DDL, not the locked block's.
+      const sentinelLine = (LIVE_DB + source).split('\n').findIndex((line) => line.includes('db.unsafe'));
+      expect(finding?.reason).toContain(`first at line ${sentinelLine + 1}`);
     });
 
-    it('accepts the 074 apply helper on its own dedicated apply lock', () => {
+    it('accepts the same pair once the sentinel block takes the lock itself', () => {
+      expect(rules(lockedBlock('await db`SELECT 1`;\n') + lockedBlock(APPLIES_DDL, 'sentinel'))).toEqual([]);
+    });
+
+    it('recognises describe.skipIf / describe.each blocks as blocks that can hold the lock', () => {
+      const skipIf = lockedBlock(APPLIES_DDL).replace("describeWithDb('locked',", "describe.skipIf(off)('locked',");
+      const each = lockedBlock(APPLIES_DDL).replace("describeWithDb('locked',", "describe.each(rows)('locked %s',");
+      expect(rules(skipIf)).toEqual([]);
+      expect(rules(each)).toEqual([]);
+    });
+
+    it('a lock in a NESTED describe covers that block only, not its sibling', () => {
+      const source =
+        "describeWithDb('outer', () => {\n" +
+        lockedBlock('await db`SELECT 1`;\n', 'inner-locked') +
+        unlockedBlock(APPLIES_DDL, "describe('inner-unlocked', () => {") +
+        '});\n';
+      expect(rules(source)).toEqual(['unlocked-ddl']);
+    });
+
+    it('a lock in an OUTER describe covers every nested block', () => {
+      const source =
+        "describeWithDb('outer', () => {\n" +
+        '  beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' +
+        unlockedBlock(APPLIES_DDL, "describe('inner', () => {") +
+        '});\n';
+      expect(rules(source)).toEqual([]);
+    });
+
+    it('a file-scope beforeAll that takes the lock covers every block', () => {
+      const source =
+        'beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' +
+        unlockedBlock(APPLIES_DDL) +
+        "it('top-level', async () => {" + APPLIES_DDL + '});\n';
+      expect(rules(source)).toEqual([]);
+    });
+
+    it('flags DDL in a top-level it() when no file-scope lock exists', () => {
+      expect(rules(lockedBlock('await db`SELECT 1`;\n') + "it('top', async () => {" + APPLIES_DDL + '});\n')).toEqual([
+        'unlocked-ddl',
+      ]);
+    });
+
+    it('follows a module-scope helper to its uses: covered when every use is in a locked block', () => {
+      const helper = 'async function degrade(db) {' + APPLIES_DDL + '}\n';
+      expect(rules(helper + lockedBlock('await degrade(db);\n'))).toEqual([]);
+      // A DB-free block beside it does not matter — it never calls the helper.
+      expect(rules(helper + "describe('registry', () => { it('x', () => {}); });\n" + lockedBlock('await degrade(db);\n'))).toEqual([]);
+    });
+
+    it('flags a module-scope helper that ANY unlocked block uses, and one that nothing uses', () => {
+      const helper = 'async function degrade(db) {' + APPLIES_DDL + '}\n';
+      expect(rules(helper + lockedBlock('await degrade(db);\n') + unlockedBlock('await degrade(db);\n'))).toEqual([
+        'unlocked-ddl',
+      ]);
+      expect(rules(helper + lockedBlock('await db`SELECT 1`;\n'))).toEqual(['unlocked-ddl']);
+    });
+
+    it('follows helpers through helpers, and a module-scope fragment to where it is spliced', () => {
+      const chain =
+        'async function inner(db) {' + APPLIES_DDL + '}\n' +
+        'async function outer(db) { await inner(db); }\n';
+      expect(rules(chain + lockedBlock('await outer(db);\n'))).toEqual([]);
+      expect(rules(chain + unlockedBlock('await outer(db);\n'))).toEqual(['unlocked-ddl']);
+
+      const fragment = 'const addCheck = db`ALTER TABLE job_outbox ADD CONSTRAINT c CHECK (true)`;\n';
+      expect(rules(fragment + lockedBlock('await db`${addCheck}`;\n'))).toEqual([]);
+      expect(rules(fragment + unlockedBlock('await db`${addCheck}`;\n'))).toEqual(['unlocked-ddl']);
+    });
+
+    it('treats a recursive helper as uncovered rather than looping', () => {
+      const recursive = 'async function again(db) {' + APPLIES_DDL + 'await again(db); }\n';
+      expect(rules(recursive)).toEqual(['unlocked-ddl']);
+    });
+
+    it('flags DDL executed at import time even when every block is locked', () => {
+      expect(rules(APPLIES_DDL + lockedBlock('await db`SELECT 1`;\n'))).toEqual(['unlocked-ddl']);
+      // …and even under a file-scope lock: import time precedes every hook.
+      expect(
+        rules('beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' + APPLIES_DDL),
+      ).toEqual(['unlocked-ddl']);
+    });
+
+    it('flags DDL directly in a locked describe BODY — it runs at collection time, before beforeAll', () => {
+      const source =
+        "describeWithDb('locked', () => {\n" +
+        '  beforeAll(async () => { lock = await acquireLiveDbLock(url); });\n' +
+        APPLIES_DDL +
+        '});\n';
+      expect(rules(source)).toEqual(['unlocked-ddl']);
+    });
+  });
+
+  // R4 (#958). The integration lane holds the LANE key shared for its whole
+  // run; an exclusive request for it from inside the lane waits on its own
+  // process. Only the protocol owner may name it.
+  describe('the lane key is never named inside the lane (#958)', () => {
+    it('flags an integration suite that names the lane key identifier', () => {
       const findings = auditLiveDbFile(
-        APPLY_074,
-        HELPER_PG_IMPORT +
-          'export async function withMigration074ApplyLock() {}\n' +
-          OPAQUE_UNSAFE,
+        'src/lib/x/__tests__/x.integration.test.ts',
+        LIVE_DB + 'await db`SELECT pg_advisory_lock(hashtext(${LIVE_DB_LANE_KEY}))`;\n',
       );
-      expect(findings).toEqual([]);
+      expect(findings.map((finding) => finding.rule)).toEqual(['lane-key']);
+    });
+
+    it('flags the literal, in a string or inside a template', () => {
+      for (const body of [
+        "const key = 'repworth_live_db_lane';\n",
+        "await db`SELECT pg_advisory_lock(hashtext('repworth_live_db_lane'))`;\n",
+      ]) {
+        const findings = auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', LIVE_DB + body);
+        expect(findings.map((finding) => finding.rule)).toEqual(['lane-key']);
+      }
+    });
+
+    it('flags a helper under __tests__ — suites import it into the lane', () => {
+      const findings = auditLiveDbFile(HELPER_PATH, HELPER_PG_IMPORT + 'export const k = LIVE_DB_LANE_KEY;\n');
+      expect(findings.map((finding) => finding.rule)).toEqual(['lane-key']);
+    });
+
+    it('exempts the protocol owner and parallel-project unit tests, which hold no lease', () => {
+      expect(
+        auditLiveDbFile(
+          'src/lib/shared/__tests__/helpers/live-db-lane.ts',
+          HELPER_PG_IMPORT + "export const LIVE_DB_LANE_KEY = 'repworth_live_db_lane';\n",
+        ),
+      ).toEqual([]);
+      expect(
+        auditLiveDbFile('src/lib/x/__tests__/x.test.ts', "expect(LIVE_DB_LANE_KEY).toBe('repworth_live_db_lane');\n"),
+      ).toEqual([]);
+    });
+
+    it('ignores the key mentioned only in a comment', () => {
+      expect(
+        auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', LIVE_DB + '// never LIVE_DB_LANE_KEY here\n'),
+      ).toEqual([]);
     });
   });
 

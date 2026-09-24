@@ -27,11 +27,16 @@
 # CROSS-PROCESS (#877): serial-within-one-run is NOT enough — every sibling
 # worktree shares the one localhost test DB, and a concurrent gate's
 # provisioning once dropped the schema under this run's rls-audit read.
-# Coordination lives in the advisory-lock protocol on
-# hashtext('repworth_live_db_integration'): test-db-setup.sh holds it
-# exclusively in the same psql session as its DDL, ci:rls-audit's live check
-# holds it shared, and the DDL suites hold it exclusively — so this gate's
-# provisioning WAITS for a sibling's lock holders instead of racing them.
+# Coordination lives in a two-key advisory-lock protocol (#877, #958; owner:
+# src/lib/shared/__tests__/helpers/live-db-lane.ts). The LANE key
+# ('repworth_live_db_lane') is held SHARED by every running vitest
+# `integration` project and Playwright run, globalSetup to teardown. The SUITE
+# key ('repworth_live_db_integration') is held exclusively by the DDL suites
+# and shared by ci:rls-audit's live check. test-db-setup.sh takes both
+# exclusively, lane key first, in the same psql session as its DDL — so this
+# gate's provisioning WAITS for every sibling lane, including one that is
+# between two files, instead of dropping the schema under it. Every shared
+# acquisition validates the test_meta.provision marker.
 #
 # Docs-only mode (auto-detected): when every changed path is docs/, .claude/,
 # or *.md, the code rows (test, build, promised-tests, reclassify,

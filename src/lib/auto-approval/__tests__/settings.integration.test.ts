@@ -8,7 +8,10 @@ import {
   seedLocation,
   seedTenantAccount,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
+import {
+  assertSchemaReady,
+  MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import { resetServerConfigForTests } from '@/lib/config/server';
 import {
@@ -196,7 +199,9 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
     vi.stubEnv('VERCEL_TARGET_ENV', 'test');
     resetServerConfigForTests();
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await applyMigration074IfMissing(db);
+    // 074 is provisioned by `pnpm test:db:setup` and the lane lease has already
+    // validated the provision marker (#958) — assert, never apply.
+    await assertSchemaReady(db, [MIGRATION_074_TRUST_DIAL_VETO_WINDOW]);
     await seedTenantAccount(db, {
       userId: tenant.userId,
       accountId: tenant.accountId,

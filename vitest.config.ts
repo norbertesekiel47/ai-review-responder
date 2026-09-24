@@ -102,6 +102,11 @@ export default defineConfig({
           exclude: VITEST_DEFAULT_EXCLUDE,
           sequence: { groupOrder: 1 },
           fileParallelism: false,
+          // The lane lease (#958): the shared advisory lock on the lane key,
+          // held from before the first file to after the last file's afterAll,
+          // so `pnpm test:db:setup` in a sibling worktree can never run between
+          // two of this project's files. Validates the provision marker first.
+          globalSetup: ['./vitest.integration-lane.ts'],
         },
       },
     ],

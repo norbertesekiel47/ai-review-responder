@@ -1,28 +1,46 @@
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
 import {
-  applyMigration074IfMissing,
-  readMigration074Sql,
-  withMigration074ApplyLock,
-} from './helpers/apply-migration-074';
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from './helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+} from './helpers/schema-ready';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 // Live-DB shape suite for migration 074 (WS4 trust dial + veto window, spec
 // 2026-07-07-ws4-trust-dial-veto-window-design.md §2.1/§2.3/§2.7/§2.8).
 // Mirrors migration-055-auto-approval-policy.integration.test.ts: every failure
 // case asserts the SPECIFIC constraint/index by name so a test can never pass
-// for the wrong reason. beforeAll applies the migration only if it isn't
-// already on the shared test DB (avoids ACCESS EXCLUSIVE lock contention with
-// parallel suites); the double-apply test proves re-runnability for real.
+// for the wrong reason. `pnpm test:db:setup` provisions 074 and the integration
+// lane validates the provision marker before any suite runs, so beforeAll
+// ASSERTS the migration instead of conditionally applying it (#958 retired the
+// conditional apply and its separate `repworth_migration_074_apply` advisory
+// key). The double-apply test proves re-runnability for real, under the shared
+// cross-process suite lock every other migration-shape suite holds.
 //
 // Gated on TEST_DATABASE_POOL_URL; skips cleanly without one.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
 let db: postgresType.Sql | undefined;
+let liveDbLock: LiveDbLock | undefined;
+
+function readMigration074Sql(): string {
+  return readFileSync(
+    resolve(process.cwd(), 'supabase/migrations/074_trust_dial_veto_window.sql'),
+    'utf-8',
+  );
+}
 
 const tenant = {
   userId: randomUUID(),
@@ -59,11 +77,12 @@ async function insertOutcome(outcomeKind: string): Promise<string> {
 
 describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30_000 }, () => {
   beforeAll(async () => {
+    // Enrolled in the cross-process suite lock: the double-apply test below
+    // executes the real DDL (ACCESS EXCLUSIVE index rebuilds), which deadlocks
+    // against a sibling suite's row locks in a concurrent vitest process (#573).
+    liveDbLock = await acquireLiveDbLock(assertLocalTestDatabaseUrl(testDatabaseUrl));
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    // Guarded apply shared with the other 074-dependent suites; the guard's
-    // rationale lives in helpers/apply-migration-074.ts. The double-apply
-    // test below still re-applies unconditionally.
-    await applyMigration074IfMissing(db);
+    await assertSchemaReady(db, [MIGRATION_074_TRUST_DIAL_VETO_WINDOW]);
     await seedTenantAccount(db, {
       userId: tenant.userId,
       accountId: tenant.accountId,
@@ -75,7 +94,7 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
       INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
       VALUES (${tenant.businessId}::uuid, 'WS4 074 Biz', 'WS4 074 Owner', ${ownerEmail}, ${tenant.accountId}::uuid, 'active')
     `;
-  });
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     if (!db) return;
@@ -84,10 +103,15 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   });
 
   afterAll(async () => {
-    if (!db) return;
-    await sql()`DELETE FROM businesses WHERE id = ${tenant.businessId}::uuid`;
-    await cleanupTenantAccount(sql(), tenant);
-    await db.end({ timeout: 5 });
+    try {
+      if (!db) return;
+      await sql()`DELETE FROM businesses WHERE id = ${tenant.businessId}::uuid`;
+      await cleanupTenantAccount(sql(), tenant);
+      await db.end({ timeout: 5 });
+    } finally {
+      await liveDbLock?.release();
+      liveDbLock = undefined;
+    }
   });
 
   it('auto_approval_policies has the six new columns with expected types/nullability/defaults', async () => {
@@ -299,9 +323,9 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
     // `solicitation_batch_built`, which migration 088 later widened — so a
     // committed re-apply silently reverts 088 for every suite that follows
     // (#573; it was masked while batch-builder re-applied 088 on every run).
-    // The advisory lock still serializes the ACCESS EXCLUSIVE index rebuilds
-    // against parallel DB suites.
-    await withMigration074ApplyLock(sql(), async () => {
+    // The suite-lifetime lock taken in beforeAll serializes the ACCESS
+    // EXCLUSIVE index rebuilds against parallel DB suites.
+    {
       await sql().unsafe('BEGIN');
       try {
         await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
@@ -332,6 +356,6 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
       } finally {
         await sql().unsafe('ROLLBACK');
       }
-    });
+    }
   });
 });

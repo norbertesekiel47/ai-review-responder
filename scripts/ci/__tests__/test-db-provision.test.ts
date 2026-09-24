@@ -18,6 +18,7 @@ import {
   withSharedLiveDbLock,
   type LiveSql,
 } from '../rls-audit';
+import { LIVE_DB_LANE_KEY } from '../../../src/lib/shared/__tests__/helpers/live-db-lane';
 
 const ROOT = resolve(__dirname, '../../..');
 
@@ -36,6 +37,18 @@ describe('lock-key drift guard', () => {
     expect(script).toContain(`LOCK_KEY='${LIVE_DB_LOCK_KEY}'`);
   });
 
+  it('test-db-setup.sh spells the SAME lane key as live-db-lane.ts (#958)', () => {
+    const script = readFileSync(join(ROOT, 'scripts/test-db-setup.sh'), 'utf8');
+    expect(script).toContain(`LANE_KEY='${LIVE_DB_LANE_KEY}'`);
+  });
+
+  it('the lane key and the suite key are DIFFERENT keys — one key would self-deadlock a lane (#958)', () => {
+    // A lane holds the lane key shared for its whole run while its own suites
+    // take the suite key exclusive from other sessions of the same process. On
+    // one key that exclusive request waits on the lane's own shared hold.
+    expect(LIVE_DB_LANE_KEY).not.toBe(LIVE_DB_LOCK_KEY);
+  });
+
   it('the CI composite action delegates to test-db-setup.sh and carries no psql loop of its own', () => {
     const action = readFileSync(join(ROOT, '.github/actions/test-db/action.yml'), 'utf8');
     expect(action).toContain('scripts/test-db-setup.sh');
@@ -50,10 +63,15 @@ describe('provisioning driver generator (--print-driver)', () => {
     .filter((file) => file.endsWith('.sql'))
     .sort();
 
-  it('acquires the exclusive advisory lock before any DDL, under a bounded timeout', () => {
+  it('acquires the lane key, THEN the suite key, exclusive, before any DDL, under a bounded timeout', () => {
     const statements = lines.filter((line) => line && !line.startsWith('--'));
     expect(statements[0]).toBe("SET statement_timeout = '240s';");
+    // Lane key first (#958): it is what a lane BETWEEN two files still holds.
+    // One fixed order for the pair is what keeps the two keys deadlock-free.
     expect(statements[1]).toBe(
+      `SELECT pg_advisory_lock(hashtext('${LIVE_DB_LANE_KEY}'));`,
+    );
+    expect(statements[2]).toBe(
       `SELECT pg_advisory_lock(hashtext('${LIVE_DB_LOCK_KEY}'));`,
     );
     const lockIndex = driver.indexOf('pg_advisory_lock');
