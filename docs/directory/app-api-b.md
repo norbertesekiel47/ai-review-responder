@@ -17,6 +17,7 @@ GET + POST owner settings (tone, products/services, avoid-facts).
 | Route | What it does |
 |-------|--------------|
 | `business/route.ts` | POST: persists step-by-step business profile data from the 3-step wizard (`/onboarding/business`). Validates step input via `shared/schemas.ts` and updates the existing `businesses` row created at signup. |
+| `start/route.ts` | POST (flag `ONBOARDING_DEMO_ENABLED`): same-origin, Supabase session, BotID Deep, then `startOnboarding` (`src/lib/onboarding/start.ts`, #1368) — captures the place and queues the pre-pay demo. |
 | `select-plan/route.ts` | POST: validates the owner's explicit Copilot/Autopilot selection, persists the complete tier/variant snapshot under billing serialization, and returns a Stripe Checkout Session URL. No tier default or Payment Link remains. |
 
 #### `signup/place-prefill/route.ts`
