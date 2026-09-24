@@ -16,7 +16,7 @@ import {
   type AccountFlagsInput,
   type PastDueRecoveryState,
 } from '@/lib/shared/past-due-recovery';
-import { cancellationGraceDeadline } from '@/lib/shared/cancellation-grace';
+import { resolveCancellationGraceState } from '@/lib/shared/cancellation-grace';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import type { DashboardWindow } from '@/lib/kpi/types';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
@@ -143,12 +143,13 @@ function pendingPaymentResponse(
 /**
  * Cancelled-account grace-period response, shared by the per-location and
  * aggregate paths (VAL-CROSS-011). Grace runs `CANCELLATION_GRACE_DAYS` from
- * cancelled_at (Stripe webhook, migration 037), falling back to
- * subscription_activated_at for legacy rows; defaults to read access when
- * neither date is known. The day count's single owner is
- * `CANCELLATION_GRACE_DAYS` (`src/lib/shared/cancellation-grace.ts`),
- * consumed here via `cancellationGraceDeadline()` and imported directly into
- * CancellationGracePoller's archival-scan predicate (#1371).
+ * `cancelled_at` (Stripe webhook, migration 037) — the ONLY clock; no
+ * fallback to `subscription_activated_at` (#1455, migration 125 backfilled
+ * every legacy row that predated `cancelled_at`). Clock resolution + the
+ * NULL fail-safe (indefinite grace) live in
+ * `resolveCancellationGraceState` (`src/lib/shared/cancellation-grace.ts`),
+ * the same single owner CancellationGracePoller's archival-scan predicate
+ * reads `CANCELLATION_GRACE_DAYS` from (#1371).
  */
 async function cancelledGraceResponse(
   accountId: string,
@@ -156,15 +157,12 @@ async function cancelledGraceResponse(
 ): Promise<NextResponse> {
   const [cancelledRow] = await sql<{
     cancelled_at: Date | null;
-    subscription_activated_at: Date | null;
   }[]>`
-    SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+    SELECT cancelled_at FROM accounts WHERE id = ${accountId}::uuid
   `;
-  const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-  const gracePeriodEnd = cancellationDate
-    ? cancellationGraceDeadline(new Date(cancellationDate))
-    : null;
-  const readAccess = gracePeriodEnd ? gracePeriodEnd > new Date() : true;
+  const { gracePeriodEnd, readAccess } = resolveCancellationGraceState(
+    cancelledRow?.cancelled_at ? new Date(cancelledRow.cancelled_at) : null,
+  );
   return jsonResponse({
     subscriptionStatus: SubscriptionStatus.CANCELLED,
     businessName,
