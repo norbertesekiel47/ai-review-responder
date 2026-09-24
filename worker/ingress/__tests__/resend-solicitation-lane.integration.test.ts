@@ -23,6 +23,7 @@ import {
 import { insertOutreach } from '../../../src/lib/shared/__tests__/helpers/outreach-fixture';
 import { abortingExecutor } from '../../../src/lib/shared/__tests__/helpers/abort-injection';
 import { CONSENT_ATTESTATION_VERSION } from '../../../src/lib/solicitation/attestation';
+import { deleteContact } from '../../../src/lib/solicitation/contacts-repo';
 import { handleSolicitationResendEvent } from '../resend/solicitation-lane';
 
 // Live-DB suite for the Solicitation lane's seven event effects (#657 Task 6,
@@ -295,13 +296,16 @@ async function captureThrow(work: Promise<unknown>): Promise<Error> {
 /**
  * The account purge's cascade, reproduced at the step that matters (#967).
  *
- * Deleting the contact removes its asks and its Outreach rows through the
- * composite FKs migration 088 declares, which is exactly what
- * `purge-stages.ts` triggers when it deletes `contact_csv_uploads`. After this,
- * `loadAttribution`'s join has nothing left to find — the state a bounce
- * arriving after the purge actually meets.
+ * `purge-stages.ts` deletes `contact_csv_uploads`, which cascades to the
+ * batch and from it, through each child's batch FK, to the asks and Outreach
+ * rows; the contact goes too. Both are deleted here. The contact delete alone
+ * no longer reaches the Outreach row: since migration 126 (#1350, ADR 0033)
+ * its contact and ask FKs are `SET NULL`, so only the batch edge removes it.
+ * After this, `loadAttribution`'s join has nothing left to find — the state a
+ * bounce arriving after the purge actually meets.
  */
 async function purgeContactChain(seeded: SeededOutreach): Promise<void> {
+  await sql()`DELETE FROM solicitation_batches WHERE id = ${seeded.batchId}::uuid`;
   await sql()`DELETE FROM solicitation_contacts WHERE id = ${seeded.contactId}::uuid`;
   const survivors = await sql()<{ id: string }[]>`
     SELECT id FROM solicitation_outreach WHERE id = ${seeded.outreachId}::uuid
@@ -963,6 +967,28 @@ describeWithDb(
       expect(rows[0]?.normalized_handle).toBe(seeded.handle);
       // The un-normalized form is not a second key.
       expect(await readLedger(echoed.trim())).toHaveLength(0);
+    });
+
+    it('a late permanent bounce for an Outreach remnant takes the unattributed path and leaves the remnant untouched', async () => {
+      // #1350 / ADR 0033: an owner Delete keeps the Outreach row as a remnant
+      // (contact_id NULL) but redacts provider_message_id — the ADR's "provider
+      // message ids do not survive". The lane therefore cannot find it, and the
+      // opt-out still lands through the payload-recipient fallback, exactly as
+      // for a purged contact. The remnant's breaker stamps are not rewritten.
+      const seeded = await seedOutreach({ providerMessageId: 'msg_remnant_bounce' });
+      expect(await deleteContact(sql(), accountId(), businessId, seeded.contactId)).toBe(true);
+      const before = await readOutreach(seeded.outreachId);
+
+      await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_remnant_bounce', {
+        to: [seeded.handle],
+        bounce: { type: 'Permanent' },
+      });
+
+      const rows = await readLedger(seeded.handle);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.scope).toBe('global');
+      expect(rows[0]?.account_id).toBeNull();
+      expect(await readOutreach(seeded.outreachId)).toEqual(before);
     });
 
     it('the payload-recipient fallback writes the global suppression row with a null account id', async () => {

@@ -482,7 +482,10 @@ function ContactRow({
         <RowConfirmBanner
           id={deleteConfirmId}
           tone="danger"
-          message="Hard delete: this removes the person and all their visits permanently."
+          // ADR 0033 / #1350: the person's review-request history goes with
+          // them (only anonymous delivery counts are kept, invisible here), and
+          // the do-not-contact mark stays — it keys on the address, not the row.
+          message="Hard delete: this permanently removes the person, their visits and their review-request history. A do-not-contact mark stays."
           actionLabel="Delete permanently"
           pendingLabel="Deleting…"
           pending={deletion.pendingId === contact.id}
