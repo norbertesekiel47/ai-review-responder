@@ -520,6 +520,20 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     // RankingTrackingWorker and the rival picker. The mock flattens the composed
     // fragment into the parent text, so this compares against what that owner
     // actually emits: byte-for-byte its expression, and no second spelling.
+    //
+    // What this MOCKED assertion proves and what it does not (#613): `db` here
+    // is the same mock `resolveNamedRival` receives, so the real function runs
+    // for real and this pins the SQL TEXT it composes — a positive fragment
+    // pin, not a re-typed literal. It cannot prove the query, run for real,
+    // SELECTS the right rows: a mock records text, it does not execute SQL.
+    // That behavioral proof already exists and predates this comment —
+    // `resolveNamedRival` (this exact function, this exact query) is run
+    // against a live Postgres database in
+    // `src/lib/competitors/__tests__/named-rival.integration.test.ts`,
+    // including the #572 blank-leading-keyword regression this comment names.
+    // The `not.toContain` below stays as a cheap, redundant guard against the
+    // OLD literal creeping back in through a different code path; it is not
+    // the correctness proof, and was never meant to be one on its own.
     expect(laneQuery.text).toContain(primaryKeywordExpression());
     expect(laneQuery.text).not.toContain('tracked_keywords->>');
     expect(laneQuery.text).toContain('FROM ranking_snapshots');

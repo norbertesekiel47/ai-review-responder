@@ -1,6 +1,16 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { getServerConfig } from '@/lib/config/server';
+import { signValue, verifySignedValue, type SignedValueOptions } from '@/lib/shared/signed-value';
+
+// The stored digest is hex (`.digest('hex')`), but it is compared as literal
+// UTF-8 TEXT rather than decoded hex bytes — a deliberate deviation from the
+// hex-decode compare every other HMAC-signed cookie in this codebase uses.
+// `signed-value.ts` preserves it rather than normalizing it: switching to a
+// hex-decode compare would not change acceptance for THIS alphabet (a hex
+// digest is pure ASCII, so utf8 bytes and would-be hex-decoded bytes still
+// agree/disagree the same way), but there is no reason to touch a working
+// wire format for #1370, which is a consolidation, not a behavior change.
+const IMPERSONATION_SIGNED_VALUE_OPTIONS: SignedValueOptions = { compareEncoding: 'utf8' };
 
 const COOKIE_NAME = 'rw_impersonation';
 
@@ -22,18 +32,11 @@ export function assertImpersonationCookieConfigured(): void {
 }
 
 export function signImpersonationSession(sessionId: string): string {
-  const sig = createHmac('sha256', getSecret()).update(sessionId).digest('hex');
-  return `${sessionId}.${sig}`;
+  return signValue(sessionId, getSecret(), IMPERSONATION_SIGNED_VALUE_OPTIONS);
 }
 
 export function verifyImpersonationSession(value: string): string | null {
-  const parts = value.split('.');
-  if (parts.length !== 2) return null;
-  const [sessionId, sig] = parts;
-  if (!sessionId || !sig) return null;
-  const expected = createHmac('sha256', getSecret()).update(sessionId).digest('hex');
-  if (expected.length !== sig.length) return null;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(sig)) ? sessionId : null;
+  return verifySignedValue(value, getSecret(), IMPERSONATION_SIGNED_VALUE_OPTIONS);
 }
 
 /**

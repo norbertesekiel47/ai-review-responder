@@ -3,6 +3,7 @@ import type { Sql } from 'postgres';
 import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 import { TIER_CONFIG } from '@/lib/accounts/tier-config';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { RESPONSE_GENERATION_ENDPOINT } from '@/lib/costs/audit';
 import {
   getMarginReport,
   monthlyMrrCents,
@@ -101,6 +102,7 @@ describe('getMarginReport', () => {
       { account_id: 'acct-2', api_cost_usd: 1.0, generation_count: 20, openai_count: 20, anthropic_count: 0, generation_cost_usd: 1, flagged_count: 0 },
     ]);
     sqlReturnQueue.push([{ total_cost_usd: 40.5 }]);
+    sqlReturnQueue.push([{ count: 0, cost_usd: 0 }]);
   }
 
   it('computes per-account margin rows sorted by cost desc with risk levels', async () => {
@@ -151,6 +153,7 @@ describe('getMarginReport', () => {
       { account_id: 'acct-trial', api_cost_usd: 8, generation_count: 40, openai_count: 40, anthropic_count: 0, generation_cost_usd: 8, flagged_count: 0 },
     ]);
     sqlReturnQueue.push([{ total_cost_usd: 18 }]);
+    sqlReturnQueue.push([{ count: 0, cost_usd: 0 }]);
 
     const data = await getMarginReport(sql, { limit: 10 });
 
@@ -174,10 +177,79 @@ describe('getMarginReport', () => {
     ]);
     sqlReturnQueue.push([{ account_id: 'acct-x', api_cost_usd: 5, generation_count: 10, openai_count: 10, anthropic_count: 0, generation_cost_usd: 5, flagged_count: 0 }]);
     sqlReturnQueue.push([{ total_cost_usd: 5 }]);
+    sqlReturnQueue.push([{ count: 0, cost_usd: 0 }]);
     await expect(getMarginReport(sql, { limit: 10 })).rejects.toThrow(
       'invalid_ws8_subscription_tier:retired_tier',
     );
-    expect(sqlCalls).toHaveLength(3);
+    // All four reads (including #1106's unattributedRows) fire up front,
+    // before the per-account loop that throws.
+    expect(sqlCalls).toHaveLength(4);
     expect(sqlReturnQueue).toHaveLength(0);
+  });
+});
+
+describe('unattributedResponseCost (#1106)', () => {
+  function seedWithOrphan(opts: {
+    accountCostUsd: number;
+    platformTotalUsd: number;
+    orphanCount: number;
+    orphanCostUsd: number;
+  }) {
+    sqlReturnQueue.push([
+      { id: 'acct-1', display_name: 'Acme', subscription_tier: 'copilot', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 1500, base_price_cents: 2900, active_locations: 1 },
+    ]);
+    sqlReturnQueue.push([
+      { account_id: 'acct-1', api_cost_usd: opts.accountCostUsd, generation_count: 10, openai_count: 10, anthropic_count: 0, generation_cost_usd: opts.accountCostUsd, flagged_count: 0 },
+    ]);
+    sqlReturnQueue.push([{ total_cost_usd: opts.platformTotalUsd }]);
+    sqlReturnQueue.push([{ count: opts.orphanCount, cost_usd: opts.orphanCostUsd }]);
+  }
+
+  it('counts orphaned response-generation rows in the platform total AND surfaces them as a separate line', async () => {
+    // platformTotalUsd (42.5) is the WHOLE window's api_costs sum — it already
+    // includes the 1.5 orphaned response-generation cost AND a 1.5
+    // non-response task's own permanently-NULL row (e.g. review-summary),
+    // because platformRows' query has no response_id filter at all. The new
+    // query surfaces ONLY the response-generation subset (1.5, count 1).
+    seedWithOrphan({ accountCostUsd: 39.5, platformTotalUsd: 42.5, orphanCount: 1, orphanCostUsd: 1.5 });
+
+    const data = await getMarginReport(sql, { limit: 10 });
+
+    // Totals unchanged: the new query is read-only additive information, not
+    // a filter or an adjustment to the existing aggregates.
+    expect(data.platform.variableApiCogsUsd).toBe(42.5);
+    // Surfaced separately.
+    expect(data.unattributedResponseCost).toEqual({
+      count: 1,
+      costUsd: 1.5,
+      note: expect.stringContaining('#1106'),
+    });
+  });
+
+  it('discriminates on the response-generation endpoint label, not every NULL response_id row', async () => {
+    seedWithOrphan({ accountCostUsd: 0, platformTotalUsd: 0, orphanCount: 0, orphanCostUsd: 0 });
+    await getMarginReport(sql, { limit: 10 });
+
+    // The 4th sequential query (index 3) is the #1106 orphan aggregate. Its
+    // WHERE clause is the actual discriminator: a non-response task's row
+    // (review-summary, triage, safety-review, owner-operator, solicitation
+    // ask, serpapi) carries a different `endpoint` and is never `response_id
+    // IS NULL AND endpoint = <this literal>` at the same time.
+    const unattributedCall = sqlCalls[3]!;
+    expect(unattributedCall.text).toContain('response_id IS NULL');
+    expect(unattributedCall.text).toContain('endpoint = ?');
+    expect(unattributedCall.values).toContain(RESPONSE_GENERATION_ENDPOINT);
+  });
+
+  it('defaults to zero counts/cost when the aggregate returns no row', async () => {
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ total_cost_usd: 0 }]);
+    sqlReturnQueue.push([]);
+
+    const data = await getMarginReport(sql, { limit: 10 });
+
+    expect(data.unattributedResponseCost.count).toBe(0);
+    expect(data.unattributedResponseCost.costUsd).toBe(0);
   });
 });

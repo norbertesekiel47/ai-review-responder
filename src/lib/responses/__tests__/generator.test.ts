@@ -77,6 +77,7 @@ vi.mock('@/lib/costs/cost-guard', async () => {
 vi.mock('@/lib/costs/audit', () => ({
   recordApiCost: vi.fn().mockResolvedValue('cost-uuid-001'),
   calculateCostUsd: vi.fn().mockReturnValue(0.000_123),
+  RESPONSE_GENERATION_ENDPOINT: 'response-generation',
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────

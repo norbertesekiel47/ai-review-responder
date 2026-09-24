@@ -103,6 +103,45 @@ describe('outbox-status-audit — binding to job_outbox', () => {
   });
 });
 
+// #613: the CALL form of `.unsafe()` was invisible because scanSource only
+// visited TaggedTemplateExpression nodes.
+describe('outbox-status-audit — .unsafe() call form (#613)', () => {
+  it('flags a drifted group inside an inline .unsafe() call argument', () => {
+    const template =
+      "await tx.unsafe(`SELECT 1 FROM job_outbox WHERE status IN ('pending', 'dispatched')`);";
+    const findings = scanSource('worker/probe.ts', template);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('outbox-status-group');
+  });
+
+  it('accepts the canonical group inside an inline .unsafe() call argument', () => {
+    const template = `await tx.unsafe(\`SELECT 1 FROM job_outbox WHERE status IN (${CANONICAL_SQL})\`);`;
+    expect(scanSource('worker/probe.ts', template)).toEqual([]);
+  });
+
+  it('flags a drifted group built into a local const and passed by name — the live call-site shape', () => {
+    const template = [
+      "const query = `SELECT 1 FROM job_outbox WHERE status IN ('pending', 'dispatched')`;",
+      'await sql.unsafe(query, params);',
+    ].join('\n');
+    const findings = scanSource('worker/probe.ts', template);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('does not resolve a query built by a function call — genuinely unreadable, not guessed at', () => {
+    const template = "await sql.unsafe(readMigrationSql(), params);";
+    expect(scanSource('worker/probe.ts', template)).toEqual([]);
+  });
+
+  it('ignores a plain .unsafe() call that never mentions job_outbox — the notifications-service.ts shape', () => {
+    const template = [
+      "const dataQuery = `SELECT nd.id FROM notification_deliveries nd WHERE nd.status IN ('pending', 'dispatched')`;",
+      'await sql.unsafe(dataQuery, queryParams);',
+    ].join('\n');
+    expect(scanSource('worker/probe.ts', template)).toEqual([]);
+  });
+});
+
 describe('outbox-status-audit — escapes', () => {
   it('honours a trailing TS pragma', () => {
     const template = [

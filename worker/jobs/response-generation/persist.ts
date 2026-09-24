@@ -13,7 +13,6 @@ import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { SafetyVerdict } from '../../../src/lib/moderation/safety-review-schema';
 import type { GenerationResult } from '../../../src/lib/responses/types';
-import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
@@ -30,6 +29,7 @@ import {
   insertAuditLogAutoPolicy,
   type AutoPolicyAuditMetadata,
 } from '../../../src/lib/approval/audit';
+import { markResponseApprovedAutoPolicy } from '../../../src/lib/approval/transitions';
 import {
   findActiveReviewRun,
   recordOutcome,
@@ -60,7 +60,6 @@ import {
 } from './auto-approval';
 
 const RESPONSE_STATUS_PENDING_APPROVAL = 'pending_approval';
-const RESPONSE_STATUS_APPROVED = 'approved';
 const FLAGGED_RESPONSE_STATUS_OPEN = 'open';
 
 export interface PersistResponseInput {
@@ -599,20 +598,12 @@ async function approveAutoPolicyAndSchedule(
 
   // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish + notice); parallelizing would break tx ordering.
   // react-doctor-disable-next-line react-doctor/async-parallel
-  const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
-    UPDATE responses
-    SET status = ${RESPONSE_STATUS_APPROVED},
-        approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
-        approved_text = ${responseText},
-        approved_at = NOW(),
-        auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
-        posting_error = NULL,
-        updated_at = NOW()
-    WHERE id = ${responseId}
-      AND business_id = ${businessId}
-      AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
-    RETURNING auto_post_scheduled_at
-  `;
+  const [scheduled] = await markResponseApprovedAutoPolicy(tx, {
+    responseId,
+    businessId,
+    responseText,
+    vetoWindowMinutes,
+  });
   if (!scheduled) {
     // Guarded UPDATE lost a race — roll the tx back; generation-job retry semantics cover it.
     throw new Error('auto_approve_transition_lost');

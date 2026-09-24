@@ -1,5 +1,6 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { getServerConfig } from '@/lib/config/server';
+import { constantTimeEqual } from '@/lib/shared/signed-value';
 
 function getSecret(): string {
   const secret = getServerConfig().CSRF_SECRET;
@@ -23,12 +24,13 @@ export function signFeedback(businessId: string, rating: string, weekStartDate: 
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/i;
 
 export function verifyFeedback(businessId: string, rating: string, weekStartDate: string, sig: string): boolean {
-  // Reject non-hex or wrong-length signatures before comparison.
-  // Without this, non-ASCII 64-char strings pass the length check but produce
-  // different byte lengths in Buffer.from(), causing timingSafeEqual to throw.
+  // Reject non-hex or wrong-length signatures before comparison. Belt-and-
+  // suspenders: constantTimeEqual already handles a byte-length mismatch
+  // without throwing, but this keeps a malformed sig from reaching the HMAC
+  // compare at all.
   if (!HEX_64_PATTERN.test(sig)) return false;
   const expected = signFeedback(businessId, rating, weekStartDate);
-  return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'));
+  return constantTimeEqual(expected, sig, 'hex');
 }
 
 /**

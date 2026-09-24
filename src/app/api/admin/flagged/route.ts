@@ -8,6 +8,7 @@ import { enqueueGenerateResponse, enqueueSendNotification } from '@/lib/shared/j
 import { assertLocationNotArchived } from '@/lib/approval/locks';
 import { ArchivedLocationError } from '@/lib/approval/errors';
 import { listOpenFlaggedResponses } from '@/lib/admin/flagged-service';
+import { markResponseSuperseded } from '@/lib/approval/transitions';
 
 export const dynamic = 'force-dynamic';
 
@@ -158,11 +159,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await assertFlagLocationActive(tx, flag.business_id);
         const resp = respRows[0];
         if (resp && resp.status === 'pending_approval') {
-          await tx`
-            UPDATE responses
-            SET status = 'superseded', updated_at = NOW()
-            WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
-          `;
+          await markResponseSuperseded(tx, {
+            responseId: flag.response_id,
+            businessId: flag.business_id,
+          });
           await enqueueGenerateResponse(tx, {
             reviewId: resp.review_id,
             businessId: flag.business_id,
