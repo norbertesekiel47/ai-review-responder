@@ -12,6 +12,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,10 +39,7 @@ async function freshAuth(req: NextRequest): Promise<NextResponse> {
 
   const parsed = FreshAuthSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonResponse(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      400,
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE_HEADERS });
   }
 
   try {

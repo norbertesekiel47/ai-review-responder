@@ -7,6 +7,7 @@ import type { AccountId } from '@/lib/shared/ids';
 import type { z } from 'zod';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { DUPLICATE_LOCATION } from './duplicate-location';
 import { multiLocationEnabled } from './flags';
 
@@ -173,13 +174,6 @@ export function invalidJsonResponse(): NextResponse {
   );
 }
 
-export function invalidBodyResponse(issues: unknown): NextResponse {
-  return NextResponse.json(
-    { error: 'invalid_body', issues },
-    { status: 400, headers: LOCATION_ROUTE_NO_STORE },
-  );
-}
-
 export async function readLocationRouteJson<TSchema extends z.ZodTypeAny>(
   req: NextRequest,
   schema: TSchema,
@@ -193,7 +187,10 @@ export async function readLocationRouteJson<TSchema extends z.ZodTypeAny>(
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return { ok: false, response: invalidBodyResponse(parsed.error.issues) };
+    return {
+      ok: false,
+      response: invalidBodyResponse(parsed.error, { headers: LOCATION_ROUTE_NO_STORE }),
+    };
   }
 
   return { ok: true, data: parsed.data };

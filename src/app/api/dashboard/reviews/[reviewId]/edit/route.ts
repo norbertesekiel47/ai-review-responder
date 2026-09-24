@@ -7,6 +7,7 @@ import {
 } from '@/lib/approval/http-routes';
 import { editBySession } from '@/lib/approval/service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
@@ -37,10 +38,7 @@ async function editReview(
 
   const parsed = editSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Validation failed', details: parsed.error.flatten().fieldErrors },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE_HEADERS });
   }
 
   const { reviewId } = await params;

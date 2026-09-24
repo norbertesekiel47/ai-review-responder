@@ -10,10 +10,10 @@ import { getLocationById } from '@/lib/locations/repo';
 import { type DashboardWindow, resolveDashboardWindow } from '@/lib/kpi/types';
 import { isValidUuid } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import type { DashboardReadScope } from '@/lib/dashboard/subscription-gate';
 
-export type DashboardScopePolicy =
-  | { mode: 'aggregate' }
-  | { mode: 'location'; locationId: string | null };
+/** One owner of the scope shape: the dashboard read module's input (#1368). */
+export type DashboardScopePolicy = DashboardReadScope;
 
 export function resolveDashboardScopePolicy(input: {
   scopeParam: string | null;

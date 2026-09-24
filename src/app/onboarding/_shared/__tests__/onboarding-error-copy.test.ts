@@ -20,7 +20,7 @@ const START_CODES = [
   'invalid_json',
   'invalid_body',
   'redis_unavailable',
-  'internal',
+  'internal_error',
 ];
 const BUSINESS_CODES = [
   'forbidden',
@@ -33,7 +33,7 @@ const BUSINESS_CODES = [
   'rate_limit_unavailable',
   'invalid_json',
   'invalid_body',
-  'internal',
+  'internal_error',
 ];
 
 const RAW_CODE = /^[a-z]+(_[a-z]+)+$/; // snake_case machine codes

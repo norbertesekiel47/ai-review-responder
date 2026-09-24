@@ -66,7 +66,11 @@ vi.mock('../activation', () => ({
 
 import { publishAutoPolicyResponse } from '../auto-policy-publish';
 import { processSubscriptionUpdated } from '../../../ingress/stripe/subscription-updated';
-import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  stripeStatusTarget,
+} from '../../../ingress/stripe/apply-subscription-state';
+import { acquireTierEntitlementLock } from '@/lib/accounts/billing-locks';
 import {
   persistResponseAndNotify,
   type PersistResponseInput,
@@ -125,6 +129,22 @@ function tierSql(): Sql {
 function accountId(): string {
   if (!tenant) throw new Error('publisher concurrency tenant not initialized');
   return tenant.accountId;
+}
+
+/**
+ * A generic Stripe status writer: the entitlement lock, then the single
+ * applier, exactly as every production caller orders them.
+ */
+async function applyCancellationUnderEntitlement(tx: postgres.TransactionSql) {
+  await acquireTierEntitlementLock(tx, accountId());
+  return applyStripeSubscriptionState(
+    tx,
+    accountId(),
+    stripeStatusTarget(
+      { id: stripeSubscriptionId, status: 'canceled', trial_end: null },
+      stripeCustomerId,
+    ),
+  );
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -782,16 +802,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
 
   it('committed generic status loss makes publisher downgrade with zero provider calls', async () => {
     const ids = await seedAttempt();
-    const transition = await sqlB().begin((tx) => applyStripeSubscriptionState(
-      tx,
-      { mode: 'checkout', accountId: accountId() },
-      {
-        id: stripeSubscriptionId,
-        customer: stripeCustomerId,
-        status: 'canceled',
-        trial_end: null,
-      },
-    ));
+    const transition = await sqlB().begin((tx) => applyCancellationUnderEntitlement(tx));
     expect(transition).toMatchObject({
       accountResolved: true,
       fromStatus: 'active',
@@ -835,16 +846,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     const statusApplied = deferred();
     const releaseStatusCommit = releasable();
     const statusWriter = sqlB().begin(async (tx) => {
-      const transition = await applyStripeSubscriptionState(
-        tx,
-        { mode: 'checkout', accountId: accountId() },
-        {
-          id: stripeSubscriptionId,
-          customer: stripeCustomerId,
-          status: 'canceled',
-          trial_end: null,
-        },
-      );
+      const transition = await applyCancellationUnderEntitlement(tx);
       statusApplied.resolve();
       await releaseStatusCommit.promise;
       return transition;

@@ -38,7 +38,8 @@ import {
   type StripeEventContext,
 } from './shared';
 import {
-  applyStripeSubscriptionStateUnderEntitlementLock,
+  applyStripeSubscriptionState,
+  stripeStatusTarget,
 } from './apply-subscription-state';
 
 const logger = createWorkerLogger('[ingress/stripe/subscription-updated]');
@@ -517,15 +518,11 @@ async function projectProviderCurrentSubscriptionTx(
   // Absolute status ownership: every provider-current subscription status,
   // including unknown Price and variant-mismatch paths, enters through the
   // one Stripe status applier.
-  const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
+  // The lineage was just confirmed on the row locked above.
+  const transition = await applyStripeSubscriptionState(
     tx,
     account.id,
-    {
-      mode: 'subscription',
-      stripeCustomerId: input.customerId,
-      stripeSubscriptionId: input.subscriptionId,
-    },
-    subscription,
+    stripeStatusTarget(subscription, input.customerId),
   );
   // A provider-current replay may be a canonical no-op while the deprecated
   // business status/activation mirror is stale. Changed transitions enqueue

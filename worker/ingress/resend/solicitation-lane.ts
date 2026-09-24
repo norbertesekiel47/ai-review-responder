@@ -78,6 +78,12 @@ interface OutreachAttribution {
  *
  * MUST be called inside sql.begin(): the FOR UPDATE lock is what stops the row
  * being deleted between this read and the UPDATE that follows it.
+ *
+ * An Outreach remnant (ADR 0033 / #1350 — contact deleted, contact_id NULL) is
+ * never found: its provider_message_id is redacted in the delete's transaction,
+ * and the contacts JOIN would drop it anyway. A late event for it takes the
+ * unmatched branch below — a permanent bounce or complaint still writes the
+ * global opt-out from the signed payload.
  */
 async function loadAttribution(
   tx: TransactionSql,

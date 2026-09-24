@@ -148,6 +148,8 @@ All Zernio API client code and shared connect-flow state.
 | File | What it does |
 |------|--------------|
 | `disconnect.ts` | Shared manual Disconnect: explicit DB client, admin offboarding refusal, selected-account update, and bounded provider cleanup (ADR 0001). Owner callers establish writable location scope first. |
+| `connect-start.ts` | `startZernioConnect(sql, input)` — the connect-start state machine behind `POST /api/zernio/connect/start` (#1368): account gate (location scope, writable subscription, offboarding refusal), pending-marker refusals, token-stamped request lock, orphan self-heal (Zernio account then profile, best-effort), profile + OAuth start, marker CAS, `gbp_connect_started` analytics, Step F cleanup. Returns `{ status, body }`; throws `ZernioRouteError` for the route's shared mapping. Zernio calls stay in the request (ADR 0001). |
+| `pending-flow.ts` | `parseConnectPendingMarker` (canonical statuses only) + `isFreshPendingMarker(marker, ttlSeconds)` for the Redis pending-flow marker; moved from the route's `_shared/` by #1368. |
 | `client.ts` | `ZernioClient` — API methods composed from the modules below. Transport/error classifiers own auth, validation, transient/permanent errors and no-body responses; safe pre-mutation 400 and duplicate-reply 409 codes are allowlisted. |
 | `connect-state.ts` | Lua CAS scripts (`luaTokenCAS`, `luaCASUpdate`, `luaCASDel`) + `pendingKey(businessId)` helper for the Redis connect-flow state machine. Prevents race conditions when concurrent start/cancel flows race. |
 | `connect-session-cookie.ts` | HMAC-signed cookie for the Zernio connect session. Format: `{sessionId}.{hmac}`. Mirrors the approval device-cookie pattern (`SameSite=Lax` to survive top-level OAuth redirect). |

@@ -129,7 +129,7 @@ function setCheckoutSessionCompletedEvent(overrides: {
 }
 
 // primaryBizId: set when the test also exercises backfill resume (so
-// resolveAccount returns a non-null primary_business_id, letting the
+// the applier's account-row read returns a non-null primary_business_id, letting the
 // post-tx backfill path proceed). Leave null for tests that don't
 // need backfill (backfill short-circuits when resumeBusinessId is falsy).
 function queueHappyPath(
@@ -187,9 +187,9 @@ function queueHappyPath(
     // Canonical lease + active-offboarding projection.
     sqlReturnQueue.push([checkoutAccount]);
     // Applier's customer-keyed binding lock (D8), taken inside
-    // applyStripeSubscriptionStateInternal before it locks the account row.
+    // applyStripeSubscriptionState before it re-locks the account row.
     sqlReturnQueue.push([]);
-    // Applier resolveAccount.
+    // Applier's account-row read (FOR UPDATE, re-entrant).
     sqlReturnQueue.push([{
       id: '019dc366-29ce-7000-a000-000000000000',
       subscription_status: currentStatus,
@@ -435,7 +435,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     importConsent?: 'pending' | 'accepted' | 'declined' | 'expired';
   } = {}) {
     // After B1.4: the primary business ID comes from transition.primaryBusinessId
-    // (returned by the applier's resolveAccount). queueHappyPath must be called
+    // (returned by the applier's account-row read). queueHappyPath must be called
     // with primaryBizId: TEST_BIZ_PENDING so the backfill path gets a non-null
     // resumeBusinessId. No post-tx "find primary business" SQL fires.
     //
@@ -483,7 +483,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
   it('flag=ON + active connection + no completed run → enqueues zernio_initial_backfill', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
-    // primaryBizId from resolveAccount so transition.primaryBusinessId is non-null
+    // primaryBizId from the applier's row read so transition.primaryBusinessId is non-null
     // and the post-tx backfill resume path can proceed without a separate DB lookup.
     queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
     queueBackfillResumeMatchPath();

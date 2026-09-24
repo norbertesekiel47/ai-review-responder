@@ -107,7 +107,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
       }),
     );
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 
   it('already past_due → no-op (idempotent)', async () => {
@@ -135,7 +135,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     const logText = consoleSpy.mock.calls.flat().join(' ');
     expect(logText).toMatch(/already/);
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls).toHaveLength(6);
 
     consoleSpy.mockRestore();
   });
@@ -185,6 +185,6 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 });

@@ -350,11 +350,11 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         },
       },
     });
-    // After B1.4: paid activation routes through the applier (checkout mode).
+    // After B1.4: paid activation routes through the applier (resolved by client_reference_id).
     // SQL sequence:
     //   1. Pre-tx: SELECT id FROM accounts WHERE id=? (account lookup)
     //   2. In-tx: pg_advisory_xact_lock
-    //   3. In-tx: Applier resolveAccount — SELECT a.id, a.subscription_status,
+    //   3. In-tx: Applier account-row read — SELECT a.id, a.subscription_status,
     //             (SELECT b.id …) AS primary_business_id FROM accounts a … FOR UPDATE
     //   4. In-tx: Applier writeStatusColumns — UPDATE accounts SET subscription_status='active'…
     //   5. In-tx: Applier writeBusinessesMirror — UPDATE businesses SET subscription_status='active'…
@@ -400,7 +400,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
           checkout_attempt_cancel_url: 'https://repworth.example/onboarding?checkout=cancelled',
         }]);
       }
-      // 3. Applier's resolveAccount: SELECT a.id, a.subscription_status, … FROM accounts a …
+      // 3. Applier's account-row read: SELECT a.id, a.subscription_status, … FROM accounts a …
       //    Matches the broader "SELECT … FROM accounts" that includes 'a.subscription_status'
       if (/FROM\s+accounts/i.test(text) && /subscription_status/i.test(text)) {
         return Promise.resolve([{

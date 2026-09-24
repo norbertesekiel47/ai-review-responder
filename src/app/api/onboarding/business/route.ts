@@ -17,6 +17,7 @@ import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { shouldUseDemoWizard } from '@/app/onboarding/business/guard';
 
 export const dynamic = 'force-dynamic';
@@ -214,10 +215,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     : BusinessOnboardingSchema;
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE });
   }
   // The two schemas have overlapping but distinct shapes. Type-narrow inside
   // each branch — the post-pay schema rejects googlePlaceId/googleMapsUrl on
@@ -391,7 +389,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     reportCaughtError('api/onboarding/business', err, { reason: 'transaction_failed', businessId: bizRow.id });
-    return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
   }
 
   return NextResponse.json({ redirectTo: '/dashboard' }, { status: 200, headers: NO_STORE });

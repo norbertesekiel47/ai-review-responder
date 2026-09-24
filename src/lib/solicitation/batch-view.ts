@@ -611,10 +611,16 @@ async function readBuiltBatch(
   //
   // This MUST stay one statement. Splitting the funnel's queued/held counts
   // from the ledger's per-reason totals reintroduces a tear: the owner DELETE
-  // in contacts-repo.ts cascades to asks via
-  // solicitation_asks_contact_business_fk, so a deletion landing between two
-  // statements yields a `held` that disagrees with the sum of its own reason
-  // groups.
+  // in contacts-repo.ts turns the person's asks into remnants (contact_id
+  // nulled by solicitation_asks_contact_business_fk since migration 126), so a
+  // deletion landing between two statements yields a `held` that disagrees
+  // with the sum of its own reason groups.
+  //
+  // Remnant asks (contact_id IS NULL, ADR 0033) are excluded from BOTH the
+  // funnel and the sample: the owner deleted that person and was told their
+  // history goes too, and a remnant's evidence is only `{decision, reason}`,
+  // which the evidence line cannot render. Both CTEs carry the same filter, so
+  // `held` still equals the sum of its reason groups.
   //
   // `ranked` carries ids and rank only: the payload columns (evidence JSONB,
   // contact name) are joined back for the <= 6 x EVIDENCE_ROWS_PER_REASON rows
@@ -639,6 +645,7 @@ async function readBuiltBatch(
          AND business_id = ${businessId}
          AND batch_id = ${batch.id}
          AND status = 'withhold'
+         AND contact_id IS NOT NULL
     ),
     totals AS (
       SELECT COUNT(*) FILTER (WHERE status = 'send')::int     AS queued,
@@ -648,6 +655,7 @@ async function readBuiltBatch(
        WHERE account_id = ${accountId}
          AND business_id = ${businessId}
          AND batch_id = ${batch.id}
+         AND contact_id IS NOT NULL
     )
     SELECT t.queued, t.held, t.evaluated,
            a.id               AS "askId",

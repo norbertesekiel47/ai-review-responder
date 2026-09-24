@@ -17,6 +17,7 @@ GET + POST owner settings (tone, products/services, avoid-facts).
 | Route | What it does |
 |-------|--------------|
 | `business/route.ts` | POST: persists step-by-step business profile data from the 3-step wizard (`/onboarding/business`). Validates step input via `shared/schemas.ts` and updates the existing `businesses` row created at signup. |
+| `start/route.ts` | POST (flag `ONBOARDING_DEMO_ENABLED`): same-origin, Supabase session, BotID Deep, then `startOnboarding` (`src/lib/onboarding/start.ts`, #1368) — captures the place and queues the pre-pay demo. |
 | `select-plan/route.ts` | POST: validates the owner's explicit Copilot/Autopilot selection, persists the complete tier/variant snapshot under billing serialization, and returns a Stripe Checkout Session URL. No tier default or Payment Link remains. |
 
 #### `signup/place-prefill/route.ts`
@@ -29,7 +30,7 @@ Handles the Zernio OAuth connect flow for GBP auto-posting. All routes gated by 
 
 | Route | What it does |
 |-------|--------------|
-| `start/route.ts` | Initiates the Zernio OAuth flow; creates a Zernio profile, sets a signed connect-session cookie, and redirects the owner to Zernio. |
+| `start/route.ts` | POST: gates (flag, same-origin, owner) and parses the optional `locationId`, then calls `startZernioConnect` (`src/lib/zernio/connect-start.ts`, #1368) and returns `{ authUrl }` for the client to open Zernio's OAuth; errors map via `_shared/error-response.ts`. |
 | `callback/route.ts` | Receives the OAuth callback from Zernio: claims the single-use connect state (Redis GETDEL), calls `zernioClient.listLocations` (ADR 0001 sanctioned sync call), stashes the locations in Redis for 15 min, sets the signed connect-session cookie and 302s to `select-location`. Writes NO DB row — `zernio_connections` first exists inside `finalizeConnectionTx`. |
 | `select-location/route.ts` | POST: finalises the connection — `zernioClient.selectLocation` → `accountId`, then `finalizeConnectionTx` (one `sql.begin`: `zernio_connections` upsert to `active`, `drain_pending_owner_connect` outbox row, `gbp_connected` analytics event, and — only on `import_decision='accepted'` — `enqueueInitialImport`). |
 | `cancel/route.ts` | POST: cancels an in-progress OAuth flow; cleans up pending DB + Redis state. |

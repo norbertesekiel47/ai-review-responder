@@ -78,6 +78,12 @@ export interface SchemaRequirement {
    * presence alone proves nothing.
    */
   columnTypes?: readonly { column: string; dataType: string }[];
+  /**
+   * `table.column` pairs that must be NULLABLE — for a migration whose only
+   * observable change is a dropped NOT NULL plus an FK action (126), where
+   * every name it touches already existed before it ran.
+   */
+  nullableColumns?: readonly string[];
 }
 
 interface MissingObject {
@@ -207,6 +213,31 @@ async function findMismatchedColumnTypes(
     }
   }
   return mismatched;
+}
+
+async function findNotNullableColumns(
+  db: postgres.Sql,
+  requirement: SchemaRequirement,
+): Promise<MissingObject[]> {
+  const columns = requirement.nullableColumns ?? [];
+  const stillNotNull: MissingObject[] = [];
+  for (const qualified of columns) {
+    const [table, column] = qualified.split('.');
+    if (!table || !column) {
+      throw new Error(`schema requirement nullableColumn must be "table.column", got "${qualified}"`);
+    }
+    const [actual] = await db<{ is_nullable: string }[]>`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${table} AND column_name = ${column}
+    `;
+    if (actual?.is_nullable !== 'YES') {
+      stillNotNull.push({
+        migration: requirement.migration,
+        description: `column ${qualified} is ${actual ? 'NOT NULL' : 'absent'}, expected nullable`,
+      });
+    }
+  }
+  return stillNotNull;
 }
 
 /**
@@ -667,6 +698,21 @@ export const MIGRATION_118_POLLER_HEARTBEATS: SchemaRequirement = {
 };
 
 /**
+ * 126 (#1350, ADR 0033) adds no object: it re-points three existing FKs to
+ * column-scoped `ON DELETE SET NULL` and drops three NOT NULLs, so every name it
+ * touches already existed. The dropped NOT NULLs are its only presence proof a
+ * requirement can carry; the FK definitions are asserted by the remnant suite.
+ */
+export const MIGRATION_126_OUTREACH_REMNANT: SchemaRequirement = {
+  migration: '126_outreach_remnant_survives_contact_delete',
+  nullableColumns: [
+    'solicitation_asks.contact_id',
+    'solicitation_outreach.contact_id',
+    'solicitation_outreach.ask_id',
+  ],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,
@@ -749,6 +795,7 @@ export async function assertSchemaReady(
       ...(await findMissingIndexes(db, requirement)),
       ...(await findMissingConstraints(db, requirement)),
       ...(await findMismatchedColumnTypes(db, requirement)),
+      ...(await findNotNullableColumns(db, requirement)),
     );
   }
 

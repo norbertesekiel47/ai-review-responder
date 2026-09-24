@@ -7,6 +7,7 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { FinishSignupSchema } from '@/lib/shared/schemas';
 import { accountExistsResponse } from '@/lib/shared/auth-responses';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   createBusinessTx,
@@ -148,10 +149,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const parsed = FinishSignupSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
   const data = parsed.data;
 
@@ -184,7 +182,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return accountExistsResponse();
     }
     reportCaughtError('api/auth/finish-signup', err, { reason: 'create_business_tx_failed' });
-    return NextResponse.json({ error: 'internal' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 
   // 9. Mark the email channel verified. Google OAuth users have already

@@ -109,6 +109,7 @@ describe('POST /api/onboarding/start', () => {
       const tx: any = vi.fn(async () => []);
       tx.mockResolvedValueOnce([]); // advisory lock
       tx.mockResolvedValueOnce([pendingBizRow]); // FOR UPDATE — eligible
+      tx.json = (v: unknown) => v; // tx.json: the module encodes JSONB on the tx (invariant #15, #1368)
       return cb(tx);
     });
 
@@ -130,6 +131,7 @@ describe('POST /api/onboarding/start', () => {
         if (text.includes('FOR UPDATE')) return [pendingBizRow];
         return [];
       });
+      tx.json = (v: unknown) => v; // tx.json: the module encodes JSONB on the tx (invariant #15, #1368)
       return cb(tx);
     });
 
@@ -154,6 +156,7 @@ describe('POST /api/onboarding/start', () => {
         if (text.includes('FOR UPDATE')) return [pendingBizRow];
         return [];
       });
+      tx.json = (v: unknown) => v; // tx.json: the module encodes JSONB on the tx (invariant #15, #1368)
       return cb(tx);
     });
 
@@ -195,6 +198,7 @@ describe('POST /api/onboarding/start', () => {
       const tx: any = vi.fn(async (strings: TemplateStringsArray) =>
         strings.join('?').includes('FOR UPDATE') ? [pendingBizRow] : [],
       );
+      tx.json = (v: unknown) => v; // tx.json: the module encodes JSONB on the tx (invariant #15, #1368)
       return cb(tx);
     });
 
@@ -247,6 +251,7 @@ describe('POST /api/onboarding/start', () => {
       const tx: any = vi.fn(async () => []);
       tx.mockResolvedValueOnce([]);
       tx.mockResolvedValueOnce([{ ...pendingBizRow, place_id_verified: true }]);
+      tx.json = (v: unknown) => v; // tx.json: the module encodes JSONB on the tx (invariant #15, #1368)
       return cb(tx);
     });
 
