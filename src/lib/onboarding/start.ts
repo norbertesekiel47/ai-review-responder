@@ -111,25 +111,9 @@ interface OnboardingStartTxParams {
   correlationId: string;
 }
 
-// The activation transaction: advisory-lock + FOR UPDATE idempotency re-read,
-// then the business/account updates, the optional place-id validation outbox,
-// and (unless the demo is blocked) the demo row + its outbox.
-//
-// Returns whether the demo row was actually inserted. The caller relies on this
-// to release the cost reservation on the idempotency-loser / vanished-row path
-// so we never leak a reservation for a demo that wasn't queued.
-async function persistOnboardingStart(tx: TransactionSql, p: OnboardingStartTxParams): Promise<boolean> {
-  await tx`SELECT pg_advisory_xact_lock(hashtext(${p.bizRow.id + ':activation'}))`;
-
-  const [forUpdateRow] = await tx<ForUpdateRow[]>`
-    SELECT id, place_id_verified, google_maps_url
-    FROM businesses
-    WHERE id = ${p.bizRow.id}::uuid
-    FOR UPDATE
-  `;
-  if (!forUpdateRow) return false;
-  if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) return false;
-
+// Business + account updates and the optional place-id validation outbox —
+// the part of activation that runs whether or not the demo is blocked.
+async function applyActivationUpdates(tx: TransactionSql, p: OnboardingStartTxParams): Promise<void> {
   await tx`
     UPDATE businesses
     SET
@@ -167,9 +151,11 @@ async function persistOnboardingStart(tx: TransactionSql, p: OnboardingStartTxPa
       correlationId: p.validatePayload.correlation_id,
     });
   }
+}
 
-  if (p.demoBlocked) return false;
-
+// The demo row and its `onboarding_demo_response` outbox row (raw INSERT: the
+// topic has no typed helper).
+async function insertDemoWithOutbox(tx: TransactionSql, p: OnboardingStartTxParams): Promise<void> {
   const demoId = uuidv7();
   const outboxId = uuidv7();
 
@@ -203,21 +189,44 @@ async function persistOnboardingStart(tx: TransactionSql, p: OnboardingStartTxPa
       'pending'
     )
   `;
+}
+
+// The activation transaction: advisory-lock + FOR UPDATE idempotency re-read,
+// then the business/account updates, the optional place-id validation outbox,
+// and (unless the demo is blocked) the demo row + its outbox.
+//
+// Returns whether the demo row was actually inserted. The caller relies on this
+// to release the cost reservation on the idempotency-loser / vanished-row path
+// so we never leak a reservation for a demo that wasn't queued.
+async function persistOnboardingStart(tx: TransactionSql, p: OnboardingStartTxParams): Promise<boolean> {
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${p.bizRow.id + ':activation'}))`;
+
+  const [forUpdateRow] = await tx<ForUpdateRow[]>`
+    SELECT id, place_id_verified, google_maps_url
+    FROM businesses
+    WHERE id = ${p.bizRow.id}::uuid
+    FOR UPDATE
+  `;
+  if (!forUpdateRow) return false;
+  if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) return false;
+
+  await applyActivationUpdates(tx, p);
+
+  if (p.demoBlocked) return false;
+
+  await insertDemoWithOutbox(tx, p);
   return true;
 }
 
-/**
- * Activates a pending_payment owner's primary business from the start form
- * and, budget and limits permitting, queues the pre-pay demo. Never throws for
- * an expected fault: limiter/reservation/transaction failures are reported
- * and mapped to their status.
- */
-export async function startOnboarding(
-  sql: Sql,
-  request: OnboardingStartRequest,
-): Promise<OnboardingStartOutcome> {
-  const { authId } = request;
+/** Either a value to continue with, or the outcome to answer now. */
+type Step<T> = { ok: true; value: T } | { ok: false; outcome: OnboardingStartOutcome };
 
+/**
+ * The owner/primary-business read plus the gates that answer before the body
+ * is read: no row → 404, not pending_payment → 409, place already captured →
+ * the idempotent 200 redirect.
+ */
+async function readStartableBusiness(sql: Sql, authId: string): Promise<Step<BizRow>> {
   const [bizRow] = await sql<BizRow[]>`
     SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
@@ -228,19 +237,25 @@ export async function startOnboarding(
     LIMIT 1
   `;
   if (!bizRow) {
-    return json(404, { error: 'account_incomplete' });
+    return { ok: false, outcome: json(404, { error: 'account_incomplete' }) };
   }
 
   if (bizRow.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
-    return json(409, { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status });
+    return {
+      ok: false,
+      outcome: json(409, { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status }),
+    };
   }
 
   // Idempotent: redirect to demo page if already started
   if (bizRow.place_id_verified || bizRow.google_maps_url) {
-    return json(200, { redirectTo: '/onboarding/demo', demoQueued: false });
+    return { ok: false, outcome: json(200, { redirectTo: '/onboarding/demo', demoQueued: false }) };
   }
+  return { ok: true, value: bizRow };
+}
 
-  // Outer rate limit: 10/auth-id/hour
+/** Outer rate limit: 10/auth-id/hour, strict (a limiter fault is a 503). */
+async function outerRateLimitRefusal(authId: string): Promise<OnboardingStartOutcome | null> {
   try {
     const rl = await checkRateLimit(`onboarding-start:auth:${authId}`, 10, 3600, { strict: true });
     if (!rl.allowed) {
@@ -250,59 +265,86 @@ export async function startOnboarding(
     reportCaughtError(REPORT_CONTEXT, err, { reason: 'rate_limit_strict_failure' });
     return json(503, { error: 'rate_limit_unavailable' });
   }
+  return null;
+}
 
+/** Reads and validates the body: malformed JSON → 400, schema failure → `invalid_body`. */
+async function readStartBody(readJsonBody: () => Promise<unknown>): Promise<Step<OnboardingStartInput>> {
   let body: unknown;
   try {
-    body = await request.readJsonBody();
+    body = await readJsonBody();
   } catch {
-    return json(400, { error: 'invalid_json' });
+    return { ok: false, outcome: json(400, { error: 'invalid_json' }) };
   }
   const parsed = OnboardingStartSchema.safeParse(body);
   if (!parsed.success) {
-    return { kind: 'invalid_body', error: parsed.error };
+    return { ok: false, outcome: { kind: 'invalid_body', error: parsed.error } };
   }
-  const data = parsed.data;
+  return { ok: true, value: parsed.data };
+}
 
-  // Demo-specific rate limits
-  const userRateLimitKey = `onboarding-demo:user:${authId}`;
-  const ipRateLimitKey = `onboarding-demo:ip:${request.clientIp}`;
-  const globalRateLimitKey = `onboarding-demo:global`;
+interface DemoGate {
+  demoBlocked: boolean;
+  blockReason: 'cost_ceiling' | 'rate_limit' | null;
+  cleanupReservation: (() => Promise<void>) | null;
+  reservationDate: string | null;
+}
 
-  let demoBlocked = false;
-  let blockReason: 'cost_ceiling' | 'rate_limit' | null = null;
+/**
+ * Demo-specific rate limits (per user, per IP, global — strict), then the
+ * demo cost reservation. A tripped limit or the cost ceiling blocks only the
+ * demo; a limiter or Redis fault answers 503.
+ */
+async function evaluateDemoGate(authId: string, clientIp: string): Promise<Step<DemoGate>> {
+  const gate: DemoGate = { demoBlocked: false, blockReason: null, cleanupReservation: null, reservationDate: null };
 
   try {
-    const userRl = await checkRateLimit(userRateLimitKey, 3, 86400, { strict: true });
-    const ipRl = await checkRateLimit(ipRateLimitKey, 5, 86400, { strict: true });
-    const globalRl = await checkRateLimit(globalRateLimitKey, 200, 3600, { strict: true });
+    const userRl = await checkRateLimit(`onboarding-demo:user:${authId}`, 3, 86400, { strict: true });
+    const ipRl = await checkRateLimit(`onboarding-demo:ip:${clientIp}`, 5, 86400, { strict: true });
+    const globalRl = await checkRateLimit(`onboarding-demo:global`, 200, 3600, { strict: true });
 
     if (!userRl.allowed || !ipRl.allowed || !globalRl.allowed) {
-      demoBlocked = true;
-      blockReason = 'rate_limit';
+      gate.demoBlocked = true;
+      gate.blockReason = 'rate_limit';
     }
   } catch (err) {
     reportCaughtError(REPORT_CONTEXT, err, { reason: 'demo_rate_limit_check_failed' });
-    return json(503, { error: 'rate_limit_unavailable' });
+    return { ok: false, outcome: json(503, { error: 'rate_limit_unavailable' }) };
   }
 
-  let cleanupReservation: (() => Promise<void>) | null = null;
-  let reservationDate: string | null = null;
-  if (!demoBlocked) {
-    try {
-      const reservation = await reserveOnboardingDemoBudget();
-      cleanupReservation = reservation.release;
-      reservationDate = reservation.date;
-    } catch (err) {
-      if (err instanceof CostCeilingExceeded) {
-        demoBlocked = true;
-        blockReason = 'cost_ceiling';
-      } else {
-        reportCaughtError(REPORT_CONTEXT, err, { reason: 'cost_guard_reservation_failed' });
-        return json(503, { error: 'redis_unavailable' });
-      }
+  if (gate.demoBlocked) return { ok: true, value: gate };
+  try {
+    const reservation = await reserveOnboardingDemoBudget();
+    gate.cleanupReservation = reservation.release;
+    gate.reservationDate = reservation.date;
+  } catch (err) {
+    if (!(err instanceof CostCeilingExceeded)) {
+      reportCaughtError(REPORT_CONTEXT, err, { reason: 'cost_guard_reservation_failed' });
+      return { ok: false, outcome: json(503, { error: 'redis_unavailable' }) };
     }
+    gate.demoBlocked = true;
+    gate.blockReason = 'cost_ceiling';
   }
+  return { ok: true, value: gate };
+}
 
+/** Best-effort reservation release; a release failure is ignored. */
+async function releaseReservation(cleanupReservation: (() => Promise<void>) | null): Promise<void> {
+  if (cleanupReservation) {
+    try { await cleanupReservation(); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Runs the activation transaction and settles the reservation: released on a
+ * failed transaction (reported 500) and on the idempotency-loser path.
+ */
+async function runActivation(
+  sql: Sql,
+  bizRow: BizRow,
+  data: OnboardingStartInput,
+  gate: DemoGate,
+): Promise<OnboardingStartOutcome> {
   // Resolve place id
   const correlationId = uuidv7();
   const { resolvedPlaceId, placeIdVerified, validatePayload } = resolvePlaceId(
@@ -325,15 +367,13 @@ export async function startOnboarding(
         resolvedPlaceId,
         placeIdVerified,
         validatePayload,
-        demoBlocked,
-        reservationDate,
+        demoBlocked: gate.demoBlocked,
+        reservationDate: gate.reservationDate,
         correlationId,
       });
     });
   } catch (err) {
-    if (cleanupReservation) {
-      try { await cleanupReservation(); } catch { /* ignore */ }
-    }
+    await releaseReservation(gate.cleanupReservation);
     reportCaughtError(REPORT_CONTEXT, err, { reason: 'transaction_failed', businessId: bizRow.id });
     return json(500, { error: 'internal_error' });
   }
@@ -343,13 +383,38 @@ export async function startOnboarding(
   // Release the reservation we made earlier so we don't leak 20¢ per loser,
   // and report demoQueued:false so the client doesn't poll for a demo that
   // doesn't exist.
-  if (!demoBlocked && !demoInserted && cleanupReservation) {
-    try { await cleanupReservation(); } catch { /* ignore */ }
+  if (!gate.demoBlocked && !demoInserted) {
+    await releaseReservation(gate.cleanupReservation);
   }
 
   return json(200, {
     redirectTo: '/onboarding/demo',
-    demoQueued: !demoBlocked && demoInserted,
-    reason: blockReason,
+    demoQueued: !gate.demoBlocked && demoInserted,
+    reason: gate.blockReason,
   });
+}
+
+/**
+ * Activates a pending_payment owner's primary business from the start form
+ * and, budget and limits permitting, queues the pre-pay demo. Never throws for
+ * an expected fault: limiter/reservation/transaction failures are reported
+ * and mapped to their status. Step order is the pre-#1368 route's, exactly.
+ */
+export async function startOnboarding(
+  sql: Sql,
+  request: OnboardingStartRequest,
+): Promise<OnboardingStartOutcome> {
+  const business = await readStartableBusiness(sql, request.authId);
+  if (!business.ok) return business.outcome;
+
+  const outerRefusal = await outerRateLimitRefusal(request.authId);
+  if (outerRefusal) return outerRefusal;
+
+  const body = await readStartBody(request.readJsonBody);
+  if (!body.ok) return body.outcome;
+
+  const gate = await evaluateDemoGate(request.authId, request.clientIp);
+  if (!gate.ok) return gate.outcome;
+
+  return runActivation(sql, business.value, body.value, gate.value);
 }
