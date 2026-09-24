@@ -9,7 +9,12 @@
 
 import Stripe from 'stripe';
 import type postgres from 'postgres';
-import { applyStripeSubscriptionStateUnderEntitlementLock } from '../../../ingress/stripe/apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  lockAccountForStripeLineage,
+  stripeStatusTarget,
+  UNRESOLVED_TRANSITION,
+} from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 import { acquireTierEntitlementLock } from '../../../../src/lib/accounts/billing-locks';
 import { isSubscriptionTier } from '../../../../src/lib/accounts/tier-config';
@@ -190,22 +195,23 @@ export async function reconcileAccount(
       await acquireTierEntitlementLock(tx, account.id);
       // Drift detection may use the earlier read, but corrective authority must
       // use a fresh provider observation inside the entitlement boundary. The
-      // bounded read occurs before the applier takes the account row lock.
+      // bounded read occurs before the account row is locked.
       const currentSubscription = await stripe.subscriptions.retrieve(
         account.stripe_subscription_id!,
         {},
         { timeout: STRIPE_READ_TIMEOUT_MS },
       );
-      return applyStripeSubscriptionStateUnderEntitlementLock(
-        tx,
-        account.id,
-        {
-          mode: 'subscription',
-          stripeCustomerId: extractStripeCustomerId(currentSubscription.customer) ?? account.stripe_customer_id ?? '',
-          stripeSubscriptionId: account.stripe_subscription_id!,
-        },
-        currentSubscription,
-      );
+      const lineage = {
+        customerId: extractStripeCustomerId(currentSubscription.customer) ?? account.stripe_customer_id ?? '',
+        subscriptionId: account.stripe_subscription_id!,
+      };
+      return await lockAccountForStripeLineage(tx, account.id, lineage)
+        ? applyStripeSubscriptionState(
+          tx,
+          account.id,
+          stripeStatusTarget(currentSubscription, lineage.customerId),
+        )
+        : UNRESOLVED_TRANSITION;
     });
     if (transition.changed) {
       logger.warn('Corrected stuck trialing row to match Stripe', {

@@ -108,7 +108,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
         payload: { fromStatus: 'active', toStatus: 'cancelled' },
       }),
     );
-    expect(sqlCalls).toHaveLength(6);
+    expect(sqlCalls).toHaveLength(8);
   });
 
   it('cancelled → cancelled is idempotent (no UPDATE fires)', async () => {
@@ -132,7 +132,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     );
     expect(updateAcct).toEqual([]);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -179,7 +179,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
-    expect(sqlCalls).toHaveLength(6);
+    expect(sqlCalls).toHaveLength(8);
   });
 
   it('ignores stale old-subscription deletes after reactivation/new checkout', async () => {

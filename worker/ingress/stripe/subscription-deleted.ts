@@ -12,7 +12,11 @@ import {
   OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
   type StripeEventContext,
 } from './shared';
-import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  lockAccountForStripeLineage,
+  stripeStatusTarget,
+} from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
@@ -109,12 +113,9 @@ export async function processSubscriptionDeleted(
 
   await sql.begin(async (tx) => {
     await acquireTierEntitlementLock(tx, acctRow.id);
-    await applyStripeSubscriptionStateUnderEntitlementLock(
-      tx,
-      acctRow.id,
-      { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
-      sub,
-    );
+    const lineage = { customerId, subscriptionId };
+    if (!(await lockAccountForStripeLineage(tx, acctRow.id, lineage))) return;
+    await applyStripeSubscriptionState(tx, acctRow.id, stripeStatusTarget(sub, customerId));
   });
 
   return HANDLED_NORMALLY;
