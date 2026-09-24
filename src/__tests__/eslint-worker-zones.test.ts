@@ -110,7 +110,18 @@ async function ruleMessages(filePath: string, ruleId: string) {
   return result.messages.filter((m) => m.ruleId === ruleId);
 }
 
-describe('#1372 — no-console is scoped to worker/ingress/**, not all of worker/**', () => {
+// The closed inventory of deliberate bare-console worker files — must match
+// the no-console zone's `ignores` in eslint.config.mjs.
+const CONSOLE_EXEMPT_FILES = [
+  'worker/index.ts',
+  'worker/config/startup-assert.ts',
+  'worker/config/startup-side-effect-guard.ts',
+  'worker/jobs/csv-ingest/failed-hook.ts',
+  'worker/jobs/publisher/failed-hook.ts',
+  'worker/jobs/zernio/ingest-failed-hook.ts',
+];
+
+describe('#1372 — no-console covers all of worker/**, minus a closed exemption list', () => {
   it('a worker/ingress handler using console.log errors', async () => {
     expect((await ruleMessages(ingressConsolePath, 'no-console')).length).toBeGreaterThan(0);
   });
@@ -119,8 +130,12 @@ describe('#1372 — no-console is scoped to worker/ingress/**, not all of worker
     expect(await ruleMessages(ingressConsoleMultiPath, 'no-console')).toHaveLength(2);
   });
 
-  it('a NON-ingress worker file using console.log does NOT error (honest scoping — deliberate boot-time/crash-net bare-console call sites live outside ingress)', async () => {
-    expect(await ruleMessages(jobsConsolePath, 'no-console')).toHaveLength(0);
+  it('a NON-ingress worker file using console.log also errors (the count cannot grow anywhere in worker/**)', async () => {
+    expect((await ruleMessages(jobsConsolePath, 'no-console')).length).toBeGreaterThan(0);
+  });
+
+  it.each(CONSOLE_EXEMPT_FILES)('the deliberate bare-console file %s stays exempt', async (file) => {
+    expect(await ruleMessages(path.join(process.cwd(), file), 'no-console')).toHaveLength(0);
   });
 
   it('a worker/ingress TEST file using console.log does NOT error (tests spy on console.* deliberately)', async () => {

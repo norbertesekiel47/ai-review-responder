@@ -263,19 +263,28 @@ const config = [
   {
     // #1372: worker/ingress/** webhook handlers logged via bare console.* —
     // bypassing the structured logger's sanitizer (string args are logged
-    // verbatim) and carrying no correlation id. Scoped to ingress, NOT all of
-    // worker/**: the rest of the worker tree still has a handful of
-    // deliberate bare-console call sites — worker/index.ts's very first
-    // boot-time assertion + worker/config/startup-*.ts (run before the
+    // verbatim) and carrying no correlation id. Covers all of worker/** so the
+    // count cannot grow anywhere in the worker. The ignores list is the closed
+    // inventory of deliberate bare-console files — worker/index.ts's very
+    // first boot-time assertion + worker/config/startup-*.ts (run before the
     // logger's own module graph can be trusted to have resolved), and the
     // three `worker/jobs/*/failed-hook.ts` crash-catch fallbacks (explicitly
     // documented "nothing in here may throw" last resorts, hardened to avoid
     // even the logger's own dependency chain) — see .claude/CLAUDE.md
-    // "worker crash-net" and the PR that added this rule for the inventory.
+    // "worker crash-net". Adding a file here is a reviewed decision.
     // Tests intentionally spy on console.* to assert log content, so they are
     // exempt like every other zone in this file.
-    files: ['worker/ingress/**/*.ts'],
-    ignores: ['**/__tests__/**', '**/*.test.ts'],
+    files: ['worker/**/*.ts'],
+    ignores: [
+      '**/__tests__/**',
+      '**/*.test.ts',
+      'worker/index.ts',
+      'worker/config/startup-assert.ts',
+      'worker/config/startup-side-effect-guard.ts',
+      'worker/jobs/csv-ingest/failed-hook.ts',
+      'worker/jobs/publisher/failed-hook.ts',
+      'worker/jobs/zernio/ingest-failed-hook.ts',
+    ],
     rules: {
       'no-console': 'error',
     },
