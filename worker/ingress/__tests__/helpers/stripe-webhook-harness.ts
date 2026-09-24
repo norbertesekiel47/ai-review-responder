@@ -210,17 +210,21 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
     // 2. Advisory lock (account-keyed tier entitlement).
     sqlReturnQueue.push([]);
-    // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8). Taken
-    //     inside applyStripeSubscriptionStateInternal, so EVERY applier path
-    //     issues it — never inverted with the entitlement lock above.
+    // 2b. lockAccountForStripeLineage: customer-keyed stripe_customer_binding
+    //     lock (D8), then the account row lock + lineage recheck. Order:
+    //     entitlement -> binding -> account row, never inverted.
     sqlReturnQueue.push([]);
-    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
+    // 3. The applier re-takes the binding lock and the row lock (both
+    //    re-entrant in this transaction) and reads the current status.
+    sqlReturnQueue.push([]);
     sqlReturnQueue.push([{
       id: TEST_ACCOUNT_ID,
       subscription_status: status,
       primary_business_id: null,
-      stripe_customer_id: TEST_CUSTOMER_ID,
-      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
     }]);
     if (status === 'active') {
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due'
@@ -250,16 +254,21 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     // 2. pg_advisory_xact_lock result. Provider state is fetched after this
     // queue item and before the applier's canonical row lock below.
     sqlReturnQueue.push([]);
-    // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8), taken
-    //     inside applyStripeSubscriptionStateInternal.
+    // 2b. lockAccountForStripeLineage: customer-keyed stripe_customer_binding
+    //     lock (D8), then the account row lock + lineage recheck. Order:
+    //     entitlement -> binding -> account row, never inverted.
     sqlReturnQueue.push([]);
-    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
+    // 3. The applier re-takes the binding lock and the row lock (both
+    //    re-entrant in this transaction) and reads the current status.
+    sqlReturnQueue.push([]);
     sqlReturnQueue.push([{
       id: TEST_ACCOUNT_ID,
       subscription_status: status,
       primary_business_id: null,
-      stripe_customer_id: TEST_CUSTOMER_ID,
-      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
     }]);
     if (status === 'past_due') {
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='active' …
@@ -295,16 +304,21 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     if (subId === TEST_SUBSCRIPTION_ID) {
       // 2. Advisory lock pg_advisory_xact_lock (account-keyed tier entitlement)
       sqlReturnQueue.push([]);
-      // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8), taken
-      //     inside applyStripeSubscriptionStateInternal.
+      // 2b. lockAccountForStripeLineage: customer-keyed stripe_customer_binding
+      //     lock (D8), then the account row lock + lineage recheck. Order:
+      //     entitlement -> binding -> account row, never inverted.
       sqlReturnQueue.push([]);
-      // 3. Applier's canonical account row lock + lineage recheck.
+      sqlReturnQueue.push([{
+        stripe_customer_id: TEST_CUSTOMER_ID,
+        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+      }]);
+      // 3. The applier re-takes the binding lock and the row lock (both
+      //    re-entrant in this transaction) and reads the current status.
+      sqlReturnQueue.push([]);
       sqlReturnQueue.push([{
         id: TEST_ACCOUNT_ID,
         subscription_status: status,
         primary_business_id: null,
-        stripe_customer_id: TEST_CUSTOMER_ID,
-        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
       }]);
       if (status !== 'cancelled') {
         const r1: any = []; r1.count = 1;
@@ -378,9 +392,9 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       // 7. Canonical lease + active-offboarding projection after the row lock.
       sqlReturnQueue.push([checkoutAccount]);
       // 7b. Applier's customer-keyed binding lock (D8), taken inside
-      //     applyStripeSubscriptionStateInternal before it locks the row.
+      //     applyStripeSubscriptionState before it re-locks the row.
       sqlReturnQueue.push([]);
-      // 8. Applier resolveAccount (checkout mode, FOR UPDATE)
+      // 8. Applier's account row read (FOR UPDATE, re-entrant)
       sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
       // 9. Applier status write. Business mirror is explicitly deferred.
       const updateAcctR: any = []; updateAcctR.count = 1;

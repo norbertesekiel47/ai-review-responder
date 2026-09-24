@@ -306,7 +306,14 @@ export interface TenantScopeAllowlistEntry {
 //     by its own globally-unique id). Same category, same reasoning as the
 //     existing `provider-disposition.ts` entry two above.
 //     381 -> 383.
-export const ALLOWLIST_BASELINE = 383;
+//   - fix/1355-stripe-applier-contract: -4. The Stripe status applier no
+//     longer resolves the account itself (two resolve queries: by
+//     client_reference_id, by customer + subscription) and its locked read
+//     no longer carries the lineage columns; callers resolve and hand it an
+//     account id. Its remaining `accounts`/`businesses` reads and the new
+//     `lockAccountForStripeLineage` read are keyed on that account id and are
+//     not findings, so all four entries went unused. 383 -> 379.
+export const ALLOWLIST_BASELINE = 379;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2665,34 +2672,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH account_candidates AS ( SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 0 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id = ${subscriptionId} UNION ALL SELECT a.id, a.stripe_subscription_id, ao.stripe_subscription_id AS active_offboarding_subscription_id, 1 AS resolution_priority FROM accounts a JOIN account_offboardings ao ON ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL WHERE a.stripe_customer_id = ${customerId} UNION ALL SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 2 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id IS DISTINCT FROM ${subscriptionId} AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) ) SELECT id, stripe_subscription_id, active_offboarding_subscription_id FROM account_candidates ORDER BY resolution_priority ASC, id ASC LIMIT 1",
     category: 'provider-ingress',
     reason: "Stripe webhook resolves account and active-offboarding subscription lineage from signed provider identifiers without a row lock before tenant ids are available.",
-  },
-  {
-    file: "worker/ingress/stripe/apply-subscription-state.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT id FROM accounts WHERE id = ${ref.accountId}::uuid",
-    category: 'provider-ingress',
-    reason: "Stripe trial applier resolves the account by signed checkout client_reference_id (account id) before projecting Stripe subscription status. No tenant id is available except the one being resolved.",
-  },
-  {
-    file: "worker/ingress/stripe/apply-subscription-state.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT id FROM accounts WHERE stripe_customer_id = ${ref.stripeCustomerId} AND stripe_subscription_id = ${ref.stripeSubscriptionId}",
-    category: 'provider-ingress',
-    reason: "Stripe status applier resolves the account from signed provider customer and subscription identifiers without taking the account row before entitlement.",
-  },
-  {
-    file: "worker/ingress/stripe/apply-subscription-state.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${accountId}::uuid FOR UPDATE",
-    category: 'provider-ingress',
-    reason: "After entitlement is held, the Stripe status applier locks only the previously resolved account and rechecks provider lineage from the locked row.",
-  },
-  {
-    file: "worker/ingress/stripe/apply-subscription-state.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${accountId}::uuid FOR UPDATE",
-    category: 'provider-ingress',
-    reason: "The locked account query reads only that account's primary business id for best-effort post-status backfill resume.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",

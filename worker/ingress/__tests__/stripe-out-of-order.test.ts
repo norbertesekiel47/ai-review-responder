@@ -45,7 +45,8 @@ vi.mock('../../../src/lib/payments/stripe-client', () => ({
 }));
 vi.mock('../stripe/apply-subscription-state', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../stripe/apply-subscription-state')>()),
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+  lockAccountForStripeLineage: vi.fn().mockResolvedValue(true),
 }));
 // The dispatcher closes every inbound_events row through the two marker
 // helpers, so a factory naming only claimInboundEvent throws

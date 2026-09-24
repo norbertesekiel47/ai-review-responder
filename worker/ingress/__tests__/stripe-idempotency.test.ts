@@ -140,6 +140,6 @@ describe('Webhook idempotency and error handling', () => {
 
     expect(status).toHaveBeenCalledWith(200);
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 });
