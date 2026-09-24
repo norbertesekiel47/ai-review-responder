@@ -54,6 +54,7 @@ vi.mock('@sentry/node', () => ({
 }));
 
 import { processSubscriptionDeleted } from '../subscription-deleted';
+import { lockAccountForStripeLineage } from '../apply-subscription-state';
 import {
   AccountNotProvisionedYetError,
   OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
@@ -96,7 +97,14 @@ describe('subscription.deleted — cancel during trial', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: SUB_ID, status: 'cancelled' });
+    // The exact normalized target, and the lineage the locked row was rechecked
+    // against — together what the old two-mode `ref` pinned (#1355).
+    expect(target).toEqual({ status: 'cancelled', customerId: CUSTOMER_ID, subscriptionId: SUB_ID, trialEnd: null });
+    expect(vi.mocked(lockAccountForStripeLineage)).toHaveBeenCalledWith(
+      expect.anything(),
+      lockedAccountId,
+      { customerId: CUSTOMER_ID, subscriptionId: SUB_ID },
+    );
   });
 
   it('non-trial cancel (active → cancelled) routes through the applier, not inline SQL', async () => {

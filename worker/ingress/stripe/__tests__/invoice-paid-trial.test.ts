@@ -73,6 +73,7 @@ vi.mock('../shared', async (importOriginal) => {
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
 import { processInvoicePaid } from '../invoice-paid';
+import { lockAccountForStripeLineage } from '../apply-subscription-state';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
@@ -118,7 +119,14 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: SUB_ID, status: 'active' });
+    // The exact normalized target, and the lineage the locked row was rechecked
+    // against — together what the old two-mode `ref` pinned (#1355).
+    expect(target).toEqual({ status: 'active', customerId: CUSTOMER_ID, subscriptionId: SUB_ID, trialEnd: null });
+    expect(vi.mocked(lockAccountForStripeLineage)).toHaveBeenCalledWith(
+      expect.anything(),
+      lockedAccountId,
+      { customerId: CUSTOMER_ID, subscriptionId: SUB_ID },
+    );
   });
 
   it('trialing account whose Stripe sub is STILL trialing ($0 trial-start invoice) → no early conversion (applier is a no-op)', async () => {
@@ -234,7 +242,14 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
 
     const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: 'sub_matched', status: 'active' });
+    // The exact normalized target, and the lineage the locked row was rechecked
+    // against — together what the old two-mode `ref` pinned (#1355).
+    expect(target).toEqual({ status: 'active', customerId: CUSTOMER_ID, subscriptionId: 'sub_matched', trialEnd: null });
+    expect(vi.mocked(lockAccountForStripeLineage)).toHaveBeenCalledWith(
+      expect.anything(),
+      lockedAccountId,
+      { customerId: CUSTOMER_ID, subscriptionId: 'sub_matched' },
+    );
     expect(target.subscriptionId).not.toBe('');
   });
 

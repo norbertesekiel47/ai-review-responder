@@ -65,6 +65,7 @@ vi.mock('../shared', async (importOriginal) => {
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
 import { processInvoicePaymentFailed } from '../invoice-payment-failed';
+import { lockAccountForStripeLineage } from '../apply-subscription-state';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
@@ -97,7 +98,14 @@ describe('invoice.payment_failed — trial card fail', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: SUB_ID, status: 'past_due' });
+    // The exact normalized target, and the lineage the locked row was rechecked
+    // against — together what the old two-mode `ref` pinned (#1355).
+    expect(target).toEqual({ status: 'past_due', customerId: CUSTOMER_ID, subscriptionId: SUB_ID, trialEnd: null });
+    expect(vi.mocked(lockAccountForStripeLineage)).toHaveBeenCalledWith(
+      expect.anything(),
+      lockedAccountId,
+      { customerId: CUSTOMER_ID, subscriptionId: SUB_ID },
+    );
   });
 
   it('active → past_due routes through the applier AND still emits trial_payment_failed for a recent convert', async () => {
