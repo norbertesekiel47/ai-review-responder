@@ -58,6 +58,7 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `flagged/route.ts` | GET the open flagged-response queue (delegates to `listOpenFlaggedResponses`) + POST the disposition transaction (which stays in the route). |
 | `offboardings/route.ts` | GET the offboarding lifecycle list behind `requireAdminWithAal2`; delegates to `getAdminOffboardings`. Its page gate matches (`requireAdminPage(sql, {aal2: true})`). |
 | `offboardings/[offboardingId]/route.ts` | POST a provider disposition against one offboarding. |
+| `offboardings/[offboardingId]/retry-purge/route.ts` | **(#1411)** POST, AAL2-gated, no body: resets a `status='failed'`/`failed_step='purge'` row to `purge_scheduled` and re-enqueues the purge job through the outbox in one transaction. Route orchestrates only; delegates to `retryAccountOffboardingPurge` (invariant #15). Maps `PurgeRetryError` to 404/409, else 500. |
 | `jobs/route.ts` | GET queue health; delegates to `getAdminJobsData` + `fetchQueueHealth`. |
 | `nav-counts/route.ts` | Thin admin-gated GET for sidebar badge counts (flagged open, failed jobs); delegates to `getAdminNavCounts`. Consumed by the separate Admin app's sidebar and Overview; retained after the legacy shell retirement. |
 | `notifications/route.ts` | GET delivery logs. |
