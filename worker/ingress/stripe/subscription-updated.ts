@@ -29,7 +29,6 @@ import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { enqueueStripeSubscriptionMirrorSync } from '../../../src/lib/shared/job-outbox-helpers';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import {
-  LOG_PREFIX,
   extractCustomerId,
   AccountNotProvisionedYetError,
   warnStripeSubscriptionEventAckedForAge,
@@ -584,15 +583,13 @@ export async function processSubscriptionUpdated(
 ): Promise<SubscriptionUpdatedOutcome> {
   const subscriptionId = eventSnapshot.id;
   if (!subscriptionId) {
-    console.warn(
-      `${LOG_PREFIX} customer.subscription.updated missing subscription id — skipping tier update`,
-    );
+    logger.warn('customer.subscription.updated missing subscription id — skipping tier update');
     return ignoredOutcome('', 'missing_subscription_id');
   }
 
   const customerId = extractCustomerId(eventSnapshot.customer);
   if (!customerId) {
-    console.warn(`${LOG_PREFIX} customer.subscription.updated missing customer — skipping`);
+    logger.warn('customer.subscription.updated missing customer — skipping');
     return ignoredOutcome(subscriptionId, 'missing_customer_id');
   }
 
@@ -604,8 +601,8 @@ export async function processSubscriptionUpdated(
     // the account is not late, it is absent, and three more days of retries buy
     // nothing; ack instead and leave the operator a replayable row + a warning.
     if (outOfOrderRetryWindowOpen(eventContext.created)) {
-      console.warn(
-        `${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — signaling retry`,
+      logger.warn(
+        `customer.subscription.updated no account found for customer=${customerId} — signaling retry`,
       );
       throw new AccountNotProvisionedYetError(customerId);
     }
@@ -630,8 +627,8 @@ export async function processSubscriptionUpdated(
   }
   if (reference.stripe_subscription_id !== subscriptionId) {
     if (reference.active_offboarding_subscription_id === subscriptionId) {
-      console.log(
-        `${LOG_PREFIX} customer.subscription.updated subscription=${subscriptionId} matches active offboarding snapshot for account ${reference.id} — skipping live projection`,
+      logger.log(
+        `customer.subscription.updated subscription=${subscriptionId} matches active offboarding snapshot for account ${reference.id} — skipping live projection`,
       );
       return ignoredOutcome(
         subscriptionId,
@@ -639,8 +636,8 @@ export async function processSubscriptionUpdated(
         reference.id,
       );
     }
-    console.warn(
-      `${LOG_PREFIX} customer.subscription.updated subscription=${subscriptionId} is stale for account ${reference.id} — skipping`,
+    logger.warn(
+      `customer.subscription.updated subscription=${subscriptionId} is stale for account ${reference.id} — skipping`,
     );
     return ignoredOutcome(subscriptionId, 'stale_subscription', reference.id);
   }

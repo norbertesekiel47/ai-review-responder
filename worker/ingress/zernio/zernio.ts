@@ -54,10 +54,14 @@ interface ZernioWebhookBody {
  * The CTE below disconnects all matching active rows AND inserts one outbox
  * row per affected business in a single statement — atomic.
  */
-async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void> {
+async function processAccountDisconnected(
+  body: ZernioWebhookBody,
+  eventId: string,
+): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, eventId);
   const accountId = body.account?.id;
   if (!accountId || typeof accountId !== 'string') {
-    console.warn(`${LOG_PREFIX} account.disconnected missing account.id — skipping`);
+    logger.warn('account.disconnected missing account.id — skipping');
     return;
   }
 
@@ -89,7 +93,7 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
     `;
 
     if ((teardownReconciled.count ?? 0) > 0) {
-      console.log(`${LOG_PREFIX} account.disconnected reconciled active teardown for account=${accountId}`);
+      logger.log(`account.disconnected reconciled active teardown for account=${accountId}`);
       return;
     }
 
@@ -106,8 +110,8 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
     `;
 
     if (activeTeardown) {
-      console.log(
-        `${LOG_PREFIX} account.disconnected matched active multi-account teardown for account=${accountId} — skipping connection-lost notification`,
+      logger.log(
+        `account.disconnected matched active multi-account teardown for account=${accountId} — skipping connection-lost notification`,
       );
       return;
     }
@@ -143,7 +147,7 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
     `;
   });
 
-  console.log(`${LOG_PREFIX} account.disconnected processed for account=${accountId}`);
+  logger.log(`account.disconnected processed for account=${accountId}`);
 }
 
 /**
@@ -162,19 +166,20 @@ async function processReviewEvent(
   eventId: string,
   body: ZernioWebhookBody,
 ): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, eventId);
   let parsed;
   try {
     parsed = parseZernioReviewWebhook(body);
   } catch (err) {
     if (err instanceof ZernioReviewWebhookParseError) {
-      console.warn(`${LOG_PREFIX} ${eventType} unparseable: ${err.message}`);
+      logger.warn(`${eventType} unparseable: ${err.message}`);
       return;  // 200 OK — Zernio shouldn't retry malformed payloads
     }
     throw err;
   }
 
-  console.log(
-    `${LOG_PREFIX} ${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
+  logger.log(
+    `${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
       (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ' (account-wide fan-out)'),
   );
 
@@ -218,7 +223,7 @@ async function processReviewEvent(
   `;
   const inserted = fanoutResult.count ?? 0;
   if (inserted > 0) {
-    console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
+    logger.log(`${eventType} fan-out enqueued ${inserted} outbox row(s)`);
     return;
   }
 
@@ -235,12 +240,10 @@ async function processReviewEvent(
     // connection with 0 inserts can only mean the dedup fired for it, so
     // that case is never mislabeled as an archived skip.
     //
-    // These lines emit through createWorkerLogger (one JSON object per line)
-    // — unlike the rest of this console-based ingress — because
-    // SKIP_REASON_ARCHIVED_LOCATION's contract (worker-types.ts) is a
-    // STRUCTURED queryable token across every archived-location gate, and
+    // The active/archived branches below pass a `data` object alongside the
+    // message — SKIP_REASON_ARCHIVED_LOCATION's contract (worker-types.ts) is
+    // a STRUCTURED queryable token across every archived-location gate, and
     // this is the highest-volume gate in the spend-leak chain.
-    const probeLogger = createWorkerLogger(LOG_PREFIX, eventId);
     const [probe] = await sql<{ archived_match: boolean; active_match: boolean }[]>`
       SELECT
         EXISTS (
@@ -266,28 +269,28 @@ async function processReviewEvent(
       // An active connection matched but inserted nothing → ON CONFLICT
       // dedup against an in-flight outbox row for that business. NOT an
       // archived skip even when an archived sibling also matched.
-      probeLogger.log(
+      logger.log(
         `${eventType} fan-out inserted 0 rows; in-flight dedup for active connection(s) account=${parsed.accountId}` +
           (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ''),
         { reason: 'inflight_dedup', archived_sibling: probe.archived_match },
       );
     } else if (probe?.archived_match) {
-      probeLogger.log(
+      logger.log(
         `${eventType} fan-out inserted 0 rows; all matching connection(s) archived for account=${parsed.accountId}` +
           (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
           ` — skipped`,
         { reason: SKIP_REASON_ARCHIVED_LOCATION },
       );
     } else {
-      console.warn(
-        `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
+      logger.warn(
+        `${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
           (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
           ` — webhook ignored (no business has connected this account/location)`,
       );
     }
   } catch (probeErr) {
-    console.warn(
-      `${LOG_PREFIX} ${eventType} fan-out inserted 0 rows for account=${parsed.accountId}; ` +
+    logger.warn(
+      `${eventType} fan-out inserted 0 rows for account=${parsed.accountId}; ` +
         `archived-vs-unconnected probe failed (event already processed): ${probeErr instanceof Error ? probeErr.message : probeErr}`,
     );
   }
@@ -297,6 +300,10 @@ export async function handleZernioWebhook(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // No correlation id until the event id is extracted (step 4) — every log
+  // call before then uses this bare prefix logger.
+  const preClaimLogger = createWorkerLogger(LOG_PREFIX);
+
   // 1. Flag check.
   if (!zernioPublishingEnabled()) {
     reply.status(503).send({ error: 'feature_disabled' });
@@ -310,7 +317,7 @@ export async function handleZernioWebhook(
 
   const webhookSecret = getWorkerConfig().ZERNIO_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error(`${LOG_PREFIX} ZERNIO_WEBHOOK_SECRET is not set — rejecting request`);
+    preClaimLogger.error('ZERNIO_WEBHOOK_SECRET is not set — rejecting request');
     reply.status(401).send({ error: 'webhook_secret_not_configured' });
     return;
   }
@@ -328,13 +335,13 @@ export async function handleZernioWebhook(
     ? signature.slice('sha256='.length)
     : signature;
   if (!strippedSignature || !HEX_64.test(strippedSignature)) {
-    console.warn(`${LOG_PREFIX} Missing or malformed x-zernio-signature header`);
+    preClaimLogger.warn('Missing or malformed x-zernio-signature header');
     reply.status(401).send({ error: 'invalid_signature_format' });
     return;
   }
 
   if (!verifyZernioSignature(rawBody, strippedSignature, webhookSecret)) {
-    console.warn(`${LOG_PREFIX} Signature verification failed`);
+    preClaimLogger.warn('Signature verification failed');
     reply.status(401).send({ error: 'invalid_signature' });
     return;
   }
@@ -344,7 +351,7 @@ export async function handleZernioWebhook(
   try {
     body = JSON.parse(rawBody) as ZernioWebhookBody;
   } catch (err) {
-    console.warn(`${LOG_PREFIX} Malformed JSON body: ${err instanceof Error ? err.message : err}`);
+    preClaimLogger.warn(`Malformed JSON body: ${err instanceof Error ? err.message : err}`);
     reply.status(400).send({ error: 'malformed_json' });
     return;
   }
@@ -361,17 +368,18 @@ export async function handleZernioWebhook(
     (typeof body.id === 'string' ? body.id : undefined);
 
   if (!eventId) {
-    console.warn(`${LOG_PREFIX} Missing x-zernio-event-id header and body.id`);
+    preClaimLogger.warn('Missing x-zernio-event-id header and body.id');
     reply.status(400).send({ error: 'missing_event_id' });
     return;
   }
 
   const eventType = typeof body.event === 'string' ? body.event : 'unknown';
+  const logger = createWorkerLogger(LOG_PREFIX, eventId);
 
   // 5. Dedup. Reclaim semantics handle worker crashes + transient retries.
   const claim = await claimInboundEvent('zernio', eventId, eventType, body);
   if (claim === 'duplicate') {
-    console.log(`${LOG_PREFIX} Duplicate event ${eventId} — skipping`);
+    logger.log(`Duplicate event ${eventId} — skipping`);
     reply.status(200).send({ received: true, duplicate: true });
     return;
   }
@@ -380,15 +388,15 @@ export async function handleZernioWebhook(
   try {
     switch (eventType) {
       case 'account.disconnected':
-        await processAccountDisconnected(body);
+        await processAccountDisconnected(body, eventId);
         break;
 
       case 'account.connected':
         // Defensive log only — the connect flow is owner-initiated and we
         // already track state in zernio_connections. This event is purely a
         // drift-detection signal during pilot.
-        console.log(
-          `${LOG_PREFIX} account.connected: account=${body.account?.id ?? '<unknown>'} (informational)`,
+        logger.log(
+          `account.connected: account=${body.account?.id ?? '<unknown>'} (informational)`,
         );
         break;
 
@@ -398,11 +406,11 @@ export async function handleZernioWebhook(
         break;
 
       case 'webhook.test':
-        console.log(`${LOG_PREFIX} webhook.test received (event=${eventId})`);
+        logger.log(`webhook.test received (event=${eventId})`);
         break;
 
       default:
-        console.log(`${LOG_PREFIX} Unhandled event type: ${eventType} — ignoring`);
+        logger.log(`Unhandled event type: ${eventType} — ignoring`);
         break;
     }
 
@@ -415,8 +423,8 @@ export async function handleZernioWebhook(
     `;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `${LOG_PREFIX} Failed to process event ${eventId} (${eventType}): ${message}`,
+    logger.error(
+      `Failed to process event ${eventId} (${eventType}): ${message}`,
     );
     await sql`
       UPDATE inbound_events

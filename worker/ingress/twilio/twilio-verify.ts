@@ -3,8 +3,10 @@
 // validator. No DB, no external calls.
 
 import twilio from 'twilio';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ingress/twilio]';
+const logger = createWorkerLogger(LOG_PREFIX);
 
 export function parseTwilioBody(rawBody: string): Record<string, string> {
   return Object.fromEntries(new URLSearchParams(rawBody).entries());
@@ -28,10 +30,10 @@ export interface VerifyParams {
 export function verifyTwilioSignature(v: VerifyParams): boolean {
   if (!v.authToken) {
     if (process.env.MOCK_EXTERNAL_APIS === 'true') {
-      console.warn(`${LOG_PREFIX} TWILIO_AUTH_TOKEN not set, allowing in mock mode`);
+      logger.warn('TWILIO_AUTH_TOKEN not set, allowing in mock mode');
       return true;
     }
-    console.error(`${LOG_PREFIX} TWILIO_AUTH_TOKEN not set — rejecting`);
+    logger.error('TWILIO_AUTH_TOKEN not set — rejecting');
     return false;
   }
   if (!v.signatureHeader) return false;
