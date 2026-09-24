@@ -228,9 +228,10 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   // predicate identically on purpose; divergent spellings of one rule rot.
   // #1373 shifted both lines (invalid_body migrated onto invalidBodyResponse()
   // + a new import): business 375 → 373, start 126 → 127. Same literal,
-  // unchanged text.
+  // unchanged text. #1368 moved the start site verbatim into
+  // src/lib/onboarding/start.ts (route.ts:127 → start.ts:142).
   'src/app/api/onboarding/business/route.ts:373',
-  'src/app/api/onboarding/start/route.ts:127',
+  'src/lib/onboarding/start.ts:142',
   // Line moved 142 → 149 by #773 (Promise.all fan-out sequenced), then
   // 149 → 180 by #1106 (new #1106 header comment + import + orphan-cost
   // query added above it); same SQL predicate, same trailing `-- enum:`
