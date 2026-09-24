@@ -540,8 +540,10 @@ describeWithDb(
     expect(definition.get('solicitation_asks_batch_tenant_fk')).toContain(
       'FOREIGN KEY (batch_id, account_id, business_id) REFERENCES solicitation_batches(id, account_id, business_id) ON DELETE CASCADE',
     );
+    // 088 shipped ON DELETE CASCADE; migration 126 (#1350, ADR 0033) re-points
+    // it so a contact delete leaves a remnant ask. The catalogue is read at head.
     expect(definition.get('solicitation_asks_contact_business_fk')).toContain(
-      'FOREIGN KEY (contact_id, business_id) REFERENCES solicitation_contacts(id, business_id) ON DELETE CASCADE',
+      'FOREIGN KEY (contact_id, business_id) REFERENCES solicitation_contacts(id, business_id) ON DELETE SET NULL (contact_id)',
     );
     expect(definition.get('solicitation_asks_agent_run_tenant_fkey')).toContain(
       'FOREIGN KEY (account_id, business_id, agent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (agent_run_id)',

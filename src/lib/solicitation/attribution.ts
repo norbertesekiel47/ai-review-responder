@@ -211,6 +211,9 @@ async function loadCandidates(
   tx: TransactionSql,
   input: { reviewId: string; businessId: string; accountId: string },
 ): Promise<AttributionCandidate[]> {
+  // The INNER JOIN to solicitation_contacts drops Outreach remnants
+  // (contact_id NULL, ADR 0033 / #1350): an erased person has no name to match
+  // and is not attributed back to (ADR 0033 decision 4, accepted loss).
   const rows = await tx<CandidateRow[]>`
     WITH anchor AS (
       SELECT ${reviewTimeAnchor(tx as unknown as Sql, 'r.')} AS at
