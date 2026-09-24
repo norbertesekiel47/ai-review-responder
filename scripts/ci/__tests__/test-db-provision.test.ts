@@ -5,7 +5,16 @@
 // test-db-lock.integration.test.ts.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -129,6 +138,38 @@ describe('provisioning driver generator (--print-driver)', () => {
       .digest('hex');
     expect(computeProvisionHash([bootstrap, ...contents])).toBe(nodeHash);
     expect(driver).toContain(`'${nodeHash}'`);
+  });
+
+  it('CRLF working copies hash the same as LF, in both the script and computeProvisionHash (#1483)', () => {
+    expect(computeProvisionHash(['a\r\nb\r\n', 'c\r\n'])).toBe(computeProvisionHash(['a\nb\n', 'c\n']));
+
+    // Re-run the real script against a copy of the chain with CRLF line
+    // endings: its marker hash must equal the LF tree's.
+    const tmp = mkdtempSync(join(tmpdir(), 'provision-crlf-'));
+    try {
+      mkdirSync(join(tmp, 'scripts/ci'), { recursive: true });
+      mkdirSync(join(tmp, 'supabase/migrations'), { recursive: true });
+      copyFileSync(join(ROOT, 'scripts/test-db-setup.sh'), join(tmp, 'scripts/test-db-setup.sh'));
+      const toCrlf = (text: string) => text.replace(/\r?\n/g, '\r\n');
+      writeFileSync(
+        join(tmp, 'scripts/ci/test-db-bootstrap.sql'),
+        toCrlf(readFileSync(join(ROOT, 'scripts/ci/test-db-bootstrap.sql'), 'utf8')),
+      );
+      for (const file of migrationFiles) {
+        writeFileSync(
+          join(tmp, 'supabase/migrations', file),
+          toCrlf(readFileSync(join(ROOT, 'supabase/migrations', file), 'utf8')),
+        );
+      }
+      const result = spawnSync('bash', ['scripts/test-db-setup.sh', '--print-driver'], {
+        cwd: tmp,
+        encoding: 'utf8',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.match(/VALUES \('([0-9a-f]{64})'/)?.[1]).toBe(expectedProvisionHash());
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
