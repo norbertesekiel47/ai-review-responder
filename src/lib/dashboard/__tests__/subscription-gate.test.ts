@@ -253,13 +253,24 @@ describe('readGatedDashboard — per-location scope', () => {
     expect(mockReport).toHaveBeenCalledWith('api/dashboard', boom, { accountId: ACCOUNT, locationId: LOC });
   });
 
-  it('direct render failure ESCAPES the catch (pre-#1368 behavior, #1475)', async () => {
+  it('direct render failure is caught: reported, JSON 500 (#1475)', async () => {
     const boom = new Error('boom');
     mockGetActive.mockRejectedValue(boom);
     const { sql } = fakeSql([[locationRow()]]);
-    await expect(readGatedDashboard(sql, {
+    const r = await readGatedDashboard(sql, {
       accountId: ACCOUNT, window, scope: { mode: 'location', locationId: LOC },
-    })).rejects.toBe(boom);
+    });
+    expect(r).toEqual({ status: 500, body: { error: 'Failed to fetch dashboard data' } });
+    expect(mockReport).toHaveBeenCalledWith('api/dashboard', boom, { accountId: ACCOUNT, locationId: LOC });
+  });
+
+  it('direct render BusinessNotFoundError maps to 404 (#1475)', async () => {
+    mockGetActive.mockRejectedValue(new BusinessNotFoundError(LOC));
+    const { sql } = fakeSql([[locationRow()]]);
+    const r = await readGatedDashboard(sql, {
+      accountId: ACCOUNT, window, scope: { mode: 'location', locationId: LOC },
+    });
+    expect(r).toEqual({ status: 404, body: { error: 'Business not found' } });
     expect(mockReport).not.toHaveBeenCalled();
   });
 });

@@ -384,12 +384,10 @@ async function readPerLocation(
       return fallback ?? fail('No active location available', 404);
     }
 
-    // NOT awaited, byte-for-byte with the pre-#1368 route: a rejection from
-    // the direct render (payload read, cancelled-clock read) escapes this
-    // catch and reaches Next's onRequestError as a thrown 500, while the
-    // awaited preflight and fallback reads above are caught. Tracked as #1475;
-    // changing it is a behavior change, not part of the extraction.
-    return renderPerLocation(sql, subRow, locationId, accountId, window);
+    // `return await`, not `return` (#1475): a bare returned promise rejects
+    // outside this try, so a failed direct render (payload read,
+    // cancelled-clock read) skipped the 404 mapping and the JSON 500 below.
+    return await renderPerLocation(sql, subRow, locationId, accountId, window);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
       return fail('Business not found', 404);
