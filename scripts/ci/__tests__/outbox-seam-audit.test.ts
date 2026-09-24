@@ -141,6 +141,63 @@ describe('outbox-seam-audit / findOutboxInserts', () => {
     );
     expect(site?.topic).toBeNull();
   });
+
+  // #613: the CALL form of `.unsafe()` — `sql.unsafe(query, params)` /
+  // `tx.unsafe(query, values)` — was invisible because the scan only visited
+  // TaggedTemplateExpression nodes. These pin the two live shapes
+  // (`admin/notifications-service.ts` and `admin/business-detail/update.ts`)
+  // against a fixture that actually writes job_outbox, since neither live
+  // site does.
+  describe('.unsafe() call form (#613)', () => {
+    it('reads an INSERT passed inline as the first argument', () => {
+      const [site] = findOutboxInserts(
+        "await tx.unsafe(`INSERT INTO job_outbox (id, topic) VALUES (${id}, ${QUEUE_NAMES.SEND_NOTIFICATION})`);",
+      );
+      expect(site).toMatchObject({
+        shape: 'single-row',
+        topic: { kind: 'queue-names', key: 'SEND_NOTIFICATION' },
+      });
+    });
+
+    it('reads an INSERT built into a local const and passed by name — the shape every live call site uses', () => {
+      const source = [
+        'const query = `INSERT INTO job_outbox (id, topic) VALUES (${id}, ${QUEUE_NAMES.PUBLISH_RESPONSE})`;',
+        'await sql.unsafe(query, values);',
+      ].join('\n');
+      const [site] = findOutboxInserts(source);
+      expect(site).toMatchObject({
+        shape: 'single-row',
+        topic: { kind: 'queue-names', key: 'PUBLISH_RESPONSE' },
+      });
+    });
+
+    it('does not resolve an ambiguous binding — two const declarations sharing the argument name', () => {
+      const source = [
+        'if (a) { const query = `INSERT INTO job_outbox (id, topic) VALUES (${id}, ${QUEUE_NAMES.SEND_NOTIFICATION})`; }',
+        'if (b) { const query = `SELECT 1`; }',
+        'await sql.unsafe(query, values);',
+      ].join('\n');
+      expect(findOutboxInserts(source)).toEqual([]);
+    });
+
+    it('does not resolve a query built by a function call — genuinely unreadable, not guessed at', () => {
+      expect(findOutboxInserts('await sql.unsafe(buildQuery(), values);')).toEqual([]);
+    });
+
+    it('ignores .unsafe() on a name outside SQL_TAG_NAMES', () => {
+      expect(
+        findOutboxInserts("await notSql.unsafe('INSERT INTO job_outbox (id, topic) VALUES (1, 2)');"),
+      ).toEqual([]);
+    });
+
+    it('ignores a plain .unsafe() call that never mentions job_outbox — the notifications-service.ts shape', () => {
+      const source = [
+        "const dataQuery = `SELECT nd.id FROM notification_deliveries nd WHERE nd.channel = $1`;",
+        'await sql.unsafe(dataQuery, queryParams);',
+      ].join('\n');
+      expect(findOutboxInserts(source)).toEqual([]);
+    });
+  });
 });
 
 describe('outbox-seam-audit / deriveHelperTopicKeys', () => {
@@ -164,6 +221,52 @@ describe('outbox-seam-audit / deriveHelperTopicKeys', () => {
   // legalize every raw INSERT, so main() treats it as fatal.
   it('returns empty for a module with no enqueue helpers', () => {
     expect(deriveHelperTopicKeys('export const x = 1;').size).toBe(0);
+  });
+
+  // #613: an arrow-const helper (`export const enqueueX = (tx) => {...}`)
+  // dropped its topic from coverage before this — only `export function
+  // enqueue*` was recognised — which is fail-open: a raw bypass site for that
+  // topic elsewhere in the tree would have gone unflagged (evaluateFindings
+  // trusts helperKeys completely; a topic missing from it reads as "no
+  // helper", the same verdict a genuinely unhelped topic gets).
+  it('derives coverage from an exported arrow-const enqueue helper, not only a function declaration', () => {
+    const source = `
+      export const enqueueSendNotification = async (tx: TxClient): Promise<void> => {
+        await tx\`INSERT INTO job_outbox (id, topic) VALUES (\${id}, \${QUEUE_NAMES.SEND_NOTIFICATION})\`;
+      };
+    `;
+    expect([...deriveHelperTopicKeys(source)]).toEqual(['SEND_NOTIFICATION']);
+  });
+
+  it('does not count a non-exported arrow-const, matching the function-declaration rule', () => {
+    const source = `
+      const enqueueSendNotification = async (tx: TxClient): Promise<void> => {
+        await tx\`INSERT INTO job_outbox (id, topic) VALUES (\${id}, \${QUEUE_NAMES.SEND_NOTIFICATION})\`;
+      };
+    `;
+    expect(deriveHelperTopicKeys(source).size).toBe(0);
+  });
+
+  // #613: a helper that spells its topic as a raw literal instead of
+  // `QUEUE_NAMES.X` (legal — findOutboxInserts reads it fine) was silently
+  // dropped from coverage too: the old loop only handled the `queue-names`
+  // topic kind.
+  it('resolves a literal-spelled topic in a helper back through QUEUE_NAMES', () => {
+    const source = `
+      export async function enqueueSendNotification(tx: TxClient): Promise<void> {
+        await tx\`INSERT INTO job_outbox (id, topic) VALUES (\${id}, 'send_notification')\`;
+      }
+    `;
+    expect([...deriveHelperTopicKeys(source)]).toEqual(['SEND_NOTIFICATION']);
+  });
+
+  it('ignores a literal topic that names no QUEUE_NAMES value', () => {
+    const source = `
+      export async function enqueueLegacyAlias(tx: TxClient): Promise<void> {
+        await tx\`INSERT INTO job_outbox (id, topic) VALUES (\${id}, 'notify_owner_reconnect')\`;
+      }
+    `;
+    expect(deriveHelperTopicKeys(source).size).toBe(0);
   });
 });
 
@@ -253,5 +356,37 @@ describe('outbox-seam-audit / evaluateFindings', () => {
         helperKeys,
       ),
     ).toEqual([]);
+  });
+});
+
+// #613 end-to-end: a bypass that BOTH fixes were needed to catch — the
+// helper is an arrow-const (item 2), and the bypass site writes through the
+// `.unsafe()` call form (item 1). Before this change, findOutboxInserts saw
+// no site at all for the bypass (call form was invisible) AND
+// deriveHelperTopicKeys saw no coverage for the topic (arrow-const was
+// invisible) — two independent silent failures that happened to cancel out
+// into "no finding". Fixing only one would have left the other still wrong.
+describe('outbox-seam-audit / #613 end-to-end (arrow-const helper + call-form bypass)', () => {
+  it('flags a call-form single-row INSERT for a topic only covered by an arrow-const helper', () => {
+    const helperSource = `
+      export const enqueueSendNotification = async (tx: TxClient): Promise<void> => {
+        await tx\`INSERT INTO job_outbox (id, topic) VALUES (\${id}, \${QUEUE_NAMES.SEND_NOTIFICATION})\`;
+      };
+    `;
+    const helperKeys = deriveHelperTopicKeys(helperSource);
+    expect([...helperKeys]).toEqual(['SEND_NOTIFICATION']);
+
+    const bypassSite = 'worker/jobs/some-worker.ts';
+    const bypassSource = [
+      "const query = `INSERT INTO job_outbox (id, topic) VALUES (${id}, ${QUEUE_NAMES.SEND_NOTIFICATION})`;",
+      'await sql.unsafe(query, values);',
+    ].join('\n');
+    const sites = findOutboxInserts(bypassSource);
+    expect(sites).toHaveLength(1);
+
+    const findings = evaluateFindings([{ file: bypassSite, sites }], helperKeys);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain(bypassSite);
+    expect(findings[0]).toContain('has a typed helper');
   });
 });
