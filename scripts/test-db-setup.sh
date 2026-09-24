@@ -86,10 +86,13 @@ HEAD_MIGRATION=$(printf '%s\n' "$MIGRATIONS" | tail -1 | xargs basename)
 # Hash of the ordered bootstrap + migration contents. ci:rls-audit recomputes
 # this from the same files, so a marker from an edited or shorter chain reads
 # as not-at-head — recording only the head FILENAME would miss edits.
+# Carriage returns are stripped (#1483): git stores LF, but an old checkout can
+# keep CRLF working copies that git reports as unmodified, which split one
+# migration set into two hashes. computeProvisionHash strips them too.
 content_hash() {
   { cat scripts/ci/test-db-bootstrap.sql
     printf '%s\n' "$MIGRATIONS" | while IFS= read -r f; do cat "$f"; done
-  } | shasum -a 256 | cut -d' ' -f1
+  } | tr -d '\r' | shasum -a 256 | cut -d' ' -f1
 }
 
 print_driver() {

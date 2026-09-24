@@ -74,7 +74,9 @@ export const PROVISION_MARKER_MISSING = 'provision_marker_missing';
  */
 export function computeProvisionHash(orderedSqlContents: readonly string[]): string {
   const hash = createHash('sha256');
-  for (const content of orderedSqlContents) hash.update(content);
+  // Strip CR, byte-for-byte with test-db-setup.sh's `tr -d '\r'` (#1483): a
+  // stale CRLF working copy must not read as a different migration set.
+  for (const content of orderedSqlContents) hash.update(content.replace(/\r/g, ''));
   return hash.digest('hex');
 }
 

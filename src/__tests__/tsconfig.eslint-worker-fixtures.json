@@ -1,0 +1,8 @@
+// #1483: the only program that includes eslint-worker-zones.test.ts's run-*
+// fixtures. tsconfig.json excludes them, so a parallel `next build` or
+// `tsc --noEmit` never lists a file this test is about to delete.
+{
+  "extends": "../../tsconfig.json",
+  "include": ["../../worker/**/__fixtures__/run-*/**/*.ts"],
+  "exclude": ["../../node_modules"]
+}

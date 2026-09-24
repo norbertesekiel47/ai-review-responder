@@ -79,7 +79,25 @@ const awaitedPromiseCode = unawaitedPromiseCode
 
 beforeAll(() => {
   eslint = new ESLint();
-  eslintIgnoringNothing = new ESLint({ ignore: false });
+  eslintIgnoringNothing = new ESLint({
+    ignore: false,
+    // #1483: tsconfig.json excludes the run-* fixtures so a parallel build or
+    // typecheck never lists them. Type info for the fixtures ONLY comes from a
+    // dedicated program instead; the real config still decides which rules
+    // apply to which paths.
+    overrideConfig: [
+      {
+        files: ['worker/**/__fixtures__/run-*/**/*.ts'],
+        languageOptions: {
+          parserOptions: {
+            projectService: false,
+            project: [path.join(process.cwd(), 'src/__tests__/tsconfig.eslint-worker-fixtures.json')],
+            tsconfigRootDir: process.cwd(),
+          },
+        },
+      },
+    ],
+  });
 
   mkdirSync(ingressFixtureRoot, { recursive: true });
   mkdirSync(jobsFixtureRoot, { recursive: true });
