@@ -296,7 +296,17 @@ export interface TenantScopeAllowlistEntry {
 //     markResponseSupersededWithReason, which bind `business_id` explicitly
 //     on every call — the allowlist entries excusing their prior unscoped
 //     `WHERE id = ...` shape are no longer live findings. 384 -> 381.
-export const ALLOWLIST_BASELINE = 381;
+//   - fix/1411-purge-redrive: +2. The admin "retry purge" recovery action
+//     (`src/lib/account-offboarding/retry-purge.ts`, #1411) resolves the
+//     `account_offboardings` row by route id the same way its
+//     provider-disposition sibling does — a `SELECT … FOR UPDATE` by id, then
+//     the reset `UPDATE` guarded by `id` + `status='failed' AND
+//     failed_step='purge'` rather than `account_id` (the row IS the tenant
+//     boundary an admin, already gated by requireAdminWithAal2, is acting on
+//     by its own globally-unique id). Same category, same reasoning as the
+//     existing `provider-disposition.ts` entry two above.
+//     381 -> 383.
+export const ALLOWLIST_BASELINE = 383;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -318,6 +328,9 @@ export const CATEGORY_PATH_RULES: Partial<
     // after requireRole(admin); lives with its domain, not under src/lib/admin.
     allowedFiles: [
       'src/lib/account-offboarding/provider-disposition.ts',
+      // Admin "retry purge" recovery (#1411) — same shape and same reasoning
+      // as its provider-disposition sibling immediately above.
+      'src/lib/account-offboarding/retry-purge.ts',
       // Deep read module invoked only after the admin autonomy route's
       // requireAdminWithAal2 gate; keeps cross-account aggregation out of the
       // composition root while remaining explicitly injected and testable.
@@ -714,7 +727,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT cancelled_at FROM accounts WHERE id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
@@ -2484,6 +2497,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, account_id, mode, status, failed_step, terminal_at, purge_after, purge_cancelled_at, stripe_subscription_id, zernio_account_ids, zernio_profile_ids, location_ids, stripe_step, zernio_accounts_step, zernio_profiles_step, location_archival_step, provider_dispositions FROM account_offboardings WHERE id = ${input.offboardingId}::uuid FOR UPDATE",
     category: 'admin-after-require-role',
     reason: "Admin-only provider-disposition mutation resolves the offboarding row by route id after same-origin + requireRole(admin) + current AAL2; the following update and audit are scoped by the locked row's account_id. Snapshot step/array columns are read to verify every applicable provider step is success-or-dispositioned before force-transition (H2).",
+  },
+  {
+    file: "src/lib/account-offboarding/retry-purge.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT id FROM account_offboardings WHERE id = ${input.offboardingId}::uuid FOR UPDATE",
+    category: 'admin-after-require-role',
+    reason: "Admin \"retry purge\" recovery (#1411) resolves the offboarding row by route id after requireAdminWithAal2, exactly like provider-disposition.ts above — a 404 existence check before the conditional reset UPDATE below.",
+  },
+  {
+    file: "src/lib/account-offboarding/retry-purge.ts",
+    table: "account_offboardings",
+    sqlSnippet: "UPDATE account_offboardings SET status = 'purge_scheduled', failed_step = NULL, last_error = NULL, retry_count = retry_count + 1, updated_at = NOW() WHERE id = ${input.offboardingId}::uuid AND mode = 'delete_data' AND status = 'failed' AND failed_step = 'purge' AND terminal_at IS NULL RETURNING id, account_id, retry_count",
+    category: 'admin-after-require-role',
+    reason: "The reset itself: scoped by the row's own globally-unique id (locked by the SELECT above) plus the exact terminal-purge shape, not account_id — the row IS the tenant boundary an already-AAL2-gated admin is acting on, same reasoning as provider-disposition.ts's sibling entry.",
   },
   {
     file: "src/app/api/zernio/connect/callback/route.ts",
