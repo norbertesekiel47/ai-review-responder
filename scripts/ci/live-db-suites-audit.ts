@@ -637,6 +637,22 @@ function isCoveredByLock(
   }
 }
 
+/** Every use of `binding` is itself covered — and there is at least one. */
+function everyUseCovered(source: ts.SourceFile, binding: ts.Identifier, visiting: Set<ts.Node>): boolean {
+  const uses = referencesTo(source, binding);
+  return uses.length > 0 && uses.every((use) => isCoveredByLock(source, use, visiting));
+}
+
+/** The describe call `fn` is the body of, when it is one. */
+function describeOwning(fn: ts.Node): ts.CallExpression | undefined {
+  const owner = fn.parent;
+  return owner !== undefined &&
+    isDescribeCall(owner) &&
+    owner.arguments.some((argument) => argument === fn)
+    ? owner
+    : undefined;
+}
+
 function walksToLockedBlock(source: ts.SourceFile, node: ts.Node, visiting: Set<ts.Node>): boolean {
   // Code runs at TEST time only once it sits inside a test or hook callback (or
   // a function something calls later). Directly in a describe body, it runs at
@@ -644,46 +660,40 @@ function walksToLockedBlock(source: ts.SourceFile, node: ts.Node, visiting: Set<
   let runsAtTestTime = false;
   for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
     const binding = moduleScopeBinding(source, current);
-    if (binding !== undefined) {
-      const uses = referencesTo(source, binding);
-      return uses.length > 0 && uses.every((use) => isCoveredByLock(source, use, visiting));
-    }
+    if (binding !== undefined) return everyUseCovered(source, binding, visiting);
     if (!ts.isFunctionLike(current)) continue;
-    const owner = current.parent;
-    const isArgument =
-      owner !== undefined &&
-      ts.isCallExpression(owner) &&
-      owner.arguments.some((argument) => argument === current);
-    if (isArgument && isDescribeCall(owner)) {
-      if (!runsAtTestTime) return false;
-      if (acquiresInBeforeAll(blockStatements(owner))) return true;
-    } else {
+    const describe = describeOwning(current);
+    if (describe === undefined) {
       runsAtTestTime = true;
+      continue;
     }
+    if (!runsAtTestTime) return false;
+    if (acquiresInBeforeAll(blockStatements(describe))) return true;
   }
   // Reached the file: a top-level test or hook is covered by a file-scope
   // beforeAll that takes the lock; import-time execution never is.
   return runsAtTestTime && acquiresInBeforeAll(source.statements);
 }
 
-/** R4: the identifier or the literal of the lane key, anywhere in the AST. */
+/** R4: does `node` name the lane key — its identifier, or its literal in a string or template span? */
+function mentionsLaneKey(node: ts.Node): boolean {
+  if (ts.isIdentifier(node)) return node.text === LANE_KEY_IDENTIFIER;
+  const isTextNode =
+    ts.isStringLiteralLike(node) ||
+    ts.isTemplateHead(node) ||
+    ts.isTemplateMiddle(node) ||
+    ts.isTemplateTail(node);
+  return isTextNode && node.text.includes(LANE_KEY_LITERAL);
+}
+
+/** R4: the 0-based line of the first mention of the lane key, if any. */
 function namesLaneKey(source: ts.SourceFile): number | undefined {
-  let found: number | undefined;
-  const visit = (node: ts.Node): void => {
-    if (found !== undefined) return;
-    if (
-      (ts.isIdentifier(node) && node.text === LANE_KEY_IDENTIFIER) ||
-      (ts.isStringLiteralLike(node) && node.text.includes(LANE_KEY_LITERAL)) ||
-      ((ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
-        node.text.includes(LANE_KEY_LITERAL))
-    ) {
-      found = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return found;
+  const find = (node: ts.Node): ts.Node | undefined =>
+    mentionsLaneKey(node) ? node : ts.forEachChild(node, find);
+  const found = find(source);
+  return found === undefined
+    ? undefined
+    : source.getLineAndCharacterOfPosition(found.getStart(source)).line;
 }
 
 /**
