@@ -42,6 +42,7 @@ import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { mapConcurrencyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export const dynamic = 'force-dynamic';
@@ -66,10 +67,7 @@ export async function PATCH(
   const json = await request.json().catch(() => null);
   const parsed = patchBodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', details: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return invalidBodyResponse(parsed.error);
   }
 
   // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.

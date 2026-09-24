@@ -13,6 +13,8 @@ import {
   confirmDeleteDataOffboarding,
 } from '@/lib/account-offboarding/confirm';
 import { requireDeleteDataDestructiveAuth } from '@/lib/account-offboarding/destructive-auth';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,10 +61,7 @@ async function confirmOffboarding(req: NextRequest): Promise<NextResponse> {
 
   const parsed = ConfirmOffboardingSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonResponse(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      400,
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE_HEADERS });
   }
 
   const result = parsed.data.mode === 'delete_data'

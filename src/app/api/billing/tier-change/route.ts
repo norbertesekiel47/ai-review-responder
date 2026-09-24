@@ -22,6 +22,7 @@ import {
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,10 +74,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
 
   const parsed = TierChangeSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE_HEADERS });
   }
 
   const { accountId, newTier, preview } = parsed.data;

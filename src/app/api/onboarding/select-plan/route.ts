@@ -19,6 +19,7 @@ import {
 } from '@/lib/payments/plan-activation';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
@@ -61,10 +62,7 @@ async function validateSelectPlanRequest(
   if (!parsed.success) {
     return {
       kind: 'response',
-      response: NextResponse.json(
-        { error: 'invalid_body', issues: parsed.error.issues },
-        { status: 400, headers: NO_STORE },
-      ),
+      response: invalidBodyResponse(parsed.error, { headers: NO_STORE }),
     };
   }
 
