@@ -1,9 +1,10 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { getServerConfig } from '@/lib/config/server';
 import { deploymentLaneFields, requiresProductionConfig } from '@/lib/config/deployment-lane';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
+import { constantTimeEqual } from '@/lib/shared/signed-value';
 import {
   recordSuppression,
   SUPPRESSION_CHANNELS,
@@ -570,11 +571,11 @@ function signReceipt(secret: string, tokenHash: string, issuedAtMs: number): str
     .digest('base64url');
 }
 
+// UTF-8 compare of the base64url digest STRING, not a base64url decode — the
+// same "compare the digest as literal text" convention
+// `admin/impersonation/cookie.ts` uses for its hex digest (#1370). Preserved
+// as-is: `signValue`/`verifySignedValue` are not used here because the
+// current-plus-previous key rollover above them has no place in that API.
 function macMatches(expected: string, candidate: string): boolean {
-  const expectedBytes = Buffer.from(expected);
-  const candidateBytes = Buffer.from(candidate);
-  // timingSafeEqual throws on unequal lengths. Comparing them first leaks
-  // nothing secret: the MAC width is fixed and public.
-  if (expectedBytes.length !== candidateBytes.length) return false;
-  return timingSafeEqual(expectedBytes, candidateBytes);
+  return constantTimeEqual(expected, candidate, 'utf8');
 }
