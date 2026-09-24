@@ -134,6 +134,7 @@ describe('Admin denormalized account_id queries', () => {
       }]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([{ total_cost_usd: 0 }]);
+      sqlReturnQueue.push([{ count: 0, cost_usd: 0 }]); // #1106 unattributedRows
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const req = adminBearerRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
@@ -146,7 +147,9 @@ describe('Admin denormalized account_id queries', () => {
         accountId: 'acct-margin-1',
         subscriptionTier: 'copilot',
       });
-      expect(sqlCalls).toHaveLength(8);
+      // 5 cost-report queries + 4 margin-service queries (accountRows,
+      // costRows, platformRows, #1106's unattributedRows).
+      expect(sqlCalls).toHaveLength(9);
       expect(sqlReturnQueue).toHaveLength(0);
 
       // Verify that api_costs queries filter by account_id directly,
@@ -193,6 +196,7 @@ describe('Admin denormalized account_id queries', () => {
       }]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([{ total_cost_usd: 0 }]);
+      sqlReturnQueue.push([{ count: 0, cost_usd: 0 }]); // #1106 unattributedRows
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const req = adminBearerRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
@@ -206,7 +210,8 @@ describe('Admin denormalized account_id queries', () => {
         accountId: 'acct-margin-1',
         subscriptionTier: 'autopilot',
       });
-      expect(sqlCalls).toHaveLength(8);
+      // 5 cost-report queries + 4 margin-service queries.
+      expect(sqlCalls).toHaveLength(9);
       expect(sqlReturnQueue).toHaveLength(0);
     });
   });
