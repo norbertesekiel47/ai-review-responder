@@ -1,10 +1,12 @@
 // Shape test for migration 125 (#1455) — mirrors migration-047's pattern for
 // a pure data-backfill migration: `pnpm test:db:setup` provisions the shared
 // test DB from every migration ONCE, out of band, so a live-DB suite asserts
-// SCHEMA readiness rather than re-applying migration SQL at run time
-// (src/lib/shared/__tests__/helpers/schema-ready.ts). This migration adds no
-// schema object to assert — it is a one-time UPDATE — so this suite checks
-// the checked-in SQL text instead, same as migration-047's precedent.
+// SCHEMA readiness rather than re-applying migration SQL at run time (see the
+// shared schema-readiness test helper under src/lib/shared/__tests__/helpers/).
+// This migration adds no schema object to assert — it is a one-time UPDATE —
+// so this suite checks the checked-in SQL text instead, same as migration-047's
+// precedent. It touches no database and opens no connection: plain file-text
+// assertions only, not a live-DB suite.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
