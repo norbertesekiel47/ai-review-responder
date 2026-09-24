@@ -12,6 +12,16 @@
 // (`CANCELLATION_GRACE_DAYS`, `src/lib/shared/cancellation-grace.ts` — the
 // same day count the dashboard route reads for `gracePeriodEndDate`, #1371),
 // this poller soft-archives all remaining active locations.
+//
+// `cancelled_at IS NOT NULL` below is deliberate, not merely defensive: it is
+// half of the single clock rule (#1455) — `cancelled_at` is the ONLY grace
+// clock, with no fallback to `subscription_activated_at`, and
+// `resolveCancellationGraceState` (same file as `CANCELLATION_GRACE_DAYS`)
+// is the dashboard route's other half. Migration 125 backfilled every legacy
+// row that predated `cancelled_at`, so a cancelled account with no
+// `cancelled_at` is not an expected case anymore; this predicate's fail-safe
+// (never archive without a known clock) already agrees with the route's
+// fail-safe (indefinite grace) for that unrepresentable case.
 
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
