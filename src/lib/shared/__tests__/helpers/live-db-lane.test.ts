@@ -184,6 +184,22 @@ describe('lane lease — release', () => {
     expect(session.ended).toBe(1);
   });
 
+  it('reports a schema re-provisioned DURING the lane, and still unlocks and closes the session', async () => {
+    // Observed on the shared DB 2026-09-24: a sibling worktree on the pre-#958
+    // test-db-setup.sh (suite key only) rebuilt the schema mid-lane.
+    let reprovisioned = false;
+    const session = fakeSession((query) =>
+      reprovisioned && query.includes('test_meta.provision')
+        ? [{ content_hash: 'c'.repeat(64) }]
+        : atHead(query),
+    );
+    const lease = await acquireLaneLease(options(session));
+    reprovisioned = true;
+    await expect(lease.release()).rejects.toThrow('re-provisioned DURING this lane');
+    expect(session.calls.at(-1)).toBe('SELECT pg_advisory_unlock_shared(hashtext(scratch_lane_key)) AS unlocked');
+    expect(session.ended).toBe(1);
+  });
+
   it('reports a lease that was no longer held — the lane ran unprotected — and still closes the session', async () => {
     const session = fakeSession((query) =>
       query.includes('pg_advisory_unlock_shared') ? [{ unlocked: false }] : atHead(query),

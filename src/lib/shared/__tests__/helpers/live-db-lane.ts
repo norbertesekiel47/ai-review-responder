@@ -180,7 +180,9 @@ async function closeAfterFailure(session: LaneLeaseSession, error: unknown): Pro
  *    session (which is also what releases a lock granted late);
  *  - `release()` is idempotent, and a lease that was no longer held when it was
  *    released — the session dropped mid-lane, so the lane ran UNPROTECTED — is
- *    reported as an error rather than passing silently.
+ *    reported as an error rather than passing silently, as is a provision
+ *    marker that changed while the lane held the lease (a provisioner that
+ *    bypassed the lane key rebuilt the schema under it).
  */
 export async function acquireLaneLease(options: LaneLeaseOptions): Promise<LaneLease> {
   if (
@@ -231,6 +233,13 @@ export async function acquireLaneLease(options: LaneLeaseOptions): Promise<LaneL
       if (released) return;
       released = true;
       try {
+        // Re-read the marker BEFORE unlocking: a provisioner that does not take
+        // the lane key — a worktree still on the pre-#958 test-db-setup.sh —
+        // can rebuild the schema mid-lane, and that must not pass as green.
+        const markerAtRelease = findProvisionFailure(
+          await readProvisionMarker(session.sql),
+          options.expectedHash,
+        );
         const [row] = await session.sql`
           SELECT pg_advisory_unlock_shared(hashtext(${lockKey})) AS unlocked
         `;
@@ -238,6 +247,13 @@ export async function acquireLaneLease(options: LaneLeaseOptions): Promise<LaneL
           throw new Error(
             'live-DB lane lease was not held at release — its session dropped mid-lane, ' +
               'so the lane ran unprotected against provisioning',
+          );
+        }
+        if (markerAtRelease !== undefined) {
+          throw new Error(
+            'live-DB lane: the test DB was re-provisioned DURING this lane by a process that ' +
+              'does not take the lane key (a worktree on the pre-#958 test-db-setup.sh?) — ' +
+              'results are unreliable; rebase that worktree, then re-run',
           );
         }
       } finally {
