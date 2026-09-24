@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **124** — next migration is **125**
+Current head: **125** — next migration is **126**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2531,6 +2531,42 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **125** — Backfill `accounts.cancelled_at` for legacy cancellations (#1455).
+  **LOCAL-ONLY** — written and verified against the rebuildable local test
+  container only; this PR does NOT apply it to staging or production
+  (orchestrator applies staging-first, then production, in lockstep, and
+  removing this marker is that promotion change).
+  **Data-only, no schema/RLS change.** Gives the cancellation-grace clock ONE
+  owner: the dashboard route's `cancelledGraceResponse` used to fall back to
+  `subscription_activated_at` when `cancelled_at IS NULL` (a row cancelled
+  before migration 037 added the column), while `CancellationGracePoller`'s
+  archival predicate required `cancelled_at IS NOT NULL` outright and simply
+  never selected such a row — two different rules for the same legacy row
+  (filed off #1371's code-quality review). This migration backfills
+  `cancelled_at` once via `COALESCE(<earliest account_audit_log
+  'subscription_status_changed' row with payload->>'toStatus'='cancelled'>,
+  subscription_activated_at)`, scoped to `subscription_status = 'cancelled'
+  AND cancelled_at IS NULL` (idempotent — never resets a row mid-grace). Same
+  PR removes the route's fallback: `src/lib/shared/cancellation-grace.ts`'s
+  new `resolveCancellationGraceState()` is now the single owner of "which
+  column is the clock", read directly by the route; a `cancelled_at` still
+  NULL after this migration (no matching audit row AND no
+  `subscription_activated_at`) fails safe to indefinite grace
+  (`readAccess: true`, no countdown) — the same "never archive without a
+  known clock" posture `CancellationGracePoller` already had. Deliberately
+  **no CHECK constraint**: the single writer
+  (`worker/ingress/stripe/apply-subscription-state.ts`,
+  `persistStatusTransition`) already keeps `subscription_status='cancelled'`
+  and `cancelled_at` in lockstep going forward, and a hard CHECK would block
+  the fail-safe's one legitimate escape hatch — an emergency manual status
+  correction with no trustworthy cancellation date to supply alongside it.
+  Measured against both Supabase projects 2026-09-23 (`SELECT count(*) FROM
+  accounts WHERE subscription_status = 'cancelled' AND cancelled_at IS
+  NULL`): **0 rows on staging, 0 rows on production** — defensive correctness
+  fix, not a response to data in this shape today. Transactional (single
+  `UPDATE`, no `CONCURRENTLY`). Apply staging-first, then production, both
+  Supabase projects in lockstep.
 
 - **124** — admin jobs-panel `job_outbox` indexes (#1365, audit H1).
   **Applied to staging (`kubdiqdhqbhwmqfditeg`) 2026-09-22T11:22Z, then
