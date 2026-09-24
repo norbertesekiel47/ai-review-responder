@@ -33,6 +33,7 @@ import { sql } from '@/lib/db/server';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { insertAuditLogSession } from '@/lib/approval/audit';
+import { markResponseApprovedRecovery } from '@/lib/approval/transitions';
 import {
   resolveEditReplyContext,
   type ResponseIdRouteContext,
@@ -164,17 +165,12 @@ export async function POST(
       //                            (PENDING_AFTER_DELETE) so isOrphanRetry is
       //                            true on the next attempt.
       const newPostingError = isPostAfterDeleteFail ? PENDING_AFTER_DELETE : null;
-      await tx`
-        UPDATE responses
-        SET status = 'approved',
-            posting_error = ${newPostingError},
-            approval_method = ${APPROVAL_METHOD.OWNER},
-            approved_at = NOW(),
-            approved_text = COALESCE(approved_text, response_text),
-            updated_at = NOW()
-        WHERE id = ${responseId}
-          AND business_id = ${locationId}
-      `;
+      await markResponseApprovedRecovery(tx, {
+        responseId,
+        businessId: locationId,
+        method: APPROVAL_METHOD.OWNER,
+        postingError: newPostingError,
+      });
 
       // 4. Audit log (session-scoped — actor_user_id = users.id, NOT account).
       await insertAuditLogSession(

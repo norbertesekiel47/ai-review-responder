@@ -28,6 +28,7 @@ import { canonicalizeReplyText } from '../../../src/lib/zernio/canonicalize-repl
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type { FindReplyResult, ReviewLocator } from '../../../src/lib/publishing/review-publisher';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import { markResponseSupersededByExternalReply } from '../../../src/lib/approval/transitions';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import * as Sentry from '@sentry/node';
@@ -487,15 +488,10 @@ export async function verify409AndDispose(sql: postgres.Sql, args: Verify409Args
     return { outcome: 'posted' };
   }
 
-  await sql`
-    UPDATE responses
-    SET status = 'superseded',
-        posting_error = 'already_replied_external',
-        updated_at = NOW()
-    WHERE id = ${response_id}
-      AND business_id = ${business_id}
-      AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-  `;
+  await markResponseSupersededByExternalReply(sql, {
+    responseId: response_id,
+    businessId: business_id,
+  });
   const fp = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
   logger.warn(
     `Response ${response_id} 409 text mismatch — ` +

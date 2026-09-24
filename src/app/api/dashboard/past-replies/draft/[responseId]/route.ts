@@ -40,6 +40,7 @@ import {
 } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
+import { markResponseSuperseded } from '@/lib/approval/transitions';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { mapConcurrencyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
 import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
@@ -190,12 +191,7 @@ export async function DELETE(
           return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
         }
 
-        await tx`
-          UPDATE responses
-          SET status = 'superseded', updated_at = NOW()
-          WHERE id = ${responseId}
-            AND business_id = ${locationId}
-        `;
+        await markResponseSuperseded(tx, { responseId, businessId: locationId });
       }
 
       return new NextResponse(null, { status: 204 });
