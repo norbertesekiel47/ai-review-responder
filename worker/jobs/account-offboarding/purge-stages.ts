@@ -774,7 +774,7 @@ function stripeCustomerRedactionRecord(
  * THE LOCK (D8). The count alone does not serialize against a writer binding
  * the same customer to another account a moment later. The customer-keyed
  * advisory lock is taken BEFORE the count and held for the whole transaction,
- * including the Stripe call; `applyStripeSubscriptionStateInternal` takes the
+ * including the Stripe call; `applyStripeSubscriptionState` takes the
  * same lock on the writer side.
  *
  * LOCK ORDER, stated precisely because an earlier version of this comment was

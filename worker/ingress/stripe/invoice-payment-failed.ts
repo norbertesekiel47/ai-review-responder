@@ -3,7 +3,12 @@ import type postgres from 'postgres';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe } from './shared';
-import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  lockAccountForStripeLineage,
+  stripeStatusTarget,
+  UNRESOLVED_TRANSITION,
+} from './apply-subscription-state';
 import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-events';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
@@ -85,12 +90,10 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
       {},
       { timeout: STRIPE_STATUS_READ_TIMEOUT_MS },
     );
-    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
-      tx,
-      accountRef.id,
-      { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: failedSubscriptionId },
-      subscription,
-    );
+    const lineage = { customerId, subscriptionId: failedSubscriptionId };
+    const transition = await lockAccountForStripeLineage(tx, accountRef.id, lineage)
+      ? await applyStripeSubscriptionState(tx, accountRef.id, stripeStatusTarget(subscription, customerId))
+      : UNRESOLVED_TRANSITION;
     if (!transition.changed) {
       logger.log(`Account ${accountRef.id} already ${transition.toStatus ?? 'missing'} — skipping past_due transition`);
       return;
