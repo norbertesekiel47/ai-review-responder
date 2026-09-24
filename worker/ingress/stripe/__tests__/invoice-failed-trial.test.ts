@@ -3,11 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 /**
  * invoice.payment_failed — card-fail for trialing and active accounts.
  *
- * trialing → past_due: routed through the single applier (subscription mode),
+ * trialing → past_due: routed through the single applier (lineage-scoped),
  * which sets past_due + emits trial_payment_failed.
  *
- * active → past_due (QUALITY-OBS/B1.3): also routed through the applier in
- * subscription mode. The applier owns the status write + audit row.
+ * active → past_due (QUALITY-OBS/B1.3): also routed through the applier, by
+ * the same locked lineage — one path for both, no per-branch mode (#1355). The applier owns the status write + audit row.
  * The handler retains the recent-convert net-logic (trial_payment_failed emit)
  * AFTER the applier, guarded on transition.changed — the applier never emits
  * trial_payment_failed when fromStatus=active (only fires when fromStatus=trialing).
@@ -45,8 +45,12 @@ const {
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../apply-subscription-state', () => ({
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+vi.mock('../apply-subscription-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../apply-subscription-state')>()),
+  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+  // The locked-row lineage recheck is the caller's (#1355); proved against
+  // live Postgres in status-applier-callers.integration.test.ts.
+  lockAccountForStripeLineage: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('../../../../src/lib/analytics/trial-events', () => ({
   enqueueTrialPaymentFailed: mockEnqueueTrialPaymentFailed,
@@ -86,19 +90,14 @@ beforeEach(() => {
 });
 
 describe('invoice.payment_failed — trial card fail', () => {
-  it('trialing account → applier sets past_due (subscription mode)', async () => {
+  it('trialing account → applier sets past_due (lineage-scoped)', async () => {
     sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing' }]);
     await processInvoicePaymentFailed(failedInvoice());
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(ref).toEqual({
-      mode: 'subscription',
-      stripeCustomerId: CUSTOMER_ID,
-      stripeSubscriptionId: SUB_ID,
-    });
-    expect(sub).toMatchObject({ status: 'past_due' });
+    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: SUB_ID, status: 'past_due' });
   });
 
   it('active → past_due routes through the applier AND still emits trial_payment_failed for a recent convert', async () => {
@@ -115,8 +114,7 @@ describe('invoice.payment_failed — trial card fail', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       'acct-1',
-      { mode: 'subscription', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1' },
-      expect.objectContaining({ status: 'past_due' }),
+      expect.objectContaining({ customerId: 'cus_1', subscriptionId: 'sub_1', status: 'past_due' }),
     );
     expect(mockEnqueueTrialPaymentFailed).toHaveBeenCalledWith(
       expect.anything(),
@@ -228,8 +226,7 @@ describe('invoice.payment_failed — trial card fail', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
-      expect.objectContaining({ stripeSubscriptionId: SUB_ID }),
-      expect.objectContaining({ status: 'active' }),
+      expect.objectContaining({ subscriptionId: SUB_ID, status: 'active' }),
     );
     expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
     expect(sqlReturnQueue).toHaveLength(0);
@@ -253,8 +250,7 @@ describe('invoice.payment_failed — trial card fail', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
-      expect.objectContaining({ stripeSubscriptionId: SUB_ID }),
-      expect.objectContaining({ status: 'canceled' }),
+      expect.objectContaining({ subscriptionId: SUB_ID, status: 'cancelled' }),
     );
     expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
     expect(sqlReturnQueue).toHaveLength(0);

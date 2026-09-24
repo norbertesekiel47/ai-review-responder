@@ -1,7 +1,13 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, resumePrimaryBusinessBackfill } from './shared';
-import { applyStripeSubscriptionStateUnderEntitlementLock, mapStripeStatus } from './apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  lockAccountForStripeLineage,
+  mapStripeStatus,
+  stripeStatusTarget,
+  UNRESOLVED_TRANSITION,
+} from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
@@ -43,16 +49,10 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
       {},
       { timeout: STRIPE_STATUS_READ_TIMEOUT_MS },
     );
-    const applied = await applyStripeSubscriptionStateUnderEntitlementLock(
-      tx,
-      accountRef.id,
-      {
-        mode: 'subscription',
-        stripeCustomerId: customerId,
-        stripeSubscriptionId: recoverySubscriptionId,
-      },
-      subscription,
-    );
+    const lineage = { customerId, subscriptionId: recoverySubscriptionId };
+    const applied = await lockAccountForStripeLineage(tx, accountRef.id, lineage)
+      ? await applyStripeSubscriptionState(tx, accountRef.id, stripeStatusTarget(subscription, customerId))
+      : UNRESOLVED_TRANSITION;
     return { transition: applied, providerStatus: subscription.status };
   });
 

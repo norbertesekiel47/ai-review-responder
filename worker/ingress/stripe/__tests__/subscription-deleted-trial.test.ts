@@ -4,7 +4,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
  * customer.subscription.deleted — ALL cancellations route through the applier.
  *
  * After B1.1, BOTH trial and non-trial cancellations go through
- * applyStripeSubscriptionState (subscription mode). The applier maps Stripe
+ * applyStripeSubscriptionState (lineage-scoped). The applier maps Stripe
  * `canceled` → CANCELLED, clears trial_ends_at/past_due_at, mirrors all
  * businesses (NOTE-A), writes the audit row, and emits trial_cancelled ONLY
  * when leaving a trialing state. No inline UPDATE accounts remains.
@@ -40,8 +40,12 @@ const {
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../apply-subscription-state', () => ({
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+vi.mock('../apply-subscription-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../apply-subscription-state')>()),
+  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+  // The locked-row lineage recheck is the caller's (#1355); proved against
+  // live Postgres in status-applier-callers.integration.test.ts.
+  lockAccountForStripeLineage: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('@sentry/node', () => ({
@@ -90,14 +94,9 @@ describe('subscription.deleted — cancel during trial', () => {
     await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT);
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    const [, lockedAccountId, target] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
-    expect(ref).toEqual({
-      mode: 'subscription',
-      stripeCustomerId: CUSTOMER_ID,
-      stripeSubscriptionId: SUB_ID,
-    });
-    expect(sub).toMatchObject({ status: 'canceled' });
+    expect(target).toMatchObject({ customerId: CUSTOMER_ID, subscriptionId: SUB_ID, status: 'cancelled' });
   });
 
   it('non-trial cancel (active → cancelled) routes through the applier, not inline SQL', async () => {
@@ -120,8 +119,7 @@ describe('subscription.deleted — cancel during trial', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       'acct-1',
-      { mode: 'subscription', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1' },
-      expect.objectContaining({ id: 'sub_1', status: 'canceled' }),
+      expect.objectContaining({ customerId: 'cus_1', subscriptionId: 'sub_1', status: 'cancelled' }),
     );
     const inlineCancel = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),

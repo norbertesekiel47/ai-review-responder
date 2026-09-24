@@ -41,7 +41,7 @@ vi.mock('../stripe/apply-subscription-state', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../stripe/apply-subscription-state')>();
   return {
     ...actual,
-    applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+    applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
   };
 });
 vi.mock('@sentry/node', () => ({
@@ -450,12 +450,11 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
-      {
-        mode: 'subscription',
-        stripeCustomerId: CUSTOMER_ID,
-        stripeSubscriptionId: SUBSCRIPTION_ID,
-      },
-      expect.objectContaining({ status: 'active' }),
+      expect.objectContaining({
+        status: 'active',
+        customerId: CUSTOMER_ID,
+        subscriptionId: SUBSCRIPTION_ID,
+      }),
     );
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
@@ -504,10 +503,9 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       expect.anything(),
       ACCOUNT_ID,
       expect.objectContaining({
-        mode: 'subscription',
-        stripeSubscriptionId: SUBSCRIPTION_ID,
+        status: 'active',
+        subscriptionId: SUBSCRIPTION_ID,
       }),
-      expect.objectContaining({ status: 'active' }),
     );
     expect(snapshotUpdates()).toEqual([]);
     expect(businessProjectionUpdates()).toEqual([]);

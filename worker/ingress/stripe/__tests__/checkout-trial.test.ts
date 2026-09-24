@@ -37,7 +37,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
 }));
 vi.mock('../apply-subscription-state', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../apply-subscription-state')>()),
-  applyStripeSubscriptionStateUnderEntitlementLock:
+  applyStripeSubscriptionState:
     mockApplyStripeSubscriptionState,
 }));
 vi.mock('../../../../src/lib/accounts/tier-snapshot', async (importOriginal) => ({
@@ -256,8 +256,12 @@ describe('checkout.session.completed authoritative lease projection', () => {
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
-      { mode: 'checkout', accountId: ACCOUNT_ID },
-      expect.objectContaining({ id: SUB_ID, status: 'active' }),
+      {
+        status: 'active',
+        customerId: CUSTOMER_ID,
+        subscriptionId: SUB_ID,
+        trialEnd: null,
+      },
     );
     expect(mockWriteResolvedTierSnapshot).toHaveBeenCalledWith(
       expect.anything(),
@@ -318,9 +322,9 @@ describe('checkout.session.completed authoritative lease projection', () => {
       eventSession({ payment_status: 'no_payment_required' }) as never,
     );
 
-    expect(mockApplyStripeSubscriptionState.mock.calls[0]![3]).toMatchObject({
+    expect(mockApplyStripeSubscriptionState.mock.calls[0]![2]).toMatchObject({
       status: 'trialing',
-      trial_end: FUTURE_TRIAL_END,
+      trialEnd: FUTURE_TRIAL_END,
     });
   });
 
@@ -348,9 +352,9 @@ describe('checkout.session.completed authoritative lease projection', () => {
       eventSession({ payment_status: 'paid' }) as never,
     );
 
-    expect(mockApplyStripeSubscriptionState.mock.calls[0]![3]).toMatchObject({
+    expect(mockApplyStripeSubscriptionState.mock.calls[0]![2]).toMatchObject({
       status: 'trialing',
-      trial_end: FUTURE_TRIAL_END,
+      trialEnd: FUTURE_TRIAL_END,
     });
     expect(mockCancelSubscription).not.toHaveBeenCalled();
   });

@@ -27,35 +27,38 @@ describe('Stripe status-writer lock-order tripwire', () => {
     'worker/ingress/stripe/invoice-paid.ts',
     'worker/ingress/stripe/subscription-deleted.ts',
     'worker/background/pollers/billing-reconciliation/reconcile-account.ts',
-  ])('%s explicitly acquires entitlement before using the under-lock applier', (path) => {
+  ])('%s acquires entitlement, then rechecks lineage on the locked row, then applies', (path) => {
     const text = source(path);
     const lock = text.indexOf('await acquireTierEntitlementLock(');
-    const apply = text.indexOf('applyStripeSubscriptionStateUnderEntitlementLock(', lock);
+    const lineage = text.indexOf('lockAccountForStripeLineage(', lock);
+    const apply = text.indexOf('applyStripeSubscriptionState(', lineage);
     expect(lock).toBeGreaterThan(-1);
-    expect(apply).toBeGreaterThan(lock);
-    expect(text).not.toMatch(/applyStripeSubscriptionState\s*\(/);
+    expect(lineage).toBeGreaterThan(lock);
+    expect(apply).toBeGreaterThan(lineage);
+    expect(text).not.toContain('UnderEntitlementLock');
   });
 
-  it('generic applier resolves identity before entitlement and locks the account only afterward', () => {
+  it('the applier never takes the entitlement lock and never re-resolves by lineage', () => {
     const text = source('worker/ingress/stripe/apply-subscription-state.ts');
-    const genericStart = text.indexOf('export async function applyStripeSubscriptionState(');
-    const resolveId = text.indexOf('resolveAccountId(tx, ref)', genericStart);
-    const entitlement = text.indexOf('acquireTierEntitlementLock(tx, accountId)', resolveId);
-    const lockedRead = text.indexOf('applyStripeSubscriptionStateInternal(tx, accountId, ref, stripeSub)', entitlement);
-    expect(genericStart).toBeGreaterThan(-1);
-    expect(resolveId).toBeGreaterThan(genericStart);
-    expect(entitlement).toBeGreaterThan(resolveId);
-    expect(lockedRead).toBeGreaterThan(entitlement);
+    expect(text).not.toContain('acquireTierEntitlementLock');
+    expect(text).not.toMatch(/WHERE\s+(?:a\.)?stripe_customer_id\s*=/);
+    expect(text).not.toMatch(/mode:\s*'(?:checkout|subscription)'/);
   });
 
-  it('under-entitlement applier requires its locked account id and never re-resolves lineage', () => {
+  it.each([
+    'export async function applyStripeSubscriptionState(',
+    'export async function lockAccountForStripeLineage(',
+  ])('%s takes the customer binding lock before the account row lock, by account id', (signature) => {
     const text = source('worker/ingress/stripe/apply-subscription-state.ts');
-    const start = text.indexOf('export async function applyStripeSubscriptionStateUnderEntitlementLock(');
+    const start = text.indexOf(signature);
     const end = text.indexOf('\n}', start);
     const body = text.slice(start, end);
-    expect(body).toContain('lockedAccountId: string');
-    expect(body).toContain('applyStripeSubscriptionStateInternal(tx, lockedAccountId, ref, stripeSub)');
-    expect(body).not.toContain('resolveAccountId(');
+    const binding = body.indexOf('acquireStripeCustomerBindingLock(');
+    const rowLock = body.indexOf('FOR UPDATE');
+    expect(start).toBeGreaterThan(-1);
+    expect(binding).toBeGreaterThan(-1);
+    expect(rowLock).toBeGreaterThan(binding);
+    expect(body.slice(binding, rowLock)).toMatch(/WHERE (?:a\.)?id = \$\{accountId\}::uuid/);
   });
 
   it.each([
@@ -66,7 +69,7 @@ describe('Stripe status-writer lock-order tripwire', () => {
     const transaction = text.indexOf('await sql.begin(');
     const entitlement = text.indexOf('await acquireTierEntitlementLock(', transaction);
     const retrieve = text.indexOf('.subscriptions.retrieve(', entitlement);
-    const apply = text.indexOf('applyStripeSubscriptionStateUnderEntitlementLock(', retrieve);
+    const apply = text.indexOf('lockAccountForStripeLineage(', retrieve);
     expect(transaction).toBeGreaterThan(-1);
     expect(entitlement).toBeGreaterThan(transaction);
     expect(retrieve).toBeGreaterThan(entitlement);
@@ -87,7 +90,7 @@ describe('Stripe status-writer lock-order tripwire', () => {
     const correction = text.indexOf('if (dbTrialing && !stripeTrialing');
     const entitlement = text.indexOf('await acquireTierEntitlementLock(', correction);
     const retrieve = text.indexOf('stripe.subscriptions.retrieve(', entitlement);
-    const apply = text.indexOf('applyStripeSubscriptionStateUnderEntitlementLock(', retrieve);
+    const apply = text.indexOf('lockAccountForStripeLineage(', retrieve);
     expect(correction).toBeGreaterThan(-1);
     expect(entitlement).toBeGreaterThan(correction);
     expect(retrieve).toBeGreaterThan(entitlement);

@@ -178,7 +178,7 @@ describe('subscription_status_changed audit logging', () => {
     );
     expect(mockRetrieveSession).not.toHaveBeenCalled();
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(6);
+    expect(sqlCalls).toHaveLength(8);
   });
 
   it('logs subscription_status_changed on past_due recovery', async () => {
@@ -207,7 +207,7 @@ describe('subscription_status_changed audit logging', () => {
     );
     expect(mockRetrieveSession).not.toHaveBeenCalled();
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(7);
+    expect(sqlCalls).toHaveLength(9);
   });
 
   it('does not log audit when status unchanged (idempotent no-op)', async () => {
@@ -232,6 +232,6 @@ describe('subscription_status_changed audit logging', () => {
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockRetrieveSession).not.toHaveBeenCalled();
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls).toHaveLength(6);
   });
 });
