@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
-import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import {
+  isSqlTaggedTemplate,
+  isUnsafeCall,
+  lineHasPragma,
+  resolveUnsafeCallSql,
+} from './lib/sql-tag-scan';
 import { normalize, walk } from './lib/ratchet-harness';
 import {
   OUTBOX_DISTINCTIVE_STATUSES,
@@ -238,7 +243,15 @@ export function scanMigration(file: string, text: string): OutboxStatusFinding[]
   return findingsForSqlText(normalized, blanked, lines, offsetToLine);
 }
 
-/** Pure scan of one TS file's `sql`/`tx`/`db` tagged templates. Exported for unit tests. */
+/**
+ * Pure scan of one TS file's `sql`/`tx`/`db` tagged templates, plus the
+ * `.unsafe(query, …)` CALL form (#613) — `sql.unsafe(dataQuery, queryParams)`
+ * is a `CallExpression`, not a `TaggedTemplateExpression`, so it was invisible
+ * to this scan regardless of SQL_TAG_NAMES. A call whose query text cannot be
+ * resolved (`resolveUnsafeCallSql` returns null) contributes no text to scan —
+ * consistent with this function's existing posture of finding nothing rather
+ * than guessing. Exported for unit tests.
+ */
 export function scanSource(file: string, text: string): OutboxStatusFinding[] {
   const normalized = normalize(file);
   const source = ts.createSourceFile(normalized, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -254,6 +267,15 @@ export function scanSource(file: string, text: string): OutboxStatusFinding[] {
           source.getLineAndCharacterOfPosition(start + offset).line,
         ),
       );
+    } else if (ts.isCallExpression(node) && isUnsafeCall(node)) {
+      const raw = resolveUnsafeCallSql(node, source);
+      if (raw !== null) {
+        // The call site's own line — a resolved LOCAL-VARIABLE query has no
+        // source position of its own at the call site, and every production
+        // `.unsafe()` call here is one statement.
+        const callLine = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+        findings.push(...findingsForSqlText(normalized, raw, lines, () => callLine));
+      }
     }
     ts.forEachChild(node, visit);
   };
