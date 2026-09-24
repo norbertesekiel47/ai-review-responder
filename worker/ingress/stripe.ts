@@ -12,6 +12,7 @@ import {
   getStripe,
   type StripeEventContext,
 } from './stripe/shared';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { processCheckoutSessionCompleted } from './stripe/checkout-completed';
 import { processInvoicePaymentFailed } from './stripe/invoice-payment-failed';
 import { processInvoicePaymentActionRequired } from './stripe/invoice-payment-action-required';
@@ -27,11 +28,15 @@ import { processSubscriptionUpdated } from './stripe/subscription-updated';
 const STALE_EVENT_THRESHOLD_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 export async function handleStripeWebhook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  // No event id until the signature verifies (Stripe's own `event.id`) — every
+  // log call before then uses this bare prefix logger.
+  const preVerifyLogger = createWorkerLogger(LOG_PREFIX);
+
   const rawBody = (request as unknown as { rawBody?: string }).rawBody ?? '';
   const sig = request.headers['stripe-signature'] as string | undefined;
 
   if (!sig) {
-    console.warn(`${LOG_PREFIX} Missing stripe-signature header`);
+    preVerifyLogger.warn('Missing stripe-signature header');
     reply.status(401).send({ error: 'missing_signature' });
     return;
   }
@@ -41,7 +46,7 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
   // `if (!webhookSecret)` truthy check below is byte-identical to the old raw read.
   const webhookSecret = getWorkerConfig().STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error(`${LOG_PREFIX} STRIPE_WEBHOOK_SECRET is not set — rejecting request`);
+    preVerifyLogger.error('STRIPE_WEBHOOK_SECRET is not set — rejecting request');
     reply.status(401).send({ error: 'webhook_secret_not_configured' });
     return;
   }
@@ -50,15 +55,17 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
   try {
     event = getStripe().webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err) {
-    console.warn(`${LOG_PREFIX} Signature verification failed: ${err instanceof Error ? err.message : err}`);
+    preVerifyLogger.warn(`Signature verification failed: ${err instanceof Error ? err.message : err}`);
     reply.status(401).send({ error: 'invalid_signature' });
     return;
   }
 
+  const logger = createWorkerLogger(LOG_PREFIX, event.id);
+
   const eventAgeSeconds = Math.floor(Date.now() / 1000) - event.created;
   if (eventAgeSeconds > STALE_EVENT_THRESHOLD_SECONDS) {
-    console.warn(
-      `${LOG_PREFIX} Rejecting stale event ${event.id} (${event.type}) — age ${eventAgeSeconds}s exceeds ${STALE_EVENT_THRESHOLD_SECONDS}s`,
+    logger.warn(
+      `Rejecting stale event ${event.id} (${event.type}) — age ${eventAgeSeconds}s exceeds ${STALE_EVENT_THRESHOLD_SECONDS}s`,
     );
     reply.status(200).send({ received: true, stale: true });
     return;
@@ -70,7 +77,7 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
   // rows back through processing via claimInboundEvent.
   const claim = await claimInboundEvent('stripe', event.id, event.type, event);
   if (claim === 'duplicate') {
-    console.log(`${LOG_PREFIX} Duplicate event ${event.id} — skipping`);
+    logger.log(`Duplicate event ${event.id} — skipping`);
     reply.status(200).send({ received: true, duplicate: true });
     return;
   }
@@ -124,7 +131,7 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
       }
 
       default:
-        console.log(`${LOG_PREFIX} Unhandled event type: ${event.type} — ignoring`);
+        logger.log(`Unhandled event type: ${event.type} — ignoring`);
         break;
     }
 
@@ -134,8 +141,8 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
       // the Stripe dashboard return 'duplicate' — strictly worse than the three
       // days of retries this branch replaces. 'stale_ignored' keeps that replay
       // path open, and ArchivalPoller sweeps it on the same 30-day clock.
-      console.warn(
-        `${LOG_PREFIX} Acking event ${event.id} (${event.type}) for age — recording inbound_events as stale_ignored`,
+      logger.warn(
+        `Acking event ${event.id} (${event.type}) for age — recording inbound_events as stale_ignored`,
       );
       await markInboundEventStaleIgnored(event.id);
     } else {
@@ -143,7 +150,7 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`${LOG_PREFIX} Failed to process event ${event.id} (${event.type}): ${message}`);
+    logger.error(`Failed to process event ${event.id} (${event.type}): ${message}`);
     await sql`
       UPDATE inbound_events
       SET status = 'failed', error_message = ${message}

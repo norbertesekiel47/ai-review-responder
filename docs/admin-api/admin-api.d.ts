@@ -1792,6 +1792,25 @@ export type OffboardingsOffboardingIdProviderDispositionPOSTResponse = {
 } | {
     "error": string;
 };
+/** POST /api/admin/offboardings/[offboardingId]/retry-purge; derived from actual JSON response expressions. */
+export type OffboardingsOffboardingIdRetryPurgePOSTResponse = {
+    "accountId": string;
+    "offboardingId": string;
+    "ok": true;
+    "outboxId": string;
+    "retryCount": number | null;
+    "status": "purge_scheduled";
+} | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
+    "error": string;
+};
 /** GET /api/admin/offboardings; derived from actual JSON response expressions. */
 export type OffboardingsGETResponse = {
     "error": "Forbidden";

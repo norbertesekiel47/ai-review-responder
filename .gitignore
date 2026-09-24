@@ -184,6 +184,18 @@ tests/llm-eval/reports/
 # Phase D suspension drill script). Never useful to future clones.
 .scratch/
 
+# Ephemeral fixtures for the type-aware ESLint zone regression suite
+# (src/__tests__/eslint-worker-zones.test.ts, #1366): written to REAL files at
+# test time — `@typescript-eslint/no-floating-promises`' projectService needs
+# a file the TS program can find, a virtual lintText path fails to parse —
+# and removed in afterAll. Gitignored so eslint.config.mjs's derived ignores
+# (`includeIgnoreFile`) skip them too: without this, a local `eslint .` run
+# (`pnpm lint` / the lefthook `lint` row) can race the test's own cleanup and
+# crash on ENOENT scanning the same tree `pnpm test` writes into — impossible
+# in CI, where `lint` and `test` are separate jobs on separate checkouts.
+worker/ingress/__fixtures__/
+worker/jobs/__fixtures__/
+
 # Generated-artifact output from external tooling (spreadsheets, previews).
 # NOT repo source and never committed, but it sits in the repo root, so an
 # unignored copy is scanned by `fallow audit --gate new-only` and fails

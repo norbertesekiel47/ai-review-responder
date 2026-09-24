@@ -288,10 +288,12 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     );
     expect(lockTouches).toEqual([]);
 
-    // Log line tells oncall the event was dropped intentionally.
+    // Log line tells oncall the event was dropped intentionally. Lines now
+    // emit through createWorkerLogger (one JSON object per console.warn
+    // call), so the quotes around the malformed ref_id are JSON-escaped.
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
     expect(warnedText).toMatch(/malformed ref_id/);
-    expect(warnedText).toMatch(/"not-a-uuid"/);
+    expect(warnedText).toMatch(/\\"not-a-uuid\\"/);
 
     // inbound_events still gets marked processed at the tail of the
     // handler (so future replays of the same event id are deduped). Asserted

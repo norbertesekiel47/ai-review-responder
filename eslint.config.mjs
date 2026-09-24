@@ -260,6 +260,62 @@ const config = [
       'no-restricted-syntax': ['error', APP_LEAF_DYNAMIC_IMPORT_BAN, ...VERCEL_FORBIDDEN_DYNAMIC_IMPORTS],
     },
   },
+  {
+    // #1372: worker/ingress/** webhook handlers logged via bare console.* —
+    // bypassing the structured logger's sanitizer (string args are logged
+    // verbatim) and carrying no correlation id. Covers all of worker/** so the
+    // count cannot grow anywhere in the worker. The ignores list is the closed
+    // inventory of deliberate bare-console files — worker/index.ts's very
+    // first boot-time assertion + worker/config/startup-*.ts (run before the
+    // logger's own module graph can be trusted to have resolved), and the
+    // three `worker/jobs/*/failed-hook.ts` crash-catch fallbacks (explicitly
+    // documented "nothing in here may throw" last resorts, hardened to avoid
+    // even the logger's own dependency chain) — see .claude/CLAUDE.md
+    // "worker crash-net". Adding a file here is a reviewed decision.
+    // Tests intentionally spy on console.* to assert log content, so they are
+    // exempt like every other zone in this file.
+    files: ['worker/**/*.ts'],
+    ignores: [
+      '**/__tests__/**',
+      '**/*.test.ts',
+      'worker/index.ts',
+      'worker/config/startup-assert.ts',
+      'worker/config/startup-side-effect-guard.ts',
+      'worker/jobs/csv-ingest/failed-hook.ts',
+      'worker/jobs/publisher/failed-hook.ts',
+      'worker/jobs/zernio/ingest-failed-hook.ts',
+    ],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
+    // #1366: type-aware zone — worker/** only, non-test files. Type-aware
+    // parsing is expensive, so it is scoped here rather than the whole tree
+    // (the rest of eslint.config.mjs stays non-type-aware). Enables
+    // @typescript-eslint/no-floating-promises: an un-awaited/un-voided
+    // promise (e.g. inside a BullMQ 'failed'/'error' listener, or a
+    // fire-and-forget poller tick) becomes an `unhandledRejection` the
+    // worker's crash-net only survives for a strict allowlist of transient-DB
+    // errors (.claude/CLAUDE.md "worker crash-net") — everything else is
+    // fatal. Deliberately does NOT re-register the `@typescript-eslint`
+    // plugin: `eslint-config-next`'s own `next/typescript` zone (spread in via
+    // `nextCoreWebVitals` above) already registers it — `languageOptions` and
+    // `plugins` both merge across matching flat-config objects, so this zone
+    // only needs to layer `parserOptions.projectService` (type info) on top
+    // and reference the already-registered rule.
+    files: ['worker/**/*.ts'],
+    ignores: ['**/__tests__/**', '**/*.test.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: fileURLToPath(new URL('.', import.meta.url)),
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+    },
+  },
 ];
 
 export default config;

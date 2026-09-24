@@ -3,6 +3,7 @@ import type Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import {
   createImportOffer,
   enqueueInitialImport,
@@ -10,6 +11,8 @@ import {
 } from '../../../src/lib/reviews/import-consent';
 
 export const LOG_PREFIX = '[ingress/stripe]';
+
+const logger = createWorkerLogger(LOG_PREFIX);
 
 export { getStripe } from '../../../src/lib/payments/stripe-client';
 
@@ -271,14 +274,14 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
 
     const consent = await readImportConsent(tx, businessId, locked.account_id);
     if (consent?.state !== 'accepted') {
-      console.log(
-        `${LOG_PREFIX} Review import not enqueued for business=${businessId} — import consent is ${consent?.state ?? 'unknown'}`,
+      logger.log(
+        `Review import not enqueued for business=${businessId} — import consent is ${consent?.state ?? 'unknown'}`,
       );
       return;
     }
 
     await enqueueInitialImport(tx, businessId, locked.account_id);
-    console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+    logger.log(`Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
   });
 }
 
@@ -303,8 +306,8 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
 export async function resumePrimaryBusinessBackfill(businessId: string | null): Promise<void> {
   if (!businessId) return;
   await maybeEnqueueBackfillResume(businessId).catch((err) => {
-    console.error(
-      `${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`,
+    logger.error(
+      `maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`,
     );
   });
 }
