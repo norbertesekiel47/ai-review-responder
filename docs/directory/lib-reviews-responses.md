@@ -8,7 +8,7 @@ The email approval link flow.
 |------|--------------|
 | `service.ts` | Barrel re-export of the approval layer (errors, correlation, audit, locks, the three mode files). New code imports directly. |
 | `token-mode.ts` / `session-mode.ts` / `callback-mode.ts` | The three approval lanes: token link (`/approve/[token]`), dashboard session, and Telegram/WhatsApp button callbacks (`approveViaCallback` — button lanes cannot edit). **(WS4)** each approve/edit chokepoint (five total) records `reply_approved_no_edit` / `reply_edited_by_owner` in-tx via `outcomes.ts`. |
-| `transitions.ts` | **(#1367)** `markResponseApproved`/`Edited`/`Superseded` — owns the UPDATE for these three modes ONLY; they keep their own locking/link/outcome/audit. Other `responses` writers still hand-spell theirs (#1454). |
+| `transitions.ts` | **(#1367, #1454)** `markResponseApproved`/`Edited`/`Superseded` + siblings — owns the `responses` approve/supersede UPDATE column list; 9/14 writers migrated, 5 justified exceptions remain (see header). |
 | `locks.ts` | Lock + validation helpers for all three modes (`lockValidLink`, `lockPendingResponse`, `verifyDevice`, `consumeLink`) — `FOR UPDATE` inside the caller's tx. |
 | `http-routes.ts` | Route wrappers (`runTokenApprovalAction`, `runDashboardReviewAction`) — rate limit, CSRF, device binding, one tx, audit context, error mapping. **(WS4)** the dashboard wrapper takes `anchorReviewLockOrder` as its tx's FIRST statement. |
 | `outcomes.ts` | **(WS4)** Owner-decision outcome instrumentation for the five approve/edit chokepoints, plus `anchorReviewLockOrder` — the lock-order anchor (unlocked pre-read of `review_id`, then reviews `FOR UPDATE` before any response lock; veto.ts owns the deadlock analysis). Regenerate records no outcome. |
