@@ -31,7 +31,6 @@ vi.mock('@/lib/shared/writable-subscription', () => ({
 }));
 
 import {
-  invalidBodyResponse,
   invalidJsonResponse,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
@@ -216,16 +215,19 @@ describe('readLocationRouteJson', () => {
     }
   });
 
-  it('returns invalidBodyResponse (400) with Zod issues on schema failure', async () => {
+  // #1373: the body carries the stable `invalid_body` code only — no Zod
+  // issues array, no field paths. See src/lib/shared/invalid-body-response.ts
+  // and its tests for the shape contract itself; this only proves
+  // readLocationRouteJson wires a schema failure to it (with the location
+  // routes' own no-store headers) rather than hand-rolling a response.
+  it('returns a 400 invalid_body (no Zod issues) with no-store headers on schema failure', async () => {
     const result = await readLocationRouteJson(jsonReq(JSON.stringify({ accountId: '' })), schema);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(400);
-      const body = await result.response.json();
-      expect(body.error).toBe('invalid_body');
-      expect(Array.isArray(body.issues)).toBe(true);
-      expect(body.issues.length).toBeGreaterThan(0);
+      expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+      expect(await result.response.json()).toEqual({ error: 'invalid_body' });
     }
   });
 });
@@ -235,14 +237,5 @@ describe('response helpers', () => {
     const response = invalidJsonResponse();
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: 'invalid_json' });
-  });
-
-  it('invalidBodyResponse is a 400 invalid_body carrying the issues', async () => {
-    const response = invalidBodyResponse([{ path: ['accountId'], message: 'Required' }]);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: 'invalid_body',
-      issues: [{ path: ['accountId'], message: 'Required' }],
-    });
   });
 });

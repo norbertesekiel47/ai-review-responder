@@ -519,7 +519,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe('Validation failed');
+    expect(body.error).toBe('invalid_body');
   });
 
   it('returns 400 when editedText is empty after sanitization', async () => {
@@ -533,7 +533,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe('Validation failed');
+    expect(body.error).toBe('invalid_body');
     expect(mockEditBySession).not.toHaveBeenCalled();
     expect(sqlCallCounter.value).toBe(0);
   });
@@ -549,7 +549,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe('Validation failed');
+    expect(body.error).toBe('invalid_body');
   });
 
   it('returns 400 when body is not valid JSON', async () => {

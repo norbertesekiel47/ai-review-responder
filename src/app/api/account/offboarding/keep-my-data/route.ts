@@ -14,6 +14,7 @@ import {
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 import { escapeHtml } from '@/lib/shared/html';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +45,7 @@ async function keepMyData(req: NextRequest): Promise<NextResponse> {
 
   const authBody = AuthenticatedBodySchema.safeParse(body.value);
   if (!authBody.success) {
-    return jsonResponse({ error: 'invalid_body', issues: authBody.error.issues }, 400);
+    return invalidBodyResponse(authBody.error, { headers: NO_STORE_HEADERS });
   }
 
   const owner = await requireOwnerWithAccount(req);

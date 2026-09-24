@@ -28,6 +28,7 @@ import {
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { invalidBodyResponse } from '@/lib/shared/invalid-body-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,10 +75,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
 
   const parsed = CheckoutSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
+    return invalidBodyResponse(parsed.error, { headers: NO_STORE });
   }
   const { accountId, tier } = parsed.data;
 
