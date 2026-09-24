@@ -521,14 +521,18 @@ describe('processReview', () => {
     const allSqls = tx.mock.calls.map(
       (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? ''),
     );
+    const allParams = (tx.mock.calls as unknown[][]).flatMap((call) => call.slice(1));
 
     // review_exception must be inserted with type='review_edited_after_post'
     expect(allSqls.some((s) => s.includes('review_edited_after_post'))).toBe(true);
 
-    // Response must be superseded with posting_error='review_content_changed_during_park'
-    const supersedeCall = allSqls.find((s) => s.includes('review_content_changed_during_park'));
+    // Response must be superseded via markResponseSupersededWithReason
+    // (#1454) — 'review_content_changed_during_park' is now bound as
+    // posting_error's parameter, not a SQL-text literal, so it shows up in
+    // the call's params, not in strings.raw.
+    expect(allParams).toContain('review_content_changed_during_park');
+    const supersedeCall = allSqls.find((s) => s.includes("status = 'superseded'"));
     expect(supersedeCall).toBeDefined();
-    expect(supersedeCall).toContain('superseded');
   });
 
   it('content change on posted response: opens review_exception but does NOT supersede', async () => {
@@ -558,11 +562,13 @@ describe('processReview', () => {
       (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? ''),
     );
 
+    const allParams = (tx.mock.calls as unknown[][]).flatMap((call) => call.slice(1));
+
     // review_exception must be inserted
     expect(allSqls.some((s) => s.includes('review_edited_after_post'))).toBe(true);
 
     // Response must NOT be superseded — 'posted' is terminal
-    expect(allSqls.some((s) => s.includes('review_content_changed_during_park'))).toBe(false);
+    expect(allParams).not.toContain('review_content_changed_during_park');
     // Only 6 tx calls — no 7th UPDATE responses call
     expect(tx).toHaveBeenCalledTimes(6);
   });

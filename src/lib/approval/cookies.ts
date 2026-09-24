@@ -1,31 +1,7 @@
-import { randomUUID, createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
-
-/**
- * Constant-time hex-string compare. Returns false for mismatched lengths
- * without touching timingSafeEqual (which throws on length mismatch).
- * Wrapping the two paths in one helper keeps the short-circuit at the
- * same place for every caller so we don't forget elsewhere.
- */
-function safeHexCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-  } catch {
-    // Malformed hex (odd length, non-hex chars) → treat as mismatch.
-    return false;
-  }
-}
-
-/**
- * Constant-time raw-string compare for tokens that aren't guaranteed to be hex
- * (e.g. the double-submit CSRF UUID value). Uses UTF-8 bytes.
- */
-function safeStringCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
-}
+import { constantTimeEqual, signValue, verifySignedValue } from '@/lib/shared/signed-value';
 
 const DEVICE_COOKIE_NAME = '__device';
 const CSRF_COOKIE_NAME = '__csrf';
@@ -41,10 +17,7 @@ const DEVICE_COOKIE_MAX_AGE = 172800; // 48 hours in seconds
  */
 export function setDeviceCookie(response: NextResponse): string {
   const value = randomUUID();
-  const hmac = createHmac('sha256', getSessionCookieSecret())
-    .update(value)
-    .digest('hex');
-  const signed = `${value}.${hmac}`;
+  const signed = signValue(value, getSessionCookieSecret());
 
   response.cookies.set(DEVICE_COOKIE_NAME, signed, {
     httpOnly: true,
@@ -78,17 +51,7 @@ export function verifyDeviceCookie(request: NextRequest): boolean {
   const cookie = request.cookies.get(DEVICE_COOKIE_NAME);
   if (!cookie?.value) return false;
 
-  const parts = cookie.value.split('.');
-  if (parts.length !== 2) return false;
-
-  const [value, providedHmac] = parts;
-  if (!value || !providedHmac) return false;
-
-  const expectedHmac = createHmac('sha256', getSessionCookieSecret())
-    .update(value)
-    .digest('hex');
-
-  return safeHexCompare(providedHmac, expectedHmac);
+  return verifySignedValue(cookie.value, getSessionCookieSecret()) !== null;
 }
 
 // ── CSRF Cookie (double-submit pattern, NOT HttpOnly) ─────────────────
@@ -121,5 +84,5 @@ export function validateCsrf(request: NextRequest): boolean {
   const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
 
   if (!headerToken || !cookieToken) return false;
-  return safeStringCompare(headerToken, cookieToken);
+  return constantTimeEqual(headerToken, cookieToken);
 }

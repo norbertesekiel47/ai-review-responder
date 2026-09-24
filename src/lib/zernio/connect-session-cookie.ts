@@ -1,6 +1,6 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
+import { signValue, verifySignedValue } from '@/lib/shared/signed-value';
 
 /**
  * HMAC-signed cookie for the Zernio connect session.
@@ -21,15 +21,6 @@ export const ZERNIO_CONNECT_COOKIE_NAME = 'zernio_connect_session';
 const COOKIE_MAX_AGE_SECONDS = 900; // 15 min
 
 
-function safeHexCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Sets the signed connect-session cookie on the given response.
  */
@@ -37,10 +28,7 @@ export function setConnectSessionCookie(
   response: NextResponse,
   sessionId: string,
 ): void {
-  const hmac = createHmac('sha256', getSessionCookieSecret())
-    .update(sessionId)
-    .digest('hex');
-  const signed = `${sessionId}.${hmac}`;
+  const signed = signValue(sessionId, getSessionCookieSecret());
 
   response.cookies.set(ZERNIO_CONNECT_COOKIE_NAME, signed, {
     httpOnly: true,
@@ -71,20 +59,7 @@ export function readConnectSessionCookie(request: NextRequest): string | null {
 export function verifySignedConnectSessionValue(
   signedValue: string | undefined | null,
 ): string | null {
-  if (!signedValue) return null;
-
-  const parts = signedValue.split('.');
-  if (parts.length !== 2) return null;
-
-  const [sessionId, providedHmac] = parts;
-  if (!sessionId || !providedHmac) return null;
-
-  const expectedHmac = createHmac('sha256', getSessionCookieSecret())
-    .update(sessionId)
-    .digest('hex');
-
-  if (!safeHexCompare(providedHmac, expectedHmac)) return null;
-  return sessionId;
+  return verifySignedValue(signedValue, getSessionCookieSecret());
 }
 
 /**
