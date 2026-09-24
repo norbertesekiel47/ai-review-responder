@@ -14,7 +14,7 @@
 // paths still work below because ONLY those are excluded from the
 // project-service zone by its own `ignores`.
 //
-// Fixtures live under worker/{ingress,jobs}/__fixtures__/: `__fixtures__` is
+// Fixtures live under worker/{ingress,jobs}/__fixtures__/run-*/: `__fixtures__` is
 // in DEFAULT_SKIP_DIRS (scripts/ci/lib/ratchet-harness.ts), so even a
 // leftover from a crashed run stays invisible to ci:directory-map — but it
 // must NOT collide with either zone's OWN `ignores` (`**/__tests__/**`,
@@ -33,7 +33,7 @@
 // `__tests__`-exemption cases below still exercise the real, ignore-honoring
 // instance.
 import { ESLint } from 'eslint';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -47,14 +47,20 @@ vi.setConfig({ testTimeout: 120_000 });
 let eslint: ESLint;
 let eslintIgnoringNothing: ESLint;
 
-const ingressFixtureDir = path.join(process.cwd(), 'worker/ingress/__fixtures__');
-const jobsFixtureDir = path.join(process.cwd(), 'worker/jobs/__fixtures__');
+const ingressFixtureRoot = path.join(process.cwd(), 'worker/ingress/__fixtures__');
+const jobsFixtureRoot = path.join(process.cwd(), 'worker/jobs/__fixtures__');
 
-const ingressConsolePath = path.join(ingressFixtureDir, 'eslint-console-fixture.ts');
-const ingressConsoleMultiPath = path.join(ingressFixtureDir, 'eslint-console-multi-fixture.ts');
-const jobsConsolePath = path.join(jobsFixtureDir, 'eslint-console-fixture.ts');
-const unawaitedPromisePath = path.join(jobsFixtureDir, 'eslint-floating-promise-unawaited.ts');
-const awaitedPromisePath = path.join(jobsFixtureDir, 'eslint-floating-promise-awaited.ts');
+// Each run writes into its OWN mkdtemp subdirectory and removes only that.
+// lefthook's pre-push runs `test:changed` and `vitest run src/__tests__` in
+// parallel, so this file can run twice at once in one working directory; a
+// shared fixture dir let one run's rmSync delete the other's fixtures.
+let ingressFixtureDir: string;
+let jobsFixtureDir: string;
+let ingressConsolePath: string;
+let ingressConsoleMultiPath: string;
+let jobsConsolePath: string;
+let unawaitedPromisePath: string;
+let awaitedPromisePath: string;
 
 const unawaitedPromiseCode = [
   'async function doSomethingAsync(): Promise<void> {',
@@ -75,12 +81,15 @@ beforeAll(() => {
   eslint = new ESLint();
   eslintIgnoringNothing = new ESLint({ ignore: false });
 
-  // Self-healing: clear out anything a previous crashed run left behind
-  // before writing fresh fixtures.
-  rmSync(ingressFixtureDir, { recursive: true, force: true });
-  rmSync(jobsFixtureDir, { recursive: true, force: true });
-  mkdirSync(ingressFixtureDir, { recursive: true });
-  mkdirSync(jobsFixtureDir, { recursive: true });
+  mkdirSync(ingressFixtureRoot, { recursive: true });
+  mkdirSync(jobsFixtureRoot, { recursive: true });
+  ingressFixtureDir = mkdtempSync(path.join(ingressFixtureRoot, 'run-'));
+  jobsFixtureDir = mkdtempSync(path.join(jobsFixtureRoot, 'run-'));
+  ingressConsolePath = path.join(ingressFixtureDir, 'eslint-console-fixture.ts');
+  ingressConsoleMultiPath = path.join(ingressFixtureDir, 'eslint-console-multi-fixture.ts');
+  jobsConsolePath = path.join(jobsFixtureDir, 'eslint-console-fixture.ts');
+  unawaitedPromisePath = path.join(jobsFixtureDir, 'eslint-floating-promise-unawaited.ts');
+  awaitedPromisePath = path.join(jobsFixtureDir, 'eslint-floating-promise-awaited.ts');
 
   writeFileSync(ingressConsolePath, "console.log('leak');\nexport function handler(): void {}\n");
   writeFileSync(
