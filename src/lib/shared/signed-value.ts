@@ -37,32 +37,37 @@ function identity(value: string): string {
 }
 
 /**
- * Constant-time string compare. Decodes both inputs under `encoding` (default
- * `utf8`) and compares the resulting BYTE lengths before calling
- * `timingSafeEqual` — never the input strings' `.length` — so a mismatch never
- * throws, regardless of encoding:
+ * Constant-time string compare. TWO length checks, deliberately, not one:
  *
- * - Malformed/truncated hex (`Buffer.from(str, 'hex')` silently drops the tail
- *   at the first invalid character rather than throwing) produces a shorter
- *   buffer, caught by the byte-length check instead of surfacing as an
- *   uncaught `timingSafeEqual` "Input buffers must have the same byte length".
- * - A multi-byte UTF-8 character can make two equal-`.length` JS strings decode
- *   to different byte counts; the same byte-length check catches that too.
+ * 1. STRING length first (`a.length !== b.length`, the guard four of the seven
+ *    original call sites already carried) — REQUIRED, not redundant. With a
+ *    hex `encoding`, `Buffer.from(str, 'hex')` silently drops a trailing
+ *    partial byte or any invalid tail rather than throwing:
+ *    `Buffer.from('deadbeef', 'hex')` and `Buffer.from('deadbeef0', 'hex')`
+ *    (odd nibble appended) and `Buffer.from('deadbeefzz', 'hex')` (invalid
+ *    trailing chars) all decode to the identical 4 bytes. Without this check,
+ *    a genuine 64-char MAC with ANY garbage appended after it would decode to
+ *    the same bytes as the real MAC and wrongly compare equal — accepting a
+ *    string that is not the one that was issued. Caught here, before any
+ *    decode: a length mismatch this cheap does not need constant time.
+ * 2. BYTE length second, after decoding under `encoding` (default `utf8`) —
+ *    still needed because it catches what the string check cannot: a
+ *    multi-byte UTF-8 character can make two EQUAL-`.length` JS strings decode
+ *    to different byte counts (e.g. `'é'` vs `'a'`, both length 1), and this
+ *    is also what makes decoding never throw — `timingSafeEqual` throws on a
+ *    byte-length mismatch, so this check subsumes the try/catch three of the
+ *    seven originals wrapped around it for the malformed-hex case above.
  *
- * Both cases return `false` (not a match — correct) instead of throwing. This
- * generalizes the `a.length !== b.length` guard four of the seven original call
- * sites already carried (three of them additionally wrapped the decode+compare
- * in a try/catch for exactly the malformed-hex case above); no site loses
- * protection, and the two that only had a JS-length check gain byte-length
- * safety they lacked. The comparison itself, and what a mismatch reveals
- * (lengths differ — already observable pre-comparison, same as before), is
- * unchanged.
+ * Both length checks return `false` (not a match — correct), never throw. What
+ * a mismatch reveals (lengths differ) is already observable pre-comparison,
+ * same as before.
  */
 export function constantTimeEqual(
   a: string,
   b: string,
   encoding: BufferEncoding = 'utf8',
 ): boolean {
+  if (a.length !== b.length) return false;
   const aBytes = Buffer.from(a, encoding);
   const bBytes = Buffer.from(b, encoding);
   if (aBytes.length !== bBytes.length) return false;

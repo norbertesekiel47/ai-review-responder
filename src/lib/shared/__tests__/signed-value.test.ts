@@ -50,6 +50,28 @@ describe('constantTimeEqual', () => {
     expect(constantTimeEqual('abc', 'abcd', 'hex')).toBe(false);
   });
 
+  it('rejects a valid hex MAC with an odd trailing nibble appended, even though it decodes to the same bytes', () => {
+    // Buffer.from(str, 'hex') drops a trailing PARTIAL byte rather than
+    // throwing: 'deadbeef' and 'deadbeef0' both decode to [0xde, 0xad, 0xbe,
+    // 0xef]. A byte-length check alone would accept the 9-char string as a
+    // match for the 8-char one — a string that was never issued. The STRING
+    // length check (before any decode) must catch this.
+    const valid = 'deadbeef';
+    const paddedOddNibble = `${valid}0`;
+    expect(Buffer.from(valid, 'hex')).toEqual(Buffer.from(paddedOddNibble, 'hex'));
+    expect(constantTimeEqual(valid, paddedOddNibble, 'hex')).toBe(false);
+  });
+
+  it('rejects a valid hex MAC with invalid trailing characters appended, even though it decodes to the same bytes', () => {
+    // Same collision, via an even-length invalid tail: 'deadbeef' and
+    // 'deadbeefzz' both decode to [0xde, 0xad, 0xbe, 0xef] because Buffer.from
+    // stops at the first invalid hex pair rather than throwing or including it.
+    const valid = 'deadbeef';
+    const paddedGarbage = `${valid}zz`;
+    expect(Buffer.from(valid, 'hex')).toEqual(Buffer.from(paddedGarbage, 'hex'));
+    expect(constantTimeEqual(valid, paddedGarbage, 'hex')).toBe(false);
+  });
+
   it('treats a hex digest as literal UTF-8 text when compareEncoding is "utf8" (the impersonation-cookie deviation)', () => {
     // A hex digest re-encoded as hex bytes differs from the same string
     // compared as utf8 text — this pins that the two encodings are genuinely
@@ -99,6 +121,24 @@ describe('signValue / verifySignedValue', () => {
     const signed = signValue('abc', secret);
     const [, mac] = signed.split('.');
     expect(verifySignedValue(`xyz.${mac}`, secret)).toBeNull();
+  });
+
+  it('rejects a valid mac with an odd nibble appended ("<value>.<validmac>0")', () => {
+    // Regression for the hex decode-collision constantTimeEqual guards
+    // against: Buffer.from(mac + '0', 'hex') decodes to the SAME bytes as
+    // Buffer.from(mac, 'hex'), so without the string-length check this
+    // 65-char mac would wrongly verify.
+    const signed = signValue('abc', secret);
+    const [value, mac] = signed.split('.');
+    expect(verifySignedValue(`${value}.${mac}0`, secret)).toBeNull();
+  });
+
+  it('rejects a valid mac with invalid trailing hex characters ("<value>.<validmac>zz")', () => {
+    // Same collision via an even-length invalid tail: Buffer.from(mac + 'zz',
+    // 'hex') also decodes to the same bytes as Buffer.from(mac, 'hex').
+    const signed = signValue('abc', secret);
+    const [value, mac] = signed.split('.');
+    expect(verifySignedValue(`${value}.${mac}zz`, secret)).toBeNull();
   });
 
   it('returns null when verifying under a different secret', () => {
