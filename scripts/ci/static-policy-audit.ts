@@ -253,11 +253,13 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   // its dedup was unserialized), then when round-1 O3 replaced the copied
   // payload/enqueue block with the shared `enqueueInitialImport`. A line-keyed
   // allowlist shifts whenever anything is inserted above the entry.
-  // :147 → :280 → :256 (feat/stripe-customer-redaction): the out-of-order retry
-  // bound added constants and a predicate above it, then removing an
-  // AsyncLocalStorage ack channel shifted it partway back. Twice in one branch,
-  // which is the clearest demonstration yet of what "line-keyed" costs.
-  'worker/ingress/stripe/shared.ts:256',
+  // :147 → :280 → :256 → :259 (fix/1372-1366-worker-lint): the out-of-order
+  // retry bound added constants and a predicate above it, then removing an
+  // AsyncLocalStorage ack channel shifted it partway back, then #1372 threaded
+  // createWorkerLogger through this file (a new import + a module-level
+  // `logger` const above it). Three shifts in two branches — the clearest
+  // demonstration yet of what "line-keyed" costs.
+  'worker/ingress/stripe/shared.ts:259',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   // :167 → :168, :176 → :177, :283 unchanged (admin-invite-funnel T5 + D-11).
@@ -1275,6 +1277,24 @@ export function auditPackageJson(pkg: {
   return [];
 }
 
+/**
+ * `readFile`, tolerant of the file vanishing between `walk()`'s listing and
+ * this read — a TOCTOU gap, not a policy question. A local `verify-gate.sh`
+ * run scans `worker/**`/`src/**` in parallel with `pnpm test`, and a suite
+ * that writes+removes a REAL on-disk fixture for a type-aware ESLint rule
+ * (`src/__tests__/eslint-worker-zones.test.ts` — `@typescript-eslint/no-floating-promises`
+ * needs a file the TS project service can find, not a virtual `lintText`
+ * path) can delete its fixture in that exact window. Impossible in actual CI
+ * (the `lint` and `test` jobs run against separate checkouts), but the local
+ * gate shares one working directory across every parallel row.
+ */
+export async function readFileTolerateVanished(path: string): Promise<string | undefined> {
+  return readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+}
+
 async function main(): Promise<void> {
   const root = process.cwd();
 
@@ -1283,7 +1303,9 @@ async function main(): Promise<void> {
   const findings: PolicyFinding[] = [];
   for (const file of files) {
     if (file === SELF) continue;
-    findings.push(...scanFile(file, await readFile(resolve(root, file), 'utf8')));
+    const contents = await readFileTolerateVanished(resolve(root, file));
+    if (contents === undefined) continue;
+    findings.push(...scanFile(file, contents));
   }
 
   // Existing policy rules intentionally skip tests. Legacy-tier removal needs a
@@ -1298,9 +1320,9 @@ async function main(): Promise<void> {
   const alreadyScanned = new Set(files);
   for (const file of legacyTierFiles) {
     if (file === SELF || alreadyScanned.has(file)) continue;
-    findings.push(
-      ...scanLegacySubscriptionTiers(file, await readFile(resolve(root, file), 'utf8')),
-    );
+    const contents = await readFileTolerateVanished(resolve(root, file));
+    if (contents === undefined) continue;
+    findings.push(...scanLegacySubscriptionTiers(file, contents));
   }
 
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));

@@ -20,6 +20,7 @@ import {
 } from '../../../src/lib/accounts/tier-snapshot';
 import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
 import { reportCaughtError } from '../../../src/lib/shared/report-caught-error';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import type { CheckoutAttemptLeaseColumns } from '../../../src/lib/payments/checkout-attempt';
 import {
@@ -702,26 +703,27 @@ async function projectCheckoutSubscription(
 export async function processCheckoutSessionCompleted(
   session: Stripe.Checkout.Session,
 ): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, session.id);
   const refId = session.client_reference_id ?? session.metadata?.business_id;
   if (!refId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed missing client_reference_id — skipping`);
+    logger.warn('checkout.session.completed missing client_reference_id — skipping');
     return;
   }
   if (!UUID_RE.test(refId)) {
-    console.warn(
-      `${LOG_PREFIX} checkout.session.completed has malformed ref_id=${JSON.stringify(refId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
+    logger.warn(
+      `checkout.session.completed has malformed ref_id=${JSON.stringify(refId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
     );
     return;
   }
   if (session.mode !== 'subscription') {
-    console.warn(`${LOG_PREFIX} checkout.session.completed mode=${session.mode} (not subscription) — skipping activation`);
+    logger.warn(`checkout.session.completed mode=${session.mode} (not subscription) — skipping activation`);
     return;
   }
   if (
     session.payment_status !== 'paid' &&
     session.payment_status !== 'no_payment_required'
   ) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid/no_payment_required) — skipping activation for ref ${refId}`);
+    logger.warn(`checkout.session.completed payment_status=${session.payment_status} (not paid/no_payment_required) — skipping activation for ref ${refId}`);
     return;
   }
 
@@ -746,8 +748,8 @@ export async function processCheckoutSessionCompleted(
     // but before this webhook is projected. The signed event plus provider-
     // current Session/subscription identity is still enough to stop future
     // billing; silently acknowledging here would orphan the subscription.
-    console.warn(
-      `${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — retrieving provider state for remediation`,
+    logger.warn(
+      `checkout.session.completed ref_id=${refId} matches neither account nor business — retrieving provider state for remediation`,
     );
     accountId = refId;
   }

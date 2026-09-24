@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   scanFile,
@@ -9,6 +12,7 @@ import {
   scanSqlExecutorTagNames,
   scanWorkerNodeEnvReads,
   scanSameOriginHandlerReturnTypes,
+  readFileTolerateVanished,
 } from '../static-policy-audit';
 import { SQL_TAG_NAMES } from '../lib/sql-tag-scan';
 
@@ -441,7 +445,11 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     // window predicate above the cited line, then partway back when an
     // AsyncLocalStorage ack channel was replaced by a typed return value. Two
     // moves in one branch, from edits that never touched the cited statement.
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:256')).toBe(true);
+    // Then :256 → :259 in fix/1372-1366-worker-lint: #1372 threaded
+    // createWorkerLogger through this file (a new import + a module-level
+    // `logger` const above it) — a third move, still never touching the cited
+    // statement.
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:259')).toBe(true);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:177')).toBe(true);
   });
 });
@@ -924,5 +932,48 @@ describe('scanSameOriginHandlerReturnTypes — no wrapped handler opts itself ou
     const source = 'export const POST = withSameOrigin()(async (): Promise<Response> => json());';
     expect(scanFile(ROUTE, source).map((finding) => finding.rule))
       .toContain('same-origin-handler-return-type');
+  });
+});
+
+// #1372: a local `verify-gate.sh` run scans worker/**+src/** in parallel with
+// `pnpm test`, and a suite that writes+removes a REAL on-disk ESLint fixture
+// (src/__tests__/eslint-worker-zones.test.ts, for the type-aware
+// no-floating-promises zone — it needs a file the TS project service can
+// find, not a virtual lintText path) can delete that fixture in the exact
+// window between this audit's walk() listing and its readFile. Impossible in
+// actual CI (the lint and test jobs run against separate checkouts), but a
+// file-scanning tool should tolerate its target vanishing between list and
+// read regardless of who raced it.
+describe('readFileTolerateVanished — TOCTOU tolerance for a file removed mid-scan', () => {
+  it('returns the contents of a file that exists', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'static-policy-toctou-'));
+    try {
+      const path = join(dir, 'present.ts');
+      writeFileSync(path, 'export const x = 1;\n');
+      expect(await readFileTolerateVanished(path)).toBe('export const x = 1;\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns undefined, not a throw, for a path that does not exist', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'static-policy-toctou-'));
+    try {
+      const path = join(dir, 'never-written.ts');
+      expect(await readFileTolerateVanished(path)).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-throws a non-ENOENT error (e.g. EISDIR) rather than swallowing it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'static-policy-toctou-'));
+    try {
+      // Reading a directory as a file is a real error this helper must NOT
+      // mask — only "vanished between list and read" is tolerated.
+      await expect(readFileTolerateVanished(dir)).rejects.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

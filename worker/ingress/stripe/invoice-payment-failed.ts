@@ -6,6 +6,7 @@ import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe } from 
 import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
 import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-events';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 type TxSql = postgres.TransactionSql;
 const STRIPE_STATUS_READ_TIMEOUT_MS = 20_000;
@@ -40,9 +41,10 @@ async function recordTrialConversionFailureIfRecent(
 }
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX, invoice.id);
   const customerId = extractCustomerId(invoice.customer);
   if (!customerId) {
-    console.warn(`${LOG_PREFIX} invoice.payment_failed missing customer — skipping`);
+    logger.warn('invoice.payment_failed missing customer — skipping');
     return;
   }
 
@@ -53,7 +55,7 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
   // id; absent it we cannot attribute the failure to an account → no-op.
   const failedSubscriptionId = invoiceSubscriptionId(invoice);
   if (!failedSubscriptionId) {
-    console.warn(`${LOG_PREFIX} invoice.payment_failed for customer=${customerId} has no subscription id — skipping (cannot attribute to an account)`);
+    logger.warn(`invoice.payment_failed for customer=${customerId} has no subscription id — skipping (cannot attribute to an account)`);
     return;
   }
 
@@ -69,7 +71,7 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
       AND stripe_subscription_id = ${failedSubscriptionId}
   `;
   if (!accountRef) {
-    console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} subscription=${failedSubscriptionId} — skipping`);
+    logger.warn(`invoice.payment_failed no account found for customer=${customerId} subscription=${failedSubscriptionId} — skipping`);
     return;
   }
 
@@ -90,10 +92,10 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
       subscription,
     );
     if (!transition.changed) {
-      console.log(`${LOG_PREFIX} Account ${accountRef.id} already ${transition.toStatus ?? 'missing'} — skipping past_due transition`);
+      logger.log(`Account ${accountRef.id} already ${transition.toStatus ?? 'missing'} — skipping past_due transition`);
       return;
     }
-    console.log(`${LOG_PREFIX} Account ${accountRef.id} projected to ${transition.toStatus} (customer=${customerId})`);
+    logger.log(`Account ${accountRef.id} projected to ${transition.toStatus} (customer=${customerId})`);
     if (
       transition.fromStatus === SubscriptionStatus.ACTIVE
       && transition.toStatus === SubscriptionStatus.PAST_DUE

@@ -23,6 +23,7 @@ import { sql } from '../../src/lib/db/server';
 import { maskChannelHandle } from '../../src/lib/notifications/mask-handle';
 import { checkSubscription, type AccountFlagsInput } from '../../src/lib/shared/subscription-guard';
 import type { MobileChannel } from '../../src/lib/channels/mobile-enrollment';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ingress/conversational-seam]';
 
@@ -37,8 +38,8 @@ export async function handleConversationalMessage(input: ConversationalSeamInput
   // Today: NO reply on either branch. The gate is structural — a future agent
   // plugs its response in ONLY behind `authorized === true`. Logging both
   // branches makes the seam observable without leaking any message content.
-  console.log(
-    `${LOG_PREFIX} noop channel=${input.channel} sender=${maskChannelHandle(input.channel, input.senderHandle)} ` +
+  createWorkerLogger(LOG_PREFIX).log(
+    `noop channel=${input.channel} sender=${maskChannelHandle(input.channel, input.senderHandle)} ` +
     `authorized=${authorized} — acknowledged, no reply (future-agent seam; see ADR 0003)`,
   );
 }

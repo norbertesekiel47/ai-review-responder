@@ -14,20 +14,22 @@ import {
 } from './shared';
 import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 export async function processSubscriptionDeleted(
   sub: Stripe.Subscription,
   eventContext: StripeEventContext,
 ): Promise<StripeSubscriptionAck> {
+  const logger = createWorkerLogger(LOG_PREFIX, eventContext.id);
   const subscriptionId = sub.id;
   if (!subscriptionId) {
-    console.warn(`${LOG_PREFIX} customer.subscription.deleted missing subscription id — skipping`);
+    logger.warn('customer.subscription.deleted missing subscription id — skipping');
     return HANDLED_NORMALLY;
   }
 
   const customerId = extractCustomerId(sub.customer);
   if (!customerId) {
-    console.warn(`${LOG_PREFIX} customer.subscription.deleted missing customer — skipping`);
+    logger.warn('customer.subscription.deleted missing customer — skipping');
     return HANDLED_NORMALLY;
   }
 
@@ -67,11 +69,11 @@ export async function processSubscriptionDeleted(
     // D7 bounds that throw. The window predicate and its boundary live in
     // ./shared so this arm and subscription-updated's cannot drift apart.
     if (outOfOrderRetryWindowOpen(eventContext.created)) {
-      console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
+      logger.warn(`customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
       throw new AccountNotProvisionedYetError(customerId);
     }
-    console.warn(
-      `${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} after ${OUT_OF_ORDER_RETRY_WINDOW_SECONDS}s — acking event=${eventContext.id}; the inbound_events row is retained as stale_ignored and stays replayable`,
+    logger.warn(
+      `customer.subscription.deleted no account found for customer=${customerId} after ${OUT_OF_ORDER_RETRY_WINDOW_SECONDS}s — acking event=${eventContext.id}; the inbound_events row is retained as stale_ignored and stays replayable`,
     );
     warnStripeSubscriptionEventAckedForAge({
       eventContext,
@@ -94,13 +96,13 @@ export async function processSubscriptionDeleted(
       (a) => a.active_offboarding_subscription_id === subscriptionId,
     );
     if (offboardingMatch) {
-      console.log(
-        `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${offboardingMatch.id} but not its current subscription — skipping live status update`,
+      logger.log(
+        `customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${offboardingMatch.id} but not its current subscription — skipping live status update`,
       );
       return HANDLED_NORMALLY;
     }
-    console.warn(
-      `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} does not match any account's current/active-offboarding subscription for customer=${customerId} — skipping`,
+    logger.warn(
+      `customer.subscription.deleted subscription=${subscriptionId} does not match any account's current/active-offboarding subscription for customer=${customerId} — skipping`,
     );
     return HANDLED_NORMALLY;
   }
