@@ -284,14 +284,19 @@ export interface TenantScopeAllowlistEntry {
 //     that an account-level refusal was otherwise holding for 72h, so each has
 //     to see every account before it can decide which ones to drop.
 //     380 -> 382.
+// - fix/1106-orphan-cost-line: +1. margin-service.ts's new #1106 orphan
+//   aggregate (response-generation api_costs rows with response_id still
+//   NULL) is the same platform-wide, no-tenant-filter query shape as its
+//   three siblings on this file — one entry became four.
+//   383 -> 384.
 //   - fix/1454-transition-owner: -3. Three `responses` UPDATE sites
 //     (process-review.ts's two parked/regenerate supersede writes, the
 //     zernio-queue admin dismiss) moved behind
 //     src/lib/approval/transitions.ts's markResponseSuperseded /
 //     markResponseSupersededWithReason, which bind `business_id` explicitly
 //     on every call — the allowlist entries excusing their prior unscoped
-//     `WHERE id = ...` shape are no longer live findings. 383 -> 380.
-export const ALLOWLIST_BASELINE = 380;
+//     `WHERE id = ...` shape are no longer live findings. 384 -> 381.
+export const ALLOWLIST_BASELINE = 381;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -925,6 +930,17 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
       WHERE created_at >= NOW() - INTERVAL '30 days'`,
     category: 'platform-cross-account',
     reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
+  },
+  {
+    file: "src/lib/admin/margin-service.ts",
+    table: "api_costs",
+    sqlSnippet: `SELECT COUNT(*)::int AS count, COALESCE(SUM(cost_usd), 0)::float AS cost_usd
+      FROM api_costs
+      WHERE response_id IS NULL
+        AND endpoint = \${RESPONSE_GENERATION_ENDPOINT}
+        AND created_at >= NOW() - INTERVAL '30 days'`,
+    category: 'platform-cross-account',
+    reason: "#1106: admin-only orphaned-response-generation-attempt aggregate, same platform/account margin surface (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
   },
   {
     file: "src/lib/dashboard/aggregate-service.ts",

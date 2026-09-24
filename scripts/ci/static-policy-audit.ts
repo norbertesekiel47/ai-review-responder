@@ -228,9 +228,11 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   // predicate identically on purpose; divergent spellings of one rule rot.
   'src/app/api/onboarding/business/route.ts:375',
   'src/app/api/onboarding/start/route.ts:126',
-  // Line moved 142 → 149 by #773 (Promise.all fan-out sequenced); same SQL
-  // predicate, same trailing `-- enum:` annotation, unchanged text.
-  'src/lib/admin/margin-service.ts:149',
+  // Line moved 142 → 149 by #773 (Promise.all fan-out sequenced), then
+  // 149 → 180 by #1106 (new #1106 header comment + import + orphan-cost
+  // query added above it); same SQL predicate, same trailing `-- enum:`
+  // annotation, unchanged text.
+  'src/lib/admin/margin-service.ts:180',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:124',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',
@@ -1256,6 +1258,32 @@ export function auditRailwayConfig(file: string, text: string): PolicyFinding[] 
   return findings;
 }
 
+// #613: a Railway service's config-as-code file does not have to live at the
+// repo root. "Using a custom config as Code file" (docs.railway.com/
+// config-as-code) sets an absolute REPO path per service — the docs' own
+// example is `/backend/railway.toml`, same basename, a different directory —
+// and that setting lives in Railway, not in this repo, so a static check
+// cannot read WHICH path a given service actually names. Reading only the two
+// root literals missed every relocated file entirely. This widens to every
+// git-tracked file with one of the two exact basenames, at any depth, rather
+// than guessing at the service setting.
+const RAILWAY_CONFIG_BASENAME_RE = /^railway\.(?:toml|json)$/;
+// `.git` holds no file literally named `railway.toml`/`.json` (objects are
+// SHA-named), but excluding it keeps the walk from descending into it anyway.
+const RAILWAY_CONFIG_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.next', 'coverage']);
+
+/** Every `railway.toml`/`railway.json` in the repo, at any depth. Exported for unit tests. */
+export async function listRailwayConfigFiles(root: string): Promise<string[]> {
+  return (
+    await walk(root, {
+      scanDirs: ['.'],
+      scanExt: RAILWAY_CONFIG_BASENAME_RE,
+      skipDirs: RAILWAY_CONFIG_SKIP_DIRS,
+      skipFile: /a^/,
+    })
+  ).sort();
+}
+
 /** Forbid crypto-js as a declared dependency. Pure — unit-tested. */
 export function auditPackageJson(pkg: {
   dependencies?: Record<string, string>;
@@ -1306,9 +1334,8 @@ async function main(): Promise<void> {
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   findings.push(...auditPackageJson(pkg));
 
-  for (const railwayConfig of ['railway.toml', 'railway.json']) {
-    const text = await readFile(resolve(root, railwayConfig), 'utf8').catch(() => undefined);
-    if (text !== undefined) findings.push(...auditRailwayConfig(railwayConfig, text));
+  for (const railwayConfig of await listRailwayConfigFiles(root)) {
+    findings.push(...auditRailwayConfig(railwayConfig, await readFile(resolve(root, railwayConfig), 'utf8')));
   }
 
   if (findings.length > 0) {

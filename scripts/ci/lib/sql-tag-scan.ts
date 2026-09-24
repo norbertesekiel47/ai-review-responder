@@ -18,6 +18,16 @@
 // SqlExecutor-typed parameter in src/ or worker/ is used as a template tag
 // under a name this set does not contain. Adding a spelling here is a
 // deliberate edit; introducing one without adding it fails CI.
+//
+// `isUnsafeCall` / `resolveUnsafeCallSql` below are the CALL-form counterpart
+// (#613): `sql.unsafe(query, params)` is a `CallExpression`, not a
+// `TaggedTemplateExpression`, so it is invisible to every one of the four
+// guards above no matter what SQL_TAG_NAMES contains. outbox-seam-audit.ts
+// and outbox-status-audit.ts are the two that scan `job_outbox` shapes the
+// live call sites (notifications-service.ts, business-detail/update.ts)
+// could otherwise bypass, so those two wire this in; the other guards keep
+// their existing tagged-template-only scope until a live call-form violation
+// gives them the same reason to widen.
 import ts from 'typescript';
 
 /**
@@ -51,6 +61,78 @@ export function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean 
     return SQL_TAG_NAMES.has(tag.expression.text);
   }
   return false;
+}
+
+/**
+ * True when `node` is a CALL of `<sql-like>.unsafe(query, params)` —
+ * postgres.js's raw-SQL escape hatch used in its CALL form, as opposed to the
+ * tagged-template form (`` sql.unsafe`…` ``) `isSqlTaggedTemplate` already
+ * sees via the property-access branch. The two are different AST node kinds
+ * (`CallExpression` vs `TaggedTemplateExpression`), so a scan that only visits
+ * `TaggedTemplateExpression` nodes is blind to this one regardless of what
+ * SQL_TAG_NAMES contains (#613) — the live shape is `sql.unsafe(dataQuery,
+ * queryParams)` (`src/lib/admin/notifications-service.ts`) and
+ * `tx.unsafe(query, values)` (`src/lib/admin/business-detail/update.ts`),
+ * never the tagged-template spelling.
+ */
+export function isUnsafeCall(node: ts.CallExpression): boolean {
+  const callee = node.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  if (callee.name.text !== 'unsafe') return false;
+  return ts.isIdentifier(callee.expression) && SQL_TAG_NAMES.has(callee.expression.text);
+}
+
+/** The SQL text of a string or template literal node, in the shape a scanner expects. */
+function literalSqlText(node: ts.Node): string | null {
+  if (ts.isStringLiteralLike(node)) return node.text;
+  if (ts.isTemplateExpression(node)) return node.getText(node.getSourceFile());
+  return null;
+}
+
+/**
+ * The literal SQL text of a `.unsafe(query, …)` call's first argument.
+ * Two readable shapes:
+ *
+ *  - the argument IS a string or template literal, inline at the call site;
+ *  - the argument is an IDENTIFIER whose UNIQUE `const` declaration in the
+ *    same source file initializes it to a string or template literal — the
+ *    shape every production `.unsafe()` call in this codebase actually uses
+ *    (the query text is built once into a `const`, then passed by name).
+ *
+ * Returns null for anything else: a function call, a ternary, a reassignable
+ * `let`, or a name with more than one matching `const` declaration (ambiguous
+ * — resolving the wrong one is worse than not resolving). Consistent with
+ * `findOutboxInserts`'s own posture, this scanner does not GUESS at a query
+ * it cannot read; it treats "cannot read" as "found nothing to scan", not as
+ * a pass, because a table-mention check never runs against text it never
+ * gets. `${…}` substitutions inside a resolved template literal are still
+ * masked by the caller exactly as a tagged template's are — `.getText()`
+ * preserves them verbatim.
+ */
+export function resolveUnsafeCallSql(node: ts.CallExpression, source: ts.SourceFile): string | null {
+  const [arg] = node.arguments;
+  if (!arg) return null;
+  const inline = literalSqlText(arg);
+  if (inline !== null) return inline;
+  if (!ts.isIdentifier(arg)) return null;
+
+  const candidates: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === arg.text &&
+      n.initializer &&
+      ts.isVariableDeclarationList(n.parent) &&
+      (n.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      const text = literalSqlText(n.initializer);
+      if (text !== null) candidates.push(text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return candidates.length === 1 ? candidates[0]! : null;
 }
 
 /**

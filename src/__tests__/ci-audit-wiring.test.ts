@@ -16,6 +16,34 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = resolve(process.cwd());
 const WORKFLOWS_DIR = join(ROOT, '.github', 'workflows');
+const CI_YML = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf-8');
+
+/**
+ * One top-level job's YAML, comment-stripped, out of an arbitrary workflow
+ * text — the pure half of `jobBlock`, split out so a fixture text (#613's
+ * "a script moved into an advisory job" fixture below) can exercise the same
+ * slicing the real ci.yml scan depends on, without reading the real file.
+ *
+ * Comments are removed for the same reason `ci:admin-aal2` strips them: prose
+ * describing a service container must never satisfy a check for one. The slice
+ * runs to the next 2-space-indented key, which can trail the following job's
+ * comment header — stripping makes that bleed inert instead of load-bearing.
+ */
+function jobBlockOf(text: string, job: string): string {
+  const start = text.indexOf(`\n  ${job}:\n`);
+  expect(start, `workflow text has no top-level "${job}" job`).toBeGreaterThan(-1);
+  const rest = text.slice(start + 1);
+  const next = rest.search(/\n {2}[a-zA-Z0-9_-]+:\n/);
+  return (next === -1 ? rest : rest.slice(0, next + 1))
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
+
+/** `jobBlockOf` against the real ci.yml. */
+function jobBlock(job: string): string {
+  return jobBlockOf(CI_YML, job);
+}
 
 /**
  * Scripts that deliberately gate nothing. Each needs a reason, because the
@@ -34,6 +62,11 @@ const UNGATED_BY_DESIGN: Record<string, string> = {
  * Scripts that run in ci.yml but are deliberately NOT mirrored in lefthook.yml.
  * Each needs a reason: lefthook's header promises every ci.yml audit runs
  * locally too, so an unmirrored one reads as drift unless it says why not.
+ *
+ * Doubles as the "wired outside the `lint` job, on purpose" excuse for the
+ * `%s runs in the lint job…` check below — every member here already carries
+ * a reason its real home is a DIFFERENT ci.yml job, which is the same fact
+ * stated once rather than twice.
  */
 const CI_ONLY_BY_DESIGN: Record<string, string> = {
   // Its input is a full `vitest run --coverage` (the `test` job's artifact) —
@@ -45,11 +78,15 @@ const CI_ONLY_BY_DESIGN: Record<string, string> = {
   'ci:fallow:coverage': 'coverage-informed gate; input is a full coverage run',
 };
 
-/** Every `pnpm ci:<name>` invocation in a file, whatever the surrounding YAML. */
-function ciScriptsInvokedIn(path: string): Set<string> {
-  const text = readFileSync(path, 'utf-8');
+/** Every `pnpm ci:<name>` invocation named in a text blob. */
+function ciScriptsIn(text: string): Set<string> {
   const invocations = text.matchAll(/\bpnpm\s+(?:-s\s+)?(ci:[a-z0-9:-]+)/g);
   return new Set([...invocations].map((match) => match[1]!));
+}
+
+/** Every `pnpm ci:<name>` invocation in a file, whatever the surrounding YAML. */
+function ciScriptsInvokedIn(path: string): Set<string> {
+  return ciScriptsIn(readFileSync(path, 'utf-8'));
 }
 
 function declaredCiScripts(): string[] {
@@ -60,13 +97,22 @@ function declaredCiScripts(): string[] {
 }
 
 const declared = declaredCiScripts();
-const inCi = ciScriptsInvokedIn(join(WORKFLOWS_DIR, 'ci.yml'));
+const inCi = ciScriptsIn(CI_YML);
 const inLefthook = ciScriptsInvokedIn(join(ROOT, 'lefthook.yml'));
 const inAnyWorkflow = new Set(
   readdirSync(WORKFLOWS_DIR)
     .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
     .flatMap((file) => [...ciScriptsInvokedIn(join(WORKFLOWS_DIR, file))]),
 );
+// #613: neither `inAnyWorkflow` (any workflow FILE, whole text) nor `inCi`
+// (ci.yml, whole FILE text) can tell a script wired into the required `lint`
+// job from one that only ever runs in an advisory job in the SAME file —
+// `fallow` is a job inside ci.yml, not a required status check (see that
+// job's own "NOT a required status check" comment), so a script silently
+// moved from `lint` into it reads as "wired" by either measure while gating
+// nothing GitHub actually blocks a merge on. Scoping to the `lint` job's own
+// text is what makes that move visible; see the wiring test below.
+const inLintJob = ciScriptsIn(jobBlock('lint'));
 
 describe('ci:* audit wiring', () => {
   it('includes the generated Admin API contract in package, lint CI and local pre-push', () => {
@@ -85,13 +131,24 @@ describe('ci:* audit wiring', () => {
     expect(inCi.size).toBeGreaterThan(10);
   });
 
-  it.each(declared)('%s runs in some workflow, or is ungated with a reason', (script) => {
-    const wired = inAnyWorkflow.has(script);
-    const excused = script in UNGATED_BY_DESIGN;
-    // An audit in neither column gates nothing at all — add it to a workflow,
-    // or record in UNGATED_BY_DESIGN why it is not a gate.
-    expect({ script, wired, excused }).toEqual({ script, wired: !excused, excused });
-  });
+  it.each(declared)(
+    '%s runs in the lint job, is wired to its own job on purpose, or is ungated with a reason',
+    (script) => {
+      const wiredInLint = inLintJob.has(script);
+      const ciOnly = script in CI_ONLY_BY_DESIGN;
+      const excused = script in UNGATED_BY_DESIGN;
+      // An audit in none of these three columns gates nothing GitHub actually
+      // requires — add it to the lint job, record why its real gate is a
+      // DIFFERENT ci.yml job in CI_ONLY_BY_DESIGN, or record in
+      // UNGATED_BY_DESIGN why it is not a gate at all. `inAnyWorkflow`/`inCi`
+      // alone cannot make this distinction (#613) — see the inLintJob comment.
+      expect({ script, wired: wiredInLint || ciOnly, excused }).toEqual({
+        script,
+        wired: !excused,
+        excused,
+      });
+    },
+  );
 
   it.each([...inCi].filter((script) => !(script in CI_ONLY_BY_DESIGN)))(
     '%s also runs in lefthook.yml',
@@ -123,6 +180,36 @@ describe('ci:* audit wiring', () => {
   it('excuses only scripts that exist', () => {
     expect(declared).toEqual(expect.arrayContaining(Object.keys(UNGATED_BY_DESIGN)));
     expect(declared).toEqual(expect.arrayContaining(Object.keys(CI_ONLY_BY_DESIGN)));
+  });
+
+  // #613: the shape this whole file used to miss. A script silently moved out
+  // of the required `lint` job into an advisory job in the SAME ci.yml file —
+  // `fallow` is real, but its own comment in ci.yml says it is "NOT a required
+  // status check" — used to read as "wired" because both `inCi` and
+  // `inAnyWorkflow` are WHOLE-FILE text matches, blind to which job a mention
+  // sits in. `inLintJob` is scoped to one job's text and closes that gap.
+  describe('a script moved from lint into an advisory job (#613)', () => {
+    const driftedFixture = [
+      'jobs:',
+      '  lint:',
+      '    steps:',
+      '      - run: pnpm ci:kept-in-lint',
+      '  fallow:',
+      '    # advisory only — not a required status check',
+      '    steps:',
+      '      - run: pnpm ci:quietly-moved',
+      '',
+    ].join('\n');
+
+    it('the whole-file scan still calls the moved script "wired" — the pre-#613 blind spot', () => {
+      expect(ciScriptsIn(driftedFixture).has('ci:quietly-moved')).toBe(true);
+    });
+
+    it('the lint-job-scoped scan does not — the #613 fix', () => {
+      const lintOnly = ciScriptsIn(jobBlockOf(driftedFixture, 'lint'));
+      expect(lintOnly.has('ci:kept-in-lint')).toBe(true);
+      expect(lintOnly.has('ci:quietly-moved')).toBe(false);
+    });
   });
 });
 
@@ -158,31 +245,11 @@ describe('ci:* audit wiring', () => {
 // script, because an audit that checks whether the DB lane is wired would have
 // to be wired itself.
 
-const CI_YML = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf-8');
 const E2E_YML = readFileSync(join(WORKFLOWS_DIR, 'e2e.yml'), 'utf-8');
 
 /** The `postgres:<major>` value from a `services:` image line in workflow YAML. */
 function postgresImageMajor(text: string): string | undefined {
   return text.match(/^\s+image:\s*postgres:(\d+)/m)?.[1];
-}
-
-/**
- * One top-level job's YAML, comment-stripped.
- *
- * Comments are removed for the same reason `ci:admin-aal2` strips them: prose
- * describing a service container must never satisfy a check for one. The slice
- * runs to the next 2-space-indented key, which can trail the following job's
- * comment header — stripping makes that bleed inert instead of load-bearing.
- */
-function jobBlock(job: string): string {
-  const start = CI_YML.indexOf(`\n  ${job}:\n`);
-  expect(start, `ci.yml has no top-level "${job}" job`).toBeGreaterThan(-1);
-  const rest = CI_YML.slice(start + 1);
-  const next = rest.search(/\n {2}[a-zA-Z0-9_-]+:\n/);
-  return (next === -1 ? rest : rest.slice(0, next + 1))
-    .split('\n')
-    .filter((line) => !/^\s*#/.test(line))
-    .join('\n');
 }
 
 /** Every `*.integration.test.ts` under src/ and worker/. */
