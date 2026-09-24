@@ -511,6 +511,10 @@ async function loadCandidateWindow(
   let priorSends: PriorSendRow[] = [];
   let attributedReviews: AttributedReviewRow[] = [];
   if (contactIds.length > 0) {
+    // Remnant asks and outreach (contact_id NULL after an owner Delete, ADR
+    // 0033 / #1350) never match `= ANY(...)`, so both lookups skip them: a
+    // re-uploaded handle is a new contact with no prior send and no attributed
+    // review. That gap reset is accepted by ADR 0033 decisions 3 and 4.
     priorSends = await tx<PriorSendRow[]>`
       SELECT DISTINCT ON (send_ask.contact_id)
         send_ask.contact_id::text AS contact_id,

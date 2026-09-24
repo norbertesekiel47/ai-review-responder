@@ -578,8 +578,10 @@ describeWithDb(
       expect(
         await constraintDefinition('solicitation_outreach_ask_tenant_fk', 'solicitation_outreach'),
       ).toContain(
+        // 091 shipped CASCADE; migration 126 (#1350, ADR 0033) scopes it to
+        // ask_id so an Outreach remnant survives its ask. Read at head.
         'FOREIGN KEY (ask_id, account_id, business_id) ' +
-          'REFERENCES solicitation_asks(id, account_id, business_id) ON DELETE CASCADE',
+          'REFERENCES solicitation_asks(id, account_id, business_id) ON DELETE SET NULL (ask_id)',
       );
     });
 
@@ -1257,9 +1259,10 @@ describeWithDb(
         'FOREIGN KEY (batch_id, account_id, business_id) ' +
           'REFERENCES solicitation_batches(id, account_id, business_id) ON DELETE CASCADE',
       );
+      // Migration 126 (#1350) replaced 091's CASCADE with the column-scoped form.
       expect(byName.get('solicitation_outreach_contact_business_fk')).toContain(
         'FOREIGN KEY (contact_id, business_id) ' +
-          'REFERENCES solicitation_contacts(id, business_id) ON DELETE CASCADE',
+          'REFERENCES solicitation_contacts(id, business_id) ON DELETE SET NULL (contact_id)',
       );
       expect(byName.get('solicitation_outreach_run_tenant_fk')).toContain(
         'FOREIGN KEY (account_id, business_id, agent_run_id) ' +

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **125** — next migration is **126**
+Current head: **126** — next migration is **127**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -45,9 +45,9 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `approval_audit_log` | **keep forever** — deliberate | none (backs invariant #3's recorded-approval evidence chain) |
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
 | `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
-| `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
+| `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge. **Owner contact Delete (126, ADR 0033):** a settled ask survives as a remnant — `contact_id` NULL, `evidence` reduced to `{decision, reason}`; an in-flight ask is deleted | `solicitation_batches` cascade; `deleteContact` (contacts-repo.ts) |
 | `solicitation_consent` | **No TTL — consent rows never expire (§7.3)**; a consent row outliving or predeceasing its contact would desynchronize the two. Hard-deleted with the contact on per-contact delete (same transaction, by handle — the ledger has no FK to `solicitation_contacts`) and on offboarding purge (`must_be_absent`) — consent fails closed; suppression fails open (DR1), which is why these rows are destroyed where #621's suppression rows are retained | contact-delete path (#625) + `businesses` `ON DELETE CASCADE`; purge verification via `TABLE_DISPOSITIONS` (`hard_delete`, `direct_business_id`) |
-| `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
+| `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. **Owner contact Delete (126, ADR 0033):** a terminal row survives as an **Outreach remnant** — `contact_id` NULL, body/inputs/provider id/provider error/consent row id/attributed review id cleared and `body_redacted_at` stamped at once, breaker signals kept; a live row is deleted with its in-flight ask. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
 | `solicitation_suppressions` | **No TTL — an opt-out never expires (§2.1)**; a time limit on an opt-out is a violation with a cron job attached. Splits on **Suppression scope** at offboarding purge (D7): `scope='global'` rows are **retained** with `account_id` intact — the recipient's revocation against our one shared sending identity is not the account's data, and deleting one would let us mail a person who opted out (#535 §6 through a different door) — while `scope='account'` (`owner_manual`) rows hard-delete with the account. The only removal path for a retained row is the admin-only, audited **Correction path** (#645) | ArchivalPoller deliberately untouched; offboarding purge content stage + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention` — ONE entry for both scopes, #643 G2) |
 | `solicitation_unsubscribe_tokens` | **No TTL, no expiry** (§2.2): CAN-SPAM §7704(a)(3) requires the link operate ≥30 days, and there is no expiry value better than none. **Row kept; provenance scrubbed.** The offboarding purge NULLs `account_id`/`business_id`/`ask_id` and keeps `token_hash`, `normalized_handle`, `channel` and `sent_at`, so redemption still works after the sender is gone (§5.2). `outreach_id` nulls independently via `ON DELETE SET NULL` (#643 G1) whenever its outreach row is deleted, account alive or not | ArchivalPoller deliberately untouched; offboarding purge token scrub + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`) |
 | `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Retains `normalized_handle` indefinitely — the minimum needed to identify WHICH opt-out was removed, since `suppression_id` points at a deleted row — matching the retention posture of the `scope='global'` ledger rows it describes (spec D7). **Row kept WHOLE**, including the corrected row's `account_id`, `created_by_user_id` and `note` (D-A11): those are the evidence the removed assertion was legitimate, and for a `scope='account'` row `account_id` is the **Suppression scope** key rather than provenance | No poller touches it; the offboarding purge neither deletes nor scrubs it. Classified in `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`), and its purge-verification arm inverts the siblings above — it counts a record that survived having LOST its evidence, not one that survived at all |
@@ -2531,6 +2531,31 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **126** — Outreach remnant survives a contact delete (#1350, ADR 0033).
+  **LOCAL-ONLY** — written and verified against the rebuildable local test
+  container only; this PR does NOT apply it to staging or production (the
+  owner applies staging-first, then production, in lockstep; removing this
+  marker is that promotion change). Re-points three composite FKs to PG15's
+  column-scoped form — `solicitation_asks_contact_business_fk` and
+  `solicitation_outreach_contact_business_fk` → `ON DELETE SET NULL
+  (contact_id)`, `solicitation_outreach_ask_tenant_fk` → `ON DELETE SET NULL
+  (ask_id)` — and drops NOT NULL on `solicitation_asks.contact_id`,
+  `solicitation_outreach.contact_id`, `solicitation_outreach.ask_id`. Both
+  cascade edges move (the ask edge alone would still destroy the row); a bare
+  SET NULL would null `business_id`/`account_id` too. One transaction, `SET
+  LOCAL lock_timeout = '10s'`, FKs added `NOT VALID` then `VALIDATE`d.
+  `solicitation_asks_batch_contact_uniq` stays NULLS DISTINCT on purpose — the
+  second remnant in a batch would otherwise fail the delete. The redaction is
+  a write in `deleteContact`, not here. No new table/column/index/RLS change.
+  **Deploy the #1350 code to an environment BEFORE applying 126 there:** the
+  old `deleteContact` on this schema would leave UNREDACTED remnants.
+  Verify (both projects): `SELECT conname, pg_get_constraintdef(oid) FROM
+  pg_constraint WHERE conname IN ('solicitation_asks_contact_business_fk',
+  'solicitation_outreach_contact_business_fk',
+  'solicitation_outreach_ask_tenant_fk')` shows the three `SET NULL (col)`
+  definitions, and `information_schema.columns` shows the three columns
+  `is_nullable = 'YES'`.
 
 - **125** — Backfill `accounts.cancelled_at` for legacy cancellations (#1455).
   **Applied 2026-09-24 to staging, then production** (lockstep). Both
