@@ -1,3 +1,5 @@
+developer_instructions = "Use Simplified Technical English: short direct sentences, familiar words, explain necessary technical terms, keep all material evidence."
+
 sandbox_mode = "workspace-write"
 web_search = "live"
 model_verbosity = "high"
@@ -34,3 +36,23 @@ inherit = "core"
 
 [shell_environment_policy.set]
 CLAUDE_CODE_SUBAGENT_MODEL = "sonnet"
+
+[mcp_servers.higgsfield]
+url = "https://mcp.higgsfield.ai/mcp"
+
+[mcp_servers.runway]
+url = "https://mcp.runwayml.com/mcp"
+
+[mcp_servers.openart]
+url = "https://mcp.openart.ai/mcp"
+
+[mcp_servers."21st"]
+url = "https://21st.dev/api/mcp"
+enabled = false
+env_http_headers = { "x-api-key" = "TWENTYFIRST_API_KEY" }
+
+[mcp_servers.atlascloud]
+command = "npx"
+args = ["--no-install", "atlascloud-mcp"]
+env_vars = ["ATLASCLOUD_API_KEY"]
+enabled = false

@@ -18,8 +18,7 @@
       "mcp__claude-in-chrome__read_page",
       "mcp__claude-in-chrome__find",
       "mcp__claude-in-chrome__read_network_requests",
-      "mcp__claude_ai_Gmail__search_threads",
-      "Bash(graft:*)"
+      "mcp__claude_ai_Gmail__search_threads"
     ]
   },
   "hooks": {

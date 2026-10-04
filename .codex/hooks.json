@@ -53,6 +53,16 @@
             "statusMessage": "Design deep pass"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/norbertesekiel/.codex/hooks/workflow/run.py unlazy",
+            "timeout": 10,
+            "statusMessage": "Checking unlazy evidence"
+          }
+        ]
       }
     ],
     "PostToolUse": [
