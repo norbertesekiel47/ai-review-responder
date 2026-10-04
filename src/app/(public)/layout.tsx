@@ -1,5 +1,10 @@
+import { ClosedBanner } from '@/components/ui/ClosedBanner';
+
 /**
  * Layout for all public (marketing, auth, approve, demo) routes.
+ *
+ * RepWorth has shut down: `ClosedBanner` follows the skip link on every public
+ * page (the skip link stays the first focusable element).
  *
  * Renders a skip-to-content link as the FIRST focusable element so keyboard /
  * screen-reader users can jump past the repeated chrome. It lives here, not in
@@ -24,6 +29,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       >
         Skip to content
       </a>
+      <ClosedBanner />
       {children}
     </>
   );

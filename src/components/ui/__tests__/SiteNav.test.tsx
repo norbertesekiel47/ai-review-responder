@@ -68,38 +68,38 @@ describe('SiteNav', () => {
     });
   });
 
-  describe('early-access door (self-serve off)', () => {
-    it('renders one forest pill to the lead-capture route in the nav row', () => {
+  describe('closed-notice door (self-serve off; RepWorth shut down)', () => {
+    it('renders one forest pill to the /closed notice in the nav row', () => {
       const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: false }));
-      expect(html).toMatch(/href="\/book-a-demo"[^>]*class="rw-pill rw-pill-forest"/);
-      expect(html).toContain('Get early access');
+      expect(html).toMatch(/href="\/closed"[^>]*class="rw-pill rw-pill-forest"/);
+      expect(html).toContain('RepWorth has closed');
       expect(html).toContain('rw-pill-circ');
       // One door, not two: the menu panel is closed, so its copy is absent.
-      expect(html.match(/href="\/book-a-demo"/g)).toHaveLength(1);
+      expect(html.match(/href="\/closed"/g)).toHaveLength(1);
     });
 
-    it('never offers the early-access pill alongside the owner-auth pair', () => {
+    it('never offers the closed-notice pill alongside the owner-auth pair', () => {
       const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-      expect(html).not.toContain('href="/book-a-demo"');
-      expect(html).not.toContain('Get early access');
+      expect(html).not.toContain('href="/closed"');
+      expect(html).not.toContain('RepWorth has closed');
     });
 
     it('offers no door at all in the coming-soon posture', () => {
       const html = renderToStaticMarkup(createElement(SiteNav, { comingSoon: true }));
-      expect(html).not.toContain('href="/book-a-demo"');
+      expect(html).not.toContain('href="/closed"');
       expect(html).not.toContain('href="/signup"');
       expect(html).not.toContain('rw-pill-forest');
     });
 
-    it('repeats the early-access door in the mobile menu', async () => {
+    it('repeats the closed-notice door in the mobile menu', async () => {
       const user = userEvent.setup();
       const { container } = render(createElement(SiteNav, { selfServeEnabled: false }));
 
       await user.click(screen.getByRole('button', { name: 'Open menu' }));
 
       const panel = container.querySelector(`#${MENU_ID}`) as HTMLElement;
-      const door = within(panel).getByRole('link', { name: 'Get early access' });
-      expect(door).toHaveAttribute('href', '/book-a-demo');
+      const door = within(panel).getByRole('link', { name: 'RepWorth has closed' });
+      expect(door).toHaveAttribute('href', '/closed');
       expect(door).toHaveClass('rw-pill', 'rw-pill-forest');
       expect(within(panel).queryByRole('link', { name: 'Log in' })).toBeNull();
     });

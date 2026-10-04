@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EARLY_ACCESS_CTA, MARKETING_LINKS, NAV_LINKS } from '../marketing-links';
+import { CLOSED_NOTICE_CTA, EARLY_ACCESS_CTA, MARKETING_LINKS, NAV_LINKS } from '../marketing-links';
 
 describe('marketing links single source', () => {
   it('declares each public marketing page exactly once', () => {
@@ -18,5 +18,9 @@ describe('marketing links single source', () => {
 
   it('declares the one early-access door: one phrase, pointed at the lead-capture route', () => {
     expect(EARLY_ACCESS_CTA).toEqual({ label: 'Get early access', href: '/book-a-demo' });
+  });
+
+  it('declares the one closed-notice door the reachable surfaces use since the shutdown', () => {
+    expect(CLOSED_NOTICE_CTA).toEqual({ label: 'RepWorth has closed', href: '/closed' });
   });
 });

@@ -15,8 +15,7 @@ import {
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { HeroWash } from '@/components/ui/HeroWash';
-import { EARLY_ACCESS_CTA } from '@/components/ui/marketing-links';
-import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
+import { CLOSED_NOTICE_CTA, CLOSED_NOTICE_SUB } from '@/components/ui/marketing-links';
 import { useReveal } from '@/hooks/useReveal';
 import { ReviewStars } from './FeatPrimitives';
 import { FeatReply } from './FeatReply';
@@ -172,7 +171,7 @@ function HeroSection({
               </Link>
             ) : (
               <a href="#feat-cta" className="rw-pill rw-pill-forest">
-                {EARLY_ACCESS_CTA.label}
+                {CLOSED_NOTICE_CTA.label}
               </a>
             )}
             <Link href="/pricing" className="rw-dl-txtlink">
@@ -325,13 +324,15 @@ function ChapterGroup({ group, children }: { group: string; children: ReactNode 
 }
 
 // CTA — the dark ink band. Three honest postures: coming soon (no door),
-// self-serve (the /signup door), or the waitlist form.
+// self-serve (the /signup door), or — with self-serve off — the closed-notice
+// door. RepWorth has shut down, so the waitlist form that sat here would post
+// to a backend that no longer runs.
 function FeaturesCta({
   comingSoon,
   signupCtaLabel,
 }: {
   comingSoon: boolean;
-  /** The /signup door label when self-serve is on; null keeps the waitlist form. */
+  /** The /signup door label when self-serve is on; null shows the closed door. */
   signupCtaLabel: string | null;
 }) {
   const showSignupCta = signupCtaLabel !== null;
@@ -340,11 +341,11 @@ function FeaturesCta({
     <section id="feat-cta" aria-label="Call to action" className="rw-dl-cta">
       <div className="rw-dl-col">
         <div>
-          <h2>{showSignupCta ? 'Start with Copilot today.' : `${EARLY_ACCESS_CTA.label}.`}</h2>
+          <h2>{showSignupCta ? 'Start with Copilot today.' : `${CLOSED_NOTICE_CTA.label}.`}</h2>
           <p className="rw-dl-cta-sub">
             {showSignupCta
               ? 'Connect your Google Business Profile: first drafts, your review QR code, and your dashboard in minutes.'
-              : "Tell us about your business and we'll reach out when early access opens for your area."}
+              : CLOSED_NOTICE_SUB}
           </p>
           <div className="rw-dl-cta-more">
             <Link href="/how-it-works">See how it works <span aria-hidden="true">→</span></Link>
@@ -364,7 +365,9 @@ function FeaturesCta({
             </>
           )}
           {!comingSoon && !showSignupCta && (
-            <LeadIntakeForm intent="waitlist" source="features" tone="onTeal" />
+            <Link href={CLOSED_NOTICE_CTA.href} className="rw-pill rw-pill-paper">
+              Read the notice
+            </Link>
           )}
         </div>
       </div>

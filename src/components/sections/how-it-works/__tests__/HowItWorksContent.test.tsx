@@ -4,17 +4,16 @@ import { describe, expect, it } from 'vitest';
 import { HowItWorksContent } from '../HowItWorksContent';
 
 describe('HowItWorksContent', () => {
-  it('renders the final CTA as an early access waitlist form', () => {
+  it('renders the final CTA as the closed notice door, with no waitlist form (RepWorth shut down)', () => {
     const html = renderToStaticMarkup(createElement(HowItWorksContent));
 
-    expect(html).toContain('Get early access');
-    expect(html).not.toContain('Join waitlist');
-    expect(html).not.toContain('Join the waitlist');
     // The CTA band's h2 is the same one phrase as the pills (M4 handoff).
-    expect(html).toContain('<h2 id="hiw-cta-h">Get early access.</h2>');
-    expect(html).not.toContain('Join the early access waitlist.');
-    expect(html).toContain('value="how-it-works"');
-    expect(html).toContain('value="waitlist"');
+    expect(html).toContain('<h2 id="hiw-cta-h">RepWorth has closed.</h2>');
+    expect(html).toMatch(/<a(?=[^>]*href="#hiw-cta")(?=[^>]*class="rw-pill rw-pill-forest")[^>]*>RepWorth has closed</);
+    expect(html).toMatch(/<a(?=[^>]*class="rw-pill rw-pill-paper")(?=[^>]*href="\/closed")[^>]*>Read the notice</);
+    expect(html).not.toContain('<form');
+    expect(html).not.toContain('value="waitlist"');
+    expect(html).not.toContain('Get early access');
     // SiteFooter renders `class="rw-foot flex-col items-stretch"`.
     expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
@@ -124,7 +123,7 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('Your approval page · no login');
   });
 
-  it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {
+  it('swaps the closed door for the /signup CTA when self-serve is on', () => {
     const html = renderToStaticMarkup(
       createElement(HowItWorksContent, {
         selfServeEnabled: true,
@@ -134,7 +133,6 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('href="/signup"');
     expect(html).toContain('Start your 30-day free trial');
     expect(html).toContain('Start with Copilot today.');
-    expect(html).not.toContain('value="waitlist"');
-    expect(html).not.toContain('Join the early access waitlist.');
+    expect(html).not.toContain('Read the notice');
   });
 });

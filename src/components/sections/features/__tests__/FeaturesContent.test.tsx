@@ -4,15 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { FeaturesContent } from '../FeaturesContent';
 
 describe('FeaturesContent', () => {
-  it('renders the final CTA as an early access waitlist form', () => {
+  it('renders the final CTA as the closed notice door, with no waitlist form (RepWorth shut down)', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html).toContain('Get early access.');
-    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Get early access</);
-    expect(html).not.toContain('Join waitlist');
-    expect(html).not.toContain('Join the early access waitlist');
-    expect(html).toContain('value="features"');
-    expect(html).toContain('value="waitlist"');
+    expect(html).toContain('RepWorth has closed.');
+    expect(html).toContain('We are no longer taking sign-ups.');
+    expect(html).toMatch(/<a(?=[^>]*class="rw-pill rw-pill-paper")(?=[^>]*href="\/closed")[^>]*>Read the notice</);
+    expect(html).not.toContain('<form');
+    expect(html).not.toContain('value="waitlist"');
+    expect(html).not.toContain('Get early access');
     expect(html).toContain('class="rw-foot'); // footer now carries extra layout classes
     expect(html).toContain('href="/legal/privacy"');
     expect(html).not.toContain('Book a demo');
@@ -95,7 +95,7 @@ describe('FeaturesContent', () => {
 
   it('puts the same forest pill in the hero as /how-it-works, anchored to the CTA band', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
-    expect(html).toMatch(/<a(?=[^>]*href="#feat-cta")(?=[^>]*class="rw-pill rw-pill-forest")[^>]*>Get early access</);
+    expect(html).toMatch(/<a(?=[^>]*href="#feat-cta")(?=[^>]*class="rw-pill rw-pill-forest")[^>]*>RepWorth has closed</);
     expect(html).toContain('id="feat-cta"');
     // The pill comes before the pricing text link inside the hero link row.
     expect(html).toMatch(/feat-hero-links[\s\S]{0,400}?href="#feat-cta"[\s\S]{0,400}?href="\/pricing"/);
@@ -242,7 +242,7 @@ describe('FeaturesContent', () => {
     expect(html).toContain('href="/pricing"');
   });
 
-  it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {
+  it('swaps the closed door for the /signup CTA when self-serve is on', () => {
     const html = renderToStaticMarkup(
       createElement(FeaturesContent, {
         selfServeEnabled: true,
@@ -251,7 +251,7 @@ describe('FeaturesContent', () => {
     );
     expect(html).toContain('href="/signup"');
     expect(html).toContain('Start your 30-day free trial');
-    expect(html).not.toContain('value="waitlist"');
+    expect(html).not.toContain('Read the notice');
   });
 
   it('keeps roadmap items as verb phrases, not shipped claims', () => {

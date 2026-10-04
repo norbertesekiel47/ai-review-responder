@@ -2,6 +2,30 @@ import { withSentryConfig } from '@sentry/nextjs';
 import { withBotId } from 'botid/next/config';
 import { buildContentSecurityPolicy } from './src/lib/security/csp.mjs';
 
+// Page-route prefixes that need the backend RepWorth switched off at shutdown
+// (2026-10); each redirects to /closed — see redirects() below. Owner app
+// (dashboard, settings, account, onboarding, mfa), auth (signup, login,
+// password reset), admin, the approval and unsubscribe links, the lead-capture
+// and demo pages, and the review-QR and Google reply redirectors.
+const CLOSED_PAGE_PREFIXES = [
+  '/signup',
+  '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/book-a-demo',
+  '/demo',
+  '/approve',
+  '/u',
+  '/onboarding',
+  '/dashboard',
+  '/settings',
+  '/account',
+  '/mfa',
+  '/admin',
+  '/q',
+  '/r',
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -64,6 +88,18 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      // RepWorth has shut down (2026-10). Every PAGE route that needs the
+      // backend (Supabase, the worker, Redis) sends the visitor to the static
+      // /closed notice instead of a broken form or an error. Temporary (307),
+      // never permanent, so browsers do not cache it and the site can be
+      // revived by deleting this block. `/:path*` matches the bare prefix too.
+      // /api/** is deliberately absent: API callers get their own status, not
+      // an HTML page. Listed first so a stale deep link takes one hop.
+      ...CLOSED_PAGE_PREFIXES.map((prefix) => ({
+        source: `${prefix}/:path*`,
+        destination: '/closed',
+        permanent: false,
+      })),
       { source: '/terms', destination: '/legal/terms', permanent: true },
       { source: '/privacy', destination: '/legal/privacy', permanent: true },
       // Past Replies folded into Reviews → History (2026-06-19). Hygiene for

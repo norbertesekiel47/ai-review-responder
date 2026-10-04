@@ -19,15 +19,13 @@
  *     PRODUCT.md is explicit about that.
  *
  * ── The button label is NOT here ──────────────────────────────────────────
- * It comes from the server as `primaryCtaLabel` ("Get early access", or the
- * trial label when TRIAL_ENABLED is on) and is threaded through
- * LandingExperience. Do not hard-code an "early access" string in this file:
- * the moment the trial flag flips, a literal would be advertising the wrong
- * offer, and invariant #13 keeps flag state server-authoritative for exactly
- * this reason.
+ * It comes from the server as `primaryCtaLabel` and is threaded through
+ * LandingExperience. Since RepWorth shut down (2026-10) the page passes the
+ * closed door (`CLOSED_NOTICE_CTA` → "RepWorth has closed", `/closed`), so the
+ * eyebrow below names the closure instead of an offer that no longer exists.
  */
 
-export const EYEBROW = 'Early access';
+export const EYEBROW = 'Service closed';
 
 /** Closes on the page's actual argument — supervision — rather than urgency. */
 export const TITLE_LEAD = 'Hand your reputation to';

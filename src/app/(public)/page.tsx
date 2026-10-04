@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
-import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/flags';
+import { CLOSED_NOTICE_CTA } from '@/components/ui/marketing-links';
 import { LandingExperience } from '@/components/sections/landing/LandingExperience';
 
 export const dynamic = 'force-dynamic';
@@ -14,24 +13,15 @@ export const metadata: Metadata = {
 };
 
 export default function LandingPage() {
-  const selfServeEnabled = selfServeSignupEnabled();
-  // Server-authoritative flags (invariant #13: no NEXT_PUBLIC_* companion). The
-  // trial offer only shows when self-serve signup is also live; there is no
-  // signup to start a trial from otherwise.
-  const trialEnabled = isTrialEnabled() && selfServeEnabled;
-
-  // Every CTA shares one target. `/signup` 404s when self-serve is off, so fall
-  // back to the lead-capture route in that state.
-  const primaryCtaHref = selfServeEnabled ? '/signup' : '/book-a-demo';
-  const primaryCtaLabel = trialEnabled
-    ? `Start your ${trialPeriodDays()}-day free trial`
-    : 'Get early access';
-
+  // RepWorth has shut down (2026-10). Every CTA on the page is the closed door
+  // to the `/closed` notice, and the nav's Log in / Sign up pair stays hidden:
+  // signup, login and the lead-capture route all redirect to the notice
+  // (next.config.mjs), so offering them would only bounce the visitor there.
   return (
     <LandingExperience
-      primaryCtaHref={primaryCtaHref}
-      primaryCtaLabel={primaryCtaLabel}
-      selfServeEnabled={selfServeEnabled}
+      primaryCtaHref={CLOSED_NOTICE_CTA.href}
+      primaryCtaLabel={CLOSED_NOTICE_CTA.label}
+      selfServeEnabled={false}
     />
   );
 }

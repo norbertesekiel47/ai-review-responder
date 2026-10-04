@@ -38,8 +38,27 @@ export const COMPANY_LINKS = [{ label: 'Contact', href: '/help/contact' }] as co
  * and page title that asks for the same thing uses this label — one action,
  * one phrase — and points at the lead-capture route. Demos are not bookable
  * yet, so the route keeps its name while the label does not promise one.
+ * Since the shutdown (2026-10) only the lead-capture and demo pages use it,
+ * and next.config.mjs redirects both to `/closed`; the reachable surfaces use
+ * `CLOSED_NOTICE_CTA` below.
  */
 export const EARLY_ACCESS_CTA = { label: 'Get early access', href: '/book-a-demo' } as const;
+
+/**
+ * The one door every reachable public surface offers since RepWorth shut down
+ * (2026-10): the nav pill, the landing CTAs, the hero pills and CTA bands on
+ * features / how it works / pricing, and the site-wide `ClosedBanner`. It
+ * names the closure and points at the static `/closed` notice.
+ */
+export const CLOSED_NOTICE_CTA = { label: 'RepWorth has closed', href: '/closed' } as const;
+
+/**
+ * The sentence under every CTA band's closed h2 (features, how it works,
+ * pricing), where the waitlist form used to sit. One owner so the three bands
+ * cannot describe the closure three different ways.
+ */
+export const CLOSED_NOTICE_SUB =
+  'We are no longer taking sign-ups. The notice explains what this means for customers and their data.';
 
 /**
  * How the site chrome describes the product — the SiteFooter blurb and the

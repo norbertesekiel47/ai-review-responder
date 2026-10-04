@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useId, useState } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
-import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
+import { CLOSED_NOTICE_CTA, CLOSED_NOTICE_SUB } from '@/components/ui/marketing-links';
 import { Reveal } from '@/components/ui/Reveal';
 import { HeroWash } from '@/components/ui/HeroWash';
 import { HeroFlowArtifact } from './HeroFlowArtifact';
@@ -257,7 +257,7 @@ export function HowItWorksContent({
                 </Link>
               ) : (
                 <a href="#hiw-cta" className="rw-pill rw-pill-forest">
-                  Get early access
+                  {CLOSED_NOTICE_CTA.label}
                 </a>
               )}
               <Link href="/pricing" className="rw-dl-txtlink">
@@ -468,12 +468,12 @@ export function HowItWorksContent({
         <div className="rw-dl-col">
           <div>
             <h2 id="hiw-cta-h">
-              {showSignupCta ? 'Start with Copilot today.' : 'Get early access.'}
+              {showSignupCta ? 'Start with Copilot today.' : `${CLOSED_NOTICE_CTA.label}.`}
             </h2>
             <p className="rw-dl-cta-sub">
               {showSignupCta
                 ? 'Connect your Google Business Profile: first drafts, your review QR code, and your dashboard in minutes. Every reply waits for your tap until you say otherwise.'
-                : "Tell us about your business and we'll reach out when early access opens for your area."}
+                : CLOSED_NOTICE_SUB}
             </p>
             <div className="rw-dl-cta-more">
               <Link href="/pricing">See pricing <span aria-hidden="true">→</span></Link>
@@ -495,8 +495,12 @@ export function HowItWorksContent({
                 </p>
               </div>
             ) : (
+              // RepWorth has shut down: the waitlist form that sat here would
+              // post to a backend that no longer runs.
               <div className="rw-dl-cta-panel">
-                <LeadIntakeForm intent="waitlist" source="how-it-works" tone="onTeal" />
+                <Link href={CLOSED_NOTICE_CTA.href} className="rw-pill rw-pill-paper">
+                  Read the notice
+                </Link>
               </div>
             )}
           </div>
