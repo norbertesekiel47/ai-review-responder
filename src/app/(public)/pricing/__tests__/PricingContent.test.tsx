@@ -83,17 +83,20 @@ describe('PricingContent', () => {
     expect(html).not.toContain('choose Copilot or Autopilot');
   });
 
-  it('offers a per-tier waitlist door for closed Autopilot and a visible plan chooser (self-serve off)', () => {
+  it('points both plan doors and the CTA band at the closed notice, with no form (self-serve off; RepWorth shut down)', () => {
     const html = renderPricing({ autopilot: false, selfServe: false });
 
-    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="#pricing-waitlist"[^>]*>Get early access · Copilot</);
-    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*href="#pricing-waitlist"[^>]*>Get early access · Autopilot</);
-    expect(html).toContain('Copilot is taking waitlist sign-ups now');
-    expect(html).toContain('Which plan are you asking about?');
-    expect(html.match(/name="pricing-plan-interest"/g)).toHaveLength(3);
-    // The CTA band's h2 is the one early-access phrase, same as every pill (M4 handoff).
-    expect(html).toContain('<h2 id="pr-cta-h">Get early access.</h2>');
-    expect(html).not.toContain('Join the early access waitlist.');
+    expect(html).toMatch(/<a(?=[^>]*class="pr-plan-cta primary")(?=[^>]*href="\/closed")[^>]*>Read the notice</);
+    expect(html).toMatch(/<a(?=[^>]*class="pr-plan-cta ghost")(?=[^>]*href="\/closed")[^>]*>Read the notice</);
+    expect(html).not.toContain('href="#pricing-waitlist"');
+    expect(html).not.toContain('waitlist sign-ups');
+    expect(html).not.toContain('name="pricing-plan-interest"');
+    expect(html).not.toContain('<form');
+    // The CTA band's h2 is the one closed phrase, same as every pill (M4 handoff).
+    expect(html).toContain('<h2 id="pr-cta-h">RepWorth has closed.</h2>');
+    expect(html).toContain('We are no longer taking sign-ups.');
+    expect(html).toMatch(/<a(?=[^>]*class="rw-pill rw-pill-paper")(?=[^>]*href="\/closed")[^>]*>Read the notice</);
+    expect(html).not.toContain('Get early access');
   });
 
   it('features Autopilot with the primary action only when it is purchasable', () => {

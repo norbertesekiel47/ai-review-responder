@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
-import { EARLY_ACCESS_CTA, NAV_LINKS } from './marketing-links';
+import { CLOSED_NOTICE_CTA, NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
   /**
@@ -54,9 +54,10 @@ interface NavCtaProps extends Pick<SiteNavProps, 'comingSoon' | 'selfServeEnable
 /**
  * The nav's right-side door, decided in ONE place for both placements:
  * coming-soon → no door; self-serve on → Log in + the signup pill; self-serve
- * off → the early-access pill to the lead-capture route (same label the
- * landing nav carries — before this, a visitor on /features had no CTA until
- * the closing band).
+ * off → the closed-notice pill to `/closed` (same label the landing nav
+ * carries). RepWorth has shut down (2026-10); this pill used to be the
+ * early-access door to the lead-capture route, which now redirects to the
+ * notice too.
  */
 function NavCta({ comingSoon, selfServeEnabled, trialEnabled, placement, onNavigate }: NavCtaProps) {
   if (comingSoon) return null;
@@ -68,8 +69,8 @@ function NavCta({ comingSoon, selfServeEnabled, trialEnabled, placement, onNavig
     return (
       <>
         {separator}
-        <Link href={EARLY_ACCESS_CTA.href} onClick={onNavigate} className="rw-pill rw-pill-forest">
-          {EARLY_ACCESS_CTA.label}
+        <Link href={CLOSED_NOTICE_CTA.href} onClick={onNavigate} className="rw-pill rw-pill-forest">
+          {CLOSED_NOTICE_CTA.label}
           {disc}
         </Link>
       </>

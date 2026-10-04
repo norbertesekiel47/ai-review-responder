@@ -51,8 +51,8 @@ describe('root NotFound', () => {
     expect(html).toContain('href="/help/contact"');
     expect(html).not.toContain('href="/dashboard"');
     expect(html).not.toContain('Go to dashboard');
-    // Self-serve off: the nav's door is the early-access pill.
-    expect(html).toContain('Get early access');
+    // Self-serve off: the nav's door is the closed-notice pill (RepWorth shut down).
+    expect(html).toContain('RepWorth has closed');
   });
 
   it('threads the flags into the nav so it offers the owner-auth pair when self-serve is on', () => {
@@ -61,6 +61,6 @@ describe('root NotFound', () => {
     const html = renderToStaticMarkup(createElement(NotFound));
     expect(html).toContain('href="/login"');
     expect(html).toContain('Start free trial');
-    expect(html).not.toContain('Get early access');
+    expect(html).not.toContain('RepWorth has closed');
   });
 });

@@ -1,9 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useState, type Dispatch, type SetStateAction } from 'react';
-import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
-import type { LeadPlanInterest } from '@/components/sections/lead-intake/LeadIntakeForm';
+import { useEffect, useId, useState } from 'react';
+import { CLOSED_NOTICE_CTA, CLOSED_NOTICE_SUB } from '@/components/ui/marketing-links';
 import { Reveal } from '@/components/ui/Reveal';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { HeroWash } from '@/components/ui/HeroWash';
@@ -153,12 +152,6 @@ const BASE_FAQS: readonly FaqItem[] = [
   },
 ];
 
-const PLAN_PICK_OPTIONS: readonly { value: LeadPlanInterest | null; label: string }[] = [
-  { value: 'copilot', label: 'Copilot' },
-  { value: 'autopilot', label: 'Autopilot' },
-  { value: null, label: 'Not sure yet' },
-];
-
 // Hero h1, pre-broken into masked lines (the Daylight hero entrance: each line
 // rises out of its own overflow mask, +0.1s per line — the same move as
 // /how-it-works).
@@ -183,11 +176,12 @@ const GATE_ROWS = [
 ];
 
 // The CTA band's copy follows the same two facts as the cards: is self-serve
-// on, and can Autopilot be bought today.
+// on, and can Autopilot be bought today. With self-serve off the band names
+// the closure: RepWorth has shut down and takes no waitlist sign-ups.
 const CTA_COPY = {
-  waitlist: {
-    h2: 'Get early access.',
-    sub: 'Tell us about your business and we’ll reach out when early access opens for your area.',
+  closed: {
+    h2: `${CLOSED_NOTICE_CTA.label}.`,
+    sub: CLOSED_NOTICE_SUB,
   },
   choose: {
     h2: 'Ready to choose your plan?',
@@ -200,7 +194,7 @@ const CTA_COPY = {
 } as const;
 
 function ctaCopy(selfServeEnabled: boolean, autopilotOpen: boolean) {
-  if (!selfServeEnabled) return CTA_COPY.waitlist;
+  if (!selfServeEnabled) return CTA_COPY.closed;
   return autopilotOpen ? CTA_COPY.choose : CTA_COPY.copilot;
 }
 
@@ -215,56 +209,41 @@ function formatDollars(cents: number): string {
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
 }
 
-// The card's action slot. Three honest states: a door to the tier (signup or the
-// waitlist band), a plain status when the tier is closed and there is no door to
-// offer (self-serve — a signed-up owner switches plans in-product), or a status plus
-// a "tell me when" door in the waitlist posture. Never a disabled fake button.
+// The card's action slot. Three honest states: a door to the tier (signup), a
+// plain status when the tier is closed and there is no door to offer (self-serve
+// — a signed-up owner switches plans in-product), or, with self-serve off, the
+// closed-notice door: RepWorth has shut down, so there is no waitlist to join.
+// Never a disabled fake button.
 function PlanDoor({
   plan,
   purchasable,
   primary,
   selfServeEnabled,
-  onPlanInterest,
 }: {
   plan: PlanCopy;
   purchasable: boolean;
   primary: boolean;
   selfServeEnabled: boolean;
-  onPlanInterest: (plan: LeadPlanInterest) => void;
 }) {
-  if (purchasable) {
+  if (!selfServeEnabled) {
     return (
-      <Link
-        href={selfServeEnabled ? '/signup' : '#pricing-waitlist'}
-        className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}
-        onClick={() => onPlanInterest(plan.tier)}
-      >
-        {selfServeEnabled ? `Choose ${plan.name}` : `Get early access · ${plan.name}`}
+      <Link href={CLOSED_NOTICE_CTA.href} className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}>
+        Read the notice
       </Link>
     );
   }
-  if (selfServeEnabled) {
+  if (purchasable) {
     return (
-      <p className="pr-plan-soon">
-        Not open yet: we are finishing its safety checks. Start on Copilot now and switch
-        when Autopilot opens.
-      </p>
+      <Link href="/signup" className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}>
+        {`Choose ${plan.name}`}
+      </Link>
     );
   }
   return (
-    <>
-      <Link
-        href="#pricing-waitlist"
-        className="pr-plan-cta ghost"
-        onClick={() => onPlanInterest('autopilot')}
-      >
-        Get early access · Autopilot
-      </Link>
-      <p className="pr-plan-soon">
-        Not open yet: we are finishing its safety checks. Copilot is taking waitlist
-        sign-ups now.
-      </p>
-    </>
+    <p className="pr-plan-soon">
+      Not open yet: we are finishing its safety checks. Start on Copilot now and switch
+      when Autopilot opens.
+    </p>
   );
 }
 
@@ -275,7 +254,6 @@ function PlanCard({
   purchasable,
   autopilotOpen,
   selfServeEnabled,
-  onPlanInterest,
 }: {
   plan: PlanCopy;
   price: PlanPriceView;
@@ -283,7 +261,6 @@ function PlanCard({
   purchasable: boolean;
   autopilotOpen: boolean;
   selfServeEnabled: boolean;
-  onPlanInterest: (plan: LeadPlanInterest) => void;
 }) {
   // Emphasis follows purchasability, never a hardcoded favourite: the featured card
   // is the most-autonomous tier you can actually get today. While Autopilot is closed
@@ -332,7 +309,6 @@ function PlanCard({
             purchasable={purchasable}
             primary={primary}
             selfServeEnabled={selfServeEnabled}
-            onPlanInterest={onPlanInterest}
           />
         </div>
 
@@ -560,51 +536,12 @@ function PricingFaq({ faqs }: { faqs: readonly FaqItem[] }) {
   );
 }
 
-// The plan-interest chooser on the dark band (waitlist posture only): the tier
-// the visitor asked about via a card door stays visible and changeable here,
-// and the form sends it with the lead.
-function PlanPicker({
-  planInterest,
-  setPlanInterest,
-}: {
-  planInterest: LeadPlanInterest | null;
-  setPlanInterest: Dispatch<SetStateAction<LeadPlanInterest | null>>;
-}) {
-  const planPickId = useId();
-  return (
-    <fieldset className="pr-plan-pick">
-      <legend className="pr-plan-pick-lbl">Which plan are you asking about?</legend>
-      {PLAN_PICK_OPTIONS.map((option) => {
-        const checked = planInterest === option.value;
-        const optionId = `${planPickId}-${option.value ?? 'either'}`;
-        return (
-          <label key={optionId} htmlFor={optionId} className={`pr-plan-pick-opt ${checked ? 'is-on' : ''}`}>
-            <input
-              id={optionId}
-              type="radio"
-              name="pricing-plan-interest"
-              value={option.value ?? ''}
-              checked={checked}
-              onChange={() => setPlanInterest(option.value)}
-            />
-            {option.label}
-          </label>
-        );
-      })}
-    </fieldset>
-  );
-}
-
 function PricingCta({
   selfServeEnabled,
   autopilotOpen,
-  planInterest,
-  setPlanInterest,
 }: {
   selfServeEnabled: boolean;
   autopilotOpen: boolean;
-  planInterest: LeadPlanInterest | null;
-  setPlanInterest: Dispatch<SetStateAction<LeadPlanInterest | null>>;
 }) {
   const copy = ctaCopy(selfServeEnabled, autopilotOpen);
   return (
@@ -625,13 +562,9 @@ function PricingCta({
             </div>
           ) : (
             <div className="rw-dl-cta-panel">
-              <PlanPicker planInterest={planInterest} setPlanInterest={setPlanInterest} />
-              <LeadIntakeForm
-                intent="waitlist"
-                source="pricing"
-                plan={planInterest ?? undefined}
-                tone="onTeal"
-              />
+              <Link href={CLOSED_NOTICE_CTA.href} className="rw-pill rw-pill-paper">
+                Read the notice
+              </Link>
             </div>
           )}
         </div>
@@ -648,9 +581,6 @@ export function PricingContent({
   selfServeEnabled?: boolean;
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  // Which tier the visitor asked about via a card door; the waitlist form sends it
-  // with the lead, and the chooser above the form keeps it visible and changeable.
-  const [planInterest, setPlanInterest] = useState<LeadPlanInterest | null>(null);
   const autopilotOpen = viewModel.purchasable.autopilot;
   const faqs = viewModel.trialEnabled ? [TRIAL_FAQ, ...BASE_FAQS] : BASE_FAQS;
 
@@ -690,7 +620,6 @@ export function PricingContent({
                   purchasable={viewModel.purchasable[plan.tier]}
                   autopilotOpen={autopilotOpen}
                   selfServeEnabled={selfServeEnabled}
-                  onPlanInterest={setPlanInterest}
                 />
               ))}
             </div>
@@ -714,8 +643,6 @@ export function PricingContent({
       <PricingCta
         selfServeEnabled={selfServeEnabled}
         autopilotOpen={autopilotOpen}
-        planInterest={planInterest}
-        setPlanInterest={setPlanInterest}
       />
     </SiteShell>
   );

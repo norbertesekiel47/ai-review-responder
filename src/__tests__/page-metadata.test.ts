@@ -40,6 +40,7 @@ const PUBLIC_INDEXABLE = [
   'src/app/(public)/how-it-works/page.tsx',
   'src/app/(public)/pricing/page.tsx',
   'src/app/(public)/book-a-demo/page.tsx',
+  'src/app/(public)/closed/page.tsx',
   'src/app/(public)/security/page.tsx',
   'src/app/(public)/legal/aup/page.tsx',
   'src/app/(public)/legal/cookies/page.tsx',
